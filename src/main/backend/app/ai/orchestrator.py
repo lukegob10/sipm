@@ -52,10 +52,17 @@ except ModuleNotFoundError:  # pragma: no cover - test fallback when langgraph i
         return value
 
     class _DummyExecutor:
-        def __init__(self, nodes: Dict[str, Any], entry: Optional[str], cond_edges: Dict[str, Any]) -> None:
+        def __init__(
+            self,
+            nodes: Dict[str, Any],
+            entry: Optional[str],
+            cond_edges: Dict[str, Any],
+            edges: Dict[str, str],
+        ) -> None:
             self._nodes = nodes
             self._entry = entry
             self._cond_edges = cond_edges
+            self._edges = edges
 
         def invoke(self, state: Dict[str, Any], config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             limit = 10
@@ -77,6 +84,10 @@ except ModuleNotFoundError:  # pragma: no cover - test fallback when langgraph i
                     current = mapping.get(next_key)
                     if current == END:
                         break
+                elif current in self._edges:
+                    current = self._edges[current]
+                    if current == END:
+                        break
                 else:
                     break
             return state
@@ -86,12 +97,13 @@ except ModuleNotFoundError:  # pragma: no cover - test fallback when langgraph i
             self._nodes: Dict[str, Any] = {}
             self._entry: Optional[str] = None
             self._cond_edges: Dict[str, Any] = {}
+            self._edges: Dict[str, str] = {}
 
         def add_node(self, name: str, fn: Any) -> None:
             self._nodes[name] = fn
 
-        def add_edge(self, _src: str, _dest: str) -> None:
-            return None
+        def add_edge(self, src: str, dest: str) -> None:
+            self._edges[src] = dest
 
         def add_conditional_edges(self, src: str, router: Any, mapping: Dict[str, Any]) -> None:
             self._cond_edges[src] = (router, mapping)
@@ -100,7 +112,7 @@ except ModuleNotFoundError:  # pragma: no cover - test fallback when langgraph i
             self._entry = name
 
         def compile(self) -> _DummyExecutor:
-            return _DummyExecutor(self._nodes, self._entry, self._cond_edges)
+            return _DummyExecutor(self._nodes, self._entry, self._cond_edges, self._edges)
 
 from .llm import call_chat_completion, GenAIConfigError
 from .contracts import contract_hints

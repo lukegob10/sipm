@@ -1,0 +1,1067 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventory Tool</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="auth-screen" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-brand">SIPM</div>
+      <div id="auth-notice" class="auth-notice hidden" role="status"></div>
+      <div class="auth-tabs" id="auth-tabs">
+        <button id="auth-tab-login" class="auth-tab active" type="button">Log in</button>
+        <button id="auth-tab-register" class="auth-tab" type="button">Create account</button>
+      </div>
+      <form id="login-form" class="auth-form">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+        <button type="submit">Log in</button>
+      </form>
+      <div class="auth-links">
+        <button type="button" id="reset-link" class="text-link">Have a temp password?</button>
+      </div>
+      <form id="register-form" class="auth-form hidden">
+        <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>Password <input type="password" name="password" autocomplete="new-password" required /></label>
+        <button type="submit">Create account</button>
+      </form>
+      <div id="auth-error" class="auth-error" role="status"></div>
+    </div>
+  </div>
+
+  <div id="idle-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Session Expiring</h3>
+      </div>
+      <p class="muted">You’ve been inactive for a while. You’ll be signed out soon.</p>
+      <div class="form-actions">
+        <button id="idle-stay" class="primary" type="button">Stay signed in</button>
+        <button id="idle-logout" class="secondary" type="button">Log out</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="reset-screen" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-brand">SIPM</div>
+      <h3 class="auth-title">Reset Password</h3>
+      <form id="verify-temp-form" class="auth-form">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>Temporary Password <input type="password" name="temp_password" autocomplete="current-password" required /></label>
+        <button type="submit">Verify temporary password</button>
+      </form>
+      <form id="reset-form" class="auth-form hidden">
+        <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
+        <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
+        <button type="submit">Set new password</button>
+      </form>
+      <div id="reset-error" class="auth-error" role="status"></div>
+      <div id="reset-success" class="auth-note"></div>
+    </div>
+  </div>
+
+
+  <div id="app-shell">
+    <aside class="sidebar">
+      <div class="brand">SIPM</div>
+      <div class="nav-group nav-section">
+        <p class="nav-label">Build</p>
+        <button data-view="master" class="nav-btn active">Deliverables</button>
+        <button data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
+        <button data-view="planning" class="nav-btn">Planning</button>
+        <button data-view="kanban" class="nav-btn">Kanban</button>
+        <button data-view="calendar" class="nav-btn">Calendar</button>
+        <button data-view="dashboard" class="nav-btn">Dashboard</button>
+      </div>
+      <div class="nav-group nav-section">
+        <p class="nav-label">AI & Docs</p>
+        <button data-view="workbench" class="nav-btn">Document Studio</button>
+        <button data-view="structure-studio" class="nav-btn">Solution Designer</button>
+        <button data-view="ai" class="nav-btn">AI Assistant</button>
+      </div>
+      <div id="nav-admin-section" class="nav-group nav-section">
+        <p class="nav-label">Admin</p>
+        <button data-view="team-capacity" class="nav-btn">Team Capacity</button>
+        <button data-view="spaces" class="nav-btn">Spaces</button>
+        <button data-view="access" class="nav-btn">Access</button>
+      </div>
+    </aside>
+
+    <main>
+      <header class="topbar">
+        <div class="status">
+          <span id="connection-status" class="pill">Loading…</span>
+        </div>
+        <div class="topbar-actions">
+          <label class="inline-field topbar-space-field">Space
+            <select id="space-switcher" class="topbar-select"></select>
+          </label>
+          <span id="space-role-pill" class="pill muted"></span>
+          <span id="current-user" class="pill muted"></span>
+          <button id="logout-btn" class="secondary">Logout</button>
+          <button id="theme-toggle" class="secondary">Light Mode</button>
+        </div>
+      </header>
+
+      <section id="view-master" class="view active">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / Deliverables</p>
+              <h2>Deliverables</h2>
+              <p class="view-route-hint"><code>#/master</code> Create and manage projects, solutions, and subcomponents in one workspace.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="create-project" class="primary">Create Project</button>
+              <button id="create-solution" class="primary">Create Solution</button>
+            </div>
+          </div>
+          <div class="panel-toolbar">
+            <div class="toolbar-group">
+              <button id="preset-my" class="secondary" type="button">My Items</button>
+              <button id="preset-overdue" class="secondary" type="button">Overdue</button>
+              <button id="preset-blocked" class="secondary" type="button">Blocked</button>
+              <button id="preset-clear" class="text-link" type="button">Clear Filters</button>
+            </div>
+            <div class="toolbar-group">
+              <button type="button" id="projects-download" class="secondary">Projects CSV</button>
+              <button type="button" id="projects-upload" class="secondary">Upload Projects</button>
+              <button type="button" id="solutions-download" class="secondary">Solutions CSV</button>
+              <button type="button" id="solutions-upload" class="secondary">Upload Solutions</button>
+              <input type="file" id="projects-file" accept=".csv" hidden />
+              <input type="file" id="solutions-file" accept=".csv" hidden />
+              <span id="projects-import-result" class="import-result"></span>
+              <span id="solutions-import-result" class="import-result"></span>
+            </div>
+          </div>
+          <div class="panel-toolbar compact" id="deliverables-bulk-toolbar">
+            <div class="toolbar-group">
+              <span id="bulk-selected-count" class="muted">0 selected</span>
+            </div>
+            <div class="toolbar-group">
+              <label class="inline-field">Bulk Action
+                <select id="bulk-action">
+                  <option value="">Select</option>
+                  <option value="status">Set Status</option>
+                  <option value="owner">Assign Owner (Solutions)</option>
+                </select>
+              </label>
+              <select id="bulk-status" class="hidden">
+                <option value="not_started">Not started</option>
+                <option value="active">Active</option>
+                <option value="on_hold">On hold</option>
+                <option value="complete">Complete</option>
+                <option value="abandoned">Abandoned</option>
+              </select>
+              <input id="bulk-owner" class="hidden" type="text" placeholder="Owner name" />
+              <button id="bulk-apply" class="secondary" type="button">Apply</button>
+            </div>
+          </div>
+          <div id="master-quickstart" class="quickstart-card hidden" role="status" aria-live="polite"></div>
+          <div class="filters" id="master-filters"></div>
+          <div id="master-table" class="table"></div>
+        </div>
+      </section>
+
+      <section id="view-subcomponents-workbench" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / Subcomponents</p>
+              <h2>Subcomponents Workbench</h2>
+              <p class="view-route-hint"><code>#/subcomponents-workbench</code> Work across all subcomponents in the active space, then optionally narrow to your assignments.</p>
+            </div>
+            <div class="panel-actions">
+              <button type="button" id="subcomponents-workbench-clear-filters" class="secondary">Clear Filters</button>
+            </div>
+          </div>
+
+          <div class="panel-toolbar">
+            <div class="toolbar-group">
+              <button type="button" class="secondary scwb-preset" data-preset="all" id="scwb-preset-all">All Tasks</button>
+              <button type="button" class="secondary scwb-preset" data-preset="my" id="scwb-preset-my">My Assignments</button>
+              <button type="button" class="secondary scwb-preset" data-preset="due_soon" id="scwb-preset-due-soon">Due 14 Days</button>
+              <button type="button" class="secondary scwb-preset" data-preset="overdue" id="scwb-preset-overdue">Overdue</button>
+              <button type="button" class="secondary scwb-preset" data-preset="blocked" id="scwb-preset-blocked">Blocked</button>
+              <button type="button" class="secondary scwb-preset" data-preset="unassigned" id="scwb-preset-unassigned">Unassigned</button>
+              <button type="button" class="secondary scwb-preset" data-preset="stale" id="scwb-preset-stale">Stale</button>
+            </div>
+            <div class="toolbar-group">
+              <label class="inline-field">Saved View
+                <select id="subcomponents-workbench-saved-select">
+                  <option value="">Select</option>
+                </select>
+              </label>
+              <input type="text" id="subcomponents-workbench-saved-name" placeholder="View name" />
+              <button type="button" id="subcomponents-workbench-saved-save" class="secondary">Save View</button>
+              <button type="button" id="subcomponents-workbench-saved-delete" class="secondary">Delete</button>
+              <span id="subcomponents-workbench-saved-status" class="muted"></span>
+            </div>
+          </div>
+
+          <div id="subcomponents-workbench-kpis" class="sub-workbench-kpis"></div>
+
+          <div class="sub-workbench-layout" id="subcomponents-workbench-layout">
+            <section class="sub-workbench-main">
+              <div class="table sub-workbench-filters-wrap">
+                <table class="sub-workbench-filters-table">
+                  <colgroup>
+                    <col class="sub-workbench-filter-search" />
+                    <col class="sub-workbench-filter-project" />
+                    <col class="sub-workbench-filter-solution" />
+                    <col class="sub-workbench-filter-assignee" />
+                    <col class="sub-workbench-filter-status" />
+                    <col class="sub-workbench-filter-priority" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th>Search</th>
+                      <th>Project</th>
+                      <th>Solution</th>
+                      <th>Assignee</th>
+                      <th>Status</th>
+                      <th>Priority (max)</th>
+                    </tr>
+                    <tr class="filter-row">
+                      <td><input class="table-filter" type="text" id="subcomponents-workbench-search" placeholder="Task, project, solution, assignee" /></td>
+                      <td>
+                        <select id="subcomponents-workbench-project">
+                          <option value="">All Projects</option>
+                        </select>
+                      </td>
+                      <td>
+                        <select id="subcomponents-workbench-solution">
+                          <option value="">All Solutions</option>
+                        </select>
+                      </td>
+                      <td>
+                        <select id="subcomponents-workbench-assignee">
+                          <option value="">Any</option>
+                        </select>
+                      </td>
+                      <td>
+                        <select id="subcomponents-workbench-status">
+                          <option value="">Any</option>
+                          <option value="to_do">To do</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="on_hold">On hold</option>
+                          <option value="complete">Complete</option>
+                          <option value="abandoned">Abandoned</option>
+                        </select>
+                      </td>
+                      <td><input class="table-filter" type="number" id="subcomponents-workbench-priority" min="1" max="5" placeholder="e.g. 2" /></td>
+                    </tr>
+                  </thead>
+                </table>
+              </div>
+              <div class="panel-toolbar compact">
+                <div class="toolbar-group">
+                  <span id="subcomponents-workbench-selection-count" class="muted">0 selected</span>
+                  <span class="muted">Shortcuts: <code>↑</code>/<code>↓</code> navigate, <code>e</code> edit, <code>/</code> search, <code>Esc</code> close edit</span>
+                </div>
+                <div class="toolbar-group">
+                  <label class="inline-field">Bulk
+                    <select id="subcomponents-workbench-bulk-action">
+                      <option value="">Select Action</option>
+                      <option value="status">Set Status</option>
+                      <option value="assignee">Reassign</option>
+                      <option value="shift_due">Shift Due Date (days)</option>
+                    </select>
+                  </label>
+                  <select id="subcomponents-workbench-bulk-status" class="hidden">
+                    <option value="to_do">To do</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="on_hold">On hold</option>
+                    <option value="complete">Complete</option>
+                    <option value="abandoned">Abandoned</option>
+                  </select>
+                  <select id="subcomponents-workbench-bulk-assignee" class="hidden">
+                    <option value="">Unassigned</option>
+                  </select>
+                  <input id="subcomponents-workbench-bulk-shift" class="hidden" type="number" step="1" placeholder="Days (e.g. 3 or -2)" />
+                  <button type="button" id="subcomponents-workbench-bulk-apply" class="secondary">Apply</button>
+                </div>
+              </div>
+              <div id="subcomponents-workbench-table" class="table"></div>
+            </section>
+
+            <aside class="sub-workbench-drawer" id="subcomponents-workbench-drawer">
+              <div class="drawer-panel">
+                <div class="drawer-head">
+                  <h3>Quick Edit</h3>
+                  <div class="toolbar-group">
+                    <button type="button" class="secondary" id="subcomponents-workbench-reset">Reset</button>
+                    <button type="button" class="secondary" id="subcomponents-workbench-close">Close</button>
+                  </div>
+                </div>
+                <p id="subcomponents-workbench-context" class="form-hint muted">Select a subcomponent to edit.</p>
+                <form id="subcomponents-workbench-form" class="form compact">
+                  <input type="hidden" name="subcomponent_id" />
+                  <label class="full-span">Task
+                    <input type="text" name="subcomponent_name" required />
+                  </label>
+                  <label>Status
+                    <select name="status">
+                      <option value="to_do">To do</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="on_hold">On hold</option>
+                      <option value="complete">Complete</option>
+                      <option value="abandoned">Abandoned</option>
+                    </select>
+                  </label>
+                  <label>Assignee
+                    <select name="assignee"></select>
+                  </label>
+                  <input type="hidden" name="assignee_user_soeid" />
+                  <label>Due Date <input type="date" name="due_date" /></label>
+                  <label>Priority <input type="number" name="priority" min="1" max="5" /></label>
+                  <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
+                  <label class="full-span">Blocker Note <textarea name="blocker_note" rows="3"></textarea></label>
+                  <div class="form-actions full-span">
+                    <button type="submit">Save Changes</button>
+                  </div>
+                </form>
+                <h4>Activity</h4>
+                <div id="subcomponents-workbench-activity" class="activity-list"></div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-dashboard" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / Dashboard</p>
+              <h2>Dashboard</h2>
+              <p class="view-route-hint"><code>#/dashboard</code> Review portfolio status, quarterly completions, upcoming due dates, and backlog.</p>
+            </div>
+          </div>
+          <div class="dashboard-stack">
+            <div class="panel dashboard-capacity-card" id="dashboard-space-capacity"></div>
+            <div class="panel dashboard-scroll" id="dashboard-top-projects"></div>
+            <div class="dashboard-grid">
+              <div class="panel dashboard-scroll" id="dashboard-completed-quarter"></div>
+              <div class="panel dashboard-scroll" id="dashboard-upcoming-quarter"></div>
+              <div class="panel dashboard-scroll" id="dashboard-backlog"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-ai" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">AI & Docs / AI Assistant</p>
+              <h2>AI Assistant</h2>
+              <p class="view-route-hint"><code>#/ai</code> Use conversational AI to draft, refine, and save delivery updates.</p>
+            </div>
+          </div>
+          <div class="ai-shell">
+            <div class="ai-chatbot">
+              <div class="ai-chat-header">
+                <div class="ai-avatar">AI</div>
+                <div>
+                  <div class="ai-title">Workflow Assistant</div>
+                  <div class="ai-subtitle">Tell me what you want; I’ll ask follow-ups and save when you approve.</div>
+                </div>
+                <div class="ai-header-actions">
+                  <label class="ai-toggle" title="Automatically save AI drafts without asking for approval">
+                    <input type="checkbox" id="ai-auto-approve" />
+                    <span>Auto-save</span>
+                  </label>
+                  <button type="button" id="ai-new-chat" class="secondary">New chat</button>
+                </div>
+              </div>
+              <div id="ai-chat" class="ai-chat"></div>
+              <form id="ai-chat-form" class="ai-input">
+                <textarea id="ai-chat-input" rows="1"></textarea>
+                <button type="submit" class="primary" aria-label="Send message">Send</button>
+              </form>
+              <div id="ai-status" class="auth-note"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-workbench" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">AI & Docs / Document Studio</p>
+              <h2>Document Studio</h2>
+              <p class="view-route-hint"><code>#/workbench</code> Draft and refine Charter, Plan, SOW, and Checklist documents with AI support.</p>
+            </div>
+          </div>
+
+          <div class="workbench-toolbar">
+            <label class="workbench-field">
+              <span class="muted">Project</span>
+              <select id="workbench-project"></select>
+            </label>
+
+            <div class="workbench-tabs" role="tablist" aria-label="Document type">
+              <button type="button" class="tab active" data-doc="charter">Charter</button>
+              <button type="button" class="tab" data-doc="plan">Plan</button>
+              <button type="button" class="tab" data-doc="sow">SOW</button>
+              <button type="button" class="tab" data-doc="checklist">Checklist</button>
+            </div>
+
+            <label class="workbench-field">
+              <span class="muted">Assist</span>
+              <select id="workbench-assist-level">
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="heavy">Heavy</option>
+              </select>
+            </label>
+
+            <div class="workbench-actions">
+              <button type="button" id="workbench-load-template" class="secondary">Reset to Template</button>
+              <button type="button" id="workbench-validate" class="secondary">Validate</button>
+              <button type="button" id="workbench-download-rendered" class="secondary">Download Rendered</button>
+              <button type="button" id="workbench-refine" class="primary">Refine</button>
+              <button type="button" id="workbench-save" class="primary">Save</button>
+              <button type="button" id="workbench-finalize" class="secondary">Mark Final</button>
+            </div>
+          </div>
+
+          <div class="workbench-grid">
+            <aside class="workbench-sidebar">
+              <div class="workbench-meta">
+                <div class="pill muted" id="workbench-doc-state">Draft</div>
+                <div class="pill muted" id="workbench-revision-id">No revision</div>
+              </div>
+              <h3 class="workbench-side-title">History</h3>
+              <div id="workbench-revisions" class="workbench-revisions"></div>
+            </aside>
+
+            <section class="workbench-editor">
+              <div class="workbench-editor-head">
+                <input id="workbench-title" class="workbench-title" placeholder="Optional title…" />
+                <div class="workbench-checklist-controls hidden" id="workbench-checklist-controls">
+                  <label class="workbench-field">
+                    <span class="muted">Month</span>
+                    <input type="month" id="workbench-month" />
+                  </label>
+                  <button type="button" id="workbench-generate-checklist" class="secondary">Generate</button>
+                </div>
+              </div>
+              <textarea id="workbench-content" class="workbench-content" spellcheck="false"></textarea>
+              <div id="workbench-status" class="auth-note"></div>
+            </section>
+
+            <aside class="workbench-suggestions">
+              <h3 class="workbench-side-title">Suggestions</h3>
+              <div id="workbench-summary" class="workbench-summary muted"></div>
+              <div id="workbench-questions" class="workbench-block"></div>
+              <div id="workbench-warnings" class="workbench-block"></div>
+              <div class="workbench-apply-row">
+                <button type="button" id="workbench-apply" class="primary" disabled>Apply suggestion</button>
+              </div>
+              <div class="workbench-sow-approval hidden" id="workbench-sow-approval">
+                <h3 class="workbench-side-title">SOW Approval</h3>
+                <div class="workbench-approval-row">
+                  <div class="pill muted" id="workbench-sow-approval-state">draft</div>
+                  <button type="button" id="workbench-sow-request" class="secondary">Request</button>
+                  <button type="button" id="workbench-sow-approve" class="secondary">Approve</button>
+                  <button type="button" id="workbench-sow-reject" class="secondary">Reject</button>
+                </div>
+                <textarea id="workbench-sow-note" class="workbench-sow-note" placeholder="Approval note (optional)…"></textarea>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-structure-studio" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">AI & Docs / Solution Designer</p>
+              <h2>Solution Designer</h2>
+              <p class="view-route-hint"><code>#/structure-studio</code> Generate, review, refine, and commit draft solutions and subcomponents.</p>
+            </div>
+          </div>
+
+          <div class="structure-toolbar">
+            <label class="workbench-field">
+              <span class="muted">Project</span>
+              <select id="structure-project"></select>
+            </label>
+            <label class="workbench-field">
+              <span class="muted">Decomposition</span>
+              <select id="structure-decomposition-level">
+                <option value="simple">Simple</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </label>
+            <button id="structure-generate" type="button" class="primary">Generate Draft Solutions</button>
+            <button id="structure-commit" type="button" class="secondary">Commit Selected Items</button>
+          </div>
+
+          <div id="structure-grid" class="structure-grid">
+            <aside class="structure-sources">
+              <div id="structure-status" class="auth-note"></div>
+              <div id="structure-sufficiency" class="pill muted">Not evaluated</div>
+              <div id="structure-missing" class="workbench-block muted"></div>
+
+              <details open>
+                <summary><strong>Charter Source</strong> <span id="structure-charter-meta" class="muted"></span></summary>
+                <textarea id="structure-charter-content" class="structure-source-content" readonly></textarea>
+              </details>
+
+              <details open>
+                <summary><strong>Plan Source</strong> <span id="structure-plan-meta" class="muted"></span></summary>
+                <textarea id="structure-plan-content" class="structure-source-content" readonly></textarea>
+              </details>
+            </aside>
+            <div
+              id="structure-sources-resizer"
+              class="structure-resizer"
+              role="separator"
+              aria-label="Resize source panel"
+              aria-orientation="vertical"
+            ></div>
+
+            <section class="structure-draft">
+              <h3>Draft Solutions & Subcomponents</h3>
+              <div class="structure-draft-actions">
+                <span id="structure-bulk-selection-count" class="muted">0 selected</span>
+                <button id="structure-bulk-select-all" type="button" class="secondary">Select All</button>
+                <button id="structure-bulk-clear" type="button" class="secondary">Clear</button>
+                <button id="structure-bulk-accept" type="button" class="primary">Accept Selected</button>
+                <button id="structure-bulk-discard" type="button" class="secondary">Discard Selected</button>
+              </div>
+              <div id="structure-draft-list" class="structure-draft-list"></div>
+            </section>
+
+          </div>
+        </div>
+      </section>
+
+      <div id="structure-refine-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="structure-refine-modal-title">Detailed Refinement</h3>
+            <button type="button" id="structure-refine-modal-close" class="secondary">Close</button>
+          </div>
+          <div class="modal-body">
+            <form id="structure-refine-form" class="form compact">
+              <label class="full-span">
+                Feedback
+                <textarea
+                  id="structure-refine-input"
+                  rows="6"
+                  placeholder="Describe what to improve for this item (scope, naming, decomposition, acceptance intent, dependencies)."
+                ></textarea>
+              </label>
+              <div class="form-actions full-span">
+                <button id="structure-refine-submit" type="submit" class="primary">Run Detailed Refinement</button>
+                <button id="structure-refine-cancel" type="button" class="secondary">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="project-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content wide">
+          <div class="modal-header">
+            <h3 id="project-modal-title">Project</h3>
+            <button type="button" id="project-modal-close" class="secondary">Close</button>
+          </div>
+          <div class="modal-body">
+            <form id="project-form" class="form compact">
+              <h3 class="form-title">Project Details</h3>
+              <input type="hidden" name="project_id" />
+              <label>Project <input name="project_name" required /></label>
+              <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
+              <label>Status
+                <select name="status">
+                  <option value="not_started">Not started</option>
+                  <option value="active">Active</option>
+                  <option value="on_hold">On hold</option>
+                  <option value="complete">Complete</option>
+                  <option value="abandoned">Abandoned</option>
+                </select>
+              </label>
+              <label>Sponsor <input name="sponsor" required /></label>
+              <label>Sponsor SOEID <input name="sponsor_user_soeid" placeholder="SOEID" /></label>
+              <label class="full-span">Description <textarea name="description"></textarea></label>
+              <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
+              <label class="full-span">Strategic Objective <textarea name="strategic_objective" placeholder="Theme/initiative intent"></textarea></label>
+              <div class="form-actions full-span">
+                <button type="submit">Save Project</button>
+                <button type="button" id="new-project" class="secondary">Create Project</button>
+                <button type="reset" class="secondary">Reset</button>
+                <button type="button" id="delete-project" class="secondary" disabled>Delete</button>
+              </div>
+              <p id="project-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="solution-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content wide">
+          <div class="modal-header">
+            <h3 id="solution-modal-title">Solution</h3>
+            <button type="button" id="solution-modal-close" class="secondary">Close</button>
+          </div>
+          <div class="modal-tabs">
+            <button class="tab active" data-tab="details" type="button">Details</button>
+            <button class="tab" data-tab="phases" type="button">Phases</button>
+            <button class="tab" data-tab="subcomponents" type="button">Subcomponents</button>
+            <button class="tab" data-tab="activity" type="button">Activity</button>
+          </div>
+          <div class="modal-body">
+            <div class="modal-tab active" data-tab-panel="details">
+              <form id="solution-form" class="form compact">
+                <h3 class="form-title">Solution Details</h3>
+                <input type="hidden" name="solution_id" />
+                <label class="wide">Project
+                  <select name="project_id" required></select>
+                </label>
+                <label class="wide">Solution <input name="solution_name" required /></label>
+                <label>Version <input name="version" value="0.1.0" /></label>
+                <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
+                <label>Status
+                  <select name="status">
+                    <option value="not_started">Not started</option>
+                    <option value="active">Active</option>
+                    <option value="on_hold">On hold</option>
+                    <option value="complete">Complete</option>
+                    <option value="abandoned">Abandoned</option>
+                  </select>
+                </label>
+                <label>RAG Status
+                  <select name="rag_status">
+                    <option value="green" selected>Green</option>
+                    <option value="amber">Amber</option>
+                    <option value="red">Red</option>
+                  </select>
+                </label>
+                <label>Priority
+                  <input type="number" name="priority" min="0" max="5" value="3" />
+                </label>
+                <label>Due Date <input type="date" name="due_date" /></label>
+                <label class="wide">Current Phase
+                  <select name="current_phase"></select>
+                </label>
+                <label>Planned Start <input type="date" name="planned_start_date" /></label>
+                <label>Impact Confidence
+                  <select name="impact_confidence">
+                    <option value="">Select</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+                <label class="wide">Solution Owner <input name="owner" required /></label>
+                <label>Owner SOEID <input name="owner_user_soeid" /></label>
+                <label class="wide">Assignee <input name="assignee" /></label>
+                <label>Assignee SOEID <input name="assignee_user_soeid" /></label>
+                <label class="wide">Approver <input name="approver" /></label>
+                <label>Approver SOEID <input name="approver_user_soeid" /></label>
+                <label class="wide">Key Stakeholder <input name="key_stakeholder" /></label>
+                <label>RAG Confidence <input type="number" step="any" name="rag_confidence" min="0" max="100" placeholder="0-100" /></label>
+                <label class="full-span">Description <textarea name="description"></textarea></label>
+                <label class="full-span">Problem Statement <textarea name="problem_statement" placeholder="Context / pain point"></textarea></label>
+                <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
+                <label class="full-span">RAG Reason <textarea name="rag_reason" placeholder="Reason for current RAG"></textarea></label>
+                <label class="full-span">Blockers <textarea name="blockers"></textarea></label>
+                <label class="full-span">Risks <textarea name="risks"></textarea></label>
+                <div class="form-actions full-span">
+                  <button type="submit">Save Solution</button>
+                  <button type="button" id="new-solution" class="secondary">Create Solution</button>
+                  <button type="reset" class="secondary">Reset</button>
+                  <button type="button" id="delete-solution" class="secondary" disabled>Delete</button>
+                </div>
+                <p id="solution-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+            <div class="modal-tab" data-tab-panel="phases">
+              <div class="panel soft">
+                <h3>Phases</h3>
+                <div id="phases-table" class="table"></div>
+              </div>
+            </div>
+            <div class="modal-tab" data-tab-panel="subcomponents">
+              <div class="subcomponent-header">
+                <h3>Subcomponents</h3>
+                <div class="subcomponent-actions">
+                  <button id="subcomponent-view-toggle" class="secondary" type="button">Swimlane View</button>
+                  <button id="show-subcomponent-form" class="secondary" type="button">Add Subcomponent</button>
+                </div>
+              </div>
+              <div id="solution-subcomponent-table" class="table"></div>
+              <form id="subcomponent-form" class="form compact hidden">
+                <h3 class="form-title">Subcomponent Details</h3>
+                <input type="hidden" name="subcomponent_id" />
+                <input type="hidden" name="project_id" />
+                <input type="hidden" name="solution_id" />
+                <label class="full-span">Task <input name="subcomponent_name" required /></label>
+                <label>Priority
+                  <input type="number" name="priority" min="0" max="5" value="3" />
+                </label>
+                <label>Due Date <input type="date" name="due_date" /></label>
+                <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
+                <label>Status
+                  <select name="status">
+                    <option value="to_do">To do</option>
+                    <option value="in_progress">In progress</option>
+                    <option value="on_hold">On hold</option>
+                    <option value="complete">Complete</option>
+                    <option value="abandoned">Abandoned</option>
+                  </select>
+                </label>
+                <label>Assignee
+                  <select name="assignee"></select>
+                </label>
+                <label>Assignee SOEID <input name="assignee_user_soeid" placeholder="SOEID" /></label>
+                <label>Estimate (FTE-Months) <input type="number" name="estimate_hours" min="0" step="0.05" /></label>
+                <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
+                <label class="full-span">Blocker Note <textarea name="blocker_note" placeholder="What's blocking?"></textarea></label>
+                <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
+                <div class="form-actions full-span">
+                  <button type="submit">Save Subcomponent</button>
+                  <button type="button" id="new-subcomponent" class="secondary">Create Subcomponent</button>
+                  <button type="reset" class="secondary">Reset</button>
+                  <button type="button" id="delete-subcomponent" class="secondary" disabled>Delete</button>
+                </div>
+                <p id="subcomponent-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+              </form>
+            </div>
+            <div class="modal-tab" data-tab-panel="activity">
+              <div class="panel soft">
+                <h3>Activity</h3>
+                <div id="solution-activity" class="activity-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <section id="view-kanban" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / Kanban</p>
+              <h2>Kanban</h2>
+              <p class="view-route-hint"><code>#/kanban</code> Track active solution flow by project and phase groups.</p>
+            </div>
+            <div class="filters compact">
+              <label>Project
+                <select id="kanban-filter-project">
+                  <option value="">All</option>
+                </select>
+              </label>
+              <label>Owner
+                <input type="text" id="kanban-filter-owner" placeholder="Owner" />
+              </label>
+            </div>
+          </div>
+          <div id="kanban-board" class="kanban"></div>
+        </div>
+      </section>
+
+      <section id="view-calendar" class="view">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="view-heading">
+                <p class="view-breadcrumb">Build / Calendar</p>
+                <h2>Calendar</h2>
+                <p class="view-route-hint"><code>#/calendar</code> View monthly due dates and inspect day-level delivery workload.</p>
+              </div>
+              <div class="calendar-controls filters compact">
+                <label>Project
+                  <select id="calendar-filter-project">
+                    <option value="">All</option>
+                  </select>
+                </label>
+                <label>Owner
+                  <input type="text" id="calendar-filter-owner" placeholder="Owner" />
+                </label>
+                <div class="calendar-controls-buttons">
+                  <button type="button" id="calendar-prev" class="secondary" aria-label="Previous month">◀</button>
+                  <input type="month" id="calendar-month" />
+                  <button type="button" id="calendar-next" class="secondary" aria-label="Next month">▶</button>
+                </div>
+              </div>
+            </div>
+          <div id="calendar-grid" class="calendar"></div>
+        </div>
+      </section>
+
+      <section id="view-planning" class="view">
+        <div class="panel">
+          <div class="panel-header planning-header">
+            <div class="planning-header-main">
+              <div class="view-heading">
+                <p class="view-breadcrumb">Build / Planning</p>
+                <h2>Planning</h2>
+                <p class="view-route-hint"><code>#/planning</code> Plan monthly FTE allocation, monitor utilization, and expose staffing gaps.</p>
+              </div>
+              <div class="planning-window-controls">
+                <label class="wide">Planning Window
+                  <div class="inline-select">
+                    <select id="planning-window-select"></select>
+                    <button type="button" class="text-link" id="edit-window-btn">Manage</button>
+                  </div>
+                </label>
+                <div id="planning-window-summary" class="form-hint muted"></div>
+              </div>
+            </div>
+            <div class="planning-header-actions">
+              <button type="button" id="planning-add-allocation" class="secondary">Add Allocation</button>
+            </div>
+          </div>
+          <input type="hidden" id="planning-from" />
+          <input type="hidden" id="planning-to" />
+          <div class="planning-layout" id="planning-layout">
+            <aside class="planning-rail">
+              <div class="panel soft">
+                <label class="wide">Search <input type="text" id="planning-search" placeholder="Person or work item" /></label>
+                <label class="wide">Team Tag <input type="text" id="planning-team-tag-filter" placeholder="e.g. Platform" /></label>
+                <div class="checkbox-row">
+                  <input type="checkbox" id="planning-filter-over" />
+                  <span>Over-allocated only</span>
+                </div>
+                <div class="checkbox-row">
+                  <input type="checkbox" id="planning-filter-under" />
+                  <span>Under-allocated only</span>
+                </div>
+              </div>
+              <div id="planning-roster" class="panel soft"></div>
+            </aside>
+            <main class="planning-main">
+              <div id="planning-kpis" class="planning-kpis"></div>
+              <div id="planning-board" class="table"></div>
+            </main>
+            <aside class="planning-drawer" id="planning-drawer">
+              <div id="planning-allocation-drawer" class="drawer-panel hidden">
+                <div class="drawer-head">
+                  <h3>Allocate Work (FTE-Months)</h3>
+                  <button type="button" class="secondary" id="planning-close-allocation">Close</button>
+                </div>
+                <form id="allocation-form" class="form compact allocation-grid">
+                  <p class="form-hint muted hidden" id="allocation-window-hint"></p>
+                  <label class="type-field">Type
+                    <select name="work_item_type" required>
+                      <option value="solution">Solution</option>
+                      <option value="subcomponent">Subcomponent</option>
+                      <option value="project">Project</option>
+                    </select>
+                  </label>
+                  <label class="wide">Item
+                    <select name="work_item_id" required></select>
+                  </label>
+                  <label class="wide">Assignee
+                    <select name="assignee" required></select>
+                  </label>
+                  <label>Month <input type="month" name="month_start" required /></label>
+                  <label>FTE-Months <input type="number" name="fte_months" min="0.05" step="0.05" value="0.25" /></label>
+                  <p id="allocation-status" class="form-hint muted"></p>
+                  <div class="form-actions full-span">
+                    <button type="submit">Add Allocation</button>
+                    <button type="reset" class="secondary">Reset</button>
+                  </div>
+                </form>
+              </div>
+              <div id="planning-window-drawer" class="drawer-panel hidden">
+                <div class="drawer-head">
+                  <h3>Planning Windows</h3>
+                  <button type="button" class="secondary" id="planning-close-window">Close</button>
+                </div>
+                <form id="planning-window-form" class="form compact inline-form">
+                  <input type="hidden" name="window_id_edit" />
+                  <label class="wide">New Window Name <input name="window_name" placeholder="Create new window" /></label>
+                  <label>Window Start <input type="date" name="window_start" /></label>
+                  <label>Window End <input type="date" name="window_end" /></label>
+                  <div class="form-actions full-span">
+                    <button type="submit" class="secondary" id="save-window-btn">Create Window</button>
+                    <button type="reset" class="text-link" id="clear-window-btn">Clear</button>
+                  </div>
+                </form>
+              </div>
+            </aside>
+          </div>
+        </div>
+        <div id="planning-modal" class="modal hidden">
+          <div class="modal-backdrop"></div>
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="planning-modal-title">Allocation</h3>
+              <button type="button" class="secondary" id="planning-modal-close">Close</button>
+            </div>
+            <div id="planning-modal-body" class="modal-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-team-capacity" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Admin / Team Capacity</p>
+              <h2>Team Capacity</h2>
+              <p class="view-route-hint"><code>#/team-capacity</code> Manage roster members, capacity, and CSV import/export for the active space.</p>
+            </div>
+          </div>
+          <div class="stacked">
+            <div class="stack-block">
+              <form id="capacity-user-form" class="form compact">
+                <input type="hidden" name="soeid" />
+                <label class="wide">Member
+                  <input name="display_name" list="capacity-user-options" placeholder="Start typing a name" />
+                  <datalist id="capacity-user-options"></datalist>
+                </label>
+                <label>Team Tag <input name="team_tag" placeholder="e.g. Platform" /></label>
+                <label>Capacity (FTE-Month) <input type="number" name="capacity_fte_month" min="0" step="0.05" value="1.00" /></label>
+                <div class="form-actions full-span">
+                  <button type="submit">Save</button>
+                  <button type="button" id="capacity-user-delete" class="secondary">Deactivate Member</button>
+                  <button type="reset" class="secondary">Reset</button>
+                </div>
+              </form>
+            </div>
+            <div class="stack-block">
+              <div class="form compact">
+                <label class="wide">Filter by Team Tag <input id="capacity-team-filter" placeholder="e.g. Platform" /></label>
+                <label class="wide">Search Member <input id="capacity-name-filter" placeholder="Name" /></label>
+                <div class="form-actions full-span">
+                  <button type="button" id="capacity-reload" class="secondary">Reload</button>
+                  <button type="button" id="capacity-clear-filters" class="secondary">Clear Filters</button>
+                  <button type="button" id="roster-download" class="secondary">Download Roster</button>
+                  <button type="button" id="roster-upload" class="secondary">Upload Roster</button>
+                  <input type="file" id="roster-file" accept=".csv" hidden />
+                  <span id="roster-import-result" class="import-result"></span>
+                </div>
+              </div>
+            </div>
+            <div class="stack-block">
+              <div id="capacity-user-list" class="table"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-spaces" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Admin / Spaces</p>
+              <h2>Spaces</h2>
+              <p class="view-route-hint"><code>#/spaces</code> Create or archive spaces and manage memberships for each space.</p>
+            </div>
+          </div>
+          <div class="stacked">
+            <div class="stack-block">
+              <div class="panel soft">
+                <div class="panel-header">
+                  <h3>Spaces</h3>
+                  <span id="space-admin-note" class="muted"></span>
+                </div>
+                <form id="space-create-form" class="form compact inline-form">
+                  <label class="wide">Space Name <input name="name" placeholder="e.g. Platform Team" /></label>
+                  <label>Slug (optional) <input name="slug" placeholder="platform-team" /></label>
+                  <div class="form-actions full-span">
+                    <button type="submit">Create Space</button>
+                    <button type="reset" class="secondary">Clear</button>
+                  </div>
+                </form>
+                <div id="space-list" class="table"></div>
+              </div>
+            </div>
+            <div class="stack-block">
+              <div class="panel soft">
+                <div class="panel-header">
+                  <h3>Space Memberships</h3>
+                  <span id="space-membership-note" class="muted"></span>
+                </div>
+                <form id="space-membership-form" class="form compact inline-form">
+                  <label class="wide">Manage Space
+                    <select id="space-membership-space-select"></select>
+                  </label>
+                  <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+                  <label>Role
+                    <select name="role">
+                      <option value="member">member</option>
+                      <option value="space_admin">space_admin</option>
+                    </select>
+                  </label>
+                  <label>Status
+                    <select name="status">
+                      <option value="active">active</option>
+                      <option value="inactive">inactive</option>
+                    </select>
+                  </label>
+                  <div class="form-actions full-span">
+                    <button type="submit">Add Space Member</button>
+                  </div>
+                </form>
+                <div id="space-membership-list" class="table"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-access" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Admin / Access</p>
+              <h2>Access</h2>
+              <p class="view-route-hint"><code>#/access</code> Grant or revoke platform-wide global admin access.</p>
+            </div>
+          </div>
+          <div class="stacked">
+            <div class="stack-block">
+              <div class="panel soft">
+                <div class="panel-header">
+                  <h3>Global Admins</h3>
+                  <span id="global-admin-note" class="muted"></span>
+                </div>
+                <form id="global-admin-form" class="form compact inline-form">
+                  <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+                  <div class="form-actions full-span">
+                    <button type="submit">Grant Global Admin</button>
+                    <button type="button" id="global-admin-revoke" class="secondary">Revoke Global Admin</button>
+                  </div>
+                </form>
+                <div id="global-admin-list" class="table"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="calendar-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="calendar-modal-title">Day</h3>
+        <button type="button" id="calendar-modal-close" class="secondary">Close</button>
+      </div>
+      <div id="calendar-modal-list" class="modal-list"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js?v=5"></script>
+</body>
+</html>

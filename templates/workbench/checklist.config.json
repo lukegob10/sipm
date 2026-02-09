@@ -1,0 +1,85 @@
+{
+  "doc_type": "sow_monthly_governance_attestation",
+  "version": "1.0",
+  "placeholders": [
+    "[[TODO]]",
+    "[[TBD]]",
+    "[[UNKNOWN]]",
+    "[[PHASE_UNKNOWN]]",
+    "[[SCOPE_MISMATCH]]"
+  ],
+  "rules": {
+    "no_fact_invention": true,
+    "prefer_governance_over_tasks": true,
+    "attestation_values": ["TRUE", "FALSE", "NA", "UNKNOWN"],
+    "unknown_requires_question": true,
+    "false_or_unknown_requires_notes": true,
+    "markdown_required": true,
+    "controls_required": true
+  },
+  "controls": [
+    {
+      "id": "SOW-SCOPE-01",
+      "category": "Scope",
+      "description": "Work performed this period remained within approved SOW scope (or a formal change request exists).",
+      "required": true
+    },
+    {
+      "id": "SOW-CHANGE-01",
+      "category": "Change Control",
+      "description": "Material scope/timeline/commitment changes followed documented change control and approvals.",
+      "required": true
+    },
+    {
+      "id": "SOW-MILESTONE-01",
+      "category": "Timeline & Milestones",
+      "description": "Milestones and due dates are current, and slippage (if any) is documented with mitigations.",
+      "required": true
+    },
+    {
+      "id": "SOW-DELIVERABLE-01",
+      "category": "Deliverables",
+      "description": "Deliverables completed this period have evidence of review/acceptance where applicable.",
+      "required": true
+    },
+    {
+      "id": "SOW-RISK-01",
+      "category": "Risk & Issue Governance",
+      "description": "Risks/issues are tracked, up to date, and owners/mitigations are identified for material items.",
+      "required": true
+    },
+    {
+      "id": "SOW-STAKEHOLDER-01",
+      "category": "Stakeholder Governance",
+      "description": "Key stakeholders were informed of material status changes, risks, and decisions.",
+      "required": false
+    },
+    {
+      "id": "SOW-APPROVAL-01",
+      "category": "Approvals",
+      "description": "SOW approval state and any required monthly attestations are current and documented.",
+      "required": true
+    },
+    {
+      "id": "SOW-DATA-01",
+      "category": "Evidence",
+      "description": "Evidence referenced for attestations is traceable to the provided project context/deltas (no invention).",
+      "required": true
+    }
+  ],
+  "output_contract": {
+    "format": "json",
+    "required_keys": [
+      "month",
+      "project",
+      "exec_summary",
+      "delta_summary",
+      "controls",
+      "exceptions",
+      "risks",
+      "questions",
+      "warnings",
+      "markdown"
+    ]
+  }
+}

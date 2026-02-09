@@ -1,0 +1,44 @@
+{
+  "entity": "subcomponent",
+  "fields": {
+    "subcomponent_id": {"type": "string", "read_only": true},
+    "project_id": {"type": "string", "description": "Parent project id."},
+    "solution_id": {"type": "string", "description": "Parent solution id."},
+    "subcomponent_name": {"type": "string", "description": "Subcomponent name."},
+    "status": {"type": "enum", "enum": "SubcomponentStatus", "default": "to_do"},
+    "priority": {"type": "integer", "min": 0, "max": 5, "default": 3},
+    "due_date": {"type": "date"},
+    "completed_at": {"type": "datetime", "read_only": true},
+    "assignee": {"type": "string", "default": "$CURRENT_USER_DISPLAY_NAME"},
+    "assignee_user_soeid": {"type": "string", "default": "$CURRENT_USER_SOEID"},
+    "estimate_hours": {"type": "integer", "min": 0},
+    "blocked": {"type": "boolean", "default": false},
+    "blocker_note": {"type": "string"},
+    "done_criteria": {"type": "string"},
+    "capacity_hours": {"type": "integer", "min": 0, "default": 0}
+  },
+  "required": ["project_id", "solution_id", "subcomponent_name"],
+  "optional": [
+    "status",
+    "priority",
+    "due_date",
+    "completed_at",
+    "assignee",
+    "assignee_user_soeid",
+    "estimate_hours",
+    "blocked",
+    "blocker_note",
+    "done_criteria",
+    "capacity_hours"
+  ],
+  "constraints": {
+    "priority": {"min": 0, "max": 5},
+    "estimate_hours": {"min": 0},
+    "capacity_hours": {"min": 0},
+    "status": {"enum": "SubcomponentStatus"}
+  },
+  "relationships": {
+    "project_id": "project",
+    "solution_id": "solution"
+  }
+}

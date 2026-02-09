@@ -1,0 +1,1 @@
+# Jira-lite application package

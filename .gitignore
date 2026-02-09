@@ -1,0 +1,52 @@
+# Python cache and virtualenvs
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
+.ipynb_checkpoints/
+.venv/
+env/
+venv/
+.coverage*
+coverage.xml
+htmlcov/
+.tmp/
+tmp/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+__pypackages__/
+
+# SQLite database and related files
+
+*.db
+*.db-shm
+*.db-wal
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Node modules or build artifacts (if added later)
+node_modules/
+dist/
+build/
+
+# Local environment / secret files
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!env.example

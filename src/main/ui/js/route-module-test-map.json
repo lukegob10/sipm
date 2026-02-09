@@ -1,0 +1,40 @@
+{
+  "modules": {
+    "ai.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "calendar.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "dashboard.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "kanban.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "master.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "subcomponents-workbench.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "planning.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "team-capacity.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "spaces.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "access.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "structure-studio.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
+    "workbench.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ]
+  }
+}

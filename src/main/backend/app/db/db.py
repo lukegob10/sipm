@@ -68,8 +68,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 def init_db(run_seed: bool = True) -> None:
     """Create database tables and optionally run seed routines."""
     from ..models import Base  # imported here to avoid circulars
-    from ..services.migrations import run_schema_migrations
+    from ..services.migrations import migrate_legacy_table_names, run_schema_migrations
 
+    migrate_legacy_table_names(engine)
     Base.metadata.create_all(bind=engine)
     if not is_ta_oracle_mode():
         run_schema_migrations(engine)

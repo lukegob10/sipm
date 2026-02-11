@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from backend.app.db.table_names import physical_table_name
 from backend.app.models import Base, Project, Space, SpaceMembership, User
 from backend.app.services.migrations import run_schema_migrations
 from backend.app.utils.enums import ProjectStatus
@@ -19,6 +20,12 @@ def _build_sqlite_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
+
+T_PROJECTS = physical_table_name("projects")
+T_SPACES = physical_table_name("spaces")
+T_SPACE_MEMBERSHIPS = physical_table_name("space_memberships")
+T_USERS = physical_table_name("users")
 
 
 def test_run_schema_migrations_backfills_null_project_space_id():
@@ -40,7 +47,7 @@ def test_run_schema_migrations_backfills_null_project_space_id():
     run_schema_migrations(engine)
 
     with engine.begin() as conn:
-        null_count = conn.execute(text("SELECT COUNT(*) FROM projects WHERE space_id IS NULL")).scalar_one()
+        null_count = conn.execute(text(f"SELECT COUNT(*) FROM {T_PROJECTS} WHERE space_id IS NULL")).scalar_one()
     assert null_count == 0
 
 
@@ -53,7 +60,7 @@ def test_run_schema_migrations_enforces_non_null_project_space_id_for_new_rows()
     with engine.begin() as conn:
         default_space_id = conn.execute(
             text(
-                "SELECT space_id FROM spaces "
+                f"SELECT space_id FROM {T_SPACES} "
                 "WHERE slug = :slug AND deleted_at IS NULL "
                 "ORDER BY created_at ASC LIMIT 1"
             ),
@@ -120,9 +127,9 @@ def test_run_schema_migrations_reactivates_soft_deleted_default_membership():
         total = conn.execute(
             text(
                 "SELECT COUNT(*) "
-                "FROM space_memberships sm "
-                "JOIN spaces s ON s.space_id = sm.space_id "
-                "JOIN users u ON u.user_id = sm.user_id "
+                f"FROM {T_SPACE_MEMBERSHIPS} sm "
+                f"JOIN {T_SPACES} s ON s.space_id = sm.space_id "
+                f"JOIN {T_USERS} u ON u.user_id = sm.user_id "
                 "WHERE s.slug = :slug AND u.soeid = :soeid"
             ),
             {"slug": "main", "soeid": "legacy_user"},
@@ -130,9 +137,9 @@ def test_run_schema_migrations_reactivates_soft_deleted_default_membership():
         row = conn.execute(
             text(
                 "SELECT sm.role, sm.status, sm.deleted_at "
-                "FROM space_memberships sm "
-                "JOIN spaces s ON s.space_id = sm.space_id "
-                "JOIN users u ON u.user_id = sm.user_id "
+                f"FROM {T_SPACE_MEMBERSHIPS} sm "
+                f"JOIN {T_SPACES} s ON s.space_id = sm.space_id "
+                f"JOIN {T_USERS} u ON u.user_id = sm.user_id "
                 "WHERE s.slug = :slug AND u.soeid = :soeid"
             ),
             {"slug": "main", "soeid": "legacy_user"},

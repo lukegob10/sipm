@@ -12,26 +12,85 @@ from uuid import uuid4
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
 
+from ..db.table_names import physical_table_name
 
-_STRICT_SPACE_TABLES = (
-    "projects",
-    "solutions",
-    "subcomponents",
-    "resource_allocations",
+
+def t(logical_name: str) -> str:
+    return physical_table_name(logical_name)
+
+
+_LEGACY_LOGICAL_TABLES = (
+    "users",
+    "spaces",
+    "space_memberships",
+    "change_log",
     "teams",
     "team_members",
+    "projects",
+    "solutions",
+    "phases",
+    "solution_phases",
+    "subcomponents",
+    "resource_allocations",
+    "solution_weekly_snapshot",
+    "external_ref",
     "planning_windows",
-    "project_charters",
-    "project_plans",
-    "project_decision_logs",
     "sow_documents",
     "checklist_items",
-    "external_documents",
     "ai_requests",
     "ai_sessions",
     "ai_tool_calls",
     "ai_query_metrics",
+    "project_card_digests",
+    "solution_card_digests",
+    "task_card_digests",
+    "project_charters",
+    "project_plans",
+    "project_decision_logs",
+    "external_documents",
 )
+
+
+_STRICT_SPACE_TABLES = (
+    t("projects"),
+    t("solutions"),
+    t("subcomponents"),
+    t("resource_allocations"),
+    t("teams"),
+    t("team_members"),
+    t("planning_windows"),
+    t("project_charters"),
+    t("project_plans"),
+    t("project_decision_logs"),
+    t("sow_documents"),
+    t("checklist_items"),
+    t("external_documents"),
+    t("ai_requests"),
+    t("ai_sessions"),
+    t("ai_tool_calls"),
+    t("ai_query_metrics"),
+)
+
+
+def migrate_legacy_table_names(engine: Engine) -> None:
+    """Rename legacy unprefixed sqlite tables to TB_TA_PM_* table names."""
+    if engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    rename_pairs: list[tuple[str, str]] = []
+    for old_name in _LEGACY_LOGICAL_TABLES:
+        new_name = t(old_name)
+        if old_name in existing and new_name not in existing:
+            rename_pairs.append((old_name, new_name))
+
+    if not rename_pairs:
+        return
+
+    with engine.begin() as conn:
+        for old_name, new_name in rename_pairs:
+            conn.execute(text(f'ALTER TABLE "{old_name}" RENAME TO "{new_name}"'))
 
 
 def _has_column(inspector, table: str, column: str) -> bool:
@@ -129,6 +188,9 @@ def run_schema_migrations(engine: Engine) -> None:
     )  # avoid circular imports
 
     inspector = inspect(engine)
+    spaces_table = t("spaces")
+    users_table = t("users")
+    space_memberships_table = t("space_memberships")
 
     # New tables
     Base.metadata.create_all(
@@ -156,11 +218,11 @@ def run_schema_migrations(engine: Engine) -> None:
     )
 
     inspector = inspect(engine)
-    if inspector.has_table("spaces"):
+    if inspector.has_table(spaces_table):
         with engine.begin() as conn:
             row = conn.execute(
                 text(
-                    "SELECT space_id FROM spaces "
+                    f"SELECT space_id FROM {spaces_table} "
                     "WHERE slug = :slug AND deleted_at IS NULL "
                     "ORDER BY created_at ASC LIMIT 1"
                 ),
@@ -173,7 +235,8 @@ def run_schema_migrations(engine: Engine) -> None:
                 now = datetime.now(timezone.utc).replace(tzinfo=None)
                 conn.execute(
                     text(
-                        "INSERT INTO spaces (space_id, name, slug, is_active, archived_at, created_at, updated_at, deleted_at) "
+                        f"INSERT INTO {spaces_table} "
+                        "(space_id, name, slug, is_active, archived_at, created_at, updated_at, deleted_at) "
                         "VALUES (:space_id, :name, :slug, :is_active, :archived_at, :created_at, :updated_at, :deleted_at)"
                     ),
                     {
@@ -188,14 +251,14 @@ def run_schema_migrations(engine: Engine) -> None:
                     },
                 )
 
-            users = conn.execute(text("SELECT user_id, role FROM users")).all()
+            users = conn.execute(text(f"SELECT user_id, role FROM {users_table}")).all()
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             for user_id, role in users:
                 membership_role = "space_admin" if (role or "").strip().lower() == "global_admin" else "member"
                 existing = conn.execute(
                     text(
                         "SELECT membership_id, role, deleted_at "
-                        "FROM space_memberships "
+                        f"FROM {space_memberships_table} "
                         "WHERE space_id = :space_id AND user_id = :user_id "
                         "ORDER BY created_at ASC LIMIT 1"
                     ),
@@ -211,7 +274,7 @@ def run_schema_migrations(engine: Engine) -> None:
                         )
                         conn.execute(
                             text(
-                                "UPDATE space_memberships "
+                                f"UPDATE {space_memberships_table} "
                                 "SET role = :role, status = :status, updated_at = :updated_at, deleted_at = :deleted_at "
                                 "WHERE membership_id = :membership_id"
                             ),
@@ -226,7 +289,7 @@ def run_schema_migrations(engine: Engine) -> None:
                     continue
                 conn.execute(
                     text(
-                        "INSERT INTO space_memberships "
+                        f"INSERT INTO {space_memberships_table} "
                         "(membership_id, space_id, user_id, role, status, created_at, updated_at, deleted_at) "
                         "VALUES (:membership_id, :space_id, :user_id, :role, :status, :created_at, :updated_at, :deleted_at)"
                     ),
@@ -243,148 +306,148 @@ def run_schema_migrations(engine: Engine) -> None:
                 )
 
     # Projects: governance/strategy fields
-    _add_column(engine, "projects", "space_id", "TEXT")
-    _create_index(engine, "idx_project_space_id", "projects", "space_id")
-    _add_column(engine, "projects", "sponsor_user_soeid", "TEXT")
-    _add_column(engine, "projects", "strategic_objective", "TEXT")
-    _add_column(engine, "projects", "priority", "INTEGER DEFAULT 3")
-    _create_index(engine, "idx_project_sponsor_user_soeid", "projects", "sponsor_user_soeid")
+    _add_column(engine, t("projects"), "space_id", "TEXT")
+    _create_index(engine, "idx_project_space_id", t("projects"), "space_id")
+    _add_column(engine, t("projects"), "sponsor_user_soeid", "TEXT")
+    _add_column(engine, t("projects"), "strategic_objective", "TEXT")
+    _add_column(engine, t("projects"), "priority", "INTEGER DEFAULT 3")
+    _create_index(engine, "idx_project_sponsor_user_soeid", t("projects"), "sponsor_user_soeid")
 
     # Solutions: core workflow fields
-    _add_column(engine, "solutions", "space_id", "TEXT")
-    _create_index(engine, "idx_solution_space_id", "solutions", "space_id")
-    _add_column(engine, "solutions", "problem_statement", "TEXT")
-    _add_column(engine, "solutions", "owner_user_soeid", "TEXT")
-    _add_column(engine, "solutions", "assignee_user_soeid", "TEXT")
-    _add_column(engine, "solutions", "approver_user_soeid", "TEXT")
-    _add_column(engine, "solutions", "key_stakeholder", "TEXT")
-    _add_column(engine, "solutions", "blockers", "TEXT")
-    _add_column(engine, "solutions", "risks", "TEXT")
-    _add_column(engine, "solutions", "impact_confidence", "TEXT")
-    _add_column(engine, "solutions", "planned_start_date", "DATE")
-    _add_column(engine, "solutions", "rag_reason", "TEXT")
-    _add_column(engine, "solutions", "rag_confidence", "REAL")
-    _add_column(engine, "solutions", "capacity_hours", "INTEGER DEFAULT 0")
-    _add_column(engine, "solutions", "completed_at", "DATETIME")
+    _add_column(engine, t("solutions"), "space_id", "TEXT")
+    _create_index(engine, "idx_solution_space_id", t("solutions"), "space_id")
+    _add_column(engine, t("solutions"), "problem_statement", "TEXT")
+    _add_column(engine, t("solutions"), "owner_user_soeid", "TEXT")
+    _add_column(engine, t("solutions"), "assignee_user_soeid", "TEXT")
+    _add_column(engine, t("solutions"), "approver_user_soeid", "TEXT")
+    _add_column(engine, t("solutions"), "key_stakeholder", "TEXT")
+    _add_column(engine, t("solutions"), "blockers", "TEXT")
+    _add_column(engine, t("solutions"), "risks", "TEXT")
+    _add_column(engine, t("solutions"), "impact_confidence", "TEXT")
+    _add_column(engine, t("solutions"), "planned_start_date", "DATE")
+    _add_column(engine, t("solutions"), "rag_reason", "TEXT")
+    _add_column(engine, t("solutions"), "rag_confidence", "REAL")
+    _add_column(engine, t("solutions"), "capacity_hours", "INTEGER DEFAULT 0")
+    _add_column(engine, t("solutions"), "completed_at", "DATETIME")
 
     # Solution indexes for ownership and status
-    _create_index(engine, "idx_solution_owner_user_soeid", "solutions", "owner_user_soeid")
-    _create_index(engine, "idx_solution_assignee_user_soeid", "solutions", "assignee_user_soeid")
-    _create_index(engine, "idx_solution_status", "solutions", "status")
-    _create_index(engine, "idx_solution_rag_status", "solutions", "rag_status")
-    _create_index(engine, "idx_solution_due_date", "solutions", "due_date")
+    _create_index(engine, "idx_solution_owner_user_soeid", t("solutions"), "owner_user_soeid")
+    _create_index(engine, "idx_solution_assignee_user_soeid", t("solutions"), "assignee_user_soeid")
+    _create_index(engine, "idx_solution_status", t("solutions"), "status")
+    _create_index(engine, "idx_solution_rag_status", t("solutions"), "rag_status")
+    _create_index(engine, "idx_solution_due_date", t("solutions"), "due_date")
 
     # Subcomponents: assignee + execution helpers
-    _add_column(engine, "subcomponents", "space_id", "TEXT")
-    _create_index(engine, "idx_subcomponent_space_id", "subcomponents", "space_id")
-    _add_column(engine, "subcomponents", "assignee_user_soeid", "TEXT")
-    _add_column(engine, "subcomponents", "estimate_hours", "INTEGER")
-    _add_column(engine, "subcomponents", "blocked", "BOOLEAN DEFAULT 0")
-    _add_column(engine, "subcomponents", "blocker_note", "TEXT")
-    _add_column(engine, "subcomponents", "done_criteria", "TEXT")
-    _add_column(engine, "subcomponents", "capacity_hours", "INTEGER DEFAULT 0")
-    _create_index(engine, "idx_subcomponent_assignee_user_soeid", "subcomponents", "assignee_user_soeid")
-    _create_index(engine, "idx_subcomponent_blocked", "subcomponents", "blocked")
+    _add_column(engine, t("subcomponents"), "space_id", "TEXT")
+    _create_index(engine, "idx_subcomponent_space_id", t("subcomponents"), "space_id")
+    _add_column(engine, t("subcomponents"), "assignee_user_soeid", "TEXT")
+    _add_column(engine, t("subcomponents"), "estimate_hours", "INTEGER")
+    _add_column(engine, t("subcomponents"), "blocked", "BOOLEAN DEFAULT 0")
+    _add_column(engine, t("subcomponents"), "blocker_note", "TEXT")
+    _add_column(engine, t("subcomponents"), "done_criteria", "TEXT")
+    _add_column(engine, t("subcomponents"), "capacity_hours", "INTEGER DEFAULT 0")
+    _create_index(engine, "idx_subcomponent_assignee_user_soeid", t("subcomponents"), "assignee_user_soeid")
+    _create_index(engine, "idx_subcomponent_blocked", t("subcomponents"), "blocked")
 
     # Resource allocations: assignee + uniqueness
-    _add_column(engine, "resource_allocations", "space_id", "TEXT")
-    _create_index(engine, "idx_resource_allocations_space_id", "resource_allocations", "space_id")
-    _add_column(engine, "resource_allocations", "assignee_user_soeid", "TEXT")
-    _add_column(engine, "resource_allocations", "month_start", "DATE")
-    _add_column(engine, "resource_allocations", "fte_months", "REAL DEFAULT 0")
-    _create_index(engine, "idx_alloc_week_assignee_user_soeid", "resource_allocations", "week_start, assignee_user_soeid")
-    _create_index(engine, "idx_alloc_month_assignee_user_soeid", "resource_allocations", "month_start, assignee_user_soeid")
+    _add_column(engine, t("resource_allocations"), "space_id", "TEXT")
+    _create_index(engine, "idx_resource_allocations_space_id", t("resource_allocations"), "space_id")
+    _add_column(engine, t("resource_allocations"), "assignee_user_soeid", "TEXT")
+    _add_column(engine, t("resource_allocations"), "month_start", "DATE")
+    _add_column(engine, t("resource_allocations"), "fte_months", "REAL DEFAULT 0")
+    _create_index(engine, "idx_alloc_week_assignee_user_soeid", t("resource_allocations"), "week_start, assignee_user_soeid")
+    _create_index(engine, "idx_alloc_month_assignee_user_soeid", t("resource_allocations"), "month_start, assignee_user_soeid")
     _create_index(
         engine,
         "uix_alloc_unique_assignment",
-        "resource_allocations",
+        t("resource_allocations"),
         "work_item_type, work_item_id, assignee_user_soeid, week_start, window_id",
         unique=True,
     )
 
-    _add_column(engine, "teams", "space_id", "TEXT")
-    _create_index(engine, "idx_teams_space_id", "teams", "space_id")
-    _add_column(engine, "teams", "default_capacity_fte_month", "REAL DEFAULT 0")
-    _add_column(engine, "team_members", "space_id", "TEXT")
-    _create_index(engine, "idx_team_members_space_id", "team_members", "space_id")
-    _add_column(engine, "team_members", "capacity_fte_month", "REAL")
-    _add_column(engine, "planning_windows", "space_id", "TEXT")
-    _create_index(engine, "idx_planning_windows_space_id", "planning_windows", "space_id")
+    _add_column(engine, t("teams"), "space_id", "TEXT")
+    _create_index(engine, "idx_teams_space_id", t("teams"), "space_id")
+    _add_column(engine, t("teams"), "default_capacity_fte_month", "REAL DEFAULT 0")
+    _add_column(engine, t("team_members"), "space_id", "TEXT")
+    _create_index(engine, "idx_team_members_space_id", t("team_members"), "space_id")
+    _add_column(engine, t("team_members"), "capacity_fte_month", "REAL")
+    _add_column(engine, t("planning_windows"), "space_id", "TEXT")
+    _create_index(engine, "idx_planning_windows_space_id", t("planning_windows"), "space_id")
 
     # Users: capacity + team tag
-    _add_column(engine, "users", "team_tag", "TEXT")
-    _add_column(engine, "users", "capacity_hours", "INTEGER DEFAULT 40")
-    _add_column(engine, "users", "capacity_fte_month", "REAL DEFAULT 1")
-    _create_index(engine, "idx_user_team_tag", "users", "team_tag")
-    _add_column(engine, "users", "temp_password_hash", "TEXT")
-    _add_column(engine, "users", "temp_password_expires_at", "DATETIME")
-    _add_column(engine, "users", "force_password_reset", "BOOLEAN DEFAULT 0")
-    _add_column(engine, "users", "password_changed_at", "DATETIME")
+    _add_column(engine, t("users"), "team_tag", "TEXT")
+    _add_column(engine, t("users"), "capacity_hours", "INTEGER DEFAULT 40")
+    _add_column(engine, t("users"), "capacity_fte_month", "REAL DEFAULT 1")
+    _create_index(engine, "idx_user_team_tag", t("users"), "team_tag")
+    _add_column(engine, t("users"), "temp_password_hash", "TEXT")
+    _add_column(engine, t("users"), "temp_password_expires_at", "DATETIME")
+    _add_column(engine, t("users"), "force_password_reset", "BOOLEAN DEFAULT 0")
+    _add_column(engine, t("users"), "password_changed_at", "DATETIME")
 
-    _add_column(engine, "change_log", "space_id", "TEXT")
-    _create_index(engine, "idx_change_log_space_id", "change_log", "space_id")
+    _add_column(engine, t("change_log"), "space_id", "TEXT")
+    _create_index(engine, "idx_change_log_space_id", t("change_log"), "space_id")
 
     # AI sessions: persist last entity context
-    _add_column(engine, "ai_requests", "space_id", "TEXT")
-    _create_index(engine, "idx_ai_requests_space_id", "ai_requests", "space_id")
-    _add_column(engine, "ai_sessions", "space_id", "TEXT")
-    _create_index(engine, "idx_ai_sessions_space_id", "ai_sessions", "space_id")
-    _add_column(engine, "ai_sessions", "entity_type", "TEXT")
-    _add_column(engine, "ai_sessions", "entity_id", "TEXT")
-    _add_column(engine, "ai_tool_calls", "space_id", "TEXT")
-    _create_index(engine, "idx_ai_tool_calls_space_id", "ai_tool_calls", "space_id")
-    _add_column(engine, "ai_query_metrics", "space_id", "TEXT")
-    _create_index(engine, "idx_ai_query_metrics_space_id", "ai_query_metrics", "space_id")
+    _add_column(engine, t("ai_requests"), "space_id", "TEXT")
+    _create_index(engine, "idx_ai_requests_space_id", t("ai_requests"), "space_id")
+    _add_column(engine, t("ai_sessions"), "space_id", "TEXT")
+    _create_index(engine, "idx_ai_sessions_space_id", t("ai_sessions"), "space_id")
+    _add_column(engine, t("ai_sessions"), "entity_type", "TEXT")
+    _add_column(engine, t("ai_sessions"), "entity_id", "TEXT")
+    _add_column(engine, t("ai_tool_calls"), "space_id", "TEXT")
+    _create_index(engine, "idx_ai_tool_calls_space_id", t("ai_tool_calls"), "space_id")
+    _add_column(engine, t("ai_query_metrics"), "space_id", "TEXT")
+    _create_index(engine, "idx_ai_query_metrics_space_id", t("ai_query_metrics"), "space_id")
 
     # AI tool telemetry fields
-    _add_column(engine, "ai_tool_calls", "payload_bytes", "INTEGER")
-    _add_column(engine, "ai_tool_calls", "output_bytes", "INTEGER")
-    _add_column(engine, "ai_tool_calls", "payload_tokens", "INTEGER")
-    _add_column(engine, "ai_tool_calls", "output_tokens", "INTEGER")
-    _add_column(engine, "ai_tool_calls", "cache_hit", "BOOLEAN")
-    _add_column(engine, "ai_tool_calls", "drilldown", "BOOLEAN")
-    _add_column(engine, "ai_tool_calls", "context_bytes", "INTEGER")
-    _create_index(engine, "idx_ai_tool_calls_tool_name", "ai_tool_calls", "tool_name")
-    _create_index(engine, "idx_ai_tool_calls_created", "ai_tool_calls", "created_at")
+    _add_column(engine, t("ai_tool_calls"), "payload_bytes", "INTEGER")
+    _add_column(engine, t("ai_tool_calls"), "output_bytes", "INTEGER")
+    _add_column(engine, t("ai_tool_calls"), "payload_tokens", "INTEGER")
+    _add_column(engine, t("ai_tool_calls"), "output_tokens", "INTEGER")
+    _add_column(engine, t("ai_tool_calls"), "cache_hit", "BOOLEAN")
+    _add_column(engine, t("ai_tool_calls"), "drilldown", "BOOLEAN")
+    _add_column(engine, t("ai_tool_calls"), "context_bytes", "INTEGER")
+    _create_index(engine, "idx_ai_tool_calls_tool_name", t("ai_tool_calls"), "tool_name")
+    _create_index(engine, "idx_ai_tool_calls_created", t("ai_tool_calls"), "created_at")
 
     # Document workbench: revision state + SOW approvals
-    _add_column(engine, "project_charters", "space_id", "TEXT")
-    _create_index(engine, "idx_project_charters_space_id", "project_charters", "space_id")
-    _add_column(engine, "project_plans", "space_id", "TEXT")
-    _create_index(engine, "idx_project_plans_space_id", "project_plans", "space_id")
-    _add_column(engine, "project_decision_logs", "space_id", "TEXT")
-    _create_index(engine, "idx_project_decision_logs_space_id", "project_decision_logs", "space_id")
-    _add_column(engine, "sow_documents", "space_id", "TEXT")
-    _create_index(engine, "idx_sow_documents_space_id", "sow_documents", "space_id")
-    _add_column(engine, "checklist_items", "space_id", "TEXT")
-    _create_index(engine, "idx_checklist_items_space_id", "checklist_items", "space_id")
-    _add_column(engine, "external_documents", "space_id", "TEXT")
-    _create_index(engine, "idx_external_documents_space_id", "external_documents", "space_id")
+    _add_column(engine, t("project_charters"), "space_id", "TEXT")
+    _create_index(engine, "idx_project_charters_space_id", t("project_charters"), "space_id")
+    _add_column(engine, t("project_plans"), "space_id", "TEXT")
+    _create_index(engine, "idx_project_plans_space_id", t("project_plans"), "space_id")
+    _add_column(engine, t("project_decision_logs"), "space_id", "TEXT")
+    _create_index(engine, "idx_project_decision_logs_space_id", t("project_decision_logs"), "space_id")
+    _add_column(engine, t("sow_documents"), "space_id", "TEXT")
+    _create_index(engine, "idx_sow_documents_space_id", t("sow_documents"), "space_id")
+    _add_column(engine, t("checklist_items"), "space_id", "TEXT")
+    _create_index(engine, "idx_checklist_items_space_id", t("checklist_items"), "space_id")
+    _add_column(engine, t("external_documents"), "space_id", "TEXT")
+    _create_index(engine, "idx_external_documents_space_id", t("external_documents"), "space_id")
 
-    _add_column(engine, "project_charters", "state", "TEXT DEFAULT 'draft'")
-    _add_column(engine, "project_plans", "state", "TEXT DEFAULT 'draft'")
+    _add_column(engine, t("project_charters"), "state", "TEXT DEFAULT 'draft'")
+    _add_column(engine, t("project_plans"), "state", "TEXT DEFAULT 'draft'")
 
-    _add_column(engine, "sow_documents", "title", "TEXT")
-    _add_column(engine, "sow_documents", "state", "TEXT DEFAULT 'draft'")
-    _add_column(engine, "sow_documents", "approval_state", "TEXT DEFAULT 'draft'")
-    _add_column(engine, "sow_documents", "approval_requested_at", "DATETIME")
-    _add_column(engine, "sow_documents", "approval_requested_by_user_id", "TEXT")
-    _add_column(engine, "sow_documents", "approval_decided_at", "DATETIME")
-    _add_column(engine, "sow_documents", "approval_decided_by_user_id", "TEXT")
-    _add_column(engine, "sow_documents", "approval_note", "TEXT")
+    _add_column(engine, t("sow_documents"), "title", "TEXT")
+    _add_column(engine, t("sow_documents"), "state", "TEXT DEFAULT 'draft'")
+    _add_column(engine, t("sow_documents"), "approval_state", "TEXT DEFAULT 'draft'")
+    _add_column(engine, t("sow_documents"), "approval_requested_at", "DATETIME")
+    _add_column(engine, t("sow_documents"), "approval_requested_by_user_id", "TEXT")
+    _add_column(engine, t("sow_documents"), "approval_decided_at", "DATETIME")
+    _add_column(engine, t("sow_documents"), "approval_decided_by_user_id", "TEXT")
+    _add_column(engine, t("sow_documents"), "approval_note", "TEXT")
 
-    _create_index(engine, "idx_project_charter_state", "project_charters", "state")
-    _create_index(engine, "idx_project_plan_state", "project_plans", "state")
-    _create_index(engine, "idx_sow_state", "sow_documents", "state")
-    _create_index(engine, "idx_sow_approval_state", "sow_documents", "approval_state")
+    _create_index(engine, "idx_project_charter_state", t("project_charters"), "state")
+    _create_index(engine, "idx_project_plan_state", t("project_plans"), "state")
+    _create_index(engine, "idx_sow_state", t("sow_documents"), "state")
+    _create_index(engine, "idx_sow_approval_state", t("sow_documents"), "approval_state")
 
     # Best-effort backfill for legacy rows.
     inspector = inspect(engine)
-    if inspector.has_table("spaces"):
+    if inspector.has_table(spaces_table):
         with engine.begin() as conn:
             row = conn.execute(
                 text(
-                    "SELECT space_id FROM spaces "
+                    f"SELECT space_id FROM {spaces_table} "
                     "WHERE slug = :slug AND deleted_at IS NULL "
                     "ORDER BY created_at ASC LIMIT 1"
                 ),
@@ -405,45 +468,45 @@ def run_schema_migrations(engine: Engine) -> None:
     inspector = inspect(engine)
     with engine.begin() as conn:
         dialect = engine.dialect.name
-        if inspector.has_table("users"):
+        if inspector.has_table(users_table):
             try:
                 conn.execute(
                     text(
-                        "UPDATE users "
+                        f"UPDATE {users_table} "
                         "SET capacity_fte_month = ROUND(COALESCE(capacity_hours, 40) / 40.0, 3) "
                         "WHERE capacity_fte_month IS NULL OR capacity_fte_month <= 0"
                     )
                 )
             except Exception:
                 pass
-        if inspector.has_table("teams"):
+        if inspector.has_table(t("teams")):
             try:
                 conn.execute(
                     text(
-                        "UPDATE teams "
+                        f"UPDATE {t('teams')} "
                         "SET default_capacity_fte_month = ROUND(COALESCE(default_capacity_per_week, 0) / 40.0, 3) "
                         "WHERE default_capacity_fte_month IS NULL OR default_capacity_fte_month = 0"
                     )
                 )
             except Exception:
                 pass
-        if inspector.has_table("team_members"):
+        if inspector.has_table(t("team_members")):
             try:
                 conn.execute(
                     text(
-                        "UPDATE team_members "
+                        f"UPDATE {t('team_members')} "
                         "SET capacity_fte_month = ROUND(COALESCE(hours_capacity, 0) / 40.0, 3) "
                         "WHERE capacity_fte_month IS NULL AND hours_capacity IS NOT NULL"
                     )
                 )
             except Exception:
                 pass
-        if inspector.has_table("resource_allocations"):
+        if inspector.has_table(t("resource_allocations")):
             try:
                 if dialect == "sqlite":
                     conn.execute(
                         text(
-                            "UPDATE resource_allocations "
+                            f"UPDATE {t('resource_allocations')} "
                             "SET month_start = COALESCE(month_start, DATE(week_start, 'start of month')) "
                             "WHERE week_start IS NOT NULL"
                         )
@@ -451,14 +514,14 @@ def run_schema_migrations(engine: Engine) -> None:
                 else:
                     conn.execute(
                         text(
-                            "UPDATE resource_allocations "
+                            f"UPDATE {t('resource_allocations')} "
                             "SET month_start = COALESCE(month_start, week_start) "
                             "WHERE week_start IS NOT NULL"
                         )
                     )
                 conn.execute(
                     text(
-                        "UPDATE resource_allocations "
+                        f"UPDATE {t('resource_allocations')} "
                         "SET fte_months = ROUND(COALESCE(hours, 0) / 160.0, 3) "
                         "WHERE fte_months IS NULL OR fte_months = 0"
                     )

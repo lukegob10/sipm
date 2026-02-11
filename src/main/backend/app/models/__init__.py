@@ -18,6 +18,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from ..db.table_names import fk_target, physical_table_name
 from ..utils.enums import (
     ConfidenceLevel,
     ProjectStatus,
@@ -25,14 +26,10 @@ from ..utils.enums import (
     SubcomponentStatus,
 )
 from ..utils.enums import RagStatus
-from ..runtime import is_ta_oracle_mode
-
-
-_SCHEMA_NAME = "SIPM" if is_ta_oracle_mode() else None
 
 
 class Base(DeclarativeBase):
-    metadata = MetaData(schema=_SCHEMA_NAME)
+    metadata = MetaData()
 
 
 def _utcnow_naive() -> datetime:
@@ -54,7 +51,7 @@ class SoftDeleteMixin:
 
 
 class User(TimestampMixin, Base):
-    __tablename__ = "users"
+    __tablename__ = physical_table_name("users")
     __table_args__ = (
         UniqueConstraint("email", name="uix_user_email"),
         UniqueConstraint("soeid", name="uix_user_soeid"),
@@ -81,7 +78,7 @@ class User(TimestampMixin, Base):
 
 
 class Space(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "spaces"
+    __tablename__ = physical_table_name("spaces")
     __table_args__ = (
         UniqueConstraint("slug", name="uix_space_slug"),
         UniqueConstraint("name", name="uix_space_name"),
@@ -95,20 +92,20 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "space_memberships"
+    __tablename__ = physical_table_name("space_memberships")
     __table_args__ = (
         UniqueConstraint("space_id", "user_id", name="uix_space_membership"),
     )
 
     membership_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[str] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(String, ForeignKey("users.user_id"), nullable=False, index=True)
+    space_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String, nullable=False, default="member", index=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
 
 
 class ChangeLog(Base):
-    __tablename__ = "change_log"
+    __tablename__ = physical_table_name("change_log")
     __table_args__ = (
         Index("idx_change_entity_created", "entity_type", "entity_id", "created_at"),
         Index("idx_change_user_created", "user_id", "created_at"),
@@ -123,17 +120,17 @@ class ChangeLog(Base):
     old_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     new_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     request_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, nullable=False, index=True)
 
 
 class Team(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "teams"
+    __tablename__ = physical_table_name("teams")
     __table_args__ = (UniqueConstraint("name", name="uix_team_name"),)
 
     team_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     lead: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -143,14 +140,14 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "team_members"
+    __tablename__ = physical_table_name("team_members")
     __table_args__ = (
         Index("idx_team_member_team", "team_id"),
     )
 
     team_member_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    team_id: Mapped[str] = mapped_column(String, ForeignKey("teams.team_id"), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    team_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("teams", "team_id")), nullable=False, index=True)
     member_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     role: Mapped[str] = mapped_column(String, nullable=False, default="member")
     capacity_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -162,13 +159,13 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class Project(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "projects"
+    __tablename__ = physical_table_name("projects")
     __table_args__ = (UniqueConstraint("project_name", name="uix_project_name"),)
 
     project_id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid4())
     )
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     project_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus), index=True, nullable=False, default=ProjectStatus.not_started
@@ -184,7 +181,7 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class Solution(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "solutions"
+    __tablename__ = physical_table_name("solutions")
     __table_args__ = (
         UniqueConstraint(
             "project_id",
@@ -197,9 +194,9 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
     solution_id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid4())
     )
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     project_id: Mapped[str] = mapped_column(
-        String, ForeignKey("projects.project_id"), index=True, nullable=False
+        String, ForeignKey(fk_target("projects", "project_id")), index=True, nullable=False
     )
     solution_name: Mapped[str] = mapped_column(String, nullable=False)
     version: Mapped[str] = mapped_column(String, nullable=False, default="0.1.0")
@@ -235,7 +232,7 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class Phase(TimestampMixin, Base):
-    __tablename__ = "phases"
+    __tablename__ = physical_table_name("phases")
 
     phase_id: Mapped[str] = mapped_column(String, primary_key=True)
     phase_group: Mapped[str] = mapped_column(String, nullable=False)
@@ -244,7 +241,7 @@ class Phase(TimestampMixin, Base):
 
 
 class SolutionPhase(TimestampMixin, Base):
-    __tablename__ = "solution_phases"
+    __tablename__ = physical_table_name("solution_phases")
     __table_args__ = (
         UniqueConstraint("solution_id", "phase_id", name="uix_solution_phase"),
     )
@@ -253,10 +250,10 @@ class SolutionPhase(TimestampMixin, Base):
         String, primary_key=True, default=lambda: str(uuid4())
     )
     solution_id: Mapped[str] = mapped_column(
-        String, ForeignKey("solutions.solution_id"), index=True
+        String, ForeignKey(fk_target("solutions", "solution_id")), index=True
     )
     phase_id: Mapped[str] = mapped_column(
-        String, ForeignKey("phases.phase_id"), nullable=False
+        String, ForeignKey(fk_target("phases", "phase_id")), nullable=False
     )
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sequence_override: Mapped[Optional[int]] = mapped_column(
@@ -265,7 +262,7 @@ class SolutionPhase(TimestampMixin, Base):
 
 
 class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "subcomponents"
+    __tablename__ = physical_table_name("subcomponents")
     __table_args__ = (
         UniqueConstraint(
             "solution_id", "subcomponent_name", name="uix_subcomponent_solution_name"
@@ -275,12 +272,12 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
     subcomponent_id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid4())
     )
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     project_id: Mapped[str] = mapped_column(
-        String, ForeignKey("projects.project_id"), index=True, nullable=False
+        String, ForeignKey(fk_target("projects", "project_id")), index=True, nullable=False
     )
     solution_id: Mapped[str] = mapped_column(
-        String, ForeignKey("solutions.solution_id"), index=True, nullable=False
+        String, ForeignKey(fk_target("solutions", "solution_id")), index=True, nullable=False
     )
     subcomponent_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[SubcomponentStatus] = mapped_column(
@@ -299,7 +296,7 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "resource_allocations"
+    __tablename__ = physical_table_name("resource_allocations")
     __table_args__ = (
         Index("idx_alloc_week_assignee", "week_start", "assignee_user_soeid"),
         Index("idx_alloc_month_assignee", "month_start", "assignee_user_soeid"),
@@ -315,30 +312,30 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
     )
 
     allocation_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     work_item_type: Mapped[str] = mapped_column(String, nullable=False)  # project|solution|subcomponent
     work_item_id: Mapped[str] = mapped_column(String, nullable=False)
     assignee_user_soeid: Mapped[Optional[str]] = mapped_column(
         String, nullable=True, index=True
     )
     assignee: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    team_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("teams.team_id"), nullable=True, index=True)
+    team_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("teams", "team_id")), nullable=True, index=True)
     week_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     month_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     fte_months: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    window_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("planning_windows.window_id"), nullable=True, index=True)
+    window_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("planning_windows", "window_id")), nullable=True, index=True)
 
 
 class SolutionWeeklySnapshot(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "solution_weekly_snapshot"
+    __tablename__ = physical_table_name("solution_weekly_snapshot")
     __table_args__ = (
         UniqueConstraint("solution_id", "week_start", name="uix_solution_week_start"),
         Index("idx_snapshot_solution_week", "solution_id", "week_start"),
     )
 
     snapshot_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    solution_id: Mapped[str] = mapped_column(String, ForeignKey("solutions.solution_id"), nullable=False, index=True)
+    solution_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), nullable=False, index=True)
     week_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     rag_status: Mapped[RagStatus] = mapped_column(Enum(RagStatus), nullable=False)
     progress_note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -347,12 +344,12 @@ class SolutionWeeklySnapshot(TimestampMixin, SoftDeleteMixin, Base):
         Enum(ConfidenceLevel), nullable=True
     )
     owner_user_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("users.user_id"), nullable=True, index=True
+        String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True
     )
 
 
 class ExternalRef(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "external_ref"
+    __tablename__ = physical_table_name("external_ref")
     __table_args__ = (
         UniqueConstraint(
             "work_item_type",
@@ -374,58 +371,58 @@ class ExternalRef(TimestampMixin, SoftDeleteMixin, Base):
 
 
 class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "planning_windows"
+    __tablename__ = physical_table_name("planning_windows")
     __table_args__ = (
         UniqueConstraint("name", name="uix_planning_window_name"),
     )
 
     window_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
 
 
 class SOWDocument(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "sow_documents"
+    __tablename__ = physical_table_name("sow_documents")
 
     sow_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
-    solution_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("solutions.solution_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
+    solution_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), nullable=True, index=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     content: Mapped[str] = mapped_column(String, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
     approval_state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
     approval_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     approval_requested_by_user_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("users.user_id"), nullable=True, index=True
+        String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True
     )
     approval_decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     approval_decided_by_user_id: Mapped[Optional[str]] = mapped_column(
-        String, ForeignKey("users.user_id"), nullable=True, index=True
+        String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True
     )
     approval_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class ChecklistItem(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "checklist_items"
+    __tablename__ = physical_table_name("checklist_items")
 
     checklist_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     month_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # YYYY-MM
     title: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="open")
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class AIRequest(TimestampMixin, Base):
-    __tablename__ = "ai_requests"
+    __tablename__ = physical_table_name("ai_requests")
 
     ai_request_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     request_type: Mapped[str] = mapped_column(String, nullable=False)  # autofill|sow|checklist|subcomponents|search
     entity_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     entity_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -433,28 +430,28 @@ class AIRequest(TimestampMixin, Base):
     prompt: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     output: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     approved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    approved_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    approved_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class AISession(TimestampMixin, Base):
-    __tablename__ = "ai_sessions"
+    __tablename__ = physical_table_name("ai_sessions")
 
     session_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.project_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=True, index=True)
     entity_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     entity_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
     messages: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON string
     last_active_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
 class AIToolCall(TimestampMixin, Base):
-    __tablename__ = "ai_tool_calls"
+    __tablename__ = physical_table_name("ai_tool_calls")
 
     tool_call_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    ai_request_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("ai_requests.ai_request_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    ai_request_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("ai_requests", "ai_request_id")), nullable=True, index=True)
     tool_name: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -470,17 +467,17 @@ class AIToolCall(TimestampMixin, Base):
 
 
 class AIQueryMetric(TimestampMixin, Base):
-    __tablename__ = "ai_query_metrics"
+    __tablename__ = physical_table_name("ai_query_metrics")
     __table_args__ = (
         Index("idx_ai_query_metrics_session_created", "session_id", "created_at"),
         Index("idx_ai_query_metrics_project_created", "project_id", "created_at"),
     )
 
     query_metric_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    session_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("ai_sessions.session_id"), nullable=True, index=True)
-    user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
-    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.project_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("ai_sessions", "session_id")), nullable=True, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=True, index=True)
     entity_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     entity_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     tool_calls_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -496,10 +493,10 @@ class AIQueryMetric(TimestampMixin, Base):
 
 
 class ProjectCardDigest(TimestampMixin, Base):
-    __tablename__ = "project_card_digests"
+    __tablename__ = physical_table_name("project_card_digests")
 
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), primary_key=True)
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), primary_key=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     tenant_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     project_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     status: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -514,11 +511,11 @@ class ProjectCardDigest(TimestampMixin, Base):
 
 
 class SolutionCardDigest(TimestampMixin, Base):
-    __tablename__ = "solution_card_digests"
+    __tablename__ = physical_table_name("solution_card_digests")
 
-    solution_id: Mapped[str] = mapped_column(String, ForeignKey("solutions.solution_id"), primary_key=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    solution_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     tenant_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     solution_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     status: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -537,12 +534,12 @@ class SolutionCardDigest(TimestampMixin, Base):
 
 
 class TaskCardDigest(TimestampMixin, Base):
-    __tablename__ = "task_card_digests"
+    __tablename__ = physical_table_name("task_card_digests")
 
-    subcomponent_id: Mapped[str] = mapped_column(String, ForeignKey("subcomponents.subcomponent_id"), primary_key=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
-    solution_id: Mapped[str] = mapped_column(String, ForeignKey("solutions.solution_id"), nullable=False, index=True)
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
+    subcomponent_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("subcomponents", "subcomponent_id")), primary_key=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
+    solution_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     tenant_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     subcomponent_name: Mapped[str] = mapped_column(String, nullable=False, index=True)
     status: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -558,50 +555,50 @@ class TaskCardDigest(TimestampMixin, Base):
 
 
 class ProjectCharter(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "project_charters"
+    __tablename__ = physical_table_name("project_charters")
 
     charter_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class ProjectPlan(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "project_plans"
+    __tablename__ = physical_table_name("project_plans")
 
     plan_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class ProjectDecisionLog(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "project_decision_logs"
+    __tablename__ = physical_table_name("project_decision_logs")
 
     decision_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[str] = mapped_column(String, ForeignKey("projects.project_id"), nullable=False, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     decision: Mapped[str] = mapped_column(Text, nullable=False)
     rationale: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     impact: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 
 
 class ExternalDocument(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = "external_documents"
+    __tablename__ = physical_table_name("external_documents")
 
     document_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("spaces.space_id"), nullable=True, index=True)
-    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("projects.project_id"), nullable=True, index=True)
-    solution_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("solutions.solution_id"), nullable=True, index=True)
+    space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
+    project_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=True, index=True)
+    solution_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String, nullable=False)
     content_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     storage_path: Mapped[str] = mapped_column(String, nullable=False)
-    uploaded_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey("users.user_id"), nullable=True, index=True)
+    uploaded_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)

@@ -16,7 +16,9 @@ from sqlalchemy import (
     UniqueConstraint,
     Index,
 )
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.sql.sqltypes import String as SQLAlchemyString
 
 from ..db.table_names import fk_target, physical_table_name
 from ..utils.enums import (
@@ -30,6 +32,14 @@ from ..utils.enums import RagStatus
 
 class Base(DeclarativeBase):
     metadata = MetaData()
+
+
+@compiles(SQLAlchemyString, "oracle")
+def _compile_oracle_string_with_default_length(type_, compiler, **kw):
+    # Oracle table DDL requires VARCHAR2 length; default to 255 when unspecified.
+    if type_.length is None:
+        return "VARCHAR2(255 CHAR)"
+    return compiler.visit_VARCHAR(type_, **kw)
 
 
 def _utcnow_naive() -> datetime:

@@ -7,7 +7,7 @@ from .errors import GenAIConfigError
 
 logger = logging.getLogger(__name__)
 
-_MODEL_ENV_CANDIDATES = ("GENAI_MODEL", "GEMINI_MODEL", "GOOGLE_GENAI_MODEL")
+_MODEL_ENV_NAME = "GENAI_MODEL"
 _DEFAULT_MODEL = "gemini-2.5-flash"
 
 
@@ -20,16 +20,14 @@ def _debug_enabled() -> bool:
 
 
 def _trace_enabled() -> bool:
-    # Keep compatibility with existing AI trace toggle while supporting a GenAI-specific alias.
-    return _is_enabled("AI_DEBUG_TRACE") or _is_enabled("GENAI_TRACE")
+    return _is_enabled("AI_DEBUG_TRACE")
 
 
 def resolve_model_with_source(default: Optional[str] = None) -> tuple[str, str]:
     fallback = (default or _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
-    for env_name in _MODEL_ENV_CANDIDATES:
-        value = (os.getenv(env_name) or "").strip()
-        if value:
-            return value, env_name
+    value = (os.getenv(_MODEL_ENV_NAME) or "").strip()
+    if value:
+        return value, _MODEL_ENV_NAME
     return fallback, "default"
 
 

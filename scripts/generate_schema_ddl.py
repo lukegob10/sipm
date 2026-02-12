@@ -11,7 +11,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from sqlalchemy.dialects import oracle, sqlite
+from sqlalchemy.dialects import oracle
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 
@@ -31,8 +31,6 @@ def _load_metadata(ta_mode: bool):
 def _render_sql(metadata, dialect_name: str) -> str:
     if dialect_name == "oracle":
         dialect = oracle.dialect()
-    elif dialect_name == "sqlite":
-        dialect = sqlite.dialect()
     else:
         raise ValueError(f"Unsupported dialect: {dialect_name}")
 
@@ -45,9 +43,6 @@ def _render_sql(metadata, dialect_name: str) -> str:
                 "",
             ]
         )
-    else:
-        out.extend(["-- SQLite DDL generated from SQLAlchemy models.", ""])
-
     for table in metadata.sorted_tables:
         out.append(f"-- Table: {table.fullname}")
         out.append(str(CreateTable(table).compile(dialect=dialect)).rstrip() + ";")
@@ -71,7 +66,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Generate DB DDL files from ORM models")
     parser.add_argument(
         "--dialect",
-        choices=("oracle", "sqlite"),
+        choices=("oracle",),
         required=True,
         help="SQL dialect to generate",
     )

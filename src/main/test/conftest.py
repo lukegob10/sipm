@@ -9,7 +9,6 @@ import httpx
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 MAIN_DIR = Path(__file__).resolve().parents[1]
 if str(MAIN_DIR) not in sys.path:
@@ -27,11 +26,10 @@ def anyio_backend():
 
 @pytest.fixture
 def db_sessionmaker():
-    engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    db_url = (os.getenv("SIPM_TEST_DATABASE_URL") or "").strip()
+    if not db_url:
+        raise RuntimeError("SIPM_TEST_DATABASE_URL must be set for test database initialization.")
+    engine = create_engine(db_url)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

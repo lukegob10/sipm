@@ -1,5 +1,10 @@
-from .db import _resolve_database_url, engine, SessionLocal, get_session, init_db
+from importlib import import_module
 
-DATABASE_URL = _resolve_database_url()
+__all__ = ["engine", "SessionLocal", "get_session", "init_db"]
 
-__all__ = ["DATABASE_URL", "engine", "SessionLocal", "get_session", "init_db"] 
+
+def __getattr__(name: str):
+    if name in __all__:
+        module = import_module(".db", __name__)
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

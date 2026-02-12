@@ -22,8 +22,7 @@ tmp/
 pip-wheel-metadata/
 __pypackages__/
 
-# SQLite database and related files
-
+# Local database files
 *.db
 *.db-shm
 *.db-wal

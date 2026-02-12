@@ -109,7 +109,6 @@ def test_call_chat_completion_does_not_log_client_validity_when_trace_disabled(m
     monkeypatch.setattr(llm, "get_client", lambda: DummyClient())
     monkeypatch.setenv("GENAI_MODEL", "gemini-2.5-flash")
     monkeypatch.delenv("AI_DEBUG_TRACE", raising=False)
-    monkeypatch.delenv("GENAI_TRACE", raising=False)
     caplog.set_level(logging.INFO, logger="backend.app.ai.llm")
 
     llm.call_chat_completion("system", "user")

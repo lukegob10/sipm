@@ -68,8 +68,8 @@ class User(TimestampMixin, Base):
     )
 
     user_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    soeid: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
-    email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    soeid: Mapped[str] = mapped_column(String, nullable=False)
+    email: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
@@ -95,8 +95,8 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
     )
 
     space_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    slug: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    slug: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
@@ -119,7 +119,6 @@ class ChangeLog(Base):
     __table_args__ = (
         Index("idx_change_entity_created", "entity_type", "entity_id", "created_at"),
         Index("idx_change_user_created", "user_id", "created_at"),
-        Index("idx_change_request", "request_id"),
     )
 
     change_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
@@ -141,7 +140,7 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
 
     team_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
-    name: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     lead: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     default_capacity_per_week: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -151,9 +150,6 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
 
 class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("team_members")
-    __table_args__ = (
-        Index("idx_team_member_team", "team_id"),
-    )
 
     team_member_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
@@ -176,7 +172,7 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
         String, primary_key=True, default=lambda: str(uuid4())
     )
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
-    project_name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    project_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus), index=True, nullable=False, default=ProjectStatus.not_started
     )
@@ -341,7 +337,6 @@ class SolutionWeeklySnapshot(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("solution_weekly_snapshot")
     __table_args__ = (
         UniqueConstraint("solution_id", "week_start", name="uix_solution_week_start"),
-        Index("idx_snapshot_solution_week", "solution_id", "week_start"),
     )
 
     snapshot_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))

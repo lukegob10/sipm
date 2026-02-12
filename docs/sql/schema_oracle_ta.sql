@@ -4,13 +4,13 @@
 -- Table: TB_TA_PM_EXTERNAL_REF
 
 CREATE TABLE "TB_TA_PM_EXTERNAL_REF" (
-	external_ref_id VARCHAR2 NOT NULL, 
-	work_item_type VARCHAR2 NOT NULL, 
-	work_item_id VARCHAR2 NOT NULL, 
-	ref_type VARCHAR2 NOT NULL, 
-	ref_url VARCHAR2, 
-	ref_key VARCHAR2, 
-	label VARCHAR2, 
+	external_ref_id VARCHAR2(255 CHAR) NOT NULL, 
+	work_item_type VARCHAR2(255 CHAR) NOT NULL, 
+	work_item_id VARCHAR2(255 CHAR) NOT NULL, 
+	ref_type VARCHAR2(255 CHAR) NOT NULL, 
+	ref_url VARCHAR2(255 CHAR), 
+	ref_key VARCHAR2(255 CHAR), 
+	label VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -21,9 +21,9 @@ CREATE TABLE "TB_TA_PM_EXTERNAL_REF" (
 -- Table: TB_TA_PM_PHASES
 
 CREATE TABLE "TB_TA_PM_PHASES" (
-	phase_id VARCHAR2 NOT NULL, 
-	phase_group VARCHAR2 NOT NULL, 
-	phase_name VARCHAR2 NOT NULL, 
+	phase_id VARCHAR2(255 CHAR) NOT NULL, 
+	phase_group VARCHAR2(255 CHAR) NOT NULL, 
+	phase_name VARCHAR2(255 CHAR) NOT NULL, 
 	sequence INTEGER NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
@@ -33,9 +33,9 @@ CREATE TABLE "TB_TA_PM_PHASES" (
 -- Table: TB_TA_PM_SPACES
 
 CREATE TABLE "TB_TA_PM_SPACES" (
-	space_id VARCHAR2 NOT NULL, 
-	name VARCHAR2 NOT NULL, 
-	slug VARCHAR2 NOT NULL, 
+	space_id VARCHAR2(255 CHAR) NOT NULL, 
+	name VARCHAR2(255 CHAR) NOT NULL, 
+	slug VARCHAR2(255 CHAR) NOT NULL, 
 	is_active SMALLINT NOT NULL, 
 	archived_at DATE, 
 	created_at DATE NOT NULL, 
@@ -49,21 +49,21 @@ CREATE TABLE "TB_TA_PM_SPACES" (
 -- Table: TB_TA_PM_USERS
 
 CREATE TABLE "TB_TA_PM_USERS" (
-	user_id VARCHAR2 NOT NULL, 
-	soeid VARCHAR2 NOT NULL, 
-	email VARCHAR2 NOT NULL, 
-	display_name VARCHAR2 NOT NULL, 
-	password_hash VARCHAR2 NOT NULL, 
-	role VARCHAR2 NOT NULL, 
+	user_id VARCHAR2(255 CHAR) NOT NULL, 
+	soeid VARCHAR2(255 CHAR) NOT NULL, 
+	email VARCHAR2(255 CHAR) NOT NULL, 
+	display_name VARCHAR2(255 CHAR) NOT NULL, 
+	password_hash VARCHAR2(255 CHAR) NOT NULL, 
+	role VARCHAR2(255 CHAR) NOT NULL, 
 	is_active SMALLINT NOT NULL, 
-	team_tag VARCHAR2, 
+	team_tag VARCHAR2(255 CHAR), 
 	capacity_hours INTEGER NOT NULL, 
 	capacity_fte_month FLOAT NOT NULL, 
 	failed_attempts INTEGER NOT NULL, 
 	locked_until DATE, 
 	last_login_at DATE, 
-	external_id VARCHAR2, 
-	temp_password_hash VARCHAR2, 
+	external_id VARCHAR2(255 CHAR), 
+	temp_password_hash VARCHAR2(255 CHAR), 
 	temp_password_expires_at DATE, 
 	force_password_reset SMALLINT NOT NULL, 
 	password_changed_at DATE, 
@@ -77,16 +77,16 @@ CREATE TABLE "TB_TA_PM_USERS" (
 -- Table: TB_TA_PM_AI_REQUESTS
 
 CREATE TABLE "TB_TA_PM_AI_REQUESTS" (
-	ai_request_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	request_type VARCHAR2 NOT NULL, 
-	entity_type VARCHAR2, 
-	entity_id VARCHAR2, 
-	instruction VARCHAR2, 
-	prompt VARCHAR2, 
-	output VARCHAR2, 
+	ai_request_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	request_type VARCHAR2(255 CHAR) NOT NULL, 
+	entity_type VARCHAR2(255 CHAR), 
+	entity_id VARCHAR2(255 CHAR), 
+	instruction VARCHAR2(255 CHAR), 
+	prompt VARCHAR2(255 CHAR), 
+	output VARCHAR2(255 CHAR), 
 	approved SMALLINT NOT NULL, 
-	approved_by_user_id VARCHAR2, 
+	approved_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	PRIMARY KEY (ai_request_id), 
@@ -97,16 +97,16 @@ CREATE TABLE "TB_TA_PM_AI_REQUESTS" (
 -- Table: TB_TA_PM_CHANGE_LOG
 
 CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
-	change_id VARCHAR2 NOT NULL, 
-	entity_type VARCHAR2 NOT NULL, 
-	entity_id VARCHAR2 NOT NULL, 
-	action VARCHAR2 NOT NULL, 
-	field VARCHAR2, 
-	old_value VARCHAR2, 
-	new_value VARCHAR2, 
-	user_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	request_id VARCHAR2, 
+	change_id VARCHAR2(255 CHAR) NOT NULL, 
+	entity_type VARCHAR2(255 CHAR) NOT NULL, 
+	entity_id VARCHAR2(255 CHAR) NOT NULL, 
+	action VARCHAR2(255 CHAR) NOT NULL, 
+	field VARCHAR2(255 CHAR), 
+	old_value VARCHAR2(255 CHAR), 
+	new_value VARCHAR2(255 CHAR), 
+	user_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	request_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	PRIMARY KEY (change_id), 
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
@@ -115,9 +115,9 @@ CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
 -- Table: TB_TA_PM_PLANNING_WINDOWS
 
 CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
-	window_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	name VARCHAR2 NOT NULL, 
+	window_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	name VARCHAR2(255 CHAR) NOT NULL, 
 	start_date DATE NOT NULL, 
 	end_date DATE NOT NULL, 
 	created_at DATE NOT NULL, 
@@ -131,15 +131,15 @@ CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
 -- Table: TB_TA_PM_PROJECTS
 
 CREATE TABLE "TB_TA_PM_PROJECTS" (
-	project_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_name VARCHAR2 NOT NULL, 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_name VARCHAR2(255 CHAR) NOT NULL, 
 	status VARCHAR(11 CHAR) NOT NULL, 
-	description VARCHAR2, 
-	success_criteria VARCHAR2, 
-	sponsor VARCHAR2 NOT NULL, 
-	sponsor_user_soeid VARCHAR2, 
-	strategic_objective VARCHAR2, 
+	description VARCHAR2(255 CHAR), 
+	success_criteria VARCHAR2(255 CHAR), 
+	sponsor VARCHAR2(255 CHAR) NOT NULL, 
+	sponsor_user_soeid VARCHAR2(255 CHAR), 
+	strategic_objective VARCHAR2(255 CHAR), 
 	priority INTEGER NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
@@ -152,11 +152,11 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 -- Table: TB_TA_PM_SPACE_MEMBERSHIPS
 
 CREATE TABLE "TB_TA_PM_SPACE_MEMBERSHIPS" (
-	membership_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2 NOT NULL, 
-	user_id VARCHAR2 NOT NULL, 
-	role VARCHAR2 NOT NULL, 
-	status VARCHAR2 NOT NULL, 
+	membership_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR) NOT NULL, 
+	user_id VARCHAR2(255 CHAR) NOT NULL, 
+	role VARCHAR2(255 CHAR) NOT NULL, 
+	status VARCHAR2(255 CHAR) NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -169,14 +169,14 @@ CREATE TABLE "TB_TA_PM_SPACE_MEMBERSHIPS" (
 -- Table: TB_TA_PM_TEAMS
 
 CREATE TABLE "TB_TA_PM_TEAMS" (
-	team_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	name VARCHAR2 NOT NULL, 
-	description VARCHAR2, 
-	lead VARCHAR2, 
+	team_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	name VARCHAR2(255 CHAR) NOT NULL, 
+	description VARCHAR2(255 CHAR), 
+	lead VARCHAR2(255 CHAR), 
 	default_capacity_per_week INTEGER NOT NULL, 
 	default_capacity_fte_month FLOAT NOT NULL, 
-	capacity_unit VARCHAR2 NOT NULL, 
+	capacity_unit VARCHAR2(255 CHAR) NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -188,12 +188,12 @@ CREATE TABLE "TB_TA_PM_TEAMS" (
 -- Table: TB_TA_PM_AI_SESSIONS
 
 CREATE TABLE "TB_TA_PM_AI_SESSIONS" (
-	session_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2, 
-	entity_type VARCHAR2, 
-	entity_id VARCHAR2, 
-	user_id VARCHAR2, 
+	session_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR), 
+	entity_type VARCHAR2(255 CHAR), 
+	entity_id VARCHAR2(255 CHAR), 
+	user_id VARCHAR2(255 CHAR), 
 	messages CLOB, 
 	last_active_at DATE, 
 	created_at DATE NOT NULL, 
@@ -207,13 +207,13 @@ CREATE TABLE "TB_TA_PM_AI_SESSIONS" (
 -- Table: TB_TA_PM_AI_TOOL_CALLS
 
 CREATE TABLE "TB_TA_PM_AI_TOOL_CALLS" (
-	tool_call_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	ai_request_id VARCHAR2, 
-	tool_name VARCHAR2 NOT NULL, 
+	tool_call_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	ai_request_id VARCHAR2(255 CHAR), 
+	tool_name VARCHAR2(255 CHAR) NOT NULL, 
 	payload CLOB, 
 	output CLOB, 
-	status VARCHAR2, 
+	status VARCHAR2(255 CHAR), 
 	elapsed_ms INTEGER, 
 	payload_bytes INTEGER, 
 	output_bytes INTEGER, 
@@ -232,13 +232,13 @@ CREATE TABLE "TB_TA_PM_AI_TOOL_CALLS" (
 -- Table: TB_TA_PM_CHECKLIST_ITEMS
 
 CREATE TABLE "TB_TA_PM_CHECKLIST_ITEMS" (
-	checklist_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	month_key VARCHAR2 NOT NULL, 
-	title VARCHAR2 NOT NULL, 
-	status VARCHAR2 NOT NULL, 
-	created_by_user_id VARCHAR2, 
+	checklist_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	month_key VARCHAR2(255 CHAR) NOT NULL, 
+	title VARCHAR2(255 CHAR) NOT NULL, 
+	status VARCHAR2(255 CHAR) NOT NULL, 
+	created_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -251,13 +251,13 @@ CREATE TABLE "TB_TA_PM_CHECKLIST_ITEMS" (
 -- Table: TB_TA_PM_PROJECT_CARD_DIGESTS
 
 CREATE TABLE "TB_TA_PM_PROJECT_CARD_DIGESTS" (
-	project_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	tenant_id VARCHAR2, 
-	project_name VARCHAR2 NOT NULL, 
-	status VARCHAR2, 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	tenant_id VARCHAR2(255 CHAR), 
+	project_name VARCHAR2(255 CHAR) NOT NULL, 
+	status VARCHAR2(255 CHAR), 
 	priority INTEGER, 
-	sponsor VARCHAR2, 
+	sponsor VARCHAR2(255 CHAR), 
 	open_solution_count INTEGER NOT NULL, 
 	open_task_count INTEGER NOT NULL, 
 	top_risks_json CLOB, 
@@ -274,13 +274,13 @@ CREATE TABLE "TB_TA_PM_PROJECT_CARD_DIGESTS" (
 -- Table: TB_TA_PM_PROJECT_CHARTERS
 
 CREATE TABLE "TB_TA_PM_PROJECT_CHARTERS" (
-	charter_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	title VARCHAR2, 
+	charter_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	title VARCHAR2(255 CHAR), 
 	content CLOB NOT NULL, 
-	state VARCHAR2 NOT NULL, 
-	created_by_user_id VARCHAR2, 
+	state VARCHAR2(255 CHAR) NOT NULL, 
+	created_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -293,14 +293,14 @@ CREATE TABLE "TB_TA_PM_PROJECT_CHARTERS" (
 -- Table: TB_TA_PM_PROJECT_DECISION_LOGS
 
 CREATE TABLE "TB_TA_PM_PROJECT_DECISION_LOGS" (
-	decision_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	title VARCHAR2, 
+	decision_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	title VARCHAR2(255 CHAR), 
 	decision CLOB NOT NULL, 
 	rationale CLOB, 
 	impact CLOB, 
-	created_by_user_id VARCHAR2, 
+	created_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -313,13 +313,13 @@ CREATE TABLE "TB_TA_PM_PROJECT_DECISION_LOGS" (
 -- Table: TB_TA_PM_PROJECT_PLANS
 
 CREATE TABLE "TB_TA_PM_PROJECT_PLANS" (
-	plan_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	title VARCHAR2, 
+	plan_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	title VARCHAR2(255 CHAR), 
 	content CLOB NOT NULL, 
-	state VARCHAR2 NOT NULL, 
-	created_by_user_id VARCHAR2, 
+	state VARCHAR2(255 CHAR) NOT NULL, 
+	created_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -332,18 +332,18 @@ CREATE TABLE "TB_TA_PM_PROJECT_PLANS" (
 -- Table: TB_TA_PM_RESOURCE_ALLOCATIONS
 
 CREATE TABLE "TB_TA_PM_RESOURCE_ALLOCATIONS" (
-	allocation_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	work_item_type VARCHAR2 NOT NULL, 
-	work_item_id VARCHAR2 NOT NULL, 
-	assignee_user_soeid VARCHAR2, 
-	assignee VARCHAR2, 
-	team_id VARCHAR2, 
+	allocation_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	work_item_type VARCHAR2(255 CHAR) NOT NULL, 
+	work_item_id VARCHAR2(255 CHAR) NOT NULL, 
+	assignee_user_soeid VARCHAR2(255 CHAR), 
+	assignee VARCHAR2(255 CHAR), 
+	team_id VARCHAR2(255 CHAR), 
 	week_start DATE NOT NULL, 
 	month_start DATE, 
 	hours INTEGER NOT NULL, 
 	fte_months FLOAT NOT NULL, 
-	window_id VARCHAR2, 
+	window_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -357,29 +357,29 @@ CREATE TABLE "TB_TA_PM_RESOURCE_ALLOCATIONS" (
 -- Table: TB_TA_PM_SOLUTIONS
 
 CREATE TABLE "TB_TA_PM_SOLUTIONS" (
-	solution_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	solution_name VARCHAR2 NOT NULL, 
-	version VARCHAR2 NOT NULL, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_name VARCHAR2(255 CHAR) NOT NULL, 
+	version VARCHAR2(255 CHAR) NOT NULL, 
 	status VARCHAR(11 CHAR) NOT NULL, 
 	rag_status VARCHAR(5 CHAR) NOT NULL, 
-	rag_reason VARCHAR2, 
+	rag_reason VARCHAR2(255 CHAR), 
 	priority INTEGER NOT NULL, 
 	due_date DATE, 
-	current_phase VARCHAR2, 
-	description VARCHAR2, 
-	success_criteria VARCHAR2, 
-	problem_statement VARCHAR2, 
-	owner VARCHAR2 NOT NULL, 
-	owner_user_soeid VARCHAR2, 
-	assignee VARCHAR2 NOT NULL, 
-	assignee_user_soeid VARCHAR2, 
-	approver VARCHAR2, 
-	approver_user_soeid VARCHAR2, 
-	key_stakeholder VARCHAR2, 
-	blockers VARCHAR2, 
-	risks VARCHAR2, 
+	current_phase VARCHAR2(255 CHAR), 
+	description VARCHAR2(255 CHAR), 
+	success_criteria VARCHAR2(255 CHAR), 
+	problem_statement VARCHAR2(255 CHAR), 
+	owner VARCHAR2(255 CHAR) NOT NULL, 
+	owner_user_soeid VARCHAR2(255 CHAR), 
+	assignee VARCHAR2(255 CHAR) NOT NULL, 
+	assignee_user_soeid VARCHAR2(255 CHAR), 
+	approver VARCHAR2(255 CHAR), 
+	approver_user_soeid VARCHAR2(255 CHAR), 
+	key_stakeholder VARCHAR2(255 CHAR), 
+	blockers VARCHAR2(255 CHAR), 
+	risks VARCHAR2(255 CHAR), 
 	impact_confidence VARCHAR(6 CHAR), 
 	planned_start_date DATE, 
 	rag_confidence FLOAT, 
@@ -397,13 +397,13 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 -- Table: TB_TA_PM_TEAM_MEMBERS
 
 CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
-	team_member_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	team_id VARCHAR2 NOT NULL, 
-	member_name VARCHAR2 NOT NULL, 
-	role VARCHAR2 NOT NULL, 
+	team_member_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	team_id VARCHAR2(255 CHAR) NOT NULL, 
+	member_name VARCHAR2(255 CHAR) NOT NULL, 
+	role VARCHAR2(255 CHAR) NOT NULL, 
 	capacity_override INTEGER, 
-	capacity_unit VARCHAR2, 
+	capacity_unit VARCHAR2(255 CHAR), 
 	hours_capacity INTEGER, 
 	capacity_fte_month FLOAT, 
 	points_capacity INTEGER, 
@@ -419,13 +419,13 @@ CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
 -- Table: TB_TA_PM_AI_QUERY_METRICS
 
 CREATE TABLE "TB_TA_PM_AI_QUERY_METRICS" (
-	query_metric_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	session_id VARCHAR2, 
-	user_id VARCHAR2, 
-	project_id VARCHAR2, 
-	entity_type VARCHAR2, 
-	entity_id VARCHAR2, 
+	query_metric_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	session_id VARCHAR2(255 CHAR), 
+	user_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR), 
+	entity_type VARCHAR2(255 CHAR), 
+	entity_id VARCHAR2(255 CHAR), 
 	tool_calls_count INTEGER NOT NULL, 
 	context_calls_count INTEGER NOT NULL, 
 	bytes_returned INTEGER NOT NULL, 
@@ -448,14 +448,14 @@ CREATE TABLE "TB_TA_PM_AI_QUERY_METRICS" (
 -- Table: TB_TA_PM_EXTERNAL_DOCUMENTS
 
 CREATE TABLE "TB_TA_PM_EXTERNAL_DOCUMENTS" (
-	document_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2, 
-	solution_id VARCHAR2, 
-	filename VARCHAR2 NOT NULL, 
-	content_type VARCHAR2, 
-	storage_path VARCHAR2 NOT NULL, 
-	uploaded_by_user_id VARCHAR2, 
+	document_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR), 
+	solution_id VARCHAR2(255 CHAR), 
+	filename VARCHAR2(255 CHAR) NOT NULL, 
+	content_type VARCHAR2(255 CHAR), 
+	storage_path VARCHAR2(255 CHAR) NOT NULL, 
+	uploaded_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -469,18 +469,18 @@ CREATE TABLE "TB_TA_PM_EXTERNAL_DOCUMENTS" (
 -- Table: TB_TA_PM_SOLUTION_CARD_DIGESTS
 
 CREATE TABLE "TB_TA_PM_SOLUTION_CARD_DIGESTS" (
-	solution_id VARCHAR2 NOT NULL, 
-	project_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	tenant_id VARCHAR2, 
-	solution_name VARCHAR2 NOT NULL, 
-	status VARCHAR2, 
-	rag_status VARCHAR2, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	tenant_id VARCHAR2(255 CHAR), 
+	solution_name VARCHAR2(255 CHAR) NOT NULL, 
+	status VARCHAR2(255 CHAR), 
+	rag_status VARCHAR2(255 CHAR), 
 	priority INTEGER, 
-	current_phase VARCHAR2, 
+	current_phase VARCHAR2(255 CHAR), 
 	due_date DATE, 
-	owner VARCHAR2, 
-	assignee VARCHAR2, 
+	owner VARCHAR2(255 CHAR), 
+	assignee VARCHAR2(255 CHAR), 
 	open_task_count INTEGER NOT NULL, 
 	blocked_task_count INTEGER NOT NULL, 
 	top_risks_json CLOB, 
@@ -498,9 +498,9 @@ CREATE TABLE "TB_TA_PM_SOLUTION_CARD_DIGESTS" (
 -- Table: TB_TA_PM_SOLUTION_PHASES
 
 CREATE TABLE "TB_TA_PM_SOLUTION_PHASES" (
-	solution_phase_id VARCHAR2 NOT NULL, 
-	solution_id VARCHAR2 NOT NULL, 
-	phase_id VARCHAR2 NOT NULL, 
+	solution_phase_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
+	phase_id VARCHAR2(255 CHAR) NOT NULL, 
 	is_enabled SMALLINT NOT NULL, 
 	sequence_override INTEGER, 
 	created_at DATE NOT NULL, 
@@ -514,14 +514,14 @@ CREATE TABLE "TB_TA_PM_SOLUTION_PHASES" (
 -- Table: TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT
 
 CREATE TABLE "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (
-	snapshot_id VARCHAR2 NOT NULL, 
-	solution_id VARCHAR2 NOT NULL, 
+	snapshot_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
 	week_start DATE NOT NULL, 
 	rag_status VARCHAR(5 CHAR) NOT NULL, 
-	progress_note VARCHAR2, 
-	next_week_plan VARCHAR2, 
+	progress_note VARCHAR2(255 CHAR), 
+	next_week_plan VARCHAR2(255 CHAR), 
 	confidence_on_due_date VARCHAR(6 CHAR), 
-	owner_user_id VARCHAR2, 
+	owner_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -534,20 +534,20 @@ CREATE TABLE "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (
 -- Table: TB_TA_PM_SOW_DOCUMENTS
 
 CREATE TABLE "TB_TA_PM_SOW_DOCUMENTS" (
-	sow_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	solution_id VARCHAR2, 
-	title VARCHAR2, 
-	content VARCHAR2 NOT NULL, 
-	state VARCHAR2 NOT NULL, 
-	approval_state VARCHAR2 NOT NULL, 
+	sow_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_id VARCHAR2(255 CHAR), 
+	title VARCHAR2(255 CHAR), 
+	content VARCHAR2(255 CHAR) NOT NULL, 
+	state VARCHAR2(255 CHAR) NOT NULL, 
+	approval_state VARCHAR2(255 CHAR) NOT NULL, 
 	approval_requested_at DATE, 
-	approval_requested_by_user_id VARCHAR2, 
+	approval_requested_by_user_id VARCHAR2(255 CHAR), 
 	approval_decided_at DATE, 
-	approval_decided_by_user_id VARCHAR2, 
+	approval_decided_by_user_id VARCHAR2(255 CHAR), 
 	approval_note CLOB, 
-	created_by_user_id VARCHAR2, 
+	created_by_user_id VARCHAR2(255 CHAR), 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
@@ -563,21 +563,21 @@ CREATE TABLE "TB_TA_PM_SOW_DOCUMENTS" (
 -- Table: TB_TA_PM_SUBCOMPONENTS
 
 CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
-	subcomponent_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	project_id VARCHAR2 NOT NULL, 
-	solution_id VARCHAR2 NOT NULL, 
-	subcomponent_name VARCHAR2 NOT NULL, 
+	subcomponent_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
+	subcomponent_name VARCHAR2(255 CHAR) NOT NULL, 
 	status VARCHAR(11 CHAR) NOT NULL, 
 	priority INTEGER NOT NULL, 
 	due_date DATE, 
 	completed_at DATE, 
-	assignee_user_soeid VARCHAR2, 
-	assignee VARCHAR2 NOT NULL, 
+	assignee_user_soeid VARCHAR2(255 CHAR), 
+	assignee VARCHAR2(255 CHAR) NOT NULL, 
 	estimate_hours INTEGER, 
 	blocked SMALLINT NOT NULL, 
-	blocker_note VARCHAR2, 
-	done_criteria VARCHAR2, 
+	blocker_note VARCHAR2(255 CHAR), 
+	done_criteria VARCHAR2(255 CHAR), 
 	capacity_hours INTEGER NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
@@ -592,15 +592,15 @@ CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
 -- Table: TB_TA_PM_TASK_CARD_DIGESTS
 
 CREATE TABLE "TB_TA_PM_TASK_CARD_DIGESTS" (
-	subcomponent_id VARCHAR2 NOT NULL, 
-	project_id VARCHAR2 NOT NULL, 
-	solution_id VARCHAR2 NOT NULL, 
-	space_id VARCHAR2, 
-	tenant_id VARCHAR2, 
-	subcomponent_name VARCHAR2 NOT NULL, 
-	status VARCHAR2, 
+	subcomponent_id VARCHAR2(255 CHAR) NOT NULL, 
+	project_id VARCHAR2(255 CHAR) NOT NULL, 
+	solution_id VARCHAR2(255 CHAR) NOT NULL, 
+	space_id VARCHAR2(255 CHAR), 
+	tenant_id VARCHAR2(255 CHAR), 
+	subcomponent_name VARCHAR2(255 CHAR) NOT NULL, 
+	status VARCHAR2(255 CHAR), 
 	priority INTEGER, 
-	assignee VARCHAR2, 
+	assignee VARCHAR2(255 CHAR), 
 	due_date DATE, 
 	blocked SMALLINT NOT NULL, 
 	blocker_note CLOB, 
@@ -635,20 +635,11 @@ CREATE INDEX idx_alloc_week_assignee ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (week_st
 -- Index: idx_change_entity_created
 CREATE INDEX idx_change_entity_created ON "TB_TA_PM_CHANGE_LOG" (entity_type, entity_id, created_at);
 
--- Index: idx_change_request
-CREATE INDEX idx_change_request ON "TB_TA_PM_CHANGE_LOG" (request_id);
-
 -- Index: idx_change_user_created
 CREATE INDEX idx_change_user_created ON "TB_TA_PM_CHANGE_LOG" (user_id, created_at);
 
 -- Index: idx_external_ref_work_item
 CREATE INDEX idx_external_ref_work_item ON "TB_TA_PM_EXTERNAL_REF" (work_item_type, work_item_id);
-
--- Index: idx_snapshot_solution_week
-CREATE INDEX idx_snapshot_solution_week ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (solution_id, week_start);
-
--- Index: idx_team_member_team
-CREATE INDEX idx_team_member_team ON "TB_TA_PM_TEAM_MEMBERS" (team_id);
 
 -- Index: ix_TB_TA_PM_AI_QUERY_METRICS_project_id
 CREATE INDEX "ix_TB_TA_PM_AI_QUERY_METRICS_project_id" ON "TB_TA_PM_AI_QUERY_METRICS" (project_id);
@@ -742,9 +733,6 @@ CREATE INDEX "ix_TB_TA_PM_PLANNING_WINDOWS_space_id" ON "TB_TA_PM_PLANNING_WINDO
 
 -- Index: ix_TB_TA_PM_PROJECTS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_deleted_at" ON "TB_TA_PM_PROJECTS" (deleted_at);
-
--- Index: ix_TB_TA_PM_PROJECTS_project_name
-CREATE INDEX "ix_TB_TA_PM_PROJECTS_project_name" ON "TB_TA_PM_PROJECTS" (project_name);
 
 -- Index: ix_TB_TA_PM_PROJECTS_space_id
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_space_id" ON "TB_TA_PM_PROJECTS" (space_id);
@@ -953,12 +941,6 @@ CREATE INDEX "ix_TB_TA_PM_SPACES_deleted_at" ON "TB_TA_PM_SPACES" (deleted_at);
 -- Index: ix_TB_TA_PM_SPACES_is_active
 CREATE INDEX "ix_TB_TA_PM_SPACES_is_active" ON "TB_TA_PM_SPACES" (is_active);
 
--- Index: ix_TB_TA_PM_SPACES_name
-CREATE INDEX "ix_TB_TA_PM_SPACES_name" ON "TB_TA_PM_SPACES" (name);
-
--- Index: ix_TB_TA_PM_SPACES_slug
-CREATE INDEX "ix_TB_TA_PM_SPACES_slug" ON "TB_TA_PM_SPACES" (slug);
-
 -- Index: ix_TB_TA_PM_SPACE_MEMBERSHIPS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_SPACE_MEMBERSHIPS_deleted_at" ON "TB_TA_PM_SPACE_MEMBERSHIPS" (deleted_at);
 
@@ -1034,9 +1016,6 @@ CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_tenant_id" ON "TB_TA_PM_TASK_CARD_DI
 -- Index: ix_TB_TA_PM_TEAMS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_TEAMS_deleted_at" ON "TB_TA_PM_TEAMS" (deleted_at);
 
--- Index: ix_TB_TA_PM_TEAMS_name
-CREATE INDEX "ix_TB_TA_PM_TEAMS_name" ON "TB_TA_PM_TEAMS" (name);
-
 -- Index: ix_TB_TA_PM_TEAMS_space_id
 CREATE INDEX "ix_TB_TA_PM_TEAMS_space_id" ON "TB_TA_PM_TEAMS" (space_id);
 
@@ -1051,12 +1030,6 @@ CREATE INDEX "ix_TB_TA_PM_TEAM_MEMBERS_space_id" ON "TB_TA_PM_TEAM_MEMBERS" (spa
 
 -- Index: ix_TB_TA_PM_TEAM_MEMBERS_team_id
 CREATE INDEX "ix_TB_TA_PM_TEAM_MEMBERS_team_id" ON "TB_TA_PM_TEAM_MEMBERS" (team_id);
-
--- Index: ix_TB_TA_PM_USERS_email
-CREATE UNIQUE INDEX "ix_TB_TA_PM_USERS_email" ON "TB_TA_PM_USERS" (email);
-
--- Index: ix_TB_TA_PM_USERS_soeid
-CREATE UNIQUE INDEX "ix_TB_TA_PM_USERS_soeid" ON "TB_TA_PM_USERS" (soeid);
 
 -- Index: ix_TB_TA_PM_USERS_team_tag
 CREATE INDEX "ix_TB_TA_PM_USERS_team_tag" ON "TB_TA_PM_USERS" (team_tag);

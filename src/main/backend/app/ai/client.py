@@ -25,24 +25,25 @@ def get_client() -> object:
     except Exception as exc:  # pragma: no cover - import depends on runtime env
         raise GenAIConfigError("google-genai package is not available") from exc
 
-    api_key = (
-        (os.getenv("GENAI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
-    )
-    use_vertex = str(os.getenv("GOOGLE_GENAI_USE_VERTEXAI") or os.getenv("GENAI_USE_VERTEXAI") or "").strip().lower() in {
+    # Canonical configuration names (single source of truth):
+    # - GENAI_API_KEY
+    # - GENAI_USE_VERTEXAI
+    # - GENAI_PROJECT
+    # - GENAI_LOCATION
+    api_key = (os.getenv("GENAI_API_KEY") or "").strip()
+    use_vertex = str(os.getenv("GENAI_USE_VERTEXAI") or "").strip().lower() in {
         "1",
         "true",
         "yes",
         "on",
     }
-    project = (os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_PROJECT_ID") or os.getenv("GENAI_PROJECT") or "").strip()
-    location = (
-        os.getenv("GOOGLE_CLOUD_LOCATION") or os.getenv("GOOGLE_GENAI_LOCATION") or os.getenv("GENAI_LOCATION") or "us-central1"
-    ).strip()
+    project = (os.getenv("GENAI_PROJECT") or "").strip()
+    location = (os.getenv("GENAI_LOCATION") or "us-central1").strip()
 
     try:
         if use_vertex or (project and not api_key):
             if not project:
-                raise GenAIConfigError("Vertex mode requires GOOGLE_CLOUD_PROJECT (or GOOGLE_PROJECT_ID/GENAI_PROJECT).")
+                raise GenAIConfigError("Vertex mode requires GENAI_PROJECT.")
             _CACHED_CLIENT = genai.Client(vertexai=True, project=project, location=location)
         elif api_key:
             _CACHED_CLIENT = genai.Client(api_key=api_key, vertexai=False)

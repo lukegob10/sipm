@@ -29,12 +29,7 @@ def test_get_client_returns_cached_client(monkeypatch):
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
     monkeypatch.delenv("GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("GOOGLE_PROJECT_ID", raising=False)
     monkeypatch.delenv("GENAI_PROJECT", raising=False)
 
     from backend.app.ai.client import get_client
@@ -72,11 +67,6 @@ def test_get_client_includes_sdk_init_error_details(monkeypatch):
     monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
 
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    monkeypatch.delenv("GOOGLE_PROJECT_ID", raising=False)
     monkeypatch.delenv("GENAI_PROJECT", raising=False)
 
     from backend.app.ai.client import get_client
@@ -103,12 +93,10 @@ def test_get_client_uses_vertex_mode_when_configured(monkeypatch):
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setitem(sys.modules, "google.genai", genai_mod)
 
-    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
-    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+    monkeypatch.setenv("GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GENAI_PROJECT", "my-proj")
+    monkeypatch.setenv("GENAI_LOCATION", "us-central1")
     monkeypatch.delenv("GENAI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     from backend.app.ai.client import get_client
 

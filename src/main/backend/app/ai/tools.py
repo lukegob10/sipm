@@ -2337,7 +2337,7 @@ def _blocked_task_counts_by_solution(
         )
         .filter(Subcomponent.solution_id.in_(solution_ids))
         .filter(Subcomponent.deleted_at.is_(None))
-        .filter(Subcomponent.blocked.is_(True))
+        .filter(Subcomponent.blocked == True)
         .filter(Subcomponent.status != SubcomponentStatus.complete)
         .group_by(Subcomponent.solution_id)
         .all()
@@ -2897,7 +2897,7 @@ def list_task_cards(
     if statuses:
         query_obj = query_obj.filter(Subcomponent.status.in_(list(statuses)))
     if blocked is not None:
-        query_obj = query_obj.filter(Subcomponent.blocked.is_(bool(blocked)))
+        query_obj = query_obj.filter(Subcomponent.blocked == bool(blocked))
     if search_text:
         pattern = f"%{search_text}%"
         query_obj = query_obj.filter(
@@ -3150,7 +3150,7 @@ def get_scope_digest(
     project_count = int(project_query.count())
     solution_count = int(solution_query.count())
     task_count = int(task_query.count())
-    blocked_task_count = int(task_query.filter(Subcomponent.blocked.is_(True)).count())
+    blocked_task_count = int(task_query.filter(Subcomponent.blocked == True).count())
     open_task_count = int(task_query.filter(Subcomponent.status != SubcomponentStatus.complete).count())
 
     updated_candidates = [

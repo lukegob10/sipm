@@ -96,7 +96,7 @@ def _enabled_phase_ids(session: Session, solution_id: str) -> set[str]:
     rows = (
         session.query(SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled.is_(True))
+        .filter(SolutionPhase.is_enabled == True)
         .all()
     )
     return {r[0] for r in rows}
@@ -108,7 +108,7 @@ def _last_enabled_phase_id(session: Session, solution_id: str) -> Optional[str]:
         session.query(SolutionPhase.phase_id)
         .join(Phase, Phase.phase_id == SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled.is_(True))
+        .filter(SolutionPhase.is_enabled == True)
         .order_by(sort_key.desc(), Phase.sequence.desc(), SolutionPhase.solution_phase_id.desc())
         .first()
     )

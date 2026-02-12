@@ -109,7 +109,7 @@ def set_solution_phases(
             row[0]
             for row in session.query(SolutionPhase.phase_id)
             .filter(SolutionPhase.solution_id == solution_id)
-            .filter(SolutionPhase.is_enabled.is_(True))
+            .filter(SolutionPhase.is_enabled == True)
             .all()
         }
         if solution.current_phase not in enabled_ids:

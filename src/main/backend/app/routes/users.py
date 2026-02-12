@@ -41,7 +41,7 @@ def _is_global_admin(user: User) -> bool:
 def _count_active_global_admins(session: Session) -> int:
     return (
         session.query(User)
-        .filter(User.is_active.is_(True))
+        .filter(User.is_active == True)
         .filter(User.role == "global_admin")
         .count()
     )
@@ -183,7 +183,7 @@ def list_users(
     def _load():
         query = _active_space_user_query(session, space_ctx)
         if active_only:
-            query = query.filter(User.is_active.is_(True))
+            query = query.filter(User.is_active == True)
         if team_tag_norm:
             query = query.filter(User.team_tag == team_tag_norm)
         return [UserRead.model_validate(user).model_dump(mode="json") for user in query.order_by(User.display_name.asc()).all()]
@@ -208,7 +208,7 @@ def list_global_admin_users(
 ) -> List[UserRead]:
     query = session.query(User).filter(User.role == "global_admin")
     if active_only:
-        query = query.filter(User.is_active.is_(True))
+        query = query.filter(User.is_active == True)
     return query.order_by(User.display_name.asc()).all()
 
 
@@ -429,7 +429,7 @@ def export_users(
     def _load():
         users = (
             _active_space_user_query(session, space_ctx)
-            .filter(User.is_active.is_(True))
+            .filter(User.is_active == True)
             .order_by(User.display_name.asc())
             .all()
         )

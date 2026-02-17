@@ -141,6 +141,7 @@ class GenAIApproveRequest(BaseModel):
     entity_id: Optional[str] = None
     output: str
     month_key: Optional[str] = None
+    audit_tools: Optional[list[str]] = None
 
 
 class GenAISearchRequest(BaseModel):

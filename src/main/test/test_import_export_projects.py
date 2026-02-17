@@ -5,6 +5,10 @@ from io import StringIO
 
 import pytest
 
+from backend.main import app as fastapi_app
+from backend.app import deps as deps_module
+from backend.app.services.spaces import SpaceContext
+
 
 @pytest.mark.anyio
 async def test_projects_import_updates_creates_and_exports(client):
@@ -69,6 +73,56 @@ async def test_projects_import_updates_creates_and_exports(client):
     sponsor_filtered = await client.get("/api/projects", params={"sponsor": "cfo office"})
     assert sponsor_filtered.status_code == 200
     assert [p["project_name"] for p in sponsor_filtered.json()] == ["Data Platform"]
+
+
+@pytest.mark.anyio
+async def test_projects_export_is_scoped_to_active_space(client):
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-project-export-a",
+            space_name="Project Export A",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        create_a = await client.post(
+            "/api/projects/",
+            json={"project_name": "Export Scope Project A", "sponsor": "Sponsor A"},
+        )
+        assert create_a.status_code == 201, create_a.text
+
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-project-export-b",
+            space_name="Project Export B",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        create_b = await client.post(
+            "/api/projects/",
+            json={"project_name": "Export Scope Project B", "sponsor": "Sponsor B"},
+        )
+        assert create_b.status_code == 201, create_b.text
+
+        export_b = await client.get("/api/projects/export")
+        assert export_b.status_code == 200, export_b.text
+        rows_b = list(csv.DictReader(StringIO(export_b.text)))
+        assert {row["project_name"] for row in rows_b} == {"Export Scope Project B"}
+
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-project-export-a",
+            space_name="Project Export A",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        export_a = await client.get("/api/projects/export")
+        assert export_a.status_code == 200, export_a.text
+        rows_a = list(csv.DictReader(StringIO(export_a.text)))
+        assert {row["project_name"] for row in rows_a} == {"Export Scope Project A"}
+    finally:
+        if original_current_space is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
 
 
 @pytest.mark.anyio

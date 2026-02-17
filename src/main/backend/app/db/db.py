@@ -1,6 +1,7 @@
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
 
 from ..runtime import get_ta_connection_env
 
@@ -16,7 +17,11 @@ def _build_engine():
     return create_engine(
         "oracle+oracledb://",
         creator=_ta_creator,
-        poolclass=NullPool,
+        pool_size=int(os.getenv("SIPM_DB_POOL_SIZE", "5")),
+        max_overflow=int(os.getenv("SIPM_DB_MAX_OVERFLOW", "10")),
+        pool_timeout=int(os.getenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "30")),
+        pool_recycle=int(os.getenv("SIPM_DB_POOL_RECYCLE_SECONDS", "1800")),
+        pool_pre_ping=(os.getenv("SIPM_DB_POOL_PRE_PING", "true").strip().lower() != "false"),
     )
 
 

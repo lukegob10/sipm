@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from sqlalchemy.exc import IntegrityError
+
+from backend.app.routes import workbench as workbench_routes
 
 
 @pytest.mark.anyio
@@ -215,6 +218,24 @@ def test_workbench_generate_checklist_prompt_renders_without_format_errors():
         deltas_json="{}",
     )
     assert '"month": "2026-02"' in rendered
+
+
+def test_workbench_data_too_large_detector_handles_oracle_error():
+    exc = IntegrityError(
+        statement='INSERT INTO "TB_TA_PM_SOW_DOCUMENTS" (content) VALUES (:content)',
+        params={"content": "x" * 300},
+        orig=Exception('ORA-12899: value too large for column "SIPM"."TB_TA_PM_SOW_DOCUMENTS"."CONTENT"'),
+    )
+    assert workbench_routes._is_data_too_large_integrity_error(exc) is True
+
+
+def test_workbench_data_too_large_detector_ignores_other_integrity_errors():
+    exc = IntegrityError(
+        statement='INSERT INTO "TB_TA_PM_PROJECTS" (project_name) VALUES (:project_name)',
+        params={"project_name": "Duplicate"},
+        orig=Exception("ORA-00001: unique constraint violated"),
+    )
+    assert workbench_routes._is_data_too_large_integrity_error(exc) is False
 
 
 @pytest.mark.anyio

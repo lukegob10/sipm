@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from backend.app.ai import orchestrator
 
 
@@ -457,6 +459,190 @@ def test_draft_update_parses_simple_subcomponent_blocked_without_llm(db_sessionm
         output = updates.get("output") or ""
         assert "\"blocked\"" in output
         assert "true" in output.lower()
+
+
+def test_draft_update_expands_bulk_project_updates(db_sessionmaker, monkeypatch):
+    from backend.app.models import Project
+    from backend.app.utils.enums import ProjectStatus
+
+    with db_sessionmaker() as session:
+        p1 = Project(project_name="Bulk Project One", status=ProjectStatus.active, sponsor="Luke")
+        p2 = Project(project_name="Bulk Project Two", status=ProjectStatus.active, sponsor="Luke")
+        session.add_all([p1, p2])
+        session.commit()
+
+        monkeypatch.setattr(orchestrator, "_safe_call", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError()))
+
+        state = {
+            "pending_tool": {
+                "tool": "draft_update",
+                "args": {
+                    "entity_type": "project",
+                    "entity_id": p1.project_id,
+                    "instruction": "Set status to on_hold",
+                },
+            },
+            "messages": [orchestrator._message_from_role("user", "Please set all projects to on_hold")],
+            "steps": 0,
+            "entity_type": None,
+            "entity_id": None,
+            "project_id": None,
+            "current_date": "2026-02-03",
+            "current_user": {"display_name": "Luke Goblirsch", "soeid": "lg22254"},
+            "context": {"contracts": orchestrator.contract_hints()},
+            "trace_enabled": False,
+        }
+
+        updates = orchestrator._tool_dispatch(state, session)
+        assert updates.get("halt") is True
+        assert updates.get("requires_approval") is True
+        assert updates.get("request_type") == "autofill"
+        payload = json.loads(updates.get("output") or "{}")
+        assert isinstance(payload.get("updates"), list)
+        ids = {item.get("entity_id") for item in payload.get("updates") or []}
+        assert p1.project_id in ids
+        assert p2.project_id in ids
+        assert all(item.get("fields", {}).get("status") == "on_hold" for item in payload.get("updates") or [])
+
+
+def test_draft_update_expands_bulk_solution_updates_with_project_scope(db_sessionmaker, monkeypatch):
+    from backend.app.models import Project, Solution
+    from backend.app.utils.enums import ProjectStatus, SolutionStatus
+
+    with db_sessionmaker() as session:
+        project = Project(project_name="Scoped Bulk Solution Project", status=ProjectStatus.active, sponsor="Luke")
+        other_project = Project(project_name="Other Solution Project", status=ProjectStatus.active, sponsor="Luke")
+        session.add_all([project, other_project])
+        session.commit()
+
+        s1 = Solution(project_id=project.project_id, solution_name="S1", version="0.1.0", status=SolutionStatus.not_started)
+        s2 = Solution(project_id=project.project_id, solution_name="S2", version="0.1.0", status=SolutionStatus.not_started)
+        s_other = Solution(
+            project_id=other_project.project_id,
+            solution_name="S-Other",
+            version="0.1.0",
+            status=SolutionStatus.not_started,
+        )
+        session.add_all([s1, s2, s_other])
+        session.commit()
+
+        monkeypatch.setattr(orchestrator, "_safe_call", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError()))
+
+        state = {
+            "pending_tool": {
+                "tool": "draft_update",
+                "args": {
+                    "entity_type": "solution",
+                    "entity_id": s1.solution_id,
+                    "project_id": project.project_id,
+                    "instruction": "Set owner to Gustavo Rubim",
+                },
+            },
+            "messages": [orchestrator._message_from_role("user", "Set all solutions under this project to Gustavo Rubim")],
+            "steps": 0,
+            "entity_type": "project",
+            "entity_id": project.project_id,
+            "project_id": project.project_id,
+            "current_date": "2026-02-03",
+            "current_user": {"display_name": "Luke Goblirsch", "soeid": "lg22254"},
+            "context": {"contracts": orchestrator.contract_hints()},
+            "trace_enabled": False,
+        }
+
+        updates = orchestrator._tool_dispatch(state, session)
+        assert updates.get("halt") is True
+        assert updates.get("requires_approval") is True
+        assert updates.get("request_type") == "autofill"
+        payload = json.loads(updates.get("output") or "{}")
+        ids = {item.get("entity_id") for item in payload.get("updates") or []}
+        assert ids == {s1.solution_id, s2.solution_id}
+        assert s_other.solution_id not in ids
+        assert all(item.get("fields", {}).get("owner") == "Gustavo Rubim" for item in payload.get("updates") or [])
+
+
+def test_draft_update_expands_bulk_subcomponent_updates_with_solution_scope(db_sessionmaker, monkeypatch):
+    from backend.app.models import Project, Solution, Subcomponent
+    from backend.app.utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
+
+    with db_sessionmaker() as session:
+        project = Project(project_name="Scoped Bulk Subcomponent Project", status=ProjectStatus.active, sponsor="Luke")
+        session.add(project)
+        session.commit()
+
+        solution = Solution(
+            project_id=project.project_id,
+            solution_name="Subcomponent Scope",
+            version="0.1.0",
+            status=SolutionStatus.not_started,
+        )
+        other_solution = Solution(
+            project_id=project.project_id,
+            solution_name="Other Scope",
+            version="0.1.0",
+            status=SolutionStatus.not_started,
+        )
+        session.add_all([solution, other_solution])
+        session.commit()
+
+        sc1 = Subcomponent(
+            project_id=project.project_id,
+            solution_id=solution.solution_id,
+            subcomponent_name="Task 1",
+            status=SubcomponentStatus.to_do,
+            priority=3,
+            blocked=False,
+        )
+        sc2 = Subcomponent(
+            project_id=project.project_id,
+            solution_id=solution.solution_id,
+            subcomponent_name="Task 2",
+            status=SubcomponentStatus.to_do,
+            priority=3,
+            blocked=False,
+        )
+        sc_other = Subcomponent(
+            project_id=project.project_id,
+            solution_id=other_solution.solution_id,
+            subcomponent_name="Task Other",
+            status=SubcomponentStatus.to_do,
+            priority=3,
+            blocked=False,
+        )
+        session.add_all([sc1, sc2, sc_other])
+        session.commit()
+
+        monkeypatch.setattr(orchestrator, "_safe_call", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError()))
+
+        state = {
+            "pending_tool": {
+                "tool": "draft_update",
+                "args": {
+                    "entity_type": "subcomponent",
+                    "entity_id": sc1.subcomponent_id,
+                    "project_id": project.project_id,
+                    "instruction": "Set blocked to true",
+                },
+            },
+            "messages": [orchestrator._message_from_role("user", "Please mark all subcomponents as blocked")],
+            "steps": 0,
+            "entity_type": "solution",
+            "entity_id": solution.solution_id,
+            "project_id": project.project_id,
+            "current_date": "2026-02-03",
+            "current_user": {"display_name": "Luke Goblirsch", "soeid": "lg22254"},
+            "context": {"contracts": orchestrator.contract_hints()},
+            "trace_enabled": False,
+        }
+
+        updates = orchestrator._tool_dispatch(state, session)
+        assert updates.get("halt") is True
+        assert updates.get("requires_approval") is True
+        assert updates.get("request_type") == "autofill"
+        payload = json.loads(updates.get("output") or "{}")
+        ids = {item.get("entity_id") for item in payload.get("updates") or []}
+        assert ids == {sc1.subcomponent_id, sc2.subcomponent_id}
+        assert sc_other.subcomponent_id not in ids
+        assert all(item.get("fields", {}).get("blocked") is True for item in payload.get("updates") or [])
 
 
 def test_draft_subcomponents_resolves_solution_with_project_scope(db_sessionmaker, monkeypatch):

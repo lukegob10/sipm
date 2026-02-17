@@ -5,7 +5,10 @@ from io import StringIO
 
 import pytest
 
+from backend.main import app as fastapi_app
+from backend.app import deps as deps_module
 from backend.app.models import Phase
+from backend.app.services.spaces import SpaceContext
 
 
 async def create_project(client, name: str = "Data Platform"):
@@ -187,6 +190,61 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     list_complete = await client.get("/api/solutions", params={"status": "complete"})
     assert list_complete.status_code == 200
     assert [s["solution_name"] for s in list_complete.json()] == ["Mark Complete"]
+
+
+@pytest.mark.anyio
+async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmaker):
+    seed_minimal_phases(db_sessionmaker)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-solution-export-a",
+            space_name="Solution Export A",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        project_a = await create_project(client, name="Solution Export Project A")
+        create_solution_a = await client.post(
+            f"/api/projects/{project_a['project_id']}/solutions",
+            json={"solution_name": "Scoped Solution A", "version": "0.1.0", "owner": "Owner A"},
+        )
+        assert create_solution_a.status_code == 201, create_solution_a.text
+
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-solution-export-b",
+            space_name="Solution Export B",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        project_b = await create_project(client, name="Solution Export Project B")
+        create_solution_b = await client.post(
+            f"/api/projects/{project_b['project_id']}/solutions",
+            json={"solution_name": "Scoped Solution B", "version": "0.1.0", "owner": "Owner B"},
+        )
+        assert create_solution_b.status_code == 201, create_solution_b.text
+
+        export_b = await client.get("/api/solutions/export")
+        assert export_b.status_code == 200, export_b.text
+        rows_b = list(csv.DictReader(StringIO(export_b.text)))
+        assert {row["solution_name"] for row in rows_b} == {"Scoped Solution B"}
+        assert {row["project_name"] for row in rows_b} == {"Solution Export Project B"}
+
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-solution-export-a",
+            space_name="Solution Export A",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        export_a = await client.get("/api/solutions/export")
+        assert export_a.status_code == 200, export_a.text
+        rows_a = list(csv.DictReader(StringIO(export_a.text)))
+        assert {row["solution_name"] for row in rows_a} == {"Scoped Solution A"}
+        assert {row["project_name"] for row in rows_a} == {"Solution Export Project A"}
+    finally:
+        if original_current_space is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
 
 
 @pytest.mark.anyio

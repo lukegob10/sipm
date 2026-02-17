@@ -31,6 +31,11 @@ def _normalize_slug(value: str) -> str:
     return cleaned or DEFAULT_SPACE_SLUG
 
 
+def _normalize_space_role(value: str | None) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or "member"
+
+
 def get_or_create_default_space(session: Session) -> Space:
     space = (
         session.query(Space)
@@ -70,6 +75,7 @@ def ensure_space_membership(
     role: str = "member",
     status: str = "active",
 ) -> SpaceMembership:
+    role = _normalize_space_role(role)
     membership = (
         session.query(SpaceMembership)
         .filter(SpaceMembership.space_id == space_id)
@@ -82,7 +88,7 @@ def ensure_space_membership(
         if membership.status != status:
             membership.status = status
             changed = True
-        if membership.role != role:
+        if _normalize_space_role(membership.role) != role:
             membership.role = role
             changed = True
         if changed:
@@ -197,7 +203,7 @@ def resolve_active_space_context(
         space_id=space.space_id,
         space_name=space.name,
         is_global_admin=False,
-        space_role=membership.role or "member",
+        space_role=_normalize_space_role(membership.role),
     )
 
 

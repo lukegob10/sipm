@@ -13,12 +13,14 @@ from backend.app.auth.auth import (
     ALGORITHM,
     SECRET_KEY,
     clear_auth_cookies,
+    create_token,
     decode_token,
     hash_password,
     set_auth_cookies,
     verify_password,
 )
 from backend.app.models import User
+from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
 
@@ -94,6 +96,18 @@ def test_decode_token_errors_and_type_check():
     assert exc.value.detail == "Invalid token type"
 
 
+def test_refresh_token_default_ttl_is_one_hour():
+    token = create_token("user-1", "user", "refresh")
+    payload = jwt.decode(
+        token,
+        SECRET_KEY,
+        algorithms=[ALGORITHM],
+        options={"verify_exp": False},
+    )
+    ttl_seconds = int(payload["exp"]) - int(payload["iat"])
+    assert 59 * 60 <= ttl_seconds <= 61 * 60
+
+
 def test_auth_cookie_helpers_set_and_clear():
     response = Response()
     set_auth_cookies(response, "access", "refresh")
@@ -106,6 +120,39 @@ def test_auth_cookie_helpers_set_and_clear():
     cleared = clear.headers.getlist("set-cookie")
     assert any("access_token=" in cookie and "Max-Age=0" in cookie for cookie in cleared)
     assert any("refresh_token=" in cookie and "Max-Age=0" in cookie for cookie in cleared)
+
+
+def test_require_space_role_normalizes_space_admin_aliases():
+    dep = deps_module.require_space_role("space_admin")
+    ctx_space = SpaceContext(
+        space_id="space-1",
+        space_name="Space 1",
+        is_global_admin=False,
+        space_role="space admin",
+    )
+    assert dep(ctx_space) is ctx_space
+
+    ctx_hyphen = SpaceContext(
+        space_id="space-1",
+        space_name="Space 1",
+        is_global_admin=False,
+        space_role="space-admin",
+    )
+    assert dep(ctx_hyphen) is ctx_hyphen
+
+
+def test_require_space_role_rejects_member_for_space_admin_threshold():
+    dep = deps_module.require_space_role("space_admin")
+    ctx = SpaceContext(
+        space_id="space-1",
+        space_name="Space 1",
+        is_global_admin=False,
+        space_role="member",
+    )
+    with pytest.raises(HTTPException) as exc:
+        dep(ctx)
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Insufficient space role"
 
 
 @pytest.mark.anyio

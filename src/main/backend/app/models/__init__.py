@@ -396,7 +396,8 @@ class SOWDocument(TimestampMixin, SoftDeleteMixin, Base):
     project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     solution_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("solutions", "solution_id")), nullable=True, index=True)
     title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    content: Mapped[str] = mapped_column(String, nullable=False)
+    # SOW documents are long-form and regularly exceed Oracle VARCHAR2(255).
+    content: Mapped[str] = mapped_column(Text, nullable=False)
     state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
     approval_state: Mapped[str] = mapped_column(String, nullable=False, default="draft", index=True)
     approval_requested_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -418,7 +419,8 @@ class ChecklistItem(TimestampMixin, SoftDeleteMixin, Base):
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     project_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("projects", "project_id")), nullable=False, index=True)
     month_key: Mapped[str] = mapped_column(String, nullable=False, index=True)  # YYYY-MM
-    title: Mapped[str] = mapped_column(String, nullable=False)
+    # Checklist lines may include full markdown table rows and analyst notes.
+    title: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="open")
     created_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
 

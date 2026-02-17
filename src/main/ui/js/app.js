@@ -146,6 +146,17 @@ const els = {
   solutionsUpload: document.getElementById("solutions-upload"),
   solutionsFile: document.getElementById("solutions-file"),
   solutionsImportResult: document.getElementById("solutions-import-result"),
+  csvUploadModal: document.getElementById("csv-upload-modal"),
+  csvUploadBackdrop: document.getElementById("csv-upload-backdrop"),
+  csvUploadClose: document.getElementById("csv-upload-close"),
+  csvUploadTitle: document.getElementById("csv-upload-title"),
+  csvUploadDescription: document.getElementById("csv-upload-description"),
+  csvDropzone: document.getElementById("csv-dropzone"),
+  csvUploadFile: document.getElementById("csv-upload-file"),
+  csvUploadFileName: document.getElementById("csv-upload-file-name"),
+  csvDownloadTemplate: document.getElementById("csv-download-template"),
+  csvSubmitUpload: document.getElementById("csv-submit-upload"),
+  csvUploadStatus: document.getElementById("csv-upload-status"),
   phasesTable: document.getElementById("phases-table"),
   subcomponentForm: document.getElementById("subcomponent-form"),
   subcomponentFormStatus: document.getElementById("subcomponent-form-status"),
@@ -242,6 +253,8 @@ const els = {
   structureGenerate: document.getElementById("structure-generate"),
   structureCommit: document.getElementById("structure-commit"),
   structureStatus: document.getElementById("structure-status"),
+  structureRefineBusy: document.getElementById("structure-refine-busy"),
+  structureRefineBusyText: document.getElementById("structure-refine-busy-text"),
   structureSufficiency: document.getElementById("structure-sufficiency"),
   structureMissing: document.getElementById("structure-missing"),
   structureCharterMeta: document.getElementById("structure-charter-meta"),
@@ -269,9 +282,13 @@ const els = {
   structureRefineInput: document.getElementById("structure-refine-input"),
   structureRefineSubmit: document.getElementById("structure-refine-submit"),
   structureRefineCancel: document.getElementById("structure-refine-cancel"),
+  structureRefineModalBusy: document.getElementById("structure-refine-modal-busy"),
+  structureRefineModalBusyText: document.getElementById("structure-refine-modal-busy-text"),
 };
 
 const normalize = (value) => (value || "").toString().trim().toLowerCase();
+const normalizeSpaceRole = (value) => normalize(value).replace(/[\s-]+/g, "_");
+const isSpaceAdminRole = (value) => normalizeSpaceRole(value) === "space_admin";
 
 function escapeHtml(value) {
   return String(value || "")
@@ -430,6 +447,10 @@ let idleInterval = null;
 let idleListenersBound = false;
 let sessionRefreshPromise = null;
 let lastSessionRefreshAt = 0;
+const csvUploadState = {
+  kind: "",
+  file: null,
+};
 
 const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
 const KNOWN_VIEWS = [
@@ -530,12 +551,20 @@ function isAdminView(view) {
 function userCanAccessAdminViews() {
   if (!state.authed) return false;
   if (userIsGlobalAdmin()) return true;
-  return normalize(state.activeSpace?.space_role) === "space_admin";
+  return isSpaceAdminRole(state.activeSpace?.space_role);
+}
+
+function canAccessView(view) {
+  const normalized = normalizeView(view);
+  if (normalized === "access") return state.authed && userIsGlobalAdmin();
+  if (normalized === "team-capacity" || normalized === "spaces") return userCanAccessAdminViews();
+  if (isAdminView(normalized)) return false;
+  return true;
 }
 
 function resolveAccessibleView(view) {
   const normalized = normalizeView(view);
-  if (isAdminView(normalized) && !userCanAccessAdminViews()) {
+  if (!canAccessView(normalized)) {
     return "master";
   }
   return normalized;
@@ -724,10 +753,30 @@ function setStatus(text, type = "") {
   els.status.className = `pill ${type}`;
 }
 
-function setImportResult(el, message, isError = false) {
+const importResultTimers = new WeakMap();
+
+function clearImportResult(el) {
   if (!el) return;
+  const timer = importResultTimers.get(el);
+  if (timer) {
+    clearTimeout(timer);
+    importResultTimers.delete(el);
+  }
+  el.textContent = "";
+  el.classList.remove("error");
+}
+
+function setImportResult(el, message, isError = false, autoClearMs = null) {
+  if (!el) return;
+  clearImportResult(el);
+  if (!message) return;
   el.textContent = message;
   el.classList.toggle("error", !!isError);
+  const clearAfter = autoClearMs == null ? (isError ? 12000 : 5000) : autoClearMs;
+  if (clearAfter > 0) {
+    const timer = setTimeout(() => clearImportResult(el), clearAfter);
+    importResultTimers.set(el, timer);
+  }
 }
 
 const deliverableFormNoticeTimers = new WeakMap();
@@ -774,17 +823,39 @@ function setResetVisible(show) {
 
 function rolePillText(ctx) {
   if (!ctx) return "";
-  const role = (ctx.space_role || "member").replace("_", " ");
+  const role = normalizeSpaceRole(ctx.space_role || "member").replace(/_/g, " ");
   if (ctx.is_global_admin) return `global admin • ${ctx.space_name || ""}`;
   return `${role} • ${ctx.space_name || ""}`;
 }
 
+function syncRoleAwareActions() {
+  const canUseAdminActions = userCanAccessAdminViews();
+  [
+    els.deleteProjectBtn,
+    els.deleteSolutionBtn,
+    els.deleteSubcomponentBtn,
+  ].forEach((button) => {
+    if (!button) return;
+    button.classList.toggle("hidden", !canUseAdminActions);
+    if (!canUseAdminActions) {
+      button.disabled = true;
+    }
+  });
+}
+
 function syncRoleAwareNavigation() {
-  const canAccessAdminViews = userCanAccessAdminViews();
+  const adminButtons = Array.from(els.navButtons || []).filter((btn) => isAdminView(btn.dataset.view));
+  let hasAnyVisibleAdminButton = false;
+  adminButtons.forEach((btn) => {
+    const allowed = canAccessView(btn.dataset.view || "");
+    btn.classList.toggle("hidden", !allowed);
+    if (allowed) hasAnyVisibleAdminButton = true;
+  });
   if (els.navAdminSection) {
-    els.navAdminSection.classList.toggle("hidden", !canAccessAdminViews);
+    els.navAdminSection.classList.toggle("hidden", !hasAnyVisibleAdminButton);
   }
-  if (!canAccessAdminViews && isAdminView(state.currentView)) {
+  syncRoleAwareActions();
+  if (!canAccessView(state.currentView)) {
     setView("master", { replaceHash: true });
   }
 }
@@ -1065,7 +1136,6 @@ function maybeRefreshSessionOnActivity() {
   if (Date.now() - lastSessionRefreshAt < ACCESS_REFRESH_INTERVAL_MS) return;
   refreshSessionTokens({ force: false }).catch(() => {});
 }
-
 
 async function api(path, options = {}) {
   const {
@@ -1521,6 +1591,169 @@ function bindGenAIUI() {
     return output;
   };
 
+  const parseJsonObject = (raw) => {
+    if (!raw) return null;
+    if (typeof raw === "object") return raw;
+    if (typeof raw !== "string") return null;
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    let candidate = trimmed;
+    const fenced = candidate.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+    if (fenced && fenced[1]) {
+      candidate = fenced[1].trim();
+    }
+    try {
+      return JSON.parse(candidate);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const normalizeAiEntityType = (entityType) => {
+    const key = String(entityType || "").trim().toLowerCase();
+    if (!key) return "";
+    if (key === "project" || key === "projects") return "project";
+    if (key === "solution" || key === "solutions") return "solution";
+    if (
+      key === "subcomponent" ||
+      key === "subcomponents" ||
+      key === "task" ||
+      key === "tasks" ||
+      key === "sub-component"
+    ) {
+      return "subcomponent";
+    }
+    return key;
+  };
+
+  const normalizeUpdateDraft = (rawUpdate, fallbackEntityType, fallbackEntityId) => {
+    if (!rawUpdate || typeof rawUpdate !== "object") return null;
+    const raw = rawUpdate;
+
+    let entityType = normalizeAiEntityType(raw.entity_type || fallbackEntityType || "");
+    let entityId = String(raw.entity_id || fallbackEntityId || "").trim();
+    if (!entityId || !entityType) {
+      if (raw.solution_id) {
+        entityType = entityType || "solution";
+        entityId = String(raw.solution_id || "").trim();
+      } else if (raw.subcomponent_id || raw.task_id) {
+        entityType = entityType || "subcomponent";
+        entityId = String(raw.subcomponent_id || raw.task_id || "").trim();
+      } else if (raw.project_id) {
+        entityType = entityType || "project";
+        entityId = String(raw.project_id || "").trim();
+      }
+    }
+    if (!entityType || !entityId) return null;
+
+    let fields = null;
+    if (raw.fields && typeof raw.fields === "object" && !Array.isArray(raw.fields)) {
+      fields = { ...raw.fields };
+    } else {
+      const reserved = new Set([
+        "entity_type",
+        "entity_id",
+        "project_id",
+        "solution_id",
+        "subcomponent_id",
+        "task_id",
+        "project_name",
+        "solution_name",
+        "subcomponent_name",
+        "label",
+      ]);
+      const pairs = Object.entries(raw).filter(([key]) => !reserved.has(key));
+      if (pairs.length) fields = Object.fromEntries(pairs);
+    }
+    if (!fields || !Object.keys(fields).length) return null;
+
+    return { entityType, entityId, fields };
+  };
+
+  const extractUpdatesForLocalState = (output, fallbackEntityType, fallbackEntityId) => {
+    const parsed = parseJsonObject(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+
+    const updates = [];
+    if (Array.isArray(parsed.updates)) {
+      parsed.updates.forEach((candidate) => {
+        const normalized = normalizeUpdateDraft(candidate, fallbackEntityType, fallbackEntityId);
+        if (normalized) updates.push(normalized);
+      });
+    } else {
+      const normalized = normalizeUpdateDraft(parsed, fallbackEntityType, fallbackEntityId);
+      if (normalized) updates.push(normalized);
+      if (
+        !normalized &&
+        parsed.fields &&
+        typeof parsed.fields === "object" &&
+        !Array.isArray(parsed.fields)
+      ) {
+        const entityType = normalizeAiEntityType(fallbackEntityType);
+        const entityId = String(fallbackEntityId || "").trim();
+        if (entityType && entityId) {
+          updates.push({ entityType, entityId, fields: { ...parsed.fields } });
+        }
+      }
+    }
+
+    const merged = new Map();
+    updates.forEach((item) => {
+      const key = `${item.entityType}:${item.entityId}`;
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, item);
+        return;
+      }
+      merged.set(key, {
+        ...existing,
+        fields: { ...existing.fields, ...item.fields },
+      });
+    });
+    return Array.from(merged.values());
+  };
+
+  const applyUpdatesToLocalState = (updates) => {
+    if (!Array.isArray(updates) || !updates.length) return false;
+    const configByType = {
+      project: { list: state.projects, idKey: "project_id" },
+      solution: { list: state.solutions, idKey: "solution_id" },
+      subcomponent: { list: state.subcomponents, idKey: "subcomponent_id" },
+    };
+    let changed = false;
+    updates.forEach((update) => {
+      const cfg = configByType[update.entityType];
+      if (!cfg || !Array.isArray(cfg.list)) return;
+      const idx = cfg.list.findIndex((row) => row && row[cfg.idKey] === update.entityId);
+      if (idx === -1) return;
+      cfg.list[idx] = {
+        ...cfg.list[idx],
+        ...update.fields,
+        [cfg.idKey]: update.entityId,
+      };
+      changed = true;
+    });
+    return changed;
+  };
+
+  const rerenderDeliverablesIfVisible = () => {
+    if (state.currentView === "master") renderMasterTable();
+    if (state.currentView === "dashboard") renderDashboard();
+    if (state.currentView === "kanban") renderKanban();
+    if (state.currentView === "calendar") renderCalendar();
+  };
+
+  const syncUIAfterAISave = async (output, fallbackEntityType, fallbackEntityId) => {
+    const updates = extractUpdatesForLocalState(output, fallbackEntityType, fallbackEntityId);
+    if (applyUpdatesToLocalState(updates)) {
+      rerenderDeliverablesIfVisible();
+    }
+    await refreshFromServer("all");
+    if (applyUpdatesToLocalState(updates)) {
+      rerenderDeliverablesIfVisible();
+    }
+  };
+
   const getProjectId = (entityType, entityId) => {
     void entityType;
     void entityId;
@@ -1587,8 +1820,11 @@ function bindGenAIUI() {
           addMessage("assistant", renderedSaved, { record: false });
         }
       }
-      if (!result.requires_approval && autoRefreshTypes.has(result.request_type)) {
-        await refreshFromServer("all");
+      const resultEntityType = result.entity_type || payload.entity_type;
+      const resultEntityId = result.entity_id || payload.entity_id;
+      const hasLocalUpdates = extractUpdatesForLocalState(result.output, resultEntityType, resultEntityId).length > 0;
+      if (!result.requires_approval && (autoRefreshTypes.has(result.request_type) || hasLocalUpdates)) {
+        await syncUIAfterAISave(result.output, resultEntityType, resultEntityId);
       }
       if (result.requires_approval) {
         const output = result.output || reply;
@@ -1624,6 +1860,7 @@ function bindGenAIUI() {
         if (aiState.autoApprove) {
           setStatusText("Saving...");
           try {
+            const pendingSnapshot = { ...aiState.pending };
             const saved = await api("/ai/approve", {
               method: "POST",
               body: JSON.stringify({ ...aiState.pending }),
@@ -1632,7 +1869,11 @@ function bindGenAIUI() {
             addMessage("assistant", saved?.reply || "Saved.");
             aiState.pending = null;
             setStatusText("");
-            await refreshFromServer("all");
+            await syncUIAfterAISave(
+              saved?.output || pendingSnapshot.output,
+              saved?.entity_type || pendingSnapshot.entity_type,
+              saved?.entity_id || pendingSnapshot.entity_id
+            );
           } catch (err) {
             addMessage("assistant", err.message || "Auto-save failed.");
             setStatusText("");
@@ -1677,7 +1918,11 @@ function bindGenAIUI() {
         addMessage("assistant", result?.reply || "Saved.");
         aiState.pending = null;
         setStatusText("");
-        await refreshFromServer("all");
+        await syncUIAfterAISave(
+          result?.output || payload.output,
+          result?.entity_type || payload.entity_type,
+          result?.entity_id || payload.entity_id
+        );
       } catch (err) {
         addMessage("assistant", err.message || "Save failed.");
         setStatusText("");
@@ -2396,13 +2641,26 @@ function bindWorkbenchUI() {
         .map((c) => c.trim())
         .filter((c, idx, arr) => !(idx === 0 || idx === arr.length - 1));
 
-    // Prefer the executive control table.
-    const controlRows = parseTable((l) => l.toLowerCase() === "| control id | category | attestation | notes |");
+    const normalizedHeader = (line) => String(line || "").trim().toLowerCase().replace(/\s+/g, " ");
+
+    // Prefer the executive control table (accept legacy/new header variants).
+    const controlRows = parseTable((l) => {
+      const header = normalizedHeader(l);
+      return (
+        header === "| control id | category | attestation | notes |"
+        || header === "| control id | attestation | notes |"
+        || header === "| control id | attestation | notes (if false/unknown) |"
+      );
+    });
     if (controlRows.length) {
       return controlRows
         .map(splitRow)
         .map((cols) => {
-          const [id, category, attestation, notes] = cols;
+          const hasCategory = cols.length >= 4;
+          const id = String(cols[0] || "").trim();
+          const category = hasCategory ? String(cols[1] || "").trim() : "";
+          const attestation = String(cols[hasCategory ? 2 : 1] || "").trim();
+          const notes = String(cols[hasCategory ? 3 : 2] || "").trim();
           const parts = [];
           if (id) parts.push(`[${id}]`);
           if (category) parts.push(category);
@@ -2693,12 +2951,45 @@ function bindStructureStudioUI() {
     refineTargetId: "",
     userEditedFieldsByItem: {},
     chatHistory: [],
+    refining: false,
     render: null,
   };
   state.structureStudio = studio;
 
   const setStatusText = (text) => {
     if (els.structureStatus) els.structureStatus.textContent = text || "";
+  };
+
+  const setRefiningState = (refining, message = "AI Assistant is refining draft items...") => {
+    studio.refining = !!refining;
+    if (els.structureRefineBusy) {
+      els.structureRefineBusy.classList.toggle("hidden", !studio.refining);
+    }
+    if (els.structureRefineBusyText) {
+      els.structureRefineBusyText.textContent = studio.refining ? (message || "AI Assistant is refining draft items...") : "";
+    }
+    if (els.structureProject) els.structureProject.disabled = studio.refining;
+    if (els.structureDecompositionLevel) els.structureDecompositionLevel.disabled = studio.refining;
+    if (els.structureGenerate) els.structureGenerate.disabled = studio.refining;
+    if (els.structureCommit) els.structureCommit.disabled = studio.refining;
+    if (els.structureRefineSubmit) {
+      els.structureRefineSubmit.disabled = studio.refining;
+      els.structureRefineSubmit.textContent = studio.refining ? "Refining..." : "Run Detailed Refinement";
+    }
+    if (els.structureRefineInput) {
+      els.structureRefineInput.disabled = studio.refining;
+    }
+    if (els.structureRefineCancel) {
+      els.structureRefineCancel.disabled = studio.refining;
+    }
+    if (els.structureRefineModalBusy) {
+      els.structureRefineModalBusy.classList.toggle("hidden", !studio.refining);
+    }
+    if (els.structureRefineModalBusyText) {
+      els.structureRefineModalBusyText.textContent = studio.refining
+        ? (message || "AI Assistant is refining your request...")
+        : "AI Assistant is refining your request...";
+    }
   };
 
   const setupSourcesResizer = () => {
@@ -2838,19 +3129,35 @@ function bindStructureStudioUI() {
     studio.bulkSelectedIds = new Set(Array.from(studio.bulkSelectedIds).filter((id) => validIds.has(id)));
   };
 
+  const updateCommitCallToAction = () => {
+    if (!els.structureCommit) return;
+    const acceptedCount = studio.acceptedSolutionIds.size + studio.acceptedSubcomponentIds.size;
+    const hasAccepted = acceptedCount > 0;
+    if (!els.structureCommit.dataset.baseLabel) {
+      els.structureCommit.dataset.baseLabel = (els.structureCommit.textContent || "Commit Selected Items").trim();
+    }
+    const baseLabel = els.structureCommit.dataset.baseLabel || "Commit Selected Items";
+    els.structureCommit.classList.toggle("secondary", !hasAccepted);
+    els.structureCommit.classList.toggle("primary", hasAccepted);
+    els.structureCommit.classList.toggle("commit-ready", hasAccepted);
+    els.structureCommit.textContent = hasAccepted ? `${baseLabel} (${acceptedCount})` : baseLabel;
+  };
+
   const renderBulkSelectionState = () => {
     pruneBulkSelection();
+    const refining = !!studio.refining;
     const count = studio.bulkSelectedIds.size;
     if (els.structureBulkSelectionCount) {
       els.structureBulkSelectionCount.textContent = `${count} selected`;
     }
-    if (els.structureBulkAccept) els.structureBulkAccept.disabled = count === 0;
-    if (els.structureBulkDiscard) els.structureBulkDiscard.disabled = count === 0;
-    if (els.structureBulkClear) els.structureBulkClear.disabled = count === 0;
+    if (els.structureBulkAccept) els.structureBulkAccept.disabled = refining || count === 0;
+    if (els.structureBulkDiscard) els.structureBulkDiscard.disabled = refining || count === 0;
+    if (els.structureBulkClear) els.structureBulkClear.disabled = refining || count === 0;
     if (els.structureBulkSelectAll) {
       const total = allDraftItems().length;
-      els.structureBulkSelectAll.disabled = total === 0 || count === total;
+      els.structureBulkSelectAll.disabled = refining || total === 0 || count === total;
     }
+    updateCommitCallToAction();
   };
 
   const itemStatusClass = (item) => {
@@ -2897,6 +3204,7 @@ function bindStructureStudioUI() {
   };
 
   const closeRefineModal = () => {
+    if (studio.refining) return;
     studio.refineTargetId = "";
     if (els.structureRefineModal) {
       els.structureRefineModal.classList.add("hidden");
@@ -2907,6 +3215,7 @@ function bindStructureStudioUI() {
   };
 
   const openRefineModal = (draftId) => {
+    if (studio.refining) return;
     const target = findItem(draftId || studio.selectedItemId);
     if (!target) {
       setStatusText("Select a draft item to refine.");
@@ -3018,13 +3327,18 @@ function bindStructureStudioUI() {
     }
 
     const renderItemCard = (item, kindLabel, isChild = false) => {
+      const refining = !!studio.refining;
+      const isSelected = studio.selectedItemId === item.draft_id;
       const statusClass = itemStatusClass(item);
-      const selected = studio.selectedItemId === item.draft_id ? "selected" : "";
+      const selected = isSelected ? "selected" : "";
       const bulkSelected = studio.bulkSelectedIds.has(item.draft_id) ? "bulk-selected" : "";
       const childClass = isChild ? "structure-item-child" : "";
       const checked = studio.bulkSelectedIds.has(item.draft_id) ? "checked" : "";
-      const acceptDisabled = isAcceptedItem(item) ? "disabled" : "";
-      const discardDisabled = isDiscardedItem(item) ? "disabled" : "";
+      const checkboxDisabled = refining ? "disabled" : "";
+      const acceptDisabled = isAcceptedItem(item) || refining ? "disabled" : "";
+      const discardDisabled = isDiscardedItem(item) || refining ? "disabled" : "";
+      const refineDisabled = refining ? "disabled" : "";
+      const acceptReadyClass = isSelected && !refining && !isAcceptedItem(item) ? "accept-ready" : "";
       return `<div class="structure-item ${statusClass} ${selected} ${bulkSelected} ${childClass}" data-draft-id="${item.draft_id}">
         <div class="structure-item-head">
           <label class="structure-item-select">
@@ -3033,14 +3347,15 @@ function bindStructureStudioUI() {
               data-structure-action="bulk-toggle"
               data-draft-id="${item.draft_id}"
               ${checked}
+              ${checkboxDisabled}
               aria-label="Select ${kindLabel}"
             />
             <span class="structure-item-kind">${kindLabel}</span>
           </label>
           <div class="structure-item-actions">
-            <button type="button" class="secondary structure-item-action" data-structure-action="accept" data-draft-id="${item.draft_id}" ${acceptDisabled}>Accept</button>
+            <button type="button" class="secondary structure-item-action ${acceptReadyClass}" data-structure-action="accept" data-draft-id="${item.draft_id}" ${acceptDisabled}>Accept</button>
             <button type="button" class="secondary structure-item-action" data-structure-action="discard" data-draft-id="${item.draft_id}" ${discardDisabled}>Discard</button>
-            <button type="button" class="secondary structure-item-action" data-structure-action="refine" data-draft-id="${item.draft_id}">Refine</button>
+            <button type="button" class="secondary structure-item-action" data-structure-action="refine" data-draft-id="${item.draft_id}" ${refineDisabled}>Refine</button>
           </div>
         </div>
         <div class="structure-item-title">${escapeHtml(item.name || `(unnamed ${kindLabel.toLowerCase()})`)}</div>
@@ -3074,27 +3389,40 @@ function bindStructureStudioUI() {
     ensureSelectedItem();
     const item = findItem(studio.selectedItemId);
     const disabled = !item;
+    const refining = !!studio.refining;
+    const controlsDisabled = disabled || refining;
     if (els.structureItemName) {
-      els.structureItemName.disabled = disabled;
+      els.structureItemName.disabled = controlsDisabled;
       els.structureItemName.value = item?.name || "";
     }
     if (els.structureItemDescription) {
-      els.structureItemDescription.disabled = disabled;
+      els.structureItemDescription.disabled = controlsDisabled;
       els.structureItemDescription.value = item?.description || "";
     }
-    if (els.structureAccept) els.structureAccept.disabled = disabled;
-    if (els.structureDiscard) els.structureDiscard.disabled = disabled;
-    if (els.structureRefineSelected) els.structureRefineSelected.disabled = disabled;
+    if (els.structureAccept) els.structureAccept.disabled = controlsDisabled;
+    if (els.structureDiscard) els.structureDiscard.disabled = controlsDisabled;
+    if (els.structureRefineSelected) els.structureRefineSelected.disabled = controlsDisabled;
     if (els.structureChatInput) {
       const kindLabel = item?.kind === "subcomponent" ? "sub-component" : "solution";
       const targetName = (item?.name || "").trim() || "selected item";
-      els.structureChatInput.disabled = disabled;
-      els.structureChatInput.placeholder = disabled
-        ? "Select a draft item, then submit feedback to refine it."
+      els.structureChatInput.disabled = controlsDisabled;
+      els.structureChatInput.placeholder = controlsDisabled
+        ? refining
+          ? "AI Assistant is refining. Please wait..."
+          : "Select a draft item, then submit feedback to refine it."
         : `Refine selected ${kindLabel}: ${targetName}`;
     }
     const chatSubmit = els.structureChatForm?.querySelector('button[type="submit"]');
-    if (chatSubmit) chatSubmit.disabled = disabled;
+    if (chatSubmit) {
+      chatSubmit.disabled = controlsDisabled;
+      if (!chatSubmit.dataset.defaultLabel) {
+        chatSubmit.dataset.defaultLabel = chatSubmit.textContent || "Refine";
+      }
+      chatSubmit.textContent = refining ? "Refining..." : chatSubmit.dataset.defaultLabel;
+    }
+    if (els.structureDraftList) {
+      els.structureDraftList.setAttribute("aria-busy", refining ? "true" : "false");
+    }
   };
 
   const normalizeDraftPayload = (draft) => {
@@ -3128,6 +3456,7 @@ function bindStructureStudioUI() {
   };
 
   const resetDraftState = () => {
+    setRefiningState(false);
     studio.draft = { solutions: [], subcomponents: [] };
     studio.selectedItemId = "";
     studio.bulkSelectedIds = new Set();
@@ -3271,6 +3600,7 @@ function bindStructureStudioUI() {
   const refineDraft = async (instruction, options = {}) => {
     if (!studio.projectId) return false;
     if (!instruction) return false;
+    if (studio.refining) return false;
     if (!studio.draft.solutions.length && !studio.draft.subcomponents.length) {
       setStatusText("Generate a draft before refinement.");
       return false;
@@ -3288,6 +3618,15 @@ function bindStructureStudioUI() {
     const selectedKind = selectedItem.kind === "subcomponent" ? "sub-component" : "solution";
     const selectedName = (selectedItem.name || "").trim() || "selected item";
     addChatMessage("user", `[${selectedKind}] ${selectedName}${detailedMode ? " [detailed]" : ""}: ${instruction}`);
+    setRefiningState(
+      true,
+      detailedMode
+        ? `AI Assistant is running detailed refinement for "${selectedName}"...`
+        : `AI Assistant is refining "${selectedName}"...`
+    );
+    renderDraftList();
+    renderSelectedItem();
+    renderBulkSelectionState();
     setStatusText(detailedMode ? "Applying detailed targeted refinement..." : "Applying targeted refinement...");
     try {
       const locked = studio.userEditedFieldsByItem || {};
@@ -3340,6 +3679,11 @@ function bindStructureStudioUI() {
       addChatMessage("assistant", err?.message || "Refinement failed.");
       setStatusText(err?.message || "Refinement failed.");
       return false;
+    } finally {
+      setRefiningState(false);
+      renderDraftList();
+      renderSelectedItem();
+      renderBulkSelectionState();
     }
   };
 
@@ -3448,6 +3792,7 @@ function bindStructureStudioUI() {
   });
 
   els.structureDraftList.addEventListener("click", (event) => {
+    if (studio.refining) return;
     const actionBtn = event.target.closest("[data-structure-action]");
     if (actionBtn) {
       event.preventDefault();
@@ -3484,6 +3829,7 @@ function bindStructureStudioUI() {
   });
 
   els.structureDraftList.addEventListener("change", (event) => {
+    if (studio.refining) return;
     const checkbox = event.target.closest('input[type="checkbox"][data-structure-action="bulk-toggle"]');
     if (!checkbox) return;
     const draftId = checkbox.getAttribute("data-draft-id") || "";
@@ -3546,6 +3892,7 @@ function bindStructureStudioUI() {
   });
 
   const submitDetailedRefine = async () => {
+    if (studio.refining) return;
     const instruction = (els.structureRefineInput?.value || "").trim();
     if (!instruction) {
       setStatusText("Enter feedback for detailed refinement.");
@@ -4279,8 +4626,7 @@ function openSubcomponentsWorkbenchDrawer(preferredSubcomponentId = "") {
 
 function closeSubcomponentsWorkbenchDrawer() {
   const wb = state.subcomponentsWorkbench;
-  const returnSubcomponentId = wb.drawerReturnSubcomponentId || wb.activeSubcomponentId || "";
-  const returnScrollY = Number.isFinite(Number(wb.drawerReturnScrollY)) ? Number(wb.drawerReturnScrollY) : null;
+  const returnSubcomponentId = wb.activeSubcomponentId || wb.drawerReturnSubcomponentId || "";
   wb.activeSubcomponentId = returnSubcomponentId;
   wb.drawerOpen = false;
   wb.drawerReturnSubcomponentId = "";
@@ -4288,14 +4634,14 @@ function closeSubcomponentsWorkbenchDrawer() {
   wb.suppressAutoScrollOnce = true;
   renderSubcomponentsWorkbench();
   window.requestAnimationFrame(() => {
-    if (returnScrollY != null) {
-      window.scrollTo({ top: returnScrollY, behavior: "auto" });
-    }
     if (!returnSubcomponentId || !els.subcomponentsWorkbenchTable) return;
     const row = Array.from(els.subcomponentsWorkbenchTable.querySelectorAll("tr[data-id]")).find(
       (node) => node.getAttribute("data-id") === returnSubcomponentId
     );
-    const target = row?.querySelector(".scwb-edit-btn") || row?.querySelector(".scwb-select-row") || row;
+    if (row && typeof row.scrollIntoView === "function") {
+      row.scrollIntoView({ block: "nearest" });
+    }
+    const target = row || row?.querySelector(".scwb-edit-btn") || row?.querySelector(".scwb-select-row");
     if (!target || typeof target.focus !== "function") return;
     try {
       target.focus({ preventScroll: true });
@@ -4862,7 +5208,7 @@ function renderMasterQuickstart(rowCount = 0) {
       <div class="quickstart-actions">
         <button type="button" class="primary" data-quick-action="create-project">Create first project</button>
         <button type="button" class="secondary" data-quick-action="create-solution">Create first solution</button>
-        <button type="button" class="secondary" data-quick-action="open-ai">Open AI Assistant</button>
+        <button type="button" class="secondary" data-quick-action="open-ai">AI Assistant</button>
       </div>
       <ol class="quickstart-steps">
         <li>Create a project with sponsor and objective.</li>
@@ -5458,7 +5804,8 @@ function bindSubcomponentsWorkbenchControls() {
       if (state.currentView !== "subcomponents-workbench") return;
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const key = (event.key || "").toLowerCase();
-      const typingContext = isTypingInputTarget(event.target);
+      const inWorkbenchTable = !!event.target?.closest?.("#subcomponents-workbench-table");
+      const typingContext = isTypingInputTarget(event.target) && !inWorkbenchTable;
 
       if (key === "/" && !typingContext) {
         event.preventDefault();
@@ -6583,7 +6930,7 @@ function openCalendarModal(day) {
 async function downloadCsv(kind, filename, resultEl) {
   try {
     const headers = {};
-    if (state.authed && state.activeSpace?.space_id) {
+    if (state.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
     const res = await fetch(`${API_BASE}/${kind}/export`, {
@@ -6611,16 +6958,131 @@ async function downloadCsv(kind, filename, resultEl) {
   }
 }
 
-async function uploadCsv(kind, fileInput, resultEl) {
-  const file = fileInput?.files?.[0];
+function csvImportResultElement(kind) {
+  if (kind === "projects") return els.projectsImportResult;
+  if (kind === "solutions") return els.solutionsImportResult;
+  if (kind === "users") return els.rosterImportResult;
+  return null;
+}
+
+function csvTemplateConfig(kind) {
+  if (kind === "projects") {
+    return {
+      filename: "projects-template.csv",
+      content: [
+        "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
+        "Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
+      ].join("\n"),
+    };
+  }
+  if (kind === "solutions") {
+    return {
+      filename: "solutions-template.csv",
+      content: [
+        "project_name,solution_name,version,status,owner,assignee,priority,due_date,current_phase",
+        "Example Project,Example Solution,0.1.0,not_started,Example Owner,Example Owner,3,,",
+      ].join("\n"),
+    };
+  }
+  return null;
+}
+
+function downloadCsvTemplate(kind, resultEl) {
+  const config = csvTemplateConfig(kind);
+  if (!config) return;
+  try {
+    const blob = new Blob([config.content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = config.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    if (resultEl) setImportResult(resultEl, `Downloaded ${config.filename}`);
+  } catch (err) {
+    if (resultEl) setImportResult(resultEl, `Template download failed: ${err.message}`, true);
+  }
+}
+
+function setCsvUploadStatus(message, tone = "") {
+  if (!els.csvUploadStatus) return;
+  els.csvUploadStatus.textContent = message || "";
+  els.csvUploadStatus.classList.toggle("error", tone === "error");
+  els.csvUploadStatus.classList.toggle("success", tone === "success");
+}
+
+function setCsvUploadFile(file) {
+  const fileNameEl = els.csvUploadFileName;
+  const resetSelection = () => {
+    csvUploadState.file = null;
+    if (els.csvUploadFile) els.csvUploadFile.value = "";
+    if (fileNameEl) fileNameEl.textContent = "No file selected";
+  };
+
   if (!file) {
-    setImportResult(resultEl, "Choose a CSV file first", true);
-    return;
+    resetSelection();
+    return false;
+  }
+  const fileName = String(file.name || "").trim();
+  if (!fileName.toLowerCase().endsWith(".csv")) {
+    resetSelection();
+    setCsvUploadStatus("Please choose a .csv file.", "error");
+    return false;
+  }
+  csvUploadState.file = file;
+  if (fileNameEl) fileNameEl.textContent = `Selected: ${fileName}`;
+  setCsvUploadStatus("");
+  return true;
+}
+
+function openCsvUploadModal(kind) {
+  if (!els.csvUploadModal) return;
+  const normalizedKind = kind === "solutions" ? "solutions" : "projects";
+  csvUploadState.kind = normalizedKind;
+  csvUploadState.file = null;
+  if (els.csvUploadTitle) {
+    els.csvUploadTitle.textContent = normalizedKind === "projects" ? "Upload Projects CSV" : "Upload Solutions CSV";
+  }
+  if (els.csvUploadDescription) {
+    els.csvUploadDescription.textContent = normalizedKind === "projects"
+      ? "Upload a Projects CSV. Use the template if you need the expected columns."
+      : "Upload a Solutions CSV. Use the template if you need the expected columns.";
+  }
+  if (els.csvDropzone) {
+    els.csvDropzone.classList.remove("drag-over");
+  }
+  if (els.csvUploadFile) {
+    els.csvUploadFile.value = "";
+  }
+  if (els.csvUploadFileName) {
+    els.csvUploadFileName.textContent = "No file selected";
+  }
+  setCsvUploadStatus("");
+  els.csvUploadModal.classList.remove("hidden");
+}
+
+function closeCsvUploadModal() {
+  if (!els.csvUploadModal) return;
+  els.csvUploadModal.classList.add("hidden");
+  csvUploadState.file = null;
+  if (els.csvUploadFile) els.csvUploadFile.value = "";
+  if (els.csvUploadFileName) els.csvUploadFileName.textContent = "No file selected";
+  if (els.csvDropzone) els.csvDropzone.classList.remove("drag-over");
+  setCsvUploadStatus("");
+}
+
+async function uploadCsvFile(kind, file, resultEl) {
+  if (!file) {
+    const msg = "Choose a CSV file first";
+    setImportResult(resultEl, msg, true);
+    return { ok: false, message: msg, partial: false };
   }
   try {
     const csvText = await file.text();
     const headers = { "Content-Type": "text/csv" };
-    if (state.authed && state.activeSpace?.space_id) {
+    if (state.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
     const res = await fetch(`${API_BASE}/${kind}/import`, {
@@ -6631,8 +7093,9 @@ async function uploadCsv(kind, fileInput, resultEl) {
     });
     if (res.status === 401) {
       handleAuthError({ status: 401 });
-      setImportResult(resultEl, "Sign in required", true);
-      return;
+      const msg = "Sign in required";
+      setImportResult(resultEl, msg, true);
+      return { ok: false, message: msg, partial: false };
     }
     if (!res.ok) throw new Error(await res.text());
     const data = await res.json();
@@ -6645,9 +7108,10 @@ async function uploadCsv(kind, fileInput, resultEl) {
     if (data.solutions_created !== undefined) parts.push(`Solutions created ${data.solutions_created}`);
     const msg = parts.join(", ");
     const errorSnippet = errs.length ? ` Errors (${errs.length}): ${errs.slice(0, 3).join(" | ")}` : "";
+    const detail = errs.length ? `${msg}.${errorSnippet}` : msg;
     setImportResult(
       resultEl,
-      errs.length ? `${msg}.${errorSnippet}` : msg,
+      detail,
       errs.length > 0
     );
     if (errs.length) console.warn("Import errors:", errs);
@@ -6656,8 +7120,18 @@ async function uploadCsv(kind, fileInput, resultEl) {
     } else {
       await loadData();
     }
+    return { ok: errs.length === 0, message: detail, partial: errs.length > 0 };
   } catch (err) {
-    setImportResult(resultEl, `Import failed: ${err.message}`, true);
+    const msg = `Import failed: ${err.message}`;
+    setImportResult(resultEl, msg, true);
+    return { ok: false, message: msg, partial: false };
+  }
+}
+
+async function uploadCsv(kind, fileInput, resultEl) {
+  const file = fileInput?.files?.[0];
+  try {
+    return await uploadCsvFile(kind, file, resultEl);
   } finally {
     if (fileInput) fileInput.value = "";
   }
@@ -6669,11 +7143,9 @@ function bindCsvControls() {
       downloadCsv("projects", "projects.csv", els.projectsImportResult)
     );
   }
-  if (els.projectsUpload && els.projectsFile) {
-    els.projectsUpload.addEventListener("click", () => els.projectsFile?.click());
-    els.projectsFile.addEventListener("change", () =>
-      uploadCsv("projects", els.projectsFile, els.projectsImportResult)
-    );
+  if (els.projectsUpload && !els.projectsUpload._bound) {
+    els.projectsUpload.addEventListener("click", () => openCsvUploadModal("projects"));
+    els.projectsUpload._bound = true;
   }
 
   if (els.solutionsDownload) {
@@ -6681,11 +7153,84 @@ function bindCsvControls() {
       downloadCsv("solutions", "solutions.csv", els.solutionsImportResult)
     );
   }
-  if (els.solutionsUpload && els.solutionsFile) {
-    els.solutionsUpload.addEventListener("click", () => els.solutionsFile?.click());
-    els.solutionsFile.addEventListener("change", () =>
-      uploadCsv("solutions", els.solutionsFile, els.solutionsImportResult)
-    );
+  if (els.solutionsUpload && !els.solutionsUpload._bound) {
+    els.solutionsUpload.addEventListener("click", () => openCsvUploadModal("solutions"));
+    els.solutionsUpload._bound = true;
+  }
+
+  if (els.csvUploadClose && !els.csvUploadClose._bound) {
+    els.csvUploadClose.addEventListener("click", closeCsvUploadModal);
+    els.csvUploadClose._bound = true;
+  }
+  if (els.csvUploadBackdrop && !els.csvUploadBackdrop._bound) {
+    els.csvUploadBackdrop.addEventListener("click", closeCsvUploadModal);
+    els.csvUploadBackdrop._bound = true;
+  }
+  if (els.csvDropzone && !els.csvDropzone._bound) {
+    els.csvDropzone.addEventListener("click", () => els.csvUploadFile?.click());
+    els.csvDropzone.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      els.csvUploadFile?.click();
+    });
+    const preventDropDefaults = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    ["dragenter", "dragover"].forEach((eventName) => {
+      els.csvDropzone.addEventListener(eventName, (event) => {
+        preventDropDefaults(event);
+        els.csvDropzone.classList.add("drag-over");
+      });
+    });
+    ["dragleave", "drop"].forEach((eventName) => {
+      els.csvDropzone.addEventListener(eventName, (event) => {
+        preventDropDefaults(event);
+        els.csvDropzone.classList.remove("drag-over");
+      });
+    });
+    els.csvDropzone.addEventListener("drop", (event) => {
+      const file = event.dataTransfer?.files?.[0] || null;
+      setCsvUploadFile(file);
+    });
+    els.csvDropzone._bound = true;
+  }
+  if (els.csvUploadFile && !els.csvUploadFile._bound) {
+    els.csvUploadFile.addEventListener("change", () => {
+      const file = els.csvUploadFile?.files?.[0] || null;
+      setCsvUploadFile(file);
+    });
+    els.csvUploadFile._bound = true;
+  }
+  if (els.csvDownloadTemplate && !els.csvDownloadTemplate._bound) {
+    els.csvDownloadTemplate.addEventListener("click", () => {
+      const kind = csvUploadState.kind || "projects";
+      downloadCsvTemplate(kind, csvImportResultElement(kind));
+      setCsvUploadStatus("Template downloaded.", "success");
+    });
+    els.csvDownloadTemplate._bound = true;
+  }
+  if (els.csvSubmitUpload && !els.csvSubmitUpload._bound) {
+    els.csvSubmitUpload.addEventListener("click", async () => {
+      const kind = csvUploadState.kind || "";
+      if (!kind) return;
+      const file = csvUploadState.file;
+      const resultEl = csvImportResultElement(kind);
+      const result = await uploadCsvFile(kind, file, resultEl);
+      setCsvUploadStatus(result.message, result.ok ? "success" : "error");
+      if (result.ok) {
+        closeCsvUploadModal();
+      }
+    });
+    els.csvSubmitUpload._bound = true;
+  }
+  if (els.csvUploadModal && !els.csvUploadModal._escapeBound) {
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (els.csvUploadModal.classList.contains("hidden")) return;
+      closeCsvUploadModal();
+    });
+    els.csvUploadModal._escapeBound = true;
   }
   if (els.rosterDownload) {
     els.rosterDownload.addEventListener("click", () =>
@@ -6880,6 +7425,9 @@ function bindCalendarControls() {
       }
       const btn = e.target.closest(".chip-delete");
       if (btn) {
+        if (!userCanAccessAdminViews()) {
+          return;
+        }
         const allocId = btn.getAttribute("data-alloc-id");
         if (!allocId) return;
         const confirmDelete = confirm("Delete this allocation?");
@@ -7269,6 +7817,7 @@ function renderSpaceAdminPanel() {
     els.spaceAdminNote.textContent = isGlobalAdmin ? "Global admin controls enabled" : "Read-only: only global admins can create/archive spaces";
   }
   if (els.spaceCreateForm) {
+    els.spaceCreateForm.classList.toggle("hidden", !isGlobalAdmin);
     const controls = Array.from(els.spaceCreateForm.querySelectorAll("input, button"));
     controls.forEach((control) => {
       control.disabled = !isGlobalAdmin;
@@ -7297,7 +7846,7 @@ function renderSpaceAdminPanel() {
 function canManageSpaceMembership(spaceId) {
   if (!spaceId) return false;
   if (userIsGlobalAdmin()) return true;
-  return normalize(state.activeSpace?.space_role) === "space_admin" && activeSpaceId() === spaceId;
+  return isSpaceAdminRole(state.activeSpace?.space_role) && activeSpaceId() === spaceId;
 }
 
 function memberLabel(member) {
@@ -7368,14 +7917,17 @@ function renderSpaceMembershipPanel() {
       const nextStatus = row.status === "active" ? "inactive" : "active";
       const roleActionLabel = nextRole === "space_admin" ? "Promote" : "Demote";
       const statusActionLabel = nextStatus === "active" ? "Activate" : "Deactivate";
+      const actions = canManage
+        ? `<button type="button" class="secondary" data-action="toggle-space-member-role" data-membership-id="${row.membership_id}" data-next-role="${nextRole}">${roleActionLabel}</button>
+          <button type="button" class="secondary" data-action="toggle-space-member-status" data-membership-id="${row.membership_id}" data-next-status="${nextStatus}">${statusActionLabel}</button>
+          <button type="button" class="secondary" data-action="delete-space-member" data-membership-id="${row.membership_id}">Remove</button>`
+        : "<span class='muted'>Read-only</span>";
       return `<tr data-membership-id="${row.membership_id}">
         <td>${memberLabel(row)}</td>
         <td>${row.role}</td>
         <td>${row.status}</td>
         <td>
-          <button type="button" class="secondary" data-action="toggle-space-member-role" data-membership-id="${row.membership_id}" data-next-role="${nextRole}" ${canManage ? "" : "disabled"}>${roleActionLabel}</button>
-          <button type="button" class="secondary" data-action="toggle-space-member-status" data-membership-id="${row.membership_id}" data-next-status="${nextStatus}" ${canManage ? "" : "disabled"}>${statusActionLabel}</button>
-          <button type="button" class="secondary" data-action="delete-space-member" data-membership-id="${row.membership_id}" ${canManage ? "" : "disabled"}>Remove</button>
+          ${actions}
         </td>
       </tr>`;
     })
@@ -7697,6 +8249,7 @@ function renderPlanning() {
   mod.renderPlanning({
     state,
     els,
+    canDeleteAllocations: userCanAccessAdminViews(),
     assigneeKeyFromAlloc,
     findUserBySoeid,
     assigneeLabelFromKey,

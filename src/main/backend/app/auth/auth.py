@@ -10,7 +10,7 @@ from fastapi import HTTPException, Response, status
 SECRET_KEY = os.getenv("SIPM_SECRET_KEY", "dev-secret-change-me")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ACCESS_MINUTES", "60"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("SIPM_REFRESH_DAYS", "7"))
+REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_REFRESH_MINUTES", "60"))
 RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_RESET_MINUTES", "30"))
 SECURE_COOKIES = os.getenv("SIPM_SECURE_COOKIES", "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "lax").lower()
@@ -53,7 +53,7 @@ def create_token(user_id: str, role: str, token_type: str) -> str:
     if token_type == "access":
         expires = _expiry(timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     elif token_type == "refresh":
-        expires = _expiry(timedelta(minutes=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60))
+        expires = _expiry(timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES))
     elif token_type == "reset":
         expires = _expiry(timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES))
     else:

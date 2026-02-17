@@ -1,7 +1,10 @@
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
+from backend.app.models import Project
+from backend.app.routes import projects as projects_module
 from backend.app.services.spaces import SpaceContext
 
 
@@ -52,6 +55,84 @@ async def test_project_name_uniqueness(client):
     dup_resp = await client.post("/api/projects/", json=payload)
     assert dup_resp.status_code == 400
     assert dup_resp.json()["detail"] == "Project name already exists"
+
+
+@pytest.mark.anyio
+async def test_delete_project_releases_name_for_recreate(client, db_sessionmaker):
+    create = await client.post(
+        "/api/projects/",
+        json={"project_name": "Enhancements", "sponsor": "Sponsor A"},
+    )
+    assert create.status_code == 201, create.text
+    project_id = create.json()["project_id"]
+
+    deleted = await client.delete(f"/api/projects/{project_id}")
+    assert deleted.status_code == 204, deleted.text
+
+    with db_sessionmaker() as session:
+        row = session.query(Project).filter(Project.project_id == project_id).first()
+        assert row is not None
+        assert row.deleted_at is not None
+        assert row.project_name != "Enhancements"
+        assert "[deleted " in row.project_name
+
+    recreated = await client.post(
+        "/api/projects/",
+        json={"project_name": "Enhancements", "sponsor": "Sponsor B"},
+    )
+    assert recreated.status_code == 201, recreated.text
+    assert recreated.json()["project_name"] == "Enhancements"
+    assert recreated.json()["project_id"] != project_id
+
+
+def test_project_conflict_detector_handles_oracle_wrapped_unique_error():
+    exc = IntegrityError(
+        statement='INSERT INTO "TB_TA_PM_PROJECTS" (project_name) VALUES (:project_name)',
+        params={"project_name": "Enhancements"},
+        orig=Exception(
+            "ORA-03301: (ORA-00001 details) row with column values "
+            "(PROJECT_NAME:'Enhancements') already exists"
+        ),
+    )
+    assert projects_module._is_project_name_conflict_integrity_error(exc) is True
+
+
+@pytest.mark.anyio
+async def test_create_project_handles_db_unique_conflict_with_helpful_message(client):
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-a",
+            space_name="Space A",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        first = await client.post(
+            "/api/projects/",
+            json={"project_name": "Enhancements", "sponsor": "Sponsor A"},
+        )
+        assert first.status_code == 201, first.text
+
+        # Existing schema enforces global project-name uniqueness at the DB level.
+        # Creating the same name in another active space must still return a clean
+        # API conflict message instead of a 500 error.
+        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+            space_id="space-b",
+            space_name="Space B",
+            is_global_admin=False,
+            space_role="space_admin",
+        )
+        dup = await client.post(
+            "/api/projects/",
+            json={"project_name": "Enhancements", "sponsor": "Sponsor B"},
+        )
+        assert dup.status_code == 400, dup.text
+        assert dup.json()["detail"] == "Project name already exists"
+    finally:
+        if original_current_space is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
 
 
 @pytest.mark.anyio

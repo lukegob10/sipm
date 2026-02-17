@@ -36,6 +36,7 @@ export function renderPlanning(ctx) {
   const {
     state,
     els,
+    canDeleteAllocations,
     assigneeKeyFromAlloc,
     findUserBySoeid,
     assigneeLabelFromKey,
@@ -267,7 +268,7 @@ export function renderPlanning(ctx) {
                   <div class="chip-title">${label}</div>
                   <div class="chip-meta">${typeLabel} • ${formatFte(allocFte)} FTE-mo</div>
                 </div>
-                <button type="button" class="chip-delete" data-alloc-id="${a.allocation_id}" aria-label="Delete allocation">×</button>
+                ${canDeleteAllocations ? `<button type="button" class="chip-delete" data-alloc-id="${a.allocation_id}" aria-label="Delete allocation">×</button>` : ""}
               </div>`;
             })
             .join("");

@@ -20,10 +20,18 @@ Set these for normal deployment:
 - `SIPM_DISABLE_THREADPOOL` (default: `false`): Disable AnyIO threadpool (mainly for constrained test/sandbox runs).
 - `SIPM_KEEPALIVE_TASK` (default: `false`): Enable keepalive task.
 
+## Database Pooling (TAConnection + SQLAlchemy)
+
+- `SIPM_DB_POOL_SIZE` (default: `5`): Number of persistent pooled DB connections.
+- `SIPM_DB_MAX_OVERFLOW` (default: `10`): Extra temporary connections beyond pool size.
+- `SIPM_DB_POOL_TIMEOUT_SECONDS` (default: `30`): Wait time for an available pooled connection.
+- `SIPM_DB_POOL_RECYCLE_SECONDS` (default: `1800`): Max connection age before recycle.
+- `SIPM_DB_POOL_PRE_PING` (default: `true`): Poll/ping connection health before checkout.
+
 ## Authentication
 
 - `SIPM_ACCESS_MINUTES` (default: `60`): Access token lifetime in minutes.
-- `SIPM_REFRESH_DAYS` (default: `7`): Refresh token lifetime in days.
+- `SIPM_REFRESH_MINUTES` (default: `60`): Refresh token lifetime in minutes.
 - `SIPM_RESET_MINUTES` (default: `30`): Password reset token lifetime in minutes.
 - `SIPM_COOKIE_SAMESITE` (default: `lax`): Cookie SameSite policy.
 - `SIPM_BCRYPT_ROUNDS` (default: `12`): Password hashing cost.

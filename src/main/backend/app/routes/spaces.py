@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..deps import current_space, get_db, require_global_admin, require_user
@@ -20,6 +21,11 @@ from ..schemas import (
 from ..services.spaces import build_space_slug, list_user_spaces
 
 router = APIRouter()
+
+
+def _normalize_space_role(value: str | None) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized or "member"
 
 
 def _space_or_404(session: Session, space_id: str) -> Space:
@@ -47,12 +53,19 @@ def _membership_or_404(session: Session, membership_id: str) -> SpaceMembership:
 
 
 def _count_active_space_admins(session: Session, space_id: str, exclude_membership_id: str | None = None) -> int:
+    normalized_role = func.lower(
+        func.replace(
+            func.replace(func.coalesce(SpaceMembership.role, ""), "-", "_"),
+            " ",
+            "_",
+        )
+    )
     query = (
         session.query(SpaceMembership)
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(SpaceMembership.role == "space_admin")
+        .filter(normalized_role == "space_admin")
     )
     if exclude_membership_id:
         query = query.filter(SpaceMembership.membership_id != exclude_membership_id)
@@ -67,13 +80,13 @@ def _ensure_space_retains_admin(
     next_status: str | None = None,
     deleting: bool = False,
 ) -> None:
-    current_role = (row.role or "").strip().lower()
+    current_role = _normalize_space_role(row.role)
     current_status = (row.status or "").strip().lower()
     currently_active_admin = row.deleted_at is None and current_role == "space_admin" and current_status == "active"
     if not currently_active_admin:
         return
 
-    role_after = (next_role if next_role is not None else current_role).strip().lower()
+    role_after = _normalize_space_role(next_role if next_role is not None else current_role)
     status_after = (next_status if next_status is not None else current_status).strip().lower()
     remains_active_admin = (not deleting) and role_after == "space_admin" and status_after == "active"
     if remains_active_admin:
@@ -92,12 +105,12 @@ def _ensure_space_admin_access(ctx, target_space_id: str) -> None:
         return
     if ctx.space_id != target_space_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage another space")
-    if (ctx.space_role or "").strip().lower() != "space_admin":
+    if _normalize_space_role(ctx.space_role) != "space_admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required")
 
 
 def _validate_space_role(raw_role: str | None) -> str:
-    role = (raw_role or "member").strip().lower()
+    role = _normalize_space_role(raw_role)
     if role not in {"member", "space_admin"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid space role")
     return role
@@ -131,7 +144,7 @@ def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> lis
                 user_soeid=user.soeid if user else None,
                 user_display_name=user.display_name if user else None,
                 user_email=user.email if user else None,
-                role=row.role,
+                role=_normalize_space_role(row.role),
                 status=row.status,
                 created_at=row.created_at,
                 updated_at=row.updated_at,

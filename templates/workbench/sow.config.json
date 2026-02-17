@@ -17,11 +17,18 @@
   ],
   "placeholders": [
     "[[TODO]]",
-    "[[TBD]]"
+    "[[TBD]]",
+    "[[PROJECT_NAME]]",
+    "[[SPONSOR]]",
+    "[[CURRENT_USER]]",
+    "[[TODAY_DATE]]"
   ],
   "structure_rules": {
     "headings_locked": true,
-    "allow_reorder_sections": false
+    "allow_reorder_sections": false,
+    "tables_allowed": true,
+    "subheadings_allowed_under_scope": true,
+    "horizontal_rules_allowed": true
   }
 }
 

@@ -117,6 +117,7 @@ except ModuleNotFoundError:  # pragma: no cover - test fallback when langgraph i
 from .llm import call_chat_completion, GenAIConfigError
 from .contracts import contract_hints
 from .prompt_loader import render_prompt
+from ..models import Project, Solution, Subcomponent
 from .orchestrator_context import (
     compact_for_prompt as _compact_for_prompt,
     compact_history as _compact_history,
@@ -955,6 +956,153 @@ def _normalize_date_fields(fields: Dict[str, Any], current_date: Optional[str]) 
     return updated
 
 
+def _bulk_entity_aliases(entity_type: str) -> tuple[str, ...]:
+    if entity_type == "project":
+        return ("project", "projects")
+    if entity_type == "solution":
+        return ("solution", "solutions")
+    if entity_type == "subcomponent":
+        return ("subcomponent", "subcomponents", "task", "tasks")
+    return ()
+
+
+def _looks_like_bulk_update_request(message: str, entity_type: str) -> bool:
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    if not re.search(r"\b(all|every|each|across all)\b", text):
+        return False
+    aliases = _bulk_entity_aliases(entity_type)
+    return any(re.search(rf"\b{re.escape(alias)}\b", text) for alias in aliases)
+
+
+def _entity_ids_from_context(context: Dict[str, Any], entity_type: str) -> List[str]:
+    if not isinstance(context, dict):
+        return []
+
+    if entity_type == "project":
+        key, id_key = "projects", "project_id"
+    elif entity_type == "solution":
+        key, id_key = "solutions", "solution_id"
+    elif entity_type == "subcomponent":
+        key, id_key = "subcomponents", "subcomponent_id"
+    else:
+        return []
+
+    ids: List[str] = []
+    items = context.get(key)
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            entity_id = item.get(id_key) or item.get("entity_id")
+            if entity_id:
+                ids.append(str(entity_id))
+    return ids
+
+
+def _query_bulk_entity_ids(
+    session,
+    entity_type: str,
+    project_id: Optional[str],
+    scope_solution_id: Optional[str],
+    space_id: Optional[str],
+) -> List[str]:
+    if entity_type == "project":
+        query = session.query(Project.project_id).filter(Project.deleted_at.is_(None))
+        if space_id:
+            query = query.filter(Project.space_id == space_id)
+        rows = query.order_by(Project.updated_at.desc(), Project.project_id.asc()).all()
+        return [str(row[0]) for row in rows if row and row[0]]
+
+    if entity_type == "solution":
+        query = session.query(Solution.solution_id).filter(Solution.deleted_at.is_(None))
+        if space_id:
+            query = query.filter(Solution.space_id == space_id)
+        if project_id:
+            query = query.filter(Solution.project_id == project_id)
+        rows = query.order_by(Solution.updated_at.desc(), Solution.solution_id.asc()).all()
+        return [str(row[0]) for row in rows if row and row[0]]
+
+    if entity_type == "subcomponent":
+        query = session.query(Subcomponent.subcomponent_id).filter(Subcomponent.deleted_at.is_(None))
+        if space_id:
+            query = query.filter(Subcomponent.space_id == space_id)
+        if scope_solution_id:
+            query = query.filter(Subcomponent.solution_id == scope_solution_id)
+        elif project_id:
+            query = query.filter(Subcomponent.project_id == project_id)
+        rows = query.order_by(Subcomponent.updated_at.desc(), Subcomponent.subcomponent_id.asc()).all()
+        return [str(row[0]) for row in rows if row and row[0]]
+
+    return []
+
+
+def _maybe_expand_bulk_update_payload(
+    session,
+    state: AgentState,
+    updates: AgentState,
+    target_entity_type: str,
+    target_entity_id: str,
+    fields: Dict[str, Any],
+) -> Optional[str]:
+    if target_entity_type not in {"project", "solution", "subcomponent"}:
+        return None
+    if not fields:
+        return None
+
+    latest_user_message = _latest_user_message(state.get("messages", []))
+    if not _looks_like_bulk_update_request(latest_user_message, target_entity_type):
+        return None
+
+    context = updates.get("context") or state.get("context") or {}
+    project_id = (
+        updates.get("project_id")
+        or state.get("project_id")
+        or (context.get("project") or {}).get("project_id")
+    )
+    scope_solution_id = None
+    if target_entity_type == "subcomponent":
+        scope_entity_type = str(state.get("entity_type") or "").strip()
+        if scope_entity_type == "solution":
+            scope_solution_id = str(state.get("entity_id") or "").strip() or None
+        if not scope_solution_id:
+            scope_solution_id = str(
+                (context.get("solution") or {}).get("solution_id") or ""
+            ).strip() or None
+    space_id = updates.get("space_id") or state.get("space_id")
+
+    candidate_ids = _entity_ids_from_context(context, target_entity_type)
+    if len(candidate_ids) <= 1:
+        candidate_ids = _query_bulk_entity_ids(session, target_entity_type, project_id, scope_solution_id, space_id)
+
+    deduped_ids: List[str] = []
+    seen: set[str] = set()
+    for entity_id in candidate_ids:
+        raw = str(entity_id or "").strip()
+        if not raw or raw in seen:
+            continue
+        seen.add(raw)
+        deduped_ids.append(raw)
+
+    if len(deduped_ids) <= 1:
+        return None
+    if target_entity_id and target_entity_id not in set(deduped_ids):
+        return None
+
+    updates_payload = {
+        "updates": [
+            {
+                "entity_type": target_entity_type,
+                "entity_id": entity_id,
+                "fields": fields,
+            }
+            for entity_id in deduped_ids
+        ]
+    }
+    return json.dumps(updates_payload, ensure_ascii=True)
+
+
 def _normalize_field_name(field: str) -> str:
     if not field:
         return ""
@@ -1697,6 +1845,10 @@ def _tool_dispatch(state: AgentState, session) -> AgentState:
                 updates["context"] = {**(state.get("context") or {}), "sow_document_detail": output}
         elif tool == "list_projects":
             output = list_projects(session, args.get("limit", 200), space_id=space_id)
+            if isinstance(output, dict):
+                projects = output.get("projects")
+                if isinstance(projects, list):
+                    updates["context"] = {**(state.get("context") or {}), "projects": projects}
         elif tool == "list_solutions_for_project":
             output = list_solutions_for_project(
                 session,
@@ -1704,6 +1856,10 @@ def _tool_dispatch(state: AgentState, session) -> AgentState:
                 args.get("limit", 200),
                 space_id=space_id,
             )
+            if isinstance(output, dict):
+                solutions = output.get("solutions")
+                if isinstance(solutions, list):
+                    updates["context"] = {**(state.get("context") or {}), "solutions": solutions}
         elif tool == "list_project_cards":
             output = list_project_cards(
                 session,
@@ -1953,7 +2109,17 @@ def _tool_dispatch(state: AgentState, session) -> AgentState:
                         fields = parsed
             if isinstance(fields, dict) and fields:
                 normalized = _normalize_date_fields(fields, state.get("current_date"))
-                output = {"output": _render_fields_payload(normalized)}
+                target_entity_type = str(updates.get("entity_type") or state.get("entity_type") or "").strip()
+                target_entity_id = str(updates.get("entity_id") or state.get("entity_id") or "").strip()
+                bulk_payload = _maybe_expand_bulk_update_payload(
+                    session,
+                    state,
+                    updates,
+                    target_entity_type,
+                    target_entity_id,
+                    normalized,
+                )
+                output = {"output": bulk_payload or _render_fields_payload(normalized)}
             else:
                 output = {
                     "output": _draft_update(

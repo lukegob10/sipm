@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Inventory Tool</title>
+  <title>SIPM</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -47,6 +48,28 @@
     </div>
   </div>
 
+  <div id="csv-upload-modal" class="modal hidden">
+    <div id="csv-upload-backdrop" class="modal-backdrop"></div>
+    <div class="modal-content csv-upload-modal-content">
+      <div class="modal-header">
+        <h3 id="csv-upload-title">Upload CSV</h3>
+        <button id="csv-upload-close" class="secondary" type="button">Close</button>
+      </div>
+      <p id="csv-upload-description" class="muted"></p>
+      <div id="csv-dropzone" class="csv-dropzone" role="button" tabindex="0" aria-label="Upload CSV file">
+        <input type="file" id="csv-upload-file" accept=".csv,text/csv" hidden />
+        <p class="csv-dropzone-title">Drop a CSV file here</p>
+        <p class="muted">or click to browse</p>
+        <p id="csv-upload-file-name" class="csv-dropzone-file">No file selected</p>
+      </div>
+      <div class="form-actions csv-upload-actions">
+        <button type="button" id="csv-download-template" class="secondary">Download Template</button>
+        <button type="button" id="csv-submit-upload" class="primary">Upload CSV</button>
+      </div>
+      <p id="csv-upload-status" class="csv-upload-status"></p>
+    </div>
+  </div>
+
   <div id="reset-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
@@ -67,7 +90,7 @@
   </div>
 
 
-  <div id="app-shell">
+  <div id="app-shell" class="hidden">
     <aside class="sidebar">
       <div class="brand">SIPM</div>
       <div class="nav-group nav-section">
@@ -510,7 +533,13 @@
 
           <div id="structure-grid" class="structure-grid">
             <aside class="structure-sources">
-              <div id="structure-status" class="auth-note"></div>
+              <div class="structure-status-row">
+                <div id="structure-status" class="auth-note"></div>
+                <div id="structure-refine-busy" class="structure-refine-busy hidden" role="status" aria-live="polite">
+                  <span class="structure-refine-spinner" aria-hidden="true"></span>
+                  <span id="structure-refine-busy-text">AI Assistant is refining...</span>
+                </div>
+              </div>
               <div id="structure-sufficiency" class="pill muted">Not evaluated</div>
               <div id="structure-missing" class="workbench-block muted"></div>
 
@@ -568,6 +597,10 @@
               <div class="form-actions full-span">
                 <button id="structure-refine-submit" type="submit" class="primary">Run Detailed Refinement</button>
                 <button id="structure-refine-cancel" type="button" class="secondary">Cancel</button>
+              </div>
+              <div id="structure-refine-modal-busy" class="structure-refine-modal-busy hidden full-span" role="status" aria-live="polite">
+                <span class="structure-refine-spinner" aria-hidden="true"></span>
+                <span id="structure-refine-modal-busy-text">AI Assistant is refining your request...</span>
               </div>
             </form>
           </div>

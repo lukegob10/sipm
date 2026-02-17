@@ -296,6 +296,18 @@ body {
   background: var(--panel-soft);
 }
 
+#structure-commit.commit-ready {
+  background: #1f8b4c;
+  border: 1px solid #1f8b4c;
+  color: #f8fffb;
+  box-shadow: 0 10px 20px rgba(31, 139, 76, 0.24);
+}
+
+#structure-commit.commit-ready:hover {
+  background: #176c3c;
+  border-color: #176c3c;
+}
+
 .structure-grid {
   --structure-sources-width: 320px;
   --structure-resizer-width: 10px;
@@ -354,6 +366,47 @@ body.structure-resize-active * {
 
 .structure-sources summary {
   overflow-wrap: anywhere;
+}
+
+.structure-status-row {
+  display: grid;
+  gap: 6px;
+}
+
+.structure-refine-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.structure-refine-modal-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(0, 58, 114, 0.08);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.structure-refine-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(130, 154, 177, 0.35);
+  border-top-color: var(--accent-strong);
+  animation: structure-refine-spin 0.9s linear infinite;
+}
+
+@keyframes structure-refine-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .structure-source-content {
@@ -431,6 +484,18 @@ body.structure-resize-active * {
   border-radius: 8px;
   font-size: 11px;
   line-height: 1.2;
+}
+
+.structure-item-action.accept-ready {
+  background: #1f8b4c;
+  border: 1px solid #1f8b4c;
+  color: #f8fffb;
+  box-shadow: 0 8px 16px rgba(31, 139, 76, 0.2);
+}
+
+.structure-item-action.accept-ready:hover {
+  background: #176c3c;
+  border-color: #176c3c;
 }
 
 .structure-item-child {
@@ -592,10 +657,10 @@ body.structure-resize-active * {
   transition: all 0.15s ease;
 }
 .nav-btn.active {
-  border-color: rgba(0, 58, 114, 0.35);
-  color: #e7eef5;
-  background: linear-gradient(90deg, rgba(0, 58, 114, 0.35), rgba(0, 0, 0, 0));
-  box-shadow: inset 3px 0 0 #003a72;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(0, 0, 0, 0));
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.96);
 }
 .nav-btn:hover {
   border-color: var(--hover-border);
@@ -646,13 +711,15 @@ main {
 }
 
 /* Make project and solution import-export buttons uniform size */
+#create-project.primary,
+#create-solution.primary,
 #show-project-form.secondary,
 #projects-download.secondary,
 #projects-upload.secondary,
 #show-solution-form.secondary,
 #solutions-download.secondary,
 #solutions-upload.secondary {
-  min-width: 110px;
+  min-width: 122px;
   padding: 10px 12px;
   font-size: 14px;
 }
@@ -880,6 +947,7 @@ label.wide {
 .table-filter-actions {
   display: flex;
   justify-content: flex-end;
+  margin-top: 4px;
   margin-bottom: 6px;
 }
 
@@ -1393,6 +1461,7 @@ button:disabled {
 }
 
 .kanban {
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1601,8 +1670,62 @@ button:disabled {
   box-shadow: var(--shadow);
   z-index: 1;
 }
+.csv-upload-modal-content {
+  width: min(560px, 92vw);
+}
 .modal-content.wide {
   width: min(980px, 92vw);
+}
+.csv-dropzone {
+  margin-top: 10px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 20px 16px;
+  text-align: center;
+  background: var(--panel-soft);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.csv-dropzone:hover,
+.csv-dropzone:focus {
+  border-color: var(--accent-strong);
+  outline: none;
+}
+.csv-dropzone.drag-over {
+  border-color: var(--accent-strong);
+  background: rgba(0, 58, 114, 0.08);
+}
+.csv-dropzone-title {
+  margin: 0;
+  font-weight: 700;
+}
+.csv-dropzone-file {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
+.csv-upload-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.csv-upload-actions button {
+  flex: 0 0 auto;
+}
+.csv-upload-status {
+  margin: 8px 0 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.csv-upload-status.success {
+  color: #2e7d32;
+}
+.theme-light .csv-upload-status.success {
+  color: #1b5e20;
+}
+.csv-upload-status.error {
+  color: var(--danger);
 }
 .modal-header {
   display: flex;
@@ -1794,6 +1917,12 @@ button:disabled {
   border-color: var(--accent-strong);
   background: rgba(0, 58, 114, 0.1);
   color: var(--accent-strong);
+}
+body:not(.theme-light) .scwb-preset.active {
+  border-color: rgba(255, 255, 255, 0.42);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.18), rgba(0, 0, 0, 0));
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.92);
 }
 #subcomponents-workbench-saved-select,
 #subcomponents-workbench-saved-name {
@@ -2361,6 +2490,232 @@ button:disabled {
   margin: 0 0 8px;
 }
 
+/* Deliverables header alignment: keep create actions right-aligned without clipping. */
+#view-master .panel-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+#view-master .panel-header .view-heading {
+  flex: 1 1 540px;
+  min-width: 0;
+}
+
+#view-master .panel-header .panel-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* Team Capacity spacing tune-up: add space below the breadcrumb/header area and KPI section headers. */
+#view-team-capacity .panel-header {
+  margin-bottom: 12px;
+}
+
+#view-team-capacity .view-heading {
+  gap: 6px;
+}
+
+#view-team-capacity {
+  --team-capacity-field-gap: 1cm;
+  --team-capacity-action-gap: 8px;
+  --team-capacity-field-min: 220px;
+  --team-capacity-field-max: 360px;
+  --team-capacity-btn-min: 150px;
+  --team-capacity-btn-max: 240px;
+}
+
+#view-team-capacity #capacity-user-form.form.compact {
+  grid-template-columns: repeat(3, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  justify-content: start;
+}
+
+#view-team-capacity .stack-block > .form.compact {
+  grid-template-columns: repeat(2, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  justify-content: start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact,
+#view-team-capacity .stack-block > .form.compact {
+  column-gap: var(--team-capacity-field-gap);
+  row-gap: 10px;
+  align-items: start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact label,
+#view-team-capacity .stack-block > .form.compact label {
+  gap: 6px;
+}
+
+#view-team-capacity #capacity-user-form.form.compact .form-actions,
+#view-team-capacity .stack-block > .form.compact .form-actions {
+  gap: var(--team-capacity-action-gap);
+  margin-top: 4px;
+  justify-content: flex-start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact .form-actions button,
+#view-team-capacity .stack-block > .form.compact .form-actions button {
+  flex: 0 0 auto;
+  min-width: var(--team-capacity-btn-min);
+  max-width: var(--team-capacity-btn-max);
+  padding: 8px 12px;
+}
+
+#capacity-user-list .panel-toolbar.compact + .planning-kpis {
+  margin-top: 12px;
+}
+
+@media (max-width: 1320px) {
+  #view-team-capacity #capacity-user-form.form.compact {
+    grid-template-columns: repeat(2, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  }
+}
+
+@media (max-width: 860px) {
+  #view-team-capacity #capacity-user-form.form.compact,
+  #view-team-capacity .stack-block > .form.compact {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  #view-team-capacity #capacity-user-form.form.compact .form-actions button,
+  #view-team-capacity .stack-block > .form.compact .form-actions button {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+/* Spaces spacing tune-up: add breathing room below breadcrumb/header and card headers. */
+#view-spaces > .panel > .panel-header {
+  margin-bottom: 12px;
+}
+
+#view-spaces > .panel > .panel-header .view-heading {
+  gap: 6px;
+}
+
+#view-spaces .panel.soft > .panel-header {
+  margin-bottom: 10px;
+}
+
+#view-spaces {
+  --spaces-field-gap: 1cm;
+  --spaces-action-gap: 8px;
+  --spaces-field-min: 220px;
+  --spaces-field-max: 340px;
+  --spaces-btn-min: 150px;
+  --spaces-btn-max: 240px;
+}
+
+#view-spaces #space-create-form.inline-form {
+  grid-template-columns: repeat(2, minmax(var(--spaces-field-min), var(--spaces-field-max)));
+  justify-content: start;
+}
+
+#view-spaces #space-membership-form.inline-form {
+  grid-template-columns: repeat(4, minmax(var(--spaces-field-min), var(--spaces-field-max)));
+  justify-content: start;
+}
+
+#view-spaces #space-create-form.inline-form,
+#view-spaces #space-membership-form.inline-form {
+  margin-top: 4px;
+  column-gap: var(--spaces-field-gap);
+  row-gap: 10px;
+  align-items: start;
+}
+
+#view-spaces #space-create-form.inline-form label,
+#view-spaces #space-membership-form.inline-form label {
+  gap: 6px;
+}
+
+#view-spaces #space-create-form.inline-form .form-actions,
+#view-spaces #space-membership-form.inline-form .form-actions {
+  gap: var(--spaces-action-gap);
+  margin-top: 4px;
+  justify-content: flex-start;
+}
+
+#view-spaces #space-create-form.inline-form .form-actions button,
+#view-spaces #space-membership-form.inline-form .form-actions button {
+  flex: 0 0 auto;
+  min-width: var(--spaces-btn-min);
+  max-width: var(--spaces-btn-max);
+  padding: 8px 12px;
+}
+
+@media (max-width: 1320px) {
+  #view-spaces #space-membership-form.inline-form {
+    grid-template-columns: repeat(2, minmax(var(--spaces-field-min), var(--spaces-field-max)));
+  }
+}
+
+@media (max-width: 860px) {
+  #view-spaces #space-create-form.inline-form,
+  #view-spaces #space-membership-form.inline-form {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  #view-spaces #space-create-form.inline-form .form-actions button,
+  #view-spaces #space-membership-form.inline-form .form-actions button {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+#view-access {
+  --access-field-gap: 1cm;
+  --access-action-gap: 8px;
+  --access-field-min: 220px;
+  --access-field-max: 340px;
+  --access-btn-min: 150px;
+  --access-btn-max: 240px;
+}
+
+#view-access #global-admin-form.inline-form {
+  grid-template-columns: minmax(var(--access-field-min), var(--access-field-max));
+  justify-content: start;
+  margin-top: 4px;
+  column-gap: var(--access-field-gap);
+  row-gap: 10px;
+  align-items: start;
+}
+
+#view-access #global-admin-form.inline-form label {
+  gap: 6px;
+}
+
+#view-access #global-admin-form.inline-form .form-actions {
+  gap: var(--access-action-gap);
+  margin-top: 4px;
+  justify-content: flex-start;
+}
+
+#view-access #global-admin-form.inline-form .form-actions button {
+  flex: 0 0 auto;
+  min-width: var(--access-btn-min);
+  max-width: var(--access-btn-max);
+  padding: 8px 12px;
+}
+
+@media (max-width: 860px) {
+  #view-access #global-admin-form.inline-form {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  #view-access #global-admin-form.inline-form .form-actions button {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
 .hidden {
   display: none !important;
 }
@@ -2433,6 +2788,21 @@ button:disabled {
   color: #f0f4f8;
   cursor: pointer;
   font-weight: 600;
+}
+body:not(.theme-light) .auth-tab.active {
+  border-color: rgba(255, 255, 255, 0.45);
+  color: #ffffff;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0));
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.92);
+}
+body:not(.theme-light) .auth-form button {
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.1));
+  color: #ffffff;
+}
+body:not(.theme-light) .auth-form button:hover {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.14));
 }
 .auth-links {
   display: flex;

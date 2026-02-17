@@ -81,8 +81,13 @@ def require_global_admin(user: User = Depends(require_user)) -> User:
 _SPACE_ROLE_ORDER = {"member": 1, "space_admin": 2}
 
 
+def _normalize_space_role(value: str | None) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized
+
+
 def require_space_role(min_role: str):
-    min_norm = (min_role or "").strip().lower()
+    min_norm = _normalize_space_role(min_role)
     threshold = _SPACE_ROLE_ORDER.get(min_norm)
     if threshold is None:
         raise ValueError(f"Unknown min_role '{min_role}'")
@@ -90,7 +95,7 @@ def require_space_role(min_role: str):
     def _dep(ctx: SpaceContext = Depends(current_space)) -> SpaceContext:
         if ctx.is_global_admin:
             return ctx
-        current_rank = _SPACE_ROLE_ORDER.get((ctx.space_role or "").strip().lower(), 0)
+        current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
         if current_rank < threshold:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient space role")
         return ctx

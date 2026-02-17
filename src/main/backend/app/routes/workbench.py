@@ -73,6 +73,36 @@ def _in_space(model, space_id: str):
 _DOC_TYPES = {"charter", "plan", "sow", "checklist"}
 
 
+def _is_data_too_large_integrity_error(exc: IntegrityError) -> bool:
+    text = " ".join(
+        [
+            str(getattr(exc, "orig", "") or ""),
+            str(getattr(exc, "statement", "") or ""),
+            str(getattr(exc, "params", "") or ""),
+            str(exc),
+        ]
+    ).lower()
+    return "ora-12899" in text or "value too large for column" in text
+
+
+def _raise_workbench_save_conflict(exc: IntegrityError, *, doc_type: str) -> None:
+    if _is_data_too_large_integrity_error(exc):
+        if doc_type == "sow":
+            detail = (
+                "SOW draft exceeds current DB column size for content. "
+                "Apply docs/sql/migrations/2026-02-14_sow_content_to_clob.sql."
+            )
+        elif doc_type == "checklist":
+            detail = (
+                "Checklist draft exceeds current DB column size for item text. "
+                "Apply docs/sql/migrations/2026-02-14_checklist_title_to_clob.sql."
+            )
+        else:
+            detail = "Draft content exceeds current DB column size."
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Save failed due to a data conflict.") from exc
+
+
 def _find_templates_dir() -> Path:
     explicit = os.getenv("SIPM_TEMPLATES_DIR")
     if explicit:
@@ -587,7 +617,11 @@ def workbench_save_revision(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid doc_type")
 
     session.add(row)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _raise_workbench_save_conflict(exc, doc_type=doc_type)
     session.refresh(row)
     return _to_revision_response(doc_type, row)
 
@@ -901,7 +935,11 @@ def workbench_save_checklist(
         )
         created += 1
 
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        _raise_workbench_save_conflict(exc, doc_type="checklist")
     return {"saved": created}
 
 

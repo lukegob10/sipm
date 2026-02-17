@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_
@@ -43,9 +43,70 @@ from ..services.spaces import SpaceContext
 
 router = APIRouter()
 
+_AI_REQUEST_OUTPUT_MAX = 255
+
 
 def _in_space(model, space_id: str):
     return model.space_id == space_id
+
+
+def _compact_ai_request_output(output: Optional[str]) -> Optional[str]:
+    if output is None:
+        return None
+    text = str(output)
+    if len(text) <= _AI_REQUEST_OUTPUT_MAX:
+        return text
+    suffix = f"... [truncated {len(text)} chars]"
+    keep = max(0, _AI_REQUEST_OUTPUT_MAX - len(suffix))
+    return text[:keep] + suffix
+
+
+def _sanitize_audit_tools(tools: Optional[list[Any]]) -> list[str]:
+    if not isinstance(tools, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in tools:
+        name = str(raw or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        cleaned.append(name)
+    return cleaned
+
+
+def _build_ai_request_audit_summary(
+    request_type: str,
+    entity_type: Optional[str],
+    entity_id: Optional[str],
+    output: Optional[str],
+    month_key: Optional[str] = None,
+    audit_tools: Optional[list[Any]] = None,
+) -> str:
+    req = str(request_type or "").strip().lower()
+    target = f"{entity_type or 'entity'}:{entity_id or 'n/a'}"
+    summary = f"{req or 'request'} approved for {target}"
+
+    if req == "autofill":
+        fields = _parse_fields(output or "")
+        keys = [str(k) for k in list(fields.keys())[:8]]
+        summary = f"autofill approved for {target}"
+        if keys:
+            summary += f"; fields: {', '.join(keys)}"
+    elif req == "subcomponents":
+        items = _parse_subcomponents(output or "")
+        summary = f"subcomponents approved for {target}; count: {len(items)}"
+    elif req == "checklist":
+        items = _parse_checklist(output or "")
+        summary = f"checklist approved for {target}; month: {month_key or 'current'}; items: {len(items)}"
+    elif req in {"sow", "charter_create", "plan_create", "decision_log_create"}:
+        text = str(output or "")
+        summary = f"{req} approved for {target}; content_len: {len(text)}"
+
+    tools = _sanitize_audit_tools(audit_tools)
+    if tools:
+        summary += f"; tools: {', '.join(tools[:8])}"
+    return _compact_ai_request_output(summary) or summary
 
 
 def _project_context(project: Project) -> Dict[str, Any]:
@@ -667,6 +728,14 @@ def genai_approve(
     space_ctx: SpaceContext = Depends(current_space_dep),
 ) -> GenAIResponse:
     now = datetime.now(timezone.utc)
+    audit_summary = _build_ai_request_audit_summary(
+        payload.request_type,
+        payload.entity_type,
+        payload.entity_id,
+        payload.output,
+        month_key=payload.month_key,
+        audit_tools=payload.audit_tools,
+    )
     ai_request = AIRequest(
         space_id=space_ctx.space_id,
         request_type=payload.request_type,
@@ -674,7 +743,7 @@ def genai_approve(
         entity_id=payload.entity_id,
         instruction=None,
         prompt=None,
-        output=payload.output,
+        output=audit_summary,
         approved=True,
         approved_by_user_id=current_user.user_id,
         created_at=now,

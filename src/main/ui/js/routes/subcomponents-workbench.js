@@ -58,7 +58,7 @@ export function renderSubcomponentsWorkbench(ctx) {
       const blocker = row.blocked ? "<span class='pill warn'>Blocked</span>" : "";
       const due = row.due_date || "—";
       return `
-        <tr data-id="${row.subcomponent_id}" class="${isActive ? "active-row" : ""}">
+        <tr data-id="${row.subcomponent_id}" class="${isActive ? "active-row" : ""}" tabindex="-1">
           <td><input type="checkbox" class="scwb-select-row" data-id="${row.subcomponent_id}" ${isSelected ? "checked" : ""} /></td>
           <td><button type="button" class="icon-btn scwb-edit-btn" data-id="${row.subcomponent_id}" title="Edit">✎</button></td>
           <td>

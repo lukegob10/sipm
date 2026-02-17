@@ -4,7 +4,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -101,12 +101,14 @@ _AUTO_SAVE_VERBS = {
     "do it",
 }
 
+_AI_REQUEST_OUTPUT_MAX = 255
+
 
 def _missing_fields_section_detail(request_type: str, required: Optional[list[str]] = None) -> str:
     required_text = f" Required fields: {', '.join(required)}." if required else ""
     return (
         f"Invalid AI output: missing fields for {request_type}."
-        f"{required_text} Expected JSON with a fields object."
+        f"{required_text} Expected JSON with a fields object or an updates array."
     )
 
 
@@ -167,6 +169,239 @@ def _parse_csv_param(values: Optional[str]) -> Optional[list[str]]:
         return None
     entries = [entry.strip() for entry in str(values).split(",") if entry and entry.strip()]
     return entries or None
+
+
+def _compact_ai_request_output(output: Optional[str]) -> Optional[str]:
+    if output is None:
+        return None
+    text = str(output)
+    if len(text) <= _AI_REQUEST_OUTPUT_MAX:
+        return text
+    suffix = f"... [truncated {len(text)} chars]"
+    keep = max(0, _AI_REQUEST_OUTPUT_MAX - len(suffix))
+    return text[:keep] + suffix
+
+
+def _sanitize_audit_tools(tools: Optional[list[Any]]) -> list[str]:
+    if not isinstance(tools, list):
+        return []
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in tools:
+        name = str(raw or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        cleaned.append(name)
+    return cleaned
+
+
+def _extract_result_tools_for_audit(result: Dict[str, Any]) -> list[str]:
+    tool_names: list[str] = []
+    traces: list[Dict[str, Any]] = []
+
+    debug = result.get("debug")
+    if isinstance(debug, dict) and isinstance(debug.get("trace"), list):
+        traces.extend(entry for entry in debug.get("trace") or [] if isinstance(entry, dict))
+    if isinstance(result.get("trace"), list):
+        traces.extend(entry for entry in result.get("trace") or [] if isinstance(entry, dict))
+
+    for entry in traces:
+        if entry.get("type") != "tool":
+            continue
+        name = str(entry.get("tool") or "").strip()
+        if name:
+            tool_names.append(name)
+    return _sanitize_audit_tools(tool_names)
+
+
+def _build_ai_request_audit_summary(
+    request_type: str,
+    entity_type: Optional[str],
+    entity_id: Optional[str],
+    output: Optional[str],
+    month_key: Optional[str] = None,
+    audit_tools: Optional[list[Any]] = None,
+) -> str:
+    req = str(request_type or "").strip().lower()
+    target = f"{entity_type or 'entity'}:{entity_id or 'n/a'}"
+    summary = f"{req or 'request'} saved"
+
+    if req == "autofill":
+        updates = _parse_autofill_updates(output, entity_type, entity_id)
+        if updates:
+            counts: Dict[str, int] = {}
+            field_names: list[str] = []
+            field_seen: set[str] = set()
+            for update in updates:
+                kind = str(update.get("entity_type") or "unknown")
+                counts[kind] = int(counts.get(kind) or 0) + 1
+                fields = update.get("fields") or {}
+                if isinstance(fields, dict):
+                    for key in fields.keys():
+                        name = str(key or "").strip()
+                        if not name or name in field_seen:
+                            continue
+                        field_seen.add(name)
+                        field_names.append(name)
+            counts_text = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+            fields_text = ", ".join(field_names[:6])
+            summary = f"autofill applied {len(updates)} update(s) [{counts_text}]"
+            if fields_text:
+                summary += f"; fields: {fields_text}"
+        else:
+            summary = f"autofill requested for {target}"
+    elif req in {"project_create", "solution_create", "subcomponent_create"}:
+        fields = _parse_fields(output or "")
+        keys = [str(k) for k in list(fields.keys())[:6]]
+        summary = f"{req} for {target}"
+        if keys:
+            summary += f"; fields: {', '.join(keys)}"
+    elif req == "subcomponents":
+        items = _parse_subcomponents(output or "")
+        summary = f"subcomponents approved for {target}; count: {len(items)}"
+    elif req == "checklist":
+        items = _parse_checklist(output or "")
+        summary = f"checklist approved for {target}; month: {month_key or 'current'}; items: {len(items)}"
+    elif req in {"sow", "charter_create", "plan_create", "decision_log_create"}:
+        content = _extract_json_content(output) or ""
+        summary = f"{req} approved for {target}; content_len: {len(content)}"
+    else:
+        summary = f"{req or 'request'} approved for {target}"
+
+    tools = _sanitize_audit_tools(audit_tools)
+    if tools:
+        summary += f"; tools: {', '.join(tools[:8])}"
+    return _compact_ai_request_output(summary) or summary
+
+
+def _strip_fenced_block(output: Optional[str]) -> str:
+    text = str(output or "").strip()
+    if not text.startswith("```"):
+        return text
+    start = text.find("```")
+    end = text.find("```", start + 3)
+    if end == -1:
+        return text
+    inner = text[start + 3 : end].lstrip()
+    first_newline = inner.find("\n")
+    if first_newline != -1:
+        first_line = inner[:first_newline].strip().lower()
+        if first_line == "json":
+            inner = inner[first_newline + 1 :]
+    return inner.strip()
+
+
+def _coerce_autofill_update_item(
+    item: Any,
+    default_entity_type: Optional[str],
+    default_entity_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+    inferred_entity_type = item.get("entity_type")
+    if not inferred_entity_type:
+        if item.get("solution_id"):
+            inferred_entity_type = "solution"
+        elif item.get("subcomponent_id") or item.get("task_id"):
+            inferred_entity_type = "subcomponent"
+        elif item.get("project_id"):
+            inferred_entity_type = "project"
+    entity_type = str(inferred_entity_type or default_entity_type or "").strip().lower()
+    if entity_type not in {"project", "solution", "subcomponent"}:
+        return None
+
+    entity_id = item.get("entity_id")
+    if not entity_id:
+        if entity_type == "project":
+            entity_id = item.get("project_id")
+        elif entity_type == "solution":
+            entity_id = item.get("solution_id")
+        else:
+            entity_id = item.get("subcomponent_id") or item.get("task_id")
+    if not entity_id and entity_type == (default_entity_type or "").strip().lower():
+        entity_id = default_entity_id
+    if not entity_id:
+        return None
+
+    fields = item.get("fields")
+    if not isinstance(fields, dict):
+        reserved = {
+            "entity_type",
+            "entity_id",
+            "project_id",
+            "solution_id",
+            "subcomponent_id",
+            "task_id",
+            "fields",
+        }
+        fields = {k: v for k, v in item.items() if k not in reserved}
+    if not isinstance(fields, dict) or not fields:
+        return None
+    return {
+        "entity_type": entity_type,
+        "entity_id": str(entity_id).strip(),
+        "fields": fields,
+    }
+
+
+def _parse_autofill_updates(
+    output: Optional[str],
+    default_entity_type: Optional[str],
+    default_entity_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    parsed_updates: List[Dict[str, Any]] = []
+    if output:
+        candidate = _strip_fenced_block(output)
+        data = None
+        try:
+            data = json.loads(candidate)
+        except Exception:
+            data = None
+
+        if isinstance(data, dict):
+            if isinstance(data.get("updates"), list):
+                for raw in data.get("updates") or []:
+                    coerced = _coerce_autofill_update_item(raw, default_entity_type, default_entity_id)
+                    if coerced:
+                        parsed_updates.append(coerced)
+            else:
+                coerced = _coerce_autofill_update_item(data, default_entity_type, default_entity_id)
+                if coerced:
+                    parsed_updates.append(coerced)
+        elif isinstance(data, list):
+            for raw in data:
+                coerced = _coerce_autofill_update_item(raw, default_entity_type, default_entity_id)
+                if coerced:
+                    parsed_updates.append(coerced)
+
+    if parsed_updates:
+        return parsed_updates
+
+    single_fields = _parse_fields(output or "")
+    if not single_fields:
+        return []
+    fallback_type = str(default_entity_type or "").strip().lower()
+    fallback_id = str(default_entity_id or "").strip()
+    if fallback_type not in {"project", "solution", "subcomponent"} or not fallback_id:
+        return []
+    return [{"entity_type": fallback_type, "entity_id": fallback_id, "fields": single_fields}]
+
+
+def _infer_request_type_from_output(
+    output: Optional[str],
+    entity_type: Optional[str],
+    entity_id: Optional[str],
+) -> Optional[str]:
+    if not output:
+        return None
+    if _parse_autofill_updates(output, entity_type, entity_id):
+        return "autofill"
+    if _parse_subcomponents(output):
+        return "subcomponents"
+    if _parse_checklist(output):
+        return "checklist"
+    return None
 
 
 def _auto_save_entity_type(request_type: str | None, fallback: Optional[str]) -> Optional[str]:
@@ -338,15 +573,23 @@ def ai_chat(
         output = json.dumps(output)
     if not output and result.get("request_type"):
         output = result.get("reply", "")
+    result_request_type = str(result.get("request_type") or "").strip().lower() or None
+    if not result_request_type and output:
+        inferred_request_type = _infer_request_type_from_output(output, resolved_entity_type, resolved_entity_id)
+        if inferred_request_type:
+            result_request_type = inferred_request_type
+            result["request_type"] = inferred_request_type
 
     auto_saved = False
-    if _should_auto_save(payload.message, result.get("request_type"), output):
+    if _should_auto_save(payload.message, result_request_type, output):
+        audit_tools = _extract_result_tools_for_audit(result)
         approve_payload = GenAIApproveRequest(
-            request_type=result.get("request_type"),
-            entity_type=_auto_save_entity_type(result.get("request_type"), resolved_entity_type),
+            request_type=result_request_type,
+            entity_type=_auto_save_entity_type(result_request_type, resolved_entity_type),
             entity_id=resolved_entity_id,
             output=output or "",
             month_key=None,
+            audit_tools=audit_tools,
         )
         try:
             saved = ai_approve(approve_payload, session, current_user, space_ctx)
@@ -357,7 +600,8 @@ def ai_chat(
             auto_saved = True
             result["reply"] = saved.reply or "Saved."
             result["requires_approval"] = False
-            result["request_type"] = saved.request_type or result.get("request_type")
+            result["request_type"] = saved.request_type or result_request_type
+            result_request_type = saved.request_type or result_request_type
             output = saved.output or output
             if saved.entity_id:
                 payload.entity_id = saved.entity_id
@@ -378,7 +622,7 @@ def ai_chat(
     _save_session(session, session_obj, history)
     session.commit()
     requires_approval = bool(result.get("requires_approval"))
-    if (not auto_saved) and result.get("request_type") in {
+    if (not auto_saved) and result_request_type in {
         "autofill",
         "sow",
         "checklist",
@@ -401,7 +645,7 @@ def ai_chat(
     return AIChatResponse(
         reply=result.get("reply", ""),
         requires_approval=requires_approval,
-        request_type=result.get("request_type"),
+        request_type=result_request_type,
         entity_type=resolved_entity_type,
         entity_id=resolved_entity_id,
         output=output,
@@ -419,6 +663,7 @@ def ai_approve(
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
     now = datetime.now(timezone.utc)
+    autofill_update_count = 0
     req_type = (payload.request_type or "").strip().lower()
     request_type_map = {
         "create_project": "project_create",
@@ -435,6 +680,18 @@ def ai_approve(
         "decision_log": "decision_log_create",
     }
     normalized_request_type = request_type_map.get(req_type, req_type)
+    if not normalized_request_type:
+        inferred = _infer_request_type_from_output(payload.output, payload.entity_type, payload.entity_id)
+        if inferred:
+            normalized_request_type = inferred
+    audit_summary = _build_ai_request_audit_summary(
+        normalized_request_type,
+        payload.entity_type,
+        payload.entity_id,
+        payload.output,
+        month_key=payload.month_key,
+        audit_tools=payload.audit_tools,
+    )
     ai_request = AIRequest(
         space_id=space_ctx.space_id,
         request_type=normalized_request_type,
@@ -442,7 +699,7 @@ def ai_approve(
         entity_id=payload.entity_id,
         instruction=None,
         prompt=None,
-        output=payload.output,
+        output=audit_summary,
         approved=True,
         approved_by_user_id=current_user.user_id,
         created_at=now,
@@ -451,81 +708,99 @@ def ai_approve(
     session.add(ai_request)
 
     if normalized_request_type == "autofill":
-        fields = _parse_fields(payload.output)
-        if not fields:
+        updates_to_apply = _parse_autofill_updates(payload.output, payload.entity_type, payload.entity_id)
+        if not updates_to_apply:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=_missing_fields_section_detail("autofill"),
             )
-        if payload.entity_type == "project":
-            entity = (
-                session.query(Project)
-                .filter(Project.project_id == payload.entity_id)
-                .filter(Project.deleted_at.is_(None))
-                .filter(_in_space(Project, space_ctx.space_id))
-                .first()
-            )
-        elif payload.entity_type == "solution":
-            entity = (
-                session.query(Solution)
-                .filter(Solution.solution_id == payload.entity_id)
-                .filter(Solution.deleted_at.is_(None))
-                .filter(_in_space(Solution, space_ctx.space_id))
-                .first()
-            )
-        else:
-            entity = (
-                session.query(Subcomponent)
-                .filter(Subcomponent.subcomponent_id == payload.entity_id)
-                .filter(Subcomponent.deleted_at.is_(None))
-                .filter(_in_space(Subcomponent, space_ctx.space_id))
-                .first()
-            )
-        if not entity:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found")
-        for key, value in fields.items():
-            if not hasattr(entity, key):
-                continue
-            if value is None or value == "":
-                continue
-            if key in {"due_date", "planned_start_date"}:
-                parsed = _coerce_date(value)
-                if parsed is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid date for {key}: {value}",
-                    )
-                setattr(entity, key, parsed)
-            elif key in _BOOL_FIELDS:
-                parsed = _coerce_bool(value)
-                if parsed is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid boolean for {key}: {value}",
-                    )
-                setattr(entity, key, parsed)
-            elif key in _INT_FIELDS:
-                try:
-                    parsed = int(value)
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid integer for {key}: {value}",
-                    ) from exc
-                setattr(entity, key, parsed)
-            elif key in _FLOAT_FIELDS:
-                try:
-                    parsed = float(value)
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Invalid number for {key}: {value}",
-                    ) from exc
-                setattr(entity, key, parsed)
+        applied_count = 0
+        first_entity_type = None
+        first_entity_id = None
+        for update in updates_to_apply:
+            entity_type = update.get("entity_type")
+            entity_id = update.get("entity_id")
+            fields = update.get("fields") or {}
+            if entity_type == "project":
+                entity = (
+                    session.query(Project)
+                    .filter(Project.project_id == entity_id)
+                    .filter(Project.deleted_at.is_(None))
+                    .filter(_in_space(Project, space_ctx.space_id))
+                    .first()
+                )
+            elif entity_type == "solution":
+                entity = (
+                    session.query(Solution)
+                    .filter(Solution.solution_id == entity_id)
+                    .filter(Solution.deleted_at.is_(None))
+                    .filter(_in_space(Solution, space_ctx.space_id))
+                    .first()
+                )
+            elif entity_type == "subcomponent":
+                entity = (
+                    session.query(Subcomponent)
+                    .filter(Subcomponent.subcomponent_id == entity_id)
+                    .filter(Subcomponent.deleted_at.is_(None))
+                    .filter(_in_space(Subcomponent, space_ctx.space_id))
+                    .first()
+                )
             else:
-                setattr(entity, key, value)
-        entity.updated_at = now
-        session.add(entity)
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported entity_type: {entity_type}")
+            if not entity:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Entity not found: {entity_type}:{entity_id}")
+            if first_entity_type is None:
+                first_entity_type = entity_type
+                first_entity_id = entity_id
+            for key, value in fields.items():
+                if not hasattr(entity, key):
+                    continue
+                if value is None or value == "":
+                    continue
+                if key in {"due_date", "planned_start_date"}:
+                    parsed = _coerce_date(value)
+                    if parsed is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid date for {key}: {value}",
+                        )
+                    setattr(entity, key, parsed)
+                elif key in _BOOL_FIELDS:
+                    parsed = _coerce_bool(value)
+                    if parsed is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid boolean for {key}: {value}",
+                        )
+                    setattr(entity, key, parsed)
+                elif key in _INT_FIELDS:
+                    try:
+                        parsed = int(value)
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid integer for {key}: {value}",
+                        ) from exc
+                    setattr(entity, key, parsed)
+                elif key in _FLOAT_FIELDS:
+                    try:
+                        parsed = float(value)
+                    except Exception as exc:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Invalid number for {key}: {value}",
+                        ) from exc
+                    setattr(entity, key, parsed)
+                else:
+                    setattr(entity, key, value)
+            entity.updated_at = now
+            session.add(entity)
+            applied_count += 1
+        autofill_update_count = applied_count
+        if first_entity_type:
+            ai_request.entity_type = first_entity_type
+        if first_entity_id:
+            ai_request.entity_id = first_entity_id
 
     elif normalized_request_type == "sow":
         content = _extract_json_content(payload.output)
@@ -965,8 +1240,12 @@ def ai_approve(
     # For create flows, return the created entity id/type so the client can keep context.
     entity_type_out = ai_request.entity_type or payload.entity_type
     entity_id_out = ai_request.entity_id or payload.entity_id
+    reply_text = "Saved."
+    if normalized_request_type == "autofill":
+        if autofill_update_count > 1:
+            reply_text = f"Saved. Updated {autofill_update_count} items."
     return AIChatResponse(
-        reply="Saved.",
+        reply=reply_text,
         requires_approval=False,
         request_type=normalized_request_type,
         entity_type=entity_type_out,

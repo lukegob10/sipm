@@ -1,85 +1,93 @@
 {
-  "doc_type": "sow_monthly_governance_attestation",
-  "version": "1.0",
-  "placeholders": [
-    "[[TODO]]",
-    "[[TBD]]",
-    "[[UNKNOWN]]",
-    "[[PHASE_UNKNOWN]]",
-    "[[SCOPE_MISMATCH]]"
-  ],
-  "rules": {
-    "no_fact_invention": true,
-    "prefer_governance_over_tasks": true,
-    "attestation_values": ["TRUE", "FALSE", "NA", "UNKNOWN"],
-    "unknown_requires_question": true,
-    "false_or_unknown_requires_notes": true,
-    "markdown_required": true,
-    "controls_required": true
+  "month": "[[TODO]]",
+  "project": "[[PROJECT_NAME]]",
+
+  "exec_summary": {
+    "overall_status": "[[GREEN | AMBER | RED | UNKNOWN]]",
+    "scope_status": "[[TRUE | FALSE | UNKNOWN]]",
+    "timeline_status": "[[TRUE | FALSE | UNKNOWN]]",
+    "key_message": "[[TODO]]"
   },
+
+  "delta_summary": {
+    "scope_changes_this_month": "[[NONE | MINOR | MATERIAL | UNKNOWN]]",
+    "milestone_slippage": "[[NONE | MINOR | MATERIAL | UNKNOWN]]",
+    "deliverables_completed": "[[TODO]]",
+    "new_risks_added": "[[TODO]]",
+    "budget_impact": "[[NONE | MINOR | MATERIAL | UNKNOWN]]"
+  },
+
   "controls": [
     {
       "id": "SOW-SCOPE-01",
-      "category": "Scope",
-      "description": "Work performed this period remained within approved SOW scope (or a formal change request exists).",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-CHANGE-01",
-      "category": "Change Control",
-      "description": "Material scope/timeline/commitment changes followed documented change control and approvals.",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-MILESTONE-01",
-      "category": "Timeline & Milestones",
-      "description": "Milestones and due dates are current, and slippage (if any) is documented with mitigations.",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-DELIVERABLE-01",
-      "category": "Deliverables",
-      "description": "Deliverables completed this period have evidence of review/acceptance where applicable.",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-RISK-01",
-      "category": "Risk & Issue Governance",
-      "description": "Risks/issues are tracked, up to date, and owners/mitigations are identified for material items.",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-STAKEHOLDER-01",
-      "category": "Stakeholder Governance",
-      "description": "Key stakeholders were informed of material status changes, risks, and decisions.",
-      "required": false
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-APPROVAL-01",
-      "category": "Approvals",
-      "description": "SOW approval state and any required monthly attestations are current and documented.",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     },
     {
       "id": "SOW-DATA-01",
-      "category": "Evidence",
-      "description": "Evidence referenced for attestations is traceable to the provided project context/deltas (no invention).",
-      "required": true
+      "attestation": "[[TRUE | FALSE | NA | UNKNOWN]]",
+      "notes_required_if_false_or_unknown": "[[TODO]]"
     }
   ],
-  "output_contract": {
-    "format": "json",
-    "required_keys": [
-      "month",
-      "project",
-      "exec_summary",
-      "delta_summary",
-      "controls",
-      "exceptions",
-      "risks",
-      "questions",
-      "warnings",
-      "markdown"
-    ]
-  }
+
+  "exceptions": [
+    {
+      "control_id": "[[TODO]]",
+      "description": "[[TODO]]",
+      "impact": "[[LOW | MEDIUM | HIGH | UNKNOWN]]",
+      "remediation_plan": "[[TODO]]",
+      "target_resolution_date": "[[TBD]]"
+    }
+  ],
+
+  "risks": [
+    {
+      "risk_id": "[[TODO]]",
+      "description": "[[TODO]]",
+      "impact": "[[LOW | MEDIUM | HIGH | UNKNOWN]]",
+      "mitigation": "[[TODO]]",
+      "owner": "[[TODO]]"
+    }
+  ],
+
+  "questions": [
+    "[[Required if any attestation = UNKNOWN]]"
+  ],
+
+  "warnings": [
+    "[[Auto-trigger if material scope drift without change control]]",
+    "[[Auto-trigger if milestone slippage without mitigation]]"
+  ],
+
+  "markdown": "# Monthly SOW Governance Attestation: [[PROJECT_NAME]]\n\n## Executive Summary\n- Overall Status: [[GREEN | AMBER | RED | UNKNOWN]]\n- Scope Integrity: [[TRUE | FALSE | UNKNOWN]]\n- Timeline Integrity: [[TRUE | FALSE | UNKNOWN]]\n\n## Control Attestations\n| Control ID | Attestation | Notes (if FALSE/UNKNOWN) |\n|------------|------------|--------------------------|\n| SOW-SCOPE-01 | [[VALUE]] | [[NOTES]] |\n| SOW-CHANGE-01 | [[VALUE]] | [[NOTES]] |\n| SOW-MILESTONE-01 | [[VALUE]] | [[NOTES]] |\n| SOW-DELIVERABLE-01 | [[VALUE]] | [[NOTES]] |\n| SOW-RISK-01 | [[VALUE]] | [[NOTES]] |\n| SOW-STAKEHOLDER-01 | [[VALUE]] | [[NOTES]] |\n| SOW-APPROVAL-01 | [[VALUE]] | [[NOTES]] |\n| SOW-DATA-01 | [[VALUE]] | [[NOTES]] |\n\n## Exceptions\n[[List if applicable]]\n\n## Key Risks\n[[List if applicable]]\n\n## Required Clarifications\n[[Only if UNKNOWN exists]]"
 }

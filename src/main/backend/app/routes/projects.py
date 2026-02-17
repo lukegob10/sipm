@@ -9,6 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status, BackgroundT
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from ..deps import (
     current_space as current_space_dep,
@@ -61,6 +62,44 @@ def _get_project_or_404(session: Session, project_id: str, space_ctx: SpaceConte
     return project
 
 
+def _is_project_name_conflict_integrity_error(exc: IntegrityError) -> bool:
+    parts = [
+        str(exc),
+        str(getattr(exc, "orig", "")),
+        str(getattr(exc, "statement", "")),
+    ]
+    text = " ".join(parts).lower()
+    if "uix_project_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker:
+        return False
+    return ("project_name" in text) or ("tb_ta_pm_projects" in text)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _deleted_project_name(project_name: str, project_id: str, deleted_at: datetime) -> str:
+    base = (project_name or "Project").strip() or "Project"
+    stamp = _as_utc(deleted_at).strftime("%Y%m%dT%H%M%SZ")
+    token = (project_id or "")[:8] or "deleted"
+    suffix = f" [deleted {stamp} {token}]"
+    max_base_len = max(1, 255 - len(suffix))
+    return f"{base[:max_base_len]}{suffix}"
+
+
 @router.get("", response_model=List[ProjectRead])
 @router.get("/", response_model=List[ProjectRead])
 def list_projects(
@@ -111,6 +150,7 @@ def create_project(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
+    # Active name conflict in this space should be rejected up-front.
     existing = (
         _project_query(session, space_ctx)
         .filter(Project.project_name == payload.project_name)
@@ -120,6 +160,21 @@ def create_project(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
         )
+
+    # Backfill legacy deletes (rows soft-deleted before the rename-on-delete behavior)
+    # so users can reuse the original project name.
+    now = datetime.now(timezone.utc)
+    deleted_conflicts = (
+        session.query(Project)
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_not(None))
+        .filter(Project.project_name == payload.project_name)
+        .all()
+    )
+    for deleted in deleted_conflicts:
+        deleted.project_name = _deleted_project_name(deleted.project_name, deleted.project_id, deleted.deleted_at or now)
+        deleted.updated_at = now
+        session.add(deleted)
 
     sponsor = normalize_str(payload.sponsor) or current_user.display_name or current_user.soeid or "Sponsor"
     sponsor_user_soeid = normalize_str(payload.sponsor_user_soeid) or None
@@ -139,28 +194,48 @@ def create_project(
         strategic_objective=payload.strategic_objective,
         priority=payload.priority if payload.priority is not None else 3,
     )
-    session.add(project)
-    session.flush()
-    log_changes(
-        session,
-        entity_type="project",
-        entity_id=project.project_id,
-        user_id=current_user.user_id,
-        action="create",
-        space_id=space_ctx.space_id,
-        changes={
-            "project_name": (None, project.project_name),
-            "status": (None, project.status),
-            "description": (None, project.description),
-            "success_criteria": (None, project.success_criteria),
-            "sponsor": (None, project.sponsor),
-            "sponsor_user_soeid": (None, project.sponsor_user_soeid),
-            "strategic_objective": (None, project.strategic_objective),
-            "priority": (None, project.priority),
-        },
-    )
-    session.commit()
-    session.refresh(project)
+    try:
+        if deleted_conflicts:
+            session.flush()
+        session.add(project)
+        session.flush()
+        log_changes(
+            session,
+            entity_type="project",
+            entity_id=project.project_id,
+            user_id=current_user.user_id,
+            action="create",
+            space_id=space_ctx.space_id,
+            changes={
+                "project_name": (None, project.project_name),
+                "status": (None, project.status),
+                "description": (None, project.description),
+                "success_criteria": (None, project.success_criteria),
+                "sponsor": (None, project.sponsor),
+                "sponsor_user_soeid": (None, project.sponsor_user_soeid),
+                "strategic_objective": (None, project.strategic_objective),
+                "priority": (None, project.priority),
+            },
+        )
+        session.commit()
+        session.refresh(project)
+    except IntegrityError as exc:
+        session.rollback()
+        if _is_project_name_conflict_integrity_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project name already exists",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project create failed due to a data conflict.",
+        ) from exc
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create project.",
+        ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
     schedule_broadcast("projects")
     return project
@@ -393,19 +468,37 @@ def update_project(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
             )
 
-    session.add(project)
-    if update_data:
-        log_changes(
-            session,
-            entity_type="project",
-            entity_id=project.project_id,
-            user_id=current_user.user_id,
-            action="update",
-            space_id=space_ctx.space_id,
-            changes={field: (before.get(field), getattr(project, field)) for field in update_data.keys()},
-        )
-    session.commit()
-    session.refresh(project)
+    try:
+        session.add(project)
+        if update_data:
+            log_changes(
+                session,
+                entity_type="project",
+                entity_id=project.project_id,
+                user_id=current_user.user_id,
+                action="update",
+                space_id=space_ctx.space_id,
+                changes={field: (before.get(field), getattr(project, field)) for field in update_data.keys()},
+            )
+        session.commit()
+        session.refresh(project)
+    except IntegrityError as exc:
+        session.rollback()
+        if _is_project_name_conflict_integrity_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project name already exists",
+            ) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project update failed due to a data conflict.",
+        ) from exc
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update project.",
+        ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
     schedule_broadcast("projects")
     return project
@@ -422,8 +515,10 @@ def delete_project(
 ):
     project = _get_project_or_404(session, project_id, space_ctx)
     now = datetime.now(timezone.utc)
+    previous_name = project.project_name
     project.deleted_at = now
     project.updated_at = now
+    project.project_name = _deleted_project_name(project.project_name, project.project_id, now)
     session.add(project)
     log_changes(
         session,
@@ -432,7 +527,10 @@ def delete_project(
         user_id=current_user.user_id,
         action="delete",
         space_id=space_ctx.space_id,
-        changes={"deleted_at": (None, now)},
+        changes={
+            "deleted_at": (None, now),
+            "project_name": (previous_name, project.project_name),
+        },
     )
     session.commit()
     invalidate_space(space_ctx.space_id, ["projects"])

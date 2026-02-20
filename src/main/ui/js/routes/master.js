@@ -1,158 +1,10 @@
 export function renderMasterFilters(ctx) {
-  const {
-    state,
-    els,
-    escapeAttr,
-    deliverableKey,
-    updateBulkSelectionCount,
-    renderMasterTable,
-    renderKanban,
-    renderCalendar,
-    clearDeliverablesFilters,
-  } = ctx;
-
+  const { els } = ctx;
   const root = els.masterFilters;
   if (!root) return;
-  const prevFilters = {
-    type: state.filters.type || "",
-    project: state.filters.project || "",
-    sponsor: state.filters.sponsor || "",
-    solution: state.filters.solution || "",
-    version: state.filters.version || "",
-    owner: state.filters.owner || "",
-    assignee: state.filters.assignee || "",
-    current_phase: state.filters.current_phase || "",
-    priority: state.filters.priority || "",
-    due: state.filters.due || "",
-    rag: state.filters.rag || "",
-    status: state.filters.status || "",
-    progress: state.filters.progress || "",
-  };
-  const esc = (v) => escapeAttr(v || "");
-  let applyTimer = 0;
-  const scheduleApply = () => {
-    if (applyTimer) window.clearTimeout(applyTimer);
-    applyTimer = window.setTimeout(() => {
-      renderMasterTable();
-      renderKanban();
-      renderCalendar();
-    }, 180);
-  };
-  root.innerHTML = `
-    <div class="table-filter-actions">
-      <button id="remove-master-filters" class="secondary" type="button">Remove Filters</button>
-    </div>
-    <div class="table"><table class="deliverables-table"><colgroup>
-      <col class="deliverable-select"><col class="deliverable-type"><col class="deliverable-project"><col class="deliverable-sponsor">
-      <col class="deliverable-solution"><col class="deliverable-version"><col class="deliverable-owner"><col class="deliverable-assignee">
-      <col class="deliverable-phase"><col class="deliverable-priority"><col class="deliverable-due"><col class="deliverable-fte"><col class="deliverable-rag">
-      <col class="deliverable-status"><col class="deliverable-progress"><col class="deliverable-actions">
-    </colgroup><thead>
-      <tr>
-        <th></th>
-        <th>Type</th>
-        <th>Project</th>
-        <th>Sponsor</th>
-        <th>Solution</th>
-        <th>Version</th>
-        <th>Owner</th>
-        <th>Assignee</th>
-        <th>Phase</th>
-        <th>Priority</th>
-        <th>Due</th>
-        <th>FTE-Months</th>
-        <th>RAG</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th></th>
-      </tr>
-      <tr class="filter-row">
-        <td><input type="checkbox" id="deliverables-select-all" aria-label="Select all deliverables" /></td>
-        <td>
-          <select id="filter-type">
-            <option value="">All</option>
-            <option value="project" ${prevFilters.type === "project" ? "selected" : ""}>Project</option>
-            <option value="solution" ${prevFilters.type === "solution" ? "selected" : ""}>Solution</option>
-          </select>
-        </td>
-        <td><input class="table-filter" type="text" id="filter-project" placeholder="Project" value="${esc(prevFilters.project)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-sponsor" placeholder="Sponsor" value="${esc(prevFilters.sponsor)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-solution" placeholder="Solution" value="${esc(prevFilters.solution)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-version" placeholder="Version" value="${esc(prevFilters.version)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-owner" placeholder="Owner" value="${esc(prevFilters.owner)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-assignee" placeholder="Assignee" value="${esc(prevFilters.assignee)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-current-phase" placeholder="Phase" value="${esc(prevFilters.current_phase)}" /></td>
-        <td><input class="table-filter" type="number" id="filter-priority" min="0" max="5" placeholder="Priority" value="${esc(prevFilters.priority)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-due" placeholder="Due" value="${esc(prevFilters.due)}" /></td>
-        <td></td>
-        <td><input class="table-filter" type="text" id="filter-rag" placeholder="RAG" value="${esc(prevFilters.rag)}" /></td>
-        <td><input class="table-filter" type="text" id="filter-status" placeholder="Status" value="${esc(prevFilters.status)}" /></td>
-        <td><input class="table-filter" type="number" id="filter-progress" min="0" max="100" placeholder="Progress" value="${esc(prevFilters.progress)}" /></td>
-        <td></td>
-      </tr>
-    </thead></table></div>
-  `;
-  const setFilterValue = (key, value) => {
-    state.filters[key] = value;
-  };
-  [
-    "filter-project",
-    "filter-sponsor",
-    "filter-solution",
-    "filter-version",
-    "filter-owner",
-    "filter-assignee",
-    "filter-current-phase",
-    "filter-priority",
-    "filter-due",
-    "filter-rag",
-    "filter-status",
-    "filter-progress",
-  ].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el && !el._filterBound) {
-      el.addEventListener("input", () => {
-        setFilterValue(id.replace("filter-", ""), el.value);
-        scheduleApply();
-      });
-      el.addEventListener("change", () => {
-        setFilterValue(id.replace("filter-", ""), el.value);
-        scheduleApply();
-      });
-      el._filterBound = true;
-    }
-  });
-  const typeSelect = document.getElementById("filter-type");
-  if (typeSelect && !typeSelect._filterBound) {
-    typeSelect.addEventListener("change", () => {
-      setFilterValue("type", typeSelect.value);
-      renderMasterTable();
-      renderKanban();
-      renderCalendar();
-    });
-    typeSelect._filterBound = true;
-  }
-  const removeBtn = document.getElementById("remove-master-filters");
-  if (removeBtn) {
-    removeBtn.onclick = () => clearDeliverablesFilters();
-  }
-  const selectAll = document.getElementById("deliverables-select-all");
-  if (selectAll && !selectAll._bound) {
-    selectAll.addEventListener("change", () => {
-      const boxes = els.masterTable?.querySelectorAll('input.deliverable-select') || [];
-      state.deliverableSelection.clear();
-      boxes.forEach((box) => {
-        box.checked = selectAll.checked;
-        if (selectAll.checked) {
-          const type = box.getAttribute("data-type");
-          const id = box.getAttribute("data-id");
-          if (type && id) state.deliverableSelection.add(deliverableKey(type, id));
-        }
-      });
-      updateBulkSelectionCount();
-    });
-    selectAll._bound = true;
-  }
+  // Filters are rendered inside the deliverables table so headers, filters,
+  // and row data share one horizontal scroll container and stay aligned.
+  root.innerHTML = "";
 }
 
 export function renderMasterTable(ctx) {
@@ -165,6 +17,8 @@ export function renderMasterTable(ctx) {
     solutionProgress,
     updateBulkSelectionCount,
     renderMasterQuickstart,
+    renderKanban,
+    renderCalendar,
   } = ctx;
 
   if (!els.masterTable) return;
@@ -186,13 +40,78 @@ export function renderMasterTable(ctx) {
   if (typeof renderMasterQuickstart === "function") {
     renderMasterQuickstart(rows.length);
   }
+  const prevFilters = {
+    type: state.filters.type || "",
+    project: state.filters.project || "",
+    sponsor: state.filters.sponsor || "",
+    solution: state.filters.solution || "",
+    version: state.filters.version || "",
+    owner: state.filters.owner || "",
+    current_phase: state.filters.current_phase || "",
+    priority: state.filters.priority || "",
+    due: state.filters.due || "",
+    rag: state.filters.rag || "",
+    status: state.filters.status || "",
+    progress: state.filters.progress || "",
+  };
+  const esc = (v) =>
+    String(v || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   const colgroup = `<colgroup>
       <col class="deliverable-select"><col class="deliverable-type"><col class="deliverable-project"><col class="deliverable-sponsor">
-      <col class="deliverable-solution"><col class="deliverable-version"><col class="deliverable-owner"><col class="deliverable-assignee">
+      <col class="deliverable-solution"><col class="deliverable-version"><col class="deliverable-owner">
       <col class="deliverable-phase"><col class="deliverable-priority"><col class="deliverable-due"><col class="deliverable-fte"><col class="deliverable-rag">
       <col class="deliverable-status"><col class="deliverable-progress"><col class="deliverable-actions">
     </colgroup>`;
-  let html = `<table class="deliverables-table">${colgroup}<tbody>`;
+  let html = `
+    <table class="deliverables-table">${colgroup}
+      <thead>
+        <tr>
+          <th></th>
+          <th>Type</th>
+          <th>Project</th>
+          <th>Sponsor</th>
+          <th>Solution</th>
+          <th>Version</th>
+          <th>Owner</th>
+          <th>Phase</th>
+          <th>Priority</th>
+          <th>Due</th>
+          <th>FTE-Months</th>
+          <th>RAG</th>
+          <th>Status</th>
+          <th>%</th>
+          <th></th>
+        </tr>
+        <tr class="filter-row">
+          <td><input type="checkbox" id="deliverables-select-all" aria-label="Select all deliverables" /></td>
+          <td>
+            <select id="filter-type">
+              <option value="">All</option>
+              <option value="project" ${prevFilters.type === "project" ? "selected" : ""}>Project</option>
+              <option value="solution" ${prevFilters.type === "solution" ? "selected" : ""}>Solution</option>
+            </select>
+          </td>
+          <td><input class="table-filter" type="text" id="filter-project" placeholder="Project" value="${esc(prevFilters.project)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-sponsor" placeholder="Sponsor" value="${esc(prevFilters.sponsor)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-solution" placeholder="Solution" value="${esc(prevFilters.solution)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-version" placeholder="Version" value="${esc(prevFilters.version)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-owner" placeholder="Owner" value="${esc(prevFilters.owner)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-current-phase" placeholder="Phase" value="${esc(prevFilters.current_phase)}" /></td>
+          <td><input class="table-filter table-filter-priority" type="number" id="filter-priority" min="0" max="5" placeholder="Priority" value="${esc(prevFilters.priority)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-due" placeholder="Due" value="${esc(prevFilters.due)}" /></td>
+          <td></td>
+          <td><input class="table-filter" type="text" id="filter-rag" placeholder="RAG" value="${esc(prevFilters.rag)}" /></td>
+          <td><input class="table-filter" type="text" id="filter-status" placeholder="Status" value="${esc(prevFilters.status)}" /></td>
+          <td><input class="table-filter" type="number" id="filter-progress" min="0" max="100" placeholder="%" value="${esc(prevFilters.progress)}" /></td>
+          <td></td>
+        </tr>
+      </thead>
+      <tbody>`;
   rows.forEach((row) => {
     const isSolution = row.type === "solution";
     const project = row.project;
@@ -220,29 +139,101 @@ export function renderMasterTable(ctx) {
         <option value="complete" ${statusValue === "complete" ? "selected" : ""}>Complete</option>
         <option value="abandoned" ${statusValue === "abandoned" ? "selected" : ""}>Abandoned</option>
       </select>`;
-    html += `<tr>
+    const deliverableChip = `<button
+      type="button"
+      class="deliverable-chip-btn"
+      data-action="edit"
+      data-type="${row.type}"
+      data-id="${itemId}"
+      title="Open ${row.type === "project" ? "project" : "solution"}"
+      aria-label="Open ${row.type === "project" ? "project" : "solution"}"
+    ><span class="pill ${row.type === "project" ? "pill-project" : "pill-solution"}">${row.type === "project" ? "Project" : "Solution"}</span></button>`;
+    const deliverableActions = `<div class="deliverable-actions">
+        <button class="icon-btn" data-action="edit" data-type="${row.type}" data-id="${itemId}" title="Edit">✎</button>
+        ${isSolution ? `<button class="icon-btn" data-action="add-subcomponent" data-type="solution" data-id="${solution.solution_id}" title="Add subcomponent">＋</button>` : ""}
+      </div>`;
+    html += `<tr class="deliverable-row ${isSolution ? "deliverable-row-solution" : "deliverable-row-project"}">
       <td><input type="checkbox" class="deliverable-select" data-type="${row.type}" data-id="${itemId}" ${checked} /></td>
-      <td><span class="pill ${row.type === "project" ? "pill-project" : "pill-solution"}">${row.type === "project" ? "Project" : "Solution"}</span></td>
+      <td>${deliverableChip}</td>
       <td>${project?.project_name || "–"}</td>
       <td>${project?.sponsor || "–"}</td>
       <td>${solution?.solution_name || "–"}</td>
       <td>${solution?.version || "–"}</td>
       <td>${solution?.owner || "–"}</td>
-      <td>${solution?.assignee || "–"}</td>
       <td>${isSolution ? phaseDisplayName(solution.current_phase) || "–" : "—"}</td>
-      <td><input class="inline-input" type="number" min="0" max="5" data-field="priority" data-type="${row.type}" data-id="${itemId}" value="${priorityValue ?? ""}" /></td>
+      <td><input class="inline-input inline-input-priority" type="number" min="0" max="5" data-field="priority" data-type="${row.type}" data-id="${itemId}" value="${priorityValue ?? ""}" /></td>
       <td>${isSolution ? solution.due_date || "" : "—"}</td>
       <td>${fteMonthsCell}</td>
       <td>${ragCell}</td>
       <td>${statusCell}</td>
       <td>${isSolution ? `${solutionProgress(solution)}%` : "—"}</td>
-      <td>
-        <button class="icon-btn" data-action="edit" data-type="${row.type}" data-id="${itemId}" title="Edit">✎</button>
-        ${isSolution ? `<button class="icon-btn" data-action="add-subcomponent" data-type="solution" data-id="${solution.solution_id}" title="Add subcomponent">＋</button>` : ""}
-      </td>
+      <td>${deliverableActions}</td>
     </tr>`;
   });
   html += "</tbody></table>";
   els.masterTable.innerHTML = html;
+
+  const setFilterValue = (key, value) => {
+    state.filters[key] = value;
+  };
+  let applyTimer = 0;
+  const scheduleApply = () => {
+    if (applyTimer) window.clearTimeout(applyTimer);
+    applyTimer = window.setTimeout(() => {
+      renderMasterTable();
+      if (typeof renderKanban === "function") renderKanban();
+      if (typeof renderCalendar === "function") renderCalendar();
+    }, 180);
+  };
+  [
+    "filter-project",
+    "filter-sponsor",
+    "filter-solution",
+    "filter-version",
+    "filter-owner",
+    "filter-current-phase",
+    "filter-priority",
+    "filter-due",
+    "filter-rag",
+    "filter-status",
+    "filter-progress",
+  ].forEach((id) => {
+    const el = els.masterTable.querySelector(`#${id}`);
+    if (!el) return;
+    const apply = () => {
+      setFilterValue(id.replace("filter-", ""), el.value);
+      scheduleApply();
+    };
+    el.addEventListener("input", apply);
+    el.addEventListener("change", apply);
+  });
+
+  const typeSelect = els.masterTable.querySelector("#filter-type");
+  if (typeSelect) {
+    typeSelect.addEventListener("change", () => {
+      setFilterValue("type", typeSelect.value);
+      renderMasterTable();
+      if (typeof renderKanban === "function") renderKanban();
+      if (typeof renderCalendar === "function") renderCalendar();
+    });
+  }
+
+  const selectAll = els.masterTable.querySelector("#deliverables-select-all");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      const boxes = els.masterTable?.querySelectorAll('input.deliverable-select') || [];
+      state.deliverableSelection.clear();
+      boxes.forEach((box) => {
+        box.checked = selectAll.checked;
+        if (selectAll.checked) {
+          const type = box.getAttribute("data-type");
+          const id = box.getAttribute("data-id");
+          if (type && id) state.deliverableSelection.add(deliverableKey(type, id));
+        }
+      });
+      updateBulkSelectionCount();
+    });
+  }
+
   updateBulkSelectionCount();
 }

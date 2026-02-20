@@ -105,6 +105,13 @@ const els = {
   dashboardCompletedQuarter: document.getElementById("dashboard-completed-quarter"),
   dashboardUpcomingQuarter: document.getElementById("dashboard-upcoming-quarter"),
   dashboardBacklog: document.getElementById("dashboard-backlog"),
+  pmDashboardSummary: document.getElementById("pm-dashboard-summary"),
+  pmDashboardHealth: document.getElementById("pm-dashboard-health"),
+  pmDashboardRisks: document.getElementById("pm-dashboard-risks"),
+  pmDashboardTimeline: document.getElementById("pm-dashboard-timeline"),
+  pmDashboardCapacity: document.getElementById("pm-dashboard-capacity"),
+  pmDashboardStatus: document.getElementById("pm-dashboard-status"),
+  pmDashboardActions: document.getElementById("pm-dashboard-actions"),
   teamForm: document.getElementById("team-form"),
   teamList: document.getElementById("team-list"),
   deleteTeamBtn: document.getElementById("delete-team"),
@@ -135,12 +142,16 @@ const els = {
   globalAdminList: document.getElementById("global-admin-list"),
   globalAdminNote: document.getElementById("global-admin-note"),
   projectForm: document.getElementById("project-form"),
+  projectSubmitBtn: document.getElementById("project-submit-btn"),
   projectFormStatus: document.getElementById("project-form-status"),
+  csvActionsToggle: document.getElementById("csv-actions-toggle"),
+  csvActionsMenu: document.getElementById("csv-actions-menu"),
   projectsDownload: document.getElementById("projects-download"),
   projectsUpload: document.getElementById("projects-upload"),
   projectsFile: document.getElementById("projects-file"),
   projectsImportResult: document.getElementById("projects-import-result"),
   solutionForm: document.getElementById("solution-form"),
+  solutionSubmitBtn: document.getElementById("solution-submit-btn"),
   solutionFormStatus: document.getElementById("solution-form-status"),
   solutionsDownload: document.getElementById("solutions-download"),
   solutionsUpload: document.getElementById("solutions-upload"),
@@ -203,8 +214,6 @@ const els = {
   planningRoster: document.getElementById("planning-roster"),
   planningWindowSummary: document.getElementById("planning-window-summary"),
   planningKpis: document.getElementById("planning-kpis"),
-  newProjectBtn: document.getElementById("new-project"),
-  newSolutionBtn: document.getElementById("new-solution"),
   newSubcomponentBtn: document.getElementById("new-subcomponent"),
   deleteProjectBtn: document.getElementById("delete-project"),
   deleteSolutionBtn: document.getElementById("delete-solution"),
@@ -457,6 +466,7 @@ const KNOWN_VIEWS = [
   "master",
   "subcomponents-workbench",
   "dashboard",
+  "pm-dashboard",
   "kanban",
   "calendar",
   "planning",
@@ -472,6 +482,7 @@ const VIEW_DATA_REQUIREMENTS = {
   master: ["phases", "projects", "solutions", "subcomponents", "users"],
   "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
   dashboard: ["projects", "solutions", "users"],
+  "pm-dashboard": ["projects", "solutions", "subcomponents", "users", "allocations", "windows"],
   kanban: ["phases", "projects", "solutions"],
   calendar: ["projects", "solutions"],
   planning: ["projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
@@ -485,7 +496,8 @@ const VIEW_DATA_REQUIREMENTS = {
 const VIEW_PREFETCH_TARGET = {
   master: "dashboard",
   "subcomponents-workbench": "planning",
-  dashboard: "kanban",
+  dashboard: "pm-dashboard",
+  "pm-dashboard": "kanban",
   kanban: "planning",
   calendar: "planning",
   planning: "team-capacity",
@@ -503,6 +515,7 @@ const ROUTE_MODULE_LOADERS = {
   workbench: () => import(`./routes/workbench.js?v=${APP_ASSET_VERSION}`),
   "structure-studio": () => import(`./routes/structure-studio.js?v=${APP_ASSET_VERSION}`),
   dashboard: () => import(`./routes/dashboard.js?v=${APP_ASSET_VERSION}`),
+  "pm-dashboard": () => import(`./routes/pm-dashboard.js?v=${APP_ASSET_VERSION}`),
   kanban: () => import(`./routes/kanban.js?v=${APP_ASSET_VERSION}`),
   calendar: () => import(`./routes/calendar.js?v=${APP_ASSET_VERSION}`),
   planning: () => import(`./routes/planning.js?v=${APP_ASSET_VERSION}`),
@@ -1739,6 +1752,7 @@ function bindGenAIUI() {
   const rerenderDeliverablesIfVisible = () => {
     if (state.currentView === "master") renderMasterTable();
     if (state.currentView === "dashboard") renderDashboard();
+    if (state.currentView === "pm-dashboard") renderPMDashboard();
     if (state.currentView === "kanban") renderKanban();
     if (state.currentView === "calendar") renderCalendar();
   };
@@ -4223,6 +4237,9 @@ function renderActiveView() {
     case "dashboard":
       renderDashboard();
       break;
+    case "pm-dashboard":
+      renderPMDashboard();
+      break;
     case "kanban":
       renderKanban();
       break;
@@ -4964,7 +4981,6 @@ function filteredSolutions() {
     if (f.solution && !(s.solution_name || "").toLowerCase().includes(f.solution.toLowerCase())) return false;
     if (f.version && !(s.version || "").toLowerCase().includes(f.version.toLowerCase())) return false;
     if (f.owner && !(s.owner || "").toLowerCase().includes(f.owner.toLowerCase())) return false;
-    if (f.assignee && !(s.assignee || "").toLowerCase().includes(f.assignee.toLowerCase())) return false;
     if (f.current_phase && !(s.current_phase || "").toLowerCase().includes(f.current_phase.toLowerCase())) return false;
     if (f.priority && Number(s.priority) > Number(f.priority)) return false;
     if (f.due && !(s.due_date || "").toLowerCase().includes(f.due.toLowerCase())) return false;
@@ -5011,7 +5027,7 @@ function filteredDeliverables() {
   const includeProjectRows = f.type !== "solution";
   const includeSolutionRows = f.type !== "project";
   const hasSolutionColumnFilters = Boolean(
-    f.solution || f.version || f.owner || f.assignee || f.current_phase || f.due || f.rag || f.progress
+    f.solution || f.version || f.owner || f.current_phase || f.due || f.rag || f.progress
   );
   const projectById = new Map((state.projects || []).map((project) => [project.project_id, project]));
   const groupedSolutions = new Map();
@@ -5263,6 +5279,9 @@ function renderMasterTable() {
     solutionProgress,
     updateBulkSelectionCount,
     renderMasterQuickstart,
+    renderKanban,
+    renderCalendar,
+    clearDeliverablesFilters,
   });
 }
 
@@ -5858,14 +5877,46 @@ function renderDashboard() {
   mod.renderDashboard({ state, els, formatStatus });
 }
 
+function renderPMDashboard() {
+  const mod = getRouteModule("pm-dashboard");
+  if (!mod || typeof mod.renderPMDashboard !== "function") {
+    if (state.currentView === "pm-dashboard") {
+      if (els.pmDashboardSummary) {
+        els.pmDashboardSummary.innerHTML = "<p class='muted'>Loading...</p>";
+      }
+      if (els.pmDashboardHealth) {
+        els.pmDashboardHealth.innerHTML = "<p class='muted'>Loading...</p>";
+      }
+    }
+    ensureRouteModule("pm-dashboard").then((loaded) => {
+      if (loaded && state.currentView === "pm-dashboard") renderPMDashboard();
+    });
+    return;
+  }
+  mod.renderPMDashboard({
+    state,
+    els,
+    formatStatus,
+    assigneeKeyFromAlloc,
+    assigneeLabelFromKey,
+    allocationFteMonths,
+    userCapacityFteMonth,
+    formatFte,
+  });
+}
+
 function setProjectFormVisibility(show) {
   if (!els.projectModal) return;
   els.projectModal.classList.toggle("hidden", !show);
 }
 
 function setProjectActionButtonLabel(isEditing) {
-  if (!els.projectModalTitle) return;
-  els.projectModalTitle.textContent = isEditing ? "Edit Project" : "Create Project";
+  if (els.projectModalTitle) {
+    els.projectModalTitle.textContent = isEditing ? "Edit Project" : "Create Project";
+  }
+  if (els.projectSubmitBtn) {
+    els.projectSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Project";
+  }
 }
 
 function fillProjectForm(project = null) {
@@ -5909,11 +5960,8 @@ function bindProjectForm() {
   els.projectForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = new FormData(els.projectForm);
-    const id = data.get("project_id");
-    if (!id) {
-      alert("Select a project or use Create Project to add one.");
-      return;
-    }
+    const id = (data.get("project_id") || "").toString().trim();
+    const isEditing = !!id;
     const payload = {
       project_name: data.get("project_name"),
       status: data.get("status"),
@@ -5925,25 +5973,40 @@ function bindProjectForm() {
       priority: Number(data.get("priority") || 3),
     };
     try {
-      setDeliverableFormNotice(els.projectFormStatus, "Saving project...");
+      if (isEditing) {
+        setDeliverableFormNotice(els.projectFormStatus, "Saving project...");
+      } else {
+        setDeliverableFormNotice(els.projectFormStatus, "Creating project...");
+      }
       markIgnoreRefresh("projects");
-      const updated = await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.projects, updated, "project_id");
+      const saved = isEditing
+        ? await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+        : await api("/projects", { method: "POST", body: JSON.stringify(payload) });
+      upsertById(state.projects, saved, "project_id");
+      fillProjectForm(saved);
+      setProjectActionButtonLabel(true);
       populateSelects();
       renderMasterTable();
       renderDashboard();
       renderKanban();
       renderCalendar();
+      const successMessage = isEditing
+        ? `Saved project at ${timestampLabel()}.`
+        : `Created project at ${timestampLabel()}.`;
       setDeliverableFormNotice(
         els.projectFormStatus,
-        `Saved project at ${timestampLabel()}.`,
+        successMessage,
         "success",
         3200
       );
     } catch (err) {
       ignoreNextRefresh.delete("projects");
-      setDeliverableFormNotice(els.projectFormStatus, `Save failed: ${err.message}`, "error");
-      alert(`Save failed: ${err.message}`);
+      setDeliverableFormNotice(
+        els.projectFormStatus,
+        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+        "error"
+      );
+      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   });
   els.projectForm.addEventListener("reset", () => {
@@ -5951,36 +6014,6 @@ function bindProjectForm() {
     fillProjectForm(null);
     setProjectActionButtonLabel(false);
   });
-  if (els.newProjectBtn) {
-    els.newProjectBtn.addEventListener("click", async () => {
-      const data = new FormData(els.projectForm);
-      const payload = {
-        project_name: data.get("project_name"),
-        status: data.get("status"),
-        description: data.get("description"),
-        success_criteria: data.get("success_criteria") || null,
-        sponsor: data.get("sponsor"),
-        sponsor_user_soeid: data.get("sponsor_user_soeid") || null,
-        strategic_objective: data.get("strategic_objective") || null,
-        priority: Number(data.get("priority") || 3),
-      };
-      try {
-        markIgnoreRefresh("projects");
-        const created = await api("/projects", { method: "POST", body: JSON.stringify(payload) });
-        upsertById(state.projects, created, "project_id");
-        populateSelects();
-        fillProjectForm(null);
-        closeProjectForm();
-        renderMasterTable();
-        renderDashboard();
-        renderKanban();
-        renderCalendar();
-      } catch (err) {
-        ignoreNextRefresh.delete("projects");
-        alert(`Create failed: ${err.message}`);
-      }
-    });
-  }
   if (els.deleteProjectBtn) {
     els.deleteProjectBtn.addEventListener("click", async () => {
       const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
@@ -6014,47 +6047,49 @@ function bindSolutionForm() {
 
   const saveHandler = async () => {
     const data = new FormData(els.solutionForm);
-    const id = data.get("solution_id");
-    if (!id) {
-      alert("Select a solution or use Create Solution to add one.");
+    const id = (data.get("solution_id") || "").toString().trim();
+    const isEditing = !!id;
+    const projectId = (data.get("project_id") || "").toString().trim();
+    if (!isEditing && !projectId) {
+      alert("Project is required.");
       return;
     }
     const payload = buildSolutionPayload(data);
     try {
-      setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");
-      markIgnoreRefresh("solutions");
-      const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.solutions, updated, "solution_id");
-      populateSelects();
-      if (els.solutionForm?.querySelector('[name="solution_id"]')?.value === updated.solution_id) {
-        els.solutionForm.querySelector('[name="status"]').value = updated.status || "";
-        els.solutionForm.querySelector('[name="rag_status"]').value = updated.rag_status || "green";
-        els.solutionForm.querySelector('[name="rag_reason"]').value = updated.rag_reason || "";
-        els.solutionForm.querySelector('[name="priority"]').value = updated.priority ?? "";
-        els.solutionForm.querySelector('[name="due_date"]').value = updated.due_date || "";
-        els.solutionForm.querySelector('[name="planned_start_date"]').value = updated.planned_start_date || "";
-        els.solutionForm.querySelector('[name="impact_confidence"]').value = updated.impact_confidence || "";
-        els.solutionForm.querySelector('[name="owner_user_soeid"]').value = updated.owner_user_soeid || "";
-        els.solutionForm.querySelector('[name="assignee_user_soeid"]').value = updated.assignee_user_soeid || "";
-        els.solutionForm.querySelector('[name="approver_user_soeid"]').value = updated.approver_user_soeid || "";
-        els.solutionForm.querySelector('[name="rag_confidence"]').value = updated.rag_confidence ?? "";
-        updateCurrentPhaseOptions(updated.solution_id);
-        els.solutionForm.querySelector('[name="current_phase"]').value = updated.current_phase || "";
-        els.solutionForm.querySelector('[name="success_criteria"]').value = updated.success_criteria || "";
+      if (isEditing) {
+        setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");
+      } else {
+        setDeliverableFormNotice(els.solutionFormStatus, "Creating solution...");
       }
+      markIgnoreRefresh("solutions");
+      const saved = isEditing
+        ? await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+        : await api(`/projects/${projectId}/solutions`, { method: "POST", body: JSON.stringify(payload) });
+      upsertById(state.solutions, saved, "solution_id");
+      populateSelects();
+      fillSolutionForm(saved);
+      setSolutionActionButtonLabel(true);
       renderActiveView();
-      renderSolutionSubcomponents(updated.solution_id);
-      renderSolutionActivity(updated.solution_id);
+      renderSolutionPhases(saved.solution_id);
+      renderSolutionSubcomponents(saved.solution_id);
+      renderSolutionActivity(saved.solution_id);
+      const successMessage = isEditing
+        ? `Saved solution at ${timestampLabel()}.`
+        : `Created solution at ${timestampLabel()}.`;
       setDeliverableFormNotice(
         els.solutionFormStatus,
-        `Saved solution at ${timestampLabel()}.`,
+        successMessage,
         "success",
         3200
       );
     } catch (err) {
       ignoreNextRefresh.delete("solutions");
-      setDeliverableFormNotice(els.solutionFormStatus, `Save failed: ${err.message}`, "error");
-      alert(`Save failed: ${err.message}`);
+      setDeliverableFormNotice(
+        els.solutionFormStatus,
+        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+        "error"
+      );
+      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   };
 
@@ -6065,14 +6100,10 @@ function bindSolutionForm() {
   els.solutionForm.addEventListener("reset", () => {
     clearDeliverableFormNotice(els.solutionFormStatus);
     fillSolutionForm(null);
+    setSolutionActionButtonLabel(false);
     updateCurrentPhaseOptions("");
     renderSolutionPhases();
   });
-  if (els.newSolutionBtn) {
-    els.newSolutionBtn.onclick = () => {
-      createSolutionFromForm();
-    };
-  }
   if (els.deleteSolutionBtn) {
     els.deleteSolutionBtn.addEventListener("click", async () => {
       const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
@@ -6129,33 +6160,6 @@ function buildSolutionPayload(data) {
   return payload;
 }
 
-async function createSolutionFromForm() {
-  if (!els.solutionForm) return;
-  const data = new FormData(els.solutionForm);
-  const projectId = data.get("project_id");
-  const name = data.get("solution_name");
-  const owner = data.get("owner");
-  if (!projectId || !name || !owner) {
-    alert("Project, solution name, and owner are required.");
-    return;
-  }
-  const payload = buildSolutionPayload(data);
-  try {
-    markIgnoreRefresh("solutions");
-    const created = await api(`/projects/${projectId}/solutions`, { method: "POST", body: JSON.stringify(payload) });
-    upsertById(state.solutions, created, "solution_id");
-    populateSelects();
-    closeSolutionModal();
-    renderMasterTable();
-    renderDashboard();
-    renderKanban();
-    renderCalendar();
-  } catch (err) {
-    ignoreNextRefresh.delete("solutions");
-    alert(`Create failed: ${err.message}`);
-  }
-}
-
 function fillSolutionForm(solution = null) {
   if (!els.solutionForm) return;
   els.solutionForm.reset();
@@ -6192,11 +6196,18 @@ function fillSolutionForm(solution = null) {
   }
 }
 
+function setSolutionActionButtonLabel(isEditing) {
+  if (els.solutionModalTitle) {
+    els.solutionModalTitle.textContent = isEditing ? "Edit Solution" : "Create Solution";
+  }
+  if (els.solutionSubmitBtn) {
+    els.solutionSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Solution";
+  }
+}
+
 function openSolutionModal(solution = null, tab = "details") {
   if (!els.solutionModal) return;
-  if (els.solutionModalTitle) {
-    els.solutionModalTitle.textContent = solution?.solution_id ? "Edit Solution" : "Create Solution";
-  }
+  setSolutionActionButtonLabel(!!solution?.solution_id);
   fillSolutionForm(solution);
   els.solutionModal.classList.remove("hidden");
   if (els.subcomponentViewToggle) {
@@ -6217,6 +6228,7 @@ function openSolutionModal(solution = null, tab = "details") {
 function closeSolutionModal() {
   if (!els.solutionModal) return;
   fillSolutionForm(null);
+  setSolutionActionButtonLabel(false);
   els.solutionModal.classList.add("hidden");
   setSolutionTab("details");
   if (els.subcomponentForm) els.subcomponentForm.classList.add("hidden");
@@ -7138,23 +7150,120 @@ async function uploadCsv(kind, fileInput, resultEl) {
 }
 
 function bindCsvControls() {
-  if (els.projectsDownload) {
-    els.projectsDownload.addEventListener("click", () =>
-      downloadCsv("projects", "projects.csv", els.projectsImportResult)
-    );
+  const csvMenuItems = () => Array.from(els.csvActionsMenu?.querySelectorAll("[role='menuitem']") || []);
+  const openCsvMenu = () => {
+    if (!els.csvActionsMenu || !els.csvActionsToggle) return;
+    els.csvActionsMenu.classList.remove("hidden");
+    els.csvActionsToggle.setAttribute("aria-expanded", "true");
+    csvMenuItems()[0]?.focus();
+  };
+  const closeCsvMenu = () => {
+    if (!els.csvActionsMenu || !els.csvActionsToggle) return;
+    els.csvActionsMenu.classList.add("hidden");
+    els.csvActionsToggle.setAttribute("aria-expanded", "false");
+    els.csvActionsToggle.focus();
+  };
+  const toggleCsvMenu = () => {
+    if (!els.csvActionsMenu || !els.csvActionsToggle) return;
+    const isHidden = els.csvActionsMenu.classList.contains("hidden");
+    if (isHidden) {
+      openCsvMenu();
+    } else {
+      closeCsvMenu();
+    }
+  };
+
+  if (els.csvActionsToggle && !els.csvActionsToggle._bound) {
+    els.csvActionsToggle.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      openCsvMenu();
+    });
+    els.csvActionsToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleCsvMenu();
+    });
+    els.csvActionsToggle._bound = true;
+  }
+  if (els.csvActionsMenu && !els.csvActionsMenu._bound) {
+    els.csvActionsMenu.addEventListener("keydown", (event) => {
+      const items = csvMenuItems();
+      if (!items.length) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      const activeIndex = items.indexOf(document.activeElement);
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCsvMenu();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        items[(activeIndex + 1) % items.length]?.focus();
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        items[(activeIndex - 1 + items.length) % items.length]?.focus();
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    });
+    els.csvActionsMenu.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    els.csvActionsMenu._bound = true;
+  }
+  if (!document._csvMenuCloseBound) {
+    document.addEventListener("click", (event) => {
+      const menu = els.csvActionsMenu;
+      const toggle = els.csvActionsToggle;
+      if (!menu || !toggle) return;
+      if (menu.classList.contains("hidden")) return;
+      if (menu.contains(event.target) || toggle.contains(event.target)) return;
+      closeCsvMenu();
+    });
+    document._csvMenuCloseBound = true;
+  }
+
+  if (els.projectsDownload && !els.projectsDownload._bound) {
+    els.projectsDownload.addEventListener("click", () => {
+      closeCsvMenu();
+      downloadCsv("projects", "projects.csv", els.projectsImportResult);
+    });
+    els.projectsDownload._bound = true;
   }
   if (els.projectsUpload && !els.projectsUpload._bound) {
-    els.projectsUpload.addEventListener("click", () => openCsvUploadModal("projects"));
+    els.projectsUpload.addEventListener("click", () => {
+      closeCsvMenu();
+      openCsvUploadModal("projects");
+    });
     els.projectsUpload._bound = true;
   }
 
-  if (els.solutionsDownload) {
-    els.solutionsDownload.addEventListener("click", () =>
-      downloadCsv("solutions", "solutions.csv", els.solutionsImportResult)
-    );
+  if (els.solutionsDownload && !els.solutionsDownload._bound) {
+    els.solutionsDownload.addEventListener("click", () => {
+      closeCsvMenu();
+      downloadCsv("solutions", "solutions.csv", els.solutionsImportResult);
+    });
+    els.solutionsDownload._bound = true;
   }
   if (els.solutionsUpload && !els.solutionsUpload._bound) {
-    els.solutionsUpload.addEventListener("click", () => openCsvUploadModal("solutions"));
+    els.solutionsUpload.addEventListener("click", () => {
+      closeCsvMenu();
+      openCsvUploadModal("solutions");
+    });
     els.solutionsUpload._bound = true;
   }
 
@@ -7227,6 +7336,10 @@ function bindCsvControls() {
   if (els.csvUploadModal && !els.csvUploadModal._escapeBound) {
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
+      if (els.csvActionsMenu && !els.csvActionsMenu.classList.contains("hidden")) {
+        closeCsvMenu();
+        return;
+      }
       if (els.csvUploadModal.classList.contains("hidden")) return;
       closeCsvUploadModal();
     });

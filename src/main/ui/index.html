@@ -101,6 +101,7 @@
         <button data-view="kanban" class="nav-btn">Kanban</button>
         <button data-view="calendar" class="nav-btn">Calendar</button>
         <button data-view="dashboard" class="nav-btn">Dashboard</button>
+        <button data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
       </div>
       <div class="nav-group nav-section">
         <p class="nav-label">AI & Docs</p>
@@ -153,10 +154,26 @@
               <button id="preset-clear" class="text-link" type="button">Clear Filters</button>
             </div>
             <div class="toolbar-group">
-              <button type="button" id="projects-download" class="secondary">Projects CSV</button>
-              <button type="button" id="projects-upload" class="secondary">Upload Projects</button>
-              <button type="button" id="solutions-download" class="secondary">Solutions CSV</button>
-              <button type="button" id="solutions-upload" class="secondary">Upload Solutions</button>
+              <div class="csv-menu">
+                <button
+                  type="button"
+                  id="csv-actions-toggle"
+                  class="secondary"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-label="CSV import and export actions"
+                >
+                  Import/Export
+                </button>
+                <div id="csv-actions-menu" class="csv-menu-panel hidden" role="menu" aria-label="CSV actions">
+                  <div class="csv-menu-section-title" role="presentation">Projects</div>
+                  <button type="button" id="projects-download" class="secondary csv-menu-item" role="menuitem">Download</button>
+                  <button type="button" id="projects-upload" class="secondary csv-menu-item" role="menuitem">Upload</button>
+                  <div class="csv-menu-section-title" role="presentation">Solutions</div>
+                  <button type="button" id="solutions-download" class="secondary csv-menu-item" role="menuitem">Download</button>
+                  <button type="button" id="solutions-upload" class="secondary csv-menu-item" role="menuitem">Upload</button>
+                </div>
+              </div>
               <input type="file" id="projects-file" accept=".csv" hidden />
               <input type="file" id="solutions-file" accept=".csv" hidden />
               <span id="projects-import-result" class="import-result"></span>
@@ -374,6 +391,29 @@
               <div class="panel dashboard-scroll" id="dashboard-completed-quarter"></div>
               <div class="panel dashboard-scroll" id="dashboard-upcoming-quarter"></div>
               <div class="panel dashboard-scroll" id="dashboard-backlog"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-pm-dashboard" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / PM Command Center</p>
+              <h2>PM Command Center</h2>
+              <p class="view-route-hint"><code>#/pm-dashboard</code> Monitor delivery health, portfolio risk, schedule pressure, and capacity utilization in one operational view.</p>
+            </div>
+          </div>
+          <div class="pm-dashboard-stack">
+            <div id="pm-dashboard-summary" class="pm-summary-grid"></div>
+            <div class="pm-dashboard-grid">
+              <div class="panel pm-dashboard-card" id="pm-dashboard-health"></div>
+              <div class="panel pm-dashboard-card" id="pm-dashboard-risks"></div>
+              <div class="panel pm-dashboard-card" id="pm-dashboard-timeline"></div>
+              <div class="panel pm-dashboard-card" id="pm-dashboard-capacity"></div>
+              <div class="panel pm-dashboard-card" id="pm-dashboard-status"></div>
+              <div class="panel pm-dashboard-card" id="pm-dashboard-actions"></div>
             </div>
           </div>
         </div>
@@ -610,9 +650,17 @@
       <div id="project-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
-          <div class="modal-header">
+          <div class="modal-header modal-header-sticky">
             <h3 id="project-modal-title">Project</h3>
-            <button type="button" id="project-modal-close" class="secondary">Close</button>
+            <button
+              type="button"
+              id="project-modal-close"
+              class="secondary modal-close-x"
+              aria-label="Close project dialog"
+              title="Close"
+            >
+              ×
+            </button>
           </div>
           <div class="modal-body">
             <form id="project-form" class="form compact">
@@ -635,8 +683,7 @@
               <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
               <label class="full-span">Strategic Objective <textarea name="strategic_objective" placeholder="Theme/initiative intent"></textarea></label>
               <div class="form-actions full-span">
-                <button type="submit">Save Project</button>
-                <button type="button" id="new-project" class="secondary">Create Project</button>
+                <button type="submit" id="project-submit-btn">Create Project</button>
                 <button type="reset" class="secondary">Reset</button>
                 <button type="button" id="delete-project" class="secondary" disabled>Delete</button>
               </div>
@@ -649,9 +696,17 @@
       <div id="solution-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
-          <div class="modal-header">
+          <div class="modal-header modal-header-sticky">
             <h3 id="solution-modal-title">Solution</h3>
-            <button type="button" id="solution-modal-close" class="secondary">Close</button>
+            <button
+              type="button"
+              id="solution-modal-close"
+              class="secondary modal-close-x"
+              aria-label="Close solution dialog"
+              title="Close"
+            >
+              ×
+            </button>
           </div>
           <div class="modal-tabs">
             <button class="tab active" data-tab="details" type="button">Details</button>
@@ -717,8 +772,7 @@
                 <label class="full-span">Blockers <textarea name="blockers"></textarea></label>
                 <label class="full-span">Risks <textarea name="risks"></textarea></label>
                 <div class="form-actions full-span">
-                  <button type="submit">Save Solution</button>
-                  <button type="button" id="new-solution" class="secondary">Create Solution</button>
+                  <button type="submit" id="solution-submit-btn">Create Solution</button>
                   <button type="reset" class="secondary">Reset</button>
                   <button type="button" id="delete-solution" class="secondary" disabled>Delete</button>
                 </div>

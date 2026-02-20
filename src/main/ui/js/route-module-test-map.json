@@ -9,6 +9,9 @@
     "dashboard.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],
+    "pm-dashboard.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
     "kanban.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],

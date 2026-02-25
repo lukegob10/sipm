@@ -1,8 +1,5 @@
 {
   "modules": {
-    "ai.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
-    ],
     "calendar.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],
@@ -31,12 +28,6 @@
       "src/main/test/test_ui_route_modules_exports.py"
     ],
     "access.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
-    ],
-    "structure-studio.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
-    ],
-    "workbench.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ]
   }

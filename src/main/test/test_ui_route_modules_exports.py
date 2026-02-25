@@ -7,7 +7,6 @@ APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 
 EXPECTED_ROUTE_EXPORTS = {
     "access.js": ["renderAccess"],
-    "ai.js": ["renderAI"],
     "master.js": ["renderMasterFilters", "renderMasterTable"],
     "subcomponents-workbench.js": ["renderSubcomponentsWorkbench"],
     "dashboard.js": ["renderDashboard"],
@@ -17,13 +16,10 @@ EXPECTED_ROUTE_EXPORTS = {
     "planning.js": ["renderPlanning"],
     "team-capacity.js": ["renderTeamCapacity"],
     "spaces.js": ["renderSpaces"],
-    "structure-studio.js": ["renderStructureStudio"],
-    "workbench.js": ["renderWorkbench"],
 }
 
 EXPECTED_ROUTE_LOADERS = {
     "access": "./routes/access.js",
-    "ai": "./routes/ai.js",
     "master": "./routes/master.js",
     "subcomponents-workbench": "./routes/subcomponents-workbench.js",
     "dashboard": "./routes/dashboard.js",
@@ -33,8 +29,6 @@ EXPECTED_ROUTE_LOADERS = {
     "planning": "./routes/planning.js",
     "team-capacity": "./routes/team-capacity.js",
     "spaces": "./routes/spaces.js",
-    "structure-studio": "./routes/structure-studio.js",
-    "workbench": "./routes/workbench.js",
 }
 
 

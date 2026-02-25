@@ -6,12 +6,8 @@ ROUTES_DIR = Path(__file__).resolve().parents[1] / "backend" / "app" / "routes"
 
 # These endpoints are intentionally global/read-only and do not need active-space context.
 ALLOWED_NO_SPACE_DEP = {
-    ("genai.py", "genai_intent"),
-    ("genai.py", "genai_project_create"),
     ("phases.py", "list_phases"),
     ("spaces.py", "list_spaces"),
-    ("workbench.py", "workbench_template"),
-    ("workbench.py", "workbench_validate"),
 }
 
 SKIP_FILES = {"__init__.py", "auth.py", "sync.py"}

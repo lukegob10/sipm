@@ -1,3 +1,0 @@
-class GenAIConfigError(RuntimeError):
-    pass
-

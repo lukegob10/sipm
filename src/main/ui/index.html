@@ -381,7 +381,7 @@
             <div class="view-heading">
               <p class="view-breadcrumb">Build / Dashboard</p>
               <h2>Dashboard</h2>
-              <p class="view-route-hint"><code>#/dashboard</code> Review portfolio status, quarterly completions, upcoming due dates, and backlog.</p>
+              <p class="view-route-hint"><code>#/dashboard</code> Customize your primary portfolio view and track completion, due pressure, and backlog flow.</p>
             </div>
           </div>
           <div class="dashboard-stack">
@@ -841,6 +841,23 @@
         </div>
       </div>
 
+      <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-message">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content confirm-modal-content">
+          <div class="modal-header">
+            <h3 id="confirm-modal-title">Confirm Action</h3>
+            <button type="button" id="confirm-modal-close" class="secondary modal-close-x" aria-label="Close confirmation dialog" title="Close">×</button>
+          </div>
+          <div class="confirm-modal-body">
+            <p id="confirm-modal-message" class="muted">Are you sure you want to continue?</p>
+            <div class="form-actions confirm-modal-actions">
+              <button type="button" id="confirm-modal-cancel" class="secondary">Cancel</button>
+              <button type="button" id="confirm-modal-confirm" class="primary danger">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <section id="view-kanban" class="view">
         <div class="panel">
           <div class="panel-header">
@@ -894,107 +911,14 @@
 
       <section id="view-planning" class="view">
         <div class="panel">
-          <div class="panel-header planning-header">
-            <div class="planning-header-main">
-              <div class="view-heading">
-                <p class="view-breadcrumb">Build / Planning</p>
-                <h2>Planning</h2>
-                <p class="view-route-hint"><code>#/planning</code> Plan monthly FTE allocation, monitor utilization, and expose staffing gaps.</p>
-              </div>
-              <div class="planning-window-controls">
-                <label class="wide">Planning Window
-                  <div class="inline-select">
-                    <select id="planning-window-select"></select>
-                    <button type="button" class="text-link" id="edit-window-btn">Manage</button>
-                  </div>
-                </label>
-                <div id="planning-window-summary" class="form-hint muted"></div>
-              </div>
-            </div>
-            <div class="planning-header-actions">
-              <button type="button" id="planning-add-allocation" class="secondary">Add Allocation</button>
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Build / Planning</p>
+              <h2>Work Allocation Board</h2>
+              <p class="view-route-hint"><code>#/planning</code> Allocate backlog work to teams and people by month using FTE-month capacity.</p>
             </div>
           </div>
-          <input type="hidden" id="planning-from" />
-          <input type="hidden" id="planning-to" />
-          <div class="planning-layout" id="planning-layout">
-            <aside class="planning-rail">
-              <div class="panel soft">
-                <label class="wide">Search <input type="text" id="planning-search" placeholder="Person or work item" /></label>
-                <label class="wide">Team Tag <input type="text" id="planning-team-tag-filter" placeholder="e.g. Platform" /></label>
-                <div class="checkbox-row">
-                  <input type="checkbox" id="planning-filter-over" />
-                  <span>Over-allocated only</span>
-                </div>
-                <div class="checkbox-row">
-                  <input type="checkbox" id="planning-filter-under" />
-                  <span>Under-allocated only</span>
-                </div>
-              </div>
-              <div id="planning-roster" class="panel soft"></div>
-            </aside>
-            <main class="planning-main">
-              <div id="planning-kpis" class="planning-kpis"></div>
-              <div id="planning-board" class="table"></div>
-            </main>
-            <aside class="planning-drawer" id="planning-drawer">
-              <div id="planning-allocation-drawer" class="drawer-panel hidden">
-                <div class="drawer-head">
-                  <h3>Allocate Work (FTE-Months)</h3>
-                  <button type="button" class="secondary" id="planning-close-allocation">Close</button>
-                </div>
-                <form id="allocation-form" class="form compact allocation-grid">
-                  <p class="form-hint muted hidden" id="allocation-window-hint"></p>
-                  <label class="type-field">Type
-                    <select name="work_item_type" required>
-                      <option value="solution">Solution</option>
-                      <option value="subcomponent">Subcomponent</option>
-                      <option value="project">Project</option>
-                    </select>
-                  </label>
-                  <label class="wide">Item
-                    <select name="work_item_id" required></select>
-                  </label>
-                  <label class="wide">Assignee
-                    <select name="assignee" required></select>
-                  </label>
-                  <label>Month <input type="month" name="month_start" required /></label>
-                  <label>FTE-Months <input type="number" name="fte_months" min="0.05" step="0.05" value="0.25" /></label>
-                  <p id="allocation-status" class="form-hint muted"></p>
-                  <div class="form-actions full-span">
-                    <button type="submit">Add Allocation</button>
-                    <button type="reset" class="secondary">Reset</button>
-                  </div>
-                </form>
-              </div>
-              <div id="planning-window-drawer" class="drawer-panel hidden">
-                <div class="drawer-head">
-                  <h3>Planning Windows</h3>
-                  <button type="button" class="secondary" id="planning-close-window">Close</button>
-                </div>
-                <form id="planning-window-form" class="form compact inline-form">
-                  <input type="hidden" name="window_id_edit" />
-                  <label class="wide">New Window Name <input name="window_name" placeholder="Create new window" /></label>
-                  <label>Window Start <input type="date" name="window_start" /></label>
-                  <label>Window End <input type="date" name="window_end" /></label>
-                  <div class="form-actions full-span">
-                    <button type="submit" class="secondary" id="save-window-btn">Create Window</button>
-                    <button type="reset" class="text-link" id="clear-window-btn">Clear</button>
-                  </div>
-                </form>
-              </div>
-            </aside>
-          </div>
-        </div>
-        <div id="planning-modal" class="modal hidden">
-          <div class="modal-backdrop"></div>
-          <div class="modal-content">
-            <div class="modal-header">
-              <h3 id="planning-modal-title">Allocation</h3>
-              <button type="button" class="secondary" id="planning-modal-close">Close</button>
-            </div>
-            <div id="planning-modal-body" class="modal-list"></div>
-          </div>
+          <div id="planning-board" class="table"></div>
         </div>
       </section>
 

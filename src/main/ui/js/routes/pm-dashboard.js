@@ -130,12 +130,45 @@ export function renderPMDashboard(ctx) {
     formatFte,
   } = ctx;
 
-  const projects = Array.isArray(state.projects) ? state.projects : [];
-  const solutions = Array.isArray(state.solutions) ? state.solutions : [];
-  const subcomponents = Array.isArray(state.subcomponents) ? state.subcomponents : [];
-  const users = Array.isArray(state.users) ? state.users : [];
-  const allocations = Array.isArray(state.allocations) ? state.allocations : [];
+  const activeSpaceName = String(state.activeSpace?.space_name || "").trim();
+  const activeSpaceId = String(state.activeSpace?.space_id || "").trim();
+  const activeSpaceLabel = activeSpaceName || activeSpaceId || "No active space";
+
+  const rawProjects = Array.isArray(state.projects) ? state.projects : [];
+  const rawSolutions = Array.isArray(state.solutions) ? state.solutions : [];
+  const rawSubcomponents = Array.isArray(state.subcomponents) ? state.subcomponents : [];
+  const rawUsers = Array.isArray(state.users) ? state.users : [];
+  const rawAllocations = Array.isArray(state.allocations) ? state.allocations : [];
   const planningWindows = Array.isArray(state.planningWindows) ? state.planningWindows : [];
+
+  const projectIds = new Set(rawProjects.map((project) => String(project?.project_id || "").trim()).filter(Boolean));
+  const projects = rawProjects.filter((project) => projectIds.has(String(project?.project_id || "").trim()));
+
+  const solutions = rawSolutions.filter((solution) => {
+    const projectId = String(solution?.project_id || "").trim();
+    return !!projectId && projectIds.has(projectId);
+  });
+  const solutionIds = new Set(solutions.map((solution) => String(solution?.solution_id || "").trim()).filter(Boolean));
+
+  const subcomponents = rawSubcomponents.filter((subcomponent) => {
+    const projectId = String(subcomponent?.project_id || "").trim();
+    const solutionId = String(subcomponent?.solution_id || "").trim();
+    return !!projectId && !!solutionId && projectIds.has(projectId) && solutionIds.has(solutionId);
+  });
+  const subcomponentIds = new Set(
+    subcomponents.map((subcomponent) => String(subcomponent?.subcomponent_id || "").trim()).filter(Boolean)
+  );
+
+  const users = [...rawUsers];
+  const allocations = rawAllocations.filter((allocation) => {
+    const type = String(allocation?.work_item_type || "").toLowerCase();
+    const workItemId = String(allocation?.work_item_id || "").trim();
+    if (!workItemId) return false;
+    if (type === "project") return projectIds.has(workItemId);
+    if (type === "solution") return solutionIds.has(workItemId);
+    if (type === "subcomponent") return subcomponentIds.has(workItemId);
+    return false;
+  });
   const today = startOfDay(new Date());
   const todayMonthKey = monthKey(today);
 
@@ -556,6 +589,11 @@ export function renderPMDashboard(ctx) {
 
   if (els.pmDashboardSummary) {
     els.pmDashboardSummary.innerHTML = `
+      <article class="pm-kpi-card">
+        <div class="pm-kpi-label">Current Space</div>
+        <div class="pm-kpi-value">${esc(activeSpaceLabel)}</div>
+        <div class="pm-kpi-meta">PM Command Center only shows active-space data</div>
+      </article>
       <article class="pm-kpi-card pm-kpi-health ${healthTone(portfolioHealthScore)}">
         <div class="pm-kpi-label">Portfolio Health</div>
         <div class="pm-kpi-value">${portfolioHealthScore}</div>

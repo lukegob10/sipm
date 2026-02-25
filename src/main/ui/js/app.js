@@ -87,6 +87,12 @@ const els = {
   solutionModal: document.getElementById("solution-modal"),
   solutionModalClose: document.getElementById("solution-modal-close"),
   solutionModalTitle: document.getElementById("solution-modal-title"),
+  confirmModal: document.getElementById("confirm-modal"),
+  confirmModalTitle: document.getElementById("confirm-modal-title"),
+  confirmModalMessage: document.getElementById("confirm-modal-message"),
+  confirmModalClose: document.getElementById("confirm-modal-close"),
+  confirmModalCancel: document.getElementById("confirm-modal-cancel"),
+  confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
   solutionActivity: document.getElementById("solution-activity"),
   solutionSubcomponentTable: document.getElementById("solution-subcomponent-table"),
   subcomponentViewToggle: document.getElementById("subcomponent-view-toggle"),
@@ -456,6 +462,8 @@ let idleInterval = null;
 let idleListenersBound = false;
 let sessionRefreshPromise = null;
 let lastSessionRefreshAt = 0;
+let pendingConfirmResolve = null;
+let confirmReturnFocusEl = null;
 const csvUploadState = {
   kind: "",
   file: null,
@@ -5905,6 +5913,59 @@ function renderPMDashboard() {
   });
 }
 
+function closeConfirmModal(result = false) {
+  const resolver = pendingConfirmResolve;
+  pendingConfirmResolve = null;
+  if (els.confirmModal) {
+    els.confirmModal.classList.add("hidden");
+  }
+  if (confirmReturnFocusEl && typeof confirmReturnFocusEl.focus === "function") {
+    confirmReturnFocusEl.focus();
+  }
+  confirmReturnFocusEl = null;
+  if (resolver) {
+    resolver(result);
+  }
+}
+
+function showConfirmModal(options = {}) {
+  const title = String(options.title || "Confirm Action");
+  const message = String(options.message || "Are you sure you want to continue?");
+  const confirmLabel = String(options.confirmLabel || "Confirm");
+  const cancelLabel = String(options.cancelLabel || "Cancel");
+  if (!els.confirmModal || !els.confirmModalTitle || !els.confirmModalMessage || !els.confirmModalConfirm || !els.confirmModalCancel) {
+    return Promise.resolve(confirm(message));
+  }
+  if (pendingConfirmResolve) {
+    const staleResolver = pendingConfirmResolve;
+    pendingConfirmResolve = null;
+    staleResolver(false);
+  }
+  confirmReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  els.confirmModalTitle.textContent = title;
+  els.confirmModalMessage.textContent = message;
+  els.confirmModalConfirm.textContent = confirmLabel;
+  els.confirmModalCancel.textContent = cancelLabel;
+  els.confirmModal.classList.remove("hidden");
+  window.setTimeout(() => {
+    els.confirmModalConfirm?.focus();
+  }, 0);
+  return new Promise((resolve) => {
+    pendingConfirmResolve = resolve;
+  });
+}
+
+function bindConfirmModal() {
+  if (!els.confirmModal || els.confirmModal._bound) return;
+  const cancel = () => closeConfirmModal(false);
+  const approve = () => closeConfirmModal(true);
+  els.confirmModalClose?.addEventListener("click", cancel);
+  els.confirmModalCancel?.addEventListener("click", cancel);
+  els.confirmModalConfirm?.addEventListener("click", approve);
+  els.confirmModal.querySelector(".modal-backdrop")?.addEventListener("click", cancel);
+  els.confirmModal._bound = true;
+}
+
 function setProjectFormVisibility(show) {
   if (!els.projectModal) return;
   els.projectModal.classList.toggle("hidden", !show);
@@ -6019,7 +6080,12 @@ function bindProjectForm() {
       const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
       if (!id) return;
       const projectName = els.projectForm?.querySelector('[name="project_name"]')?.value || "this project";
-      if (!confirm(`Delete project "${projectName}"?`)) return;
+      const confirmed = await showConfirmModal({
+        title: "Delete Project?",
+        message: `Delete project "${projectName}"? This cannot be undone.`,
+        confirmLabel: "Delete Project",
+      });
+      if (!confirmed) return;
       try {
         markIgnoreRefresh("projects");
         await api(`/projects/${id}`, { method: "DELETE" });
@@ -6109,7 +6175,12 @@ function bindSolutionForm() {
       const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
       if (!id) return;
       const solutionName = els.solutionForm?.querySelector('[name="solution_name"]')?.value || "this solution";
-      if (!confirm(`Delete solution "${solutionName}"?`)) return;
+      const confirmed = await showConfirmModal({
+        title: "Delete Solution?",
+        message: `Delete solution "${solutionName}"? This cannot be undone.`,
+        confirmLabel: "Delete Solution",
+      });
+      if (!confirmed) return;
       try {
         markIgnoreRefresh("solutions");
         await api(`/solutions/${id}`, { method: "DELETE" });
@@ -6201,14 +6272,14 @@ function setSolutionActionButtonLabel(isEditing) {
     els.solutionModalTitle.textContent = isEditing ? "Edit Solution" : "Create Solution";
   }
   if (els.solutionSubmitBtn) {
-    els.solutionSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Solution";
+    els.solutionSubmitBtn.textContent = isEditing ? "Save Solution" : "Create Solution";
   }
 }
 
 function openSolutionModal(solution = null, tab = "details") {
   if (!els.solutionModal) return;
-  setSolutionActionButtonLabel(!!solution?.solution_id);
   fillSolutionForm(solution);
+  setSolutionActionButtonLabel(!!solution?.solution_id);
   els.solutionModal.classList.remove("hidden");
   if (els.subcomponentViewToggle) {
     els.subcomponentViewToggle.textContent = state.subcomponentView === "table" ? "Swimlane View" : "Table View";
@@ -6398,6 +6469,10 @@ function bindModalShortcuts() {
   if (document._jiraLiteModalBound) return;
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (els.confirmModal && !els.confirmModal.classList.contains("hidden")) {
+      closeConfirmModal(false);
+      return;
+    }
     if (els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
       closeSolutionModal();
       return;
@@ -7513,6 +7588,10 @@ function bindCalendarControls() {
 
   if (els.planningBoard) {
     els.planningBoard.addEventListener("click", async (e) => {
+      if (!(e.target instanceof Element)) return;
+      if (e.target.closest(".wab-shell") || e.target.closest(".wab-toolbar") || e.target.closest(".wab-inline-forms")) {
+        return;
+      }
       const groupBtn = e.target.closest(".group-toggle");
       if (groupBtn) {
         const group = groupBtn.getAttribute("data-group") || "";
@@ -8362,6 +8441,9 @@ function renderPlanning() {
   mod.renderPlanning({
     state,
     els,
+    api,
+    refreshFromServer,
+    setStatus,
     canDeleteAllocations: userCanAccessAdminViews(),
     assigneeKeyFromAlloc,
     findUserBySoeid,
@@ -8577,6 +8659,7 @@ function init() {
   bindCsvControls();
   bindSpaceSwitcher();
   bindNav();
+  bindConfirmModal();
   renderSpaceSwitcher();
   bindDeliverablesControls();
   bindDeliverablesTable();

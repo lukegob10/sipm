@@ -60,7 +60,6 @@ export function renderSubcomponentsWorkbench(ctx) {
       return `
         <tr data-id="${row.subcomponent_id}" class="${isActive ? "active-row" : ""}" tabindex="-1">
           <td><input type="checkbox" class="scwb-select-row" data-id="${row.subcomponent_id}" ${isSelected ? "checked" : ""} /></td>
-          <td><button type="button" class="icon-btn scwb-edit-btn" data-id="${row.subcomponent_id}" title="Edit">✎</button></td>
           <td>
             <strong>${esc(row.subcomponent_name || "—")}</strong>
             <span class="sub-workbench-context">${esc(row.project_name || "—")} / ${esc(row.solution_name || "—")}</span>
@@ -80,7 +79,6 @@ export function renderSubcomponentsWorkbench(ctx) {
       <thead>
         <tr>
           <th><input type="checkbox" id="scwb-select-all" ${allSelected ? "checked" : ""} /></th>
-          <th></th>
           <th>Subcomponent</th>
           <th>Status</th>
           <th>Assignee</th>

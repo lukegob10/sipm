@@ -176,11 +176,12 @@ export function renderMasterTable(ctx) {
   const setFilterValue = (key, value) => {
     state.filters[key] = value;
   };
+  const filterKeyFromId = (id) => id.replace("filter-", "").replaceAll("-", "_");
   let applyTimer = 0;
   const scheduleApply = () => {
     if (applyTimer) window.clearTimeout(applyTimer);
     applyTimer = window.setTimeout(() => {
-      renderMasterTable();
+      renderMasterTable(ctx);
       if (typeof renderKanban === "function") renderKanban();
       if (typeof renderCalendar === "function") renderCalendar();
     }, 180);
@@ -200,11 +201,21 @@ export function renderMasterTable(ctx) {
   ].forEach((id) => {
     const el = els.masterTable.querySelector(`#${id}`);
     if (!el) return;
+    const commit = () => {
+      setFilterValue(filterKeyFromId(id), el.value);
+    };
     const apply = () => {
-      setFilterValue(id.replace("filter-", ""), el.value);
+      commit();
       scheduleApply();
     };
-    el.addEventListener("input", apply);
+    el.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      commit();
+      renderMasterTable(ctx);
+      if (typeof renderKanban === "function") renderKanban();
+      if (typeof renderCalendar === "function") renderCalendar();
+    });
     el.addEventListener("change", apply);
   });
 
@@ -212,7 +223,7 @@ export function renderMasterTable(ctx) {
   if (typeSelect) {
     typeSelect.addEventListener("change", () => {
       setFilterValue("type", typeSelect.value);
-      renderMasterTable();
+      renderMasterTable(ctx);
       if (typeof renderKanban === "function") renderKanban();
       if (typeof renderCalendar === "function") renderCalendar();
     });

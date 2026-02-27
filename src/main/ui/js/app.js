@@ -71,6 +71,8 @@ const els = {
   subcomponentsWorkbenchBulkShift: document.getElementById("subcomponents-workbench-bulk-shift"),
   subcomponentsWorkbenchBulkApply: document.getElementById("subcomponents-workbench-bulk-apply"),
   subcomponentsWorkbenchForm: document.getElementById("subcomponents-workbench-form"),
+  subcomponentsWorkbenchFormStatus: document.getElementById("subcomponents-workbench-form-status"),
+  subcomponentsWorkbenchDelete: document.getElementById("subcomponents-workbench-delete"),
   subcomponentsWorkbenchReset: document.getElementById("subcomponents-workbench-reset"),
   subcomponentsWorkbenchClose: document.getElementById("subcomponents-workbench-close"),
   subcomponentsWorkbenchContext: document.getElementById("subcomponents-workbench-context"),
@@ -1956,6 +1958,72 @@ function updateSubcomponentsWorkbenchSelectionCount() {
   if (!els.subcomponentsWorkbenchSelectionCount) return;
   const count = state.subcomponentsWorkbench.selected.size;
   els.subcomponentsWorkbenchSelectionCount.textContent = `${count} selected`;
+  if (els.subcomponentsWorkbenchBulkApply) {
+    const action = els.subcomponentsWorkbenchBulkAction?.value || "";
+    const hasActiveDeleteTarget = action === "delete" && !!state.subcomponentsWorkbench.activeSubcomponentId;
+    els.subcomponentsWorkbenchBulkApply.disabled = !action || (!count && !hasActiveDeleteTarget);
+  }
+}
+
+function describeSubcomponentsForDelete(subcomponentIds) {
+  const uniqueIds = Array.from(new Set((subcomponentIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
+  const names = uniqueIds.map((id) => {
+    const row = state.subcomponents.find((item) => item.subcomponent_id === id);
+    return row?.subcomponent_name || "";
+  }).filter(Boolean);
+  const preview = names.slice(0, 3).map((name) => `"${name}"`);
+  const remainder = Math.max(names.length - preview.length, 0);
+  const listed = preview.join(", ");
+  const suffix = remainder > 0 ? `${listed ? ", " : ""}and ${remainder} more` : "";
+  return {
+    ids: uniqueIds,
+    names,
+    previewText: `${listed}${suffix}`,
+  };
+}
+
+async function deleteSubcomponentsById(subcomponentIds, options = {}) {
+  const details = describeSubcomponentsForDelete(subcomponentIds);
+  const { ids } = details;
+  if (!ids.length) {
+    return { cancelled: false, deletedIds: [], failed: [] };
+  }
+
+  const count = ids.length;
+  const defaultTitle = count === 1 ? "Delete Subcomponent?" : "Delete Subcomponents?";
+  const defaultConfirm = count === 1 ? "Delete Subcomponent" : `Delete ${count} Subcomponents`;
+  const defaultMessage = count === 1
+    ? `Delete ${details.previewText || "this subcomponent"}? This cannot be undone.`
+    : `Delete ${count} subcomponents${details.previewText ? ` (${details.previewText})` : ""}? This cannot be undone.`;
+
+  const confirmed = await showConfirmModal({
+    title: options.title || defaultTitle,
+    message: options.message || defaultMessage,
+    confirmLabel: options.confirmLabel || defaultConfirm,
+  });
+  if (!confirmed) {
+    return { cancelled: true, deletedIds: [], failed: [] };
+  }
+
+  const deletedIds = [];
+  const failed = [];
+  for (const id of ids) {
+    try {
+      await api(`/subcomponents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      deletedIds.push(id);
+    } catch (err) {
+      failed.push({ id, error: err });
+    }
+  }
+
+  deletedIds.forEach((id) => removeById(state.subcomponents, id, "subcomponent_id"));
+  const wb = state.subcomponentsWorkbench;
+  deletedIds.forEach((id) => wb.selected.delete(id));
+  if (deletedIds.includes(wb.activeSubcomponentId)) {
+    wb.activeSubcomponentId = "";
+  }
+
+  return { cancelled: false, deletedIds, failed };
 }
 
 function syncSubcomponentsWorkbenchDrawer() {
@@ -2003,7 +2071,7 @@ function closeSubcomponentsWorkbenchDrawer() {
     if (row && typeof row.scrollIntoView === "function") {
       row.scrollIntoView({ block: "nearest" });
     }
-    const target = row || row?.querySelector(".scwb-edit-btn") || row?.querySelector(".scwb-select-row");
+    const target = row || row?.querySelector(".scwb-select-row");
     if (!target || typeof target.focus !== "function") return;
     try {
       target.focus({ preventScroll: true });
@@ -2224,21 +2292,32 @@ function fillSubcomponentsWorkbenchForm(subcomponent) {
   const form = els.subcomponentsWorkbenchForm;
   const idInput = form.querySelector('[name="subcomponent_id"]');
   const saveButton = form.querySelector('button[type="submit"]');
+  const deleteButton = els.subcomponentsWorkbenchDelete;
+  const previousId = form.dataset.activeSubcomponentId || "";
   const setValue = (name, value) => {
     const el = form.querySelector(`[name="${name}"]`);
     if (el) el.value = value == null ? "" : value;
   };
   if (!subcomponent) {
+    form.dataset.activeSubcomponentId = "";
     form.reset();
     if (idInput) idInput.value = "";
     if (els.subcomponentsWorkbenchContext) {
       els.subcomponentsWorkbenchContext.textContent = "Select a subcomponent to edit.";
     }
     if (saveButton) saveButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
+    clearDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus);
     renderSubcomponentsWorkbenchActivity("");
     return;
   }
+  const currentId = subcomponent.subcomponent_id || "";
+  if (previousId !== currentId) {
+    clearDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus);
+  }
+  form.dataset.activeSubcomponentId = currentId;
   if (saveButton) saveButton.disabled = false;
+  if (deleteButton) deleteButton.disabled = !currentId;
   if (idInput) idInput.value = subcomponent.subcomponent_id || "";
   setValue("subcomponent_name", subcomponent.subcomponent_name || "");
   setValue("status", subcomponent.status || "to_do");
@@ -2858,20 +2937,48 @@ function syncSubcomponentsWorkbenchBulkInputs() {
   if (els.subcomponentsWorkbenchBulkShift) {
     els.subcomponentsWorkbenchBulkShift.classList.toggle("hidden", action !== "shift_due");
   }
+  updateSubcomponentsWorkbenchSelectionCount();
 }
 
 async function applySubcomponentsWorkbenchBulkAction() {
   const wb = state.subcomponentsWorkbench;
   const selectedIds = Array.from(wb.selected);
-  if (!selectedIds.length) {
-    alert("Select at least one subcomponent.");
-    return;
-  }
   const action = els.subcomponentsWorkbenchBulkAction?.value || "";
   if (!action) {
     alert("Choose a bulk action.");
     return;
   }
+  const activeId = wb.activeSubcomponentId || "";
+  const allowActiveDelete = action === "delete" && !selectedIds.length && !!activeId;
+  if (!selectedIds.length && !allowActiveDelete) {
+    alert("Select at least one subcomponent.");
+    return;
+  }
+  if (action === "delete") {
+    const deleteTargets = selectedIds.length ? selectedIds : [activeId];
+    markIgnoreRefresh("subcomponents");
+    const result = await deleteSubcomponentsById(deleteTargets, {
+      title: deleteTargets.length === 1 ? "Delete Subcomponent?" : "Delete Selected Subcomponents?",
+      confirmLabel: deleteTargets.length === 1 ? "Delete Subcomponent" : `Delete ${deleteTargets.length} Subcomponents`,
+    });
+    if (result.cancelled) return;
+    if (!result.deletedIds.length) {
+      ignoreNextRefresh.delete("subcomponents");
+    }
+    renderSubcomponentsWorkbench();
+    const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+    if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
+      renderSolutionSubcomponents(openSolutionId);
+    }
+    renderDashboard();
+    if (result.failed.length) {
+      setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");
+      return;
+    }
+    setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");
+    return;
+  }
+
   const payload = { subcomponent_ids: selectedIds };
   if (action === "status") {
     payload.status = els.subcomponentsWorkbenchBulkStatus?.value || "";
@@ -3092,17 +3199,12 @@ function bindSubcomponentsWorkbenchControls() {
       }
     });
     els.subcomponentsWorkbenchTable.addEventListener("click", (e) => {
-      const editBtn = e.target.closest(".scwb-edit-btn");
-      if (editBtn) {
-        const subId = editBtn.getAttribute("data-id") || "";
-        openSubcomponentsWorkbenchDrawer(subId);
-        return;
-      }
       const row = e.target.closest("tr[data-id]");
       if (!row) return;
       if (e.target.closest("button,input,select,textarea,label")) return;
-      wb.activeSubcomponentId = row.getAttribute("data-id") || "";
-      renderSubcomponentsWorkbench();
+      const subId = row.getAttribute("data-id") || "";
+      if (!subId) return;
+      openSubcomponentsWorkbenchDrawer(subId);
     });
     els.subcomponentsWorkbenchTable._bound = true;
   }
@@ -3113,7 +3215,7 @@ function bindSubcomponentsWorkbenchControls() {
       const data = new FormData(els.subcomponentsWorkbenchForm);
       const subId = data.get("subcomponent_id");
       if (!subId) {
-        alert("Select a subcomponent first.");
+        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Select a subcomponent first.", "error");
         return;
       }
       const assigneeUserId = data.get("assignee") || "";
@@ -3129,6 +3231,7 @@ function bindSubcomponentsWorkbenchControls() {
         blocker_note: data.get("blocker_note") || null,
       };
       try {
+        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Saving subcomponent...");
         const updated = await api(`/subcomponents/${subId}`, {
           method: "PATCH",
           body: JSON.stringify(payload),
@@ -3140,11 +3243,56 @@ function bindSubcomponentsWorkbenchControls() {
         if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
           renderSolutionSubcomponents(openSolutionId);
         }
+        setDeliverableFormNotice(
+          els.subcomponentsWorkbenchFormStatus,
+          `Saved subcomponent at ${timestampLabel()}.`,
+          "success",
+          3200
+        );
       } catch (err) {
-        alert(`Save failed: ${err.message || err}`);
+        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, `Save failed: ${err.message || err}`, "error");
       }
     });
     els.subcomponentsWorkbenchForm._bound = true;
+  }
+
+  if (els.subcomponentsWorkbenchDelete && !els.subcomponentsWorkbenchDelete._bound) {
+    els.subcomponentsWorkbenchDelete.addEventListener("click", async () => {
+      const subId = els.subcomponentsWorkbenchForm?.querySelector('[name="subcomponent_id"]')?.value || "";
+      if (!subId) {
+        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Select a subcomponent first.", "error");
+        return;
+      }
+      markIgnoreRefresh("subcomponents");
+      const result = await deleteSubcomponentsById([subId], {
+        title: "Delete Subcomponent?",
+      });
+      if (result.cancelled) return;
+      if (!result.deletedIds.length) {
+        ignoreNextRefresh.delete("subcomponents");
+      }
+      renderSubcomponentsWorkbench();
+      const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
+        renderSolutionSubcomponents(openSolutionId);
+      }
+      renderDashboard();
+      if (result.failed.length) {
+        setDeliverableFormNotice(
+          els.subcomponentsWorkbenchFormStatus,
+          `Delete failed for ${result.failed.length} subcomponent(s).`,
+          "error"
+        );
+        return;
+      }
+      setDeliverableFormNotice(
+        els.subcomponentsWorkbenchFormStatus,
+        `Deleted subcomponent at ${timestampLabel()}.`,
+        "success",
+        3200
+      );
+    });
+    els.subcomponentsWorkbenchDelete._bound = true;
   }
 
   if (els.subcomponentsWorkbenchReset && !els.subcomponentsWorkbenchReset._bound) {
@@ -3161,7 +3309,7 @@ function bindSubcomponentsWorkbenchControls() {
   }
 
   if (!document._scwbShortcutsBound) {
-    document.addEventListener("keydown", (event) => {
+    document.addEventListener("keydown", async (event) => {
       if (state.currentView !== "subcomponents-workbench") return;
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const key = (event.key || "").toLowerCase();
@@ -3195,6 +3343,34 @@ function bindSubcomponentsWorkbenchControls() {
           const target = els.subcomponentsWorkbenchForm?.querySelector('[name="subcomponent_name"]');
           if (target) target.focus();
         }, 0);
+        return;
+      }
+      if (key === "delete") {
+        const selectedIds = Array.from(wb.selected);
+        const targetIds = selectedIds.length
+          ? selectedIds
+          : (wb.activeSubcomponentId ? [wb.activeSubcomponentId] : []);
+        if (!targetIds.length) return;
+        event.preventDefault();
+        markIgnoreRefresh("subcomponents");
+        const result = await deleteSubcomponentsById(targetIds, {
+          title: targetIds.length === 1 ? "Delete Subcomponent?" : "Delete Selected Subcomponents?",
+        });
+        if (result.cancelled) return;
+        if (!result.deletedIds.length) {
+          ignoreNextRefresh.delete("subcomponents");
+        }
+        renderSubcomponentsWorkbench();
+        const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+        if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
+          renderSolutionSubcomponents(openSolutionId);
+        }
+        renderDashboard();
+        if (result.failed.length) {
+          setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");
+        } else {
+          setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");
+        }
         return;
       }
     });
@@ -4039,26 +4215,38 @@ function bindSubcomponentForm() {
       const id = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
       if (!id) return;
       const solutionId = els.subcomponentForm?.querySelector('[name="solution_id"]')?.value || "";
-      const subcomponentName = els.subcomponentForm?.querySelector('[name="subcomponent_name"]')?.value || "this subcomponent";
-      if (!confirm(`Delete subcomponent "${subcomponentName}"?`)) return;
-      try {
-        markIgnoreRefresh("subcomponents");
-        await api(`/subcomponents/${id}`, { method: "DELETE" });
-        removeById(state.subcomponents, id, "subcomponent_id");
-        const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
-        if (solution) {
-          showSubcomponentForm(solution);
-        } else {
-          els.subcomponentForm.reset();
-          els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
-          if (els.deleteSubcomponentBtn) els.deleteSubcomponentBtn.disabled = true;
-        }
-        renderSolutionSubcomponents(solutionId);
-        renderDashboard();
-      } catch (err) {
+      markIgnoreRefresh("subcomponents");
+      const result = await deleteSubcomponentsById([id], {
+        title: "Delete Subcomponent?",
+      });
+      if (result.cancelled) return;
+      if (!result.deletedIds.length) {
         ignoreNextRefresh.delete("subcomponents");
-        alert(`Delete failed: ${err.message}`);
       }
+      const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
+      if (solution) {
+        showSubcomponentForm(solution);
+      } else {
+        els.subcomponentForm.reset();
+        els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
+        if (els.deleteSubcomponentBtn) els.deleteSubcomponentBtn.disabled = true;
+      }
+      renderSolutionSubcomponents(solutionId);
+      renderDashboard();
+      if (result.failed.length) {
+        setDeliverableFormNotice(
+          els.subcomponentFormStatus,
+          `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete subcomponent."}`,
+          "error"
+        );
+        return;
+      }
+      setDeliverableFormNotice(
+        els.subcomponentFormStatus,
+        `Deleted subcomponent at ${timestampLabel()}.`,
+        "success",
+        3200
+      );
     });
   }
 }

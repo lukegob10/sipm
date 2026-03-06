@@ -40,7 +40,6 @@ const els = {
   authError: document.getElementById("auth-error"),
   authNotice: document.getElementById("auth-notice"),
   resetScreen: document.getElementById("reset-screen"),
-  verifyTempForm: document.getElementById("verify-temp-form"),
   resetForm: document.getElementById("reset-form"),
   resetError: document.getElementById("reset-error"),
   resetSuccess: document.getElementById("reset-success"),
@@ -382,6 +381,8 @@ let viewPrefetchTimer = null;
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const IDLE_WARN_MS = 55 * 60 * 1000;
 const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
+const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";
+const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
 let idleLastActive = Date.now();
 let idleWarned = false;
@@ -904,6 +905,8 @@ async function refreshSpaceContext(options = {}) {
     state.globalAdminsLoaded = false;
     state.subcomponentsWorkbench.savedViews = [];
     state.subcomponentsWorkbench.selectedSavedViewId = "";
+    state.filters = {};
+    state.deliverablesPreset = "";
     renderSpaceSwitcher();
     updateSubcomponentsWorkbenchSavedViewsUI();
     return;
@@ -932,6 +935,8 @@ async function refreshSpaceContext(options = {}) {
   if (!state.spaceMembershipSpaceId || !visibleSpaceIds.has(state.spaceMembershipSpaceId)) {
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaces[0]?.space_id || "";
   }
+  restoreMasterViewState();
+  restoreSubcomponentsWorkbenchUiState();
   renderSpaceSwitcher();
   loadSubcomponentsWorkbenchSavedViews();
   updateSubcomponentsWorkbenchSavedViewsUI();
@@ -1260,6 +1265,14 @@ function isResetPath() {
   return window.location.pathname.replace(/\/+$/, "") === "/reset-password";
 }
 
+function resetTokenFromLocation() {
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    return String(params.get("token") || params.get("reset_token") || "").trim();
+  } catch {
+    return "";
+  }
+}
 
 function bindAuthUI() {
   setAuthMode("login");
@@ -1305,36 +1318,16 @@ function bindAuthUI() {
     }
   });
 
-  els.verifyTempForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    showResetError("");
-    showResetSuccess("");
-    const form = new FormData(els.verifyTempForm);
-    try {
-      await api("/auth/verify-temp-password", {
-        method: "POST",
-        body: JSON.stringify({
-          soeid: form.get("soeid"),
-          temp_password: form.get("temp_password"),
-        }),
-      });
-      els.verifyTempForm?.classList.add("hidden");
-      els.resetForm?.classList.remove("hidden");
-      showResetSuccess("Temporary password verified. Set a new password.");
-    } catch (err) {
-      showResetError(err.message || "Verification failed");
-    }
-  });
-
   els.resetForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     showResetError("");
     showResetSuccess("");
     const form = new FormData(els.resetForm);
     try {
-      await api("/auth/reset-password", {
+      await api("/auth/reset-password-with-token", {
         method: "POST",
         body: JSON.stringify({
+          reset_token: form.get("reset_token"),
           new_password: form.get("new_password"),
           confirm_password: form.get("confirm_password"),
         }),
@@ -1398,8 +1391,10 @@ async function bootstrapAuth() {
   if (isResetPath()) {
     showResetError("");
     showResetSuccess("");
-    els.verifyTempForm?.classList.remove("hidden");
-    els.resetForm?.classList.add("hidden");
+    const resetTokenInput = els.resetForm?.querySelector('[name="reset_token"]');
+    if (resetTokenInput) {
+      resetTokenInput.value = resetTokenFromLocation();
+    }
     setResetVisible(true);
     setStatus("Password reset", "warn");
     return;
@@ -1823,6 +1818,7 @@ function clearDeliverablesFilters() {
   state.filters = {};
   state.deliverablesPreset = "";
   state.deliverableSelection.clear();
+  persistMasterViewState();
   updatePresetButtons();
   renderMasterFilters();
   renderMasterTable();
@@ -1832,6 +1828,7 @@ function clearDeliverablesFilters() {
 
 function setDeliverablesPreset(preset) {
   state.deliverablesPreset = preset || "";
+  persistMasterViewState();
   updatePresetButtons();
   renderMasterTable();
 }
@@ -2119,6 +2116,7 @@ function openSubcomponentsWorkbenchDrawer(preferredSubcomponentId = "") {
     wb.activeSubcomponentId = wb.visibleIds[0];
   }
   wb.drawerOpen = true;
+  persistSubcomponentsWorkbenchUiState();
   renderSubcomponentsWorkbench();
 }
 
@@ -2130,6 +2128,7 @@ function closeSubcomponentsWorkbenchDrawer() {
   wb.drawerReturnSubcomponentId = "";
   wb.drawerReturnScrollY = null;
   wb.suppressAutoScrollOnce = true;
+  persistSubcomponentsWorkbenchUiState();
   renderSubcomponentsWorkbench();
   window.requestAnimationFrame(() => {
     if (!returnSubcomponentId || !els.subcomponentsWorkbenchTable) return;
@@ -2281,6 +2280,7 @@ function applySubcomponentsWorkbenchSavedView(savedView) {
   if (els.subcomponentsWorkbenchPriority) {
     els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max || "";
   }
+  persistSubcomponentsWorkbenchUiState();
   renderSubcomponentsWorkbench();
 }
 
@@ -2435,6 +2435,7 @@ function renderSubcomponentsWorkbench() {
   if (wb.drawerOpen !== false && !wb.activeSubcomponentId && visibleRows.length) {
     wb.activeSubcomponentId = visibleRows[0].subcomponent_id;
   }
+  persistSubcomponentsWorkbenchUiState();
 
   mod.renderSubcomponentsWorkbench({
     els,
@@ -2773,6 +2774,7 @@ function renderMasterTable() {
     renderKanban,
     renderCalendar,
     clearDeliverablesFilters,
+    persistMasterViewState,
   });
 }
 
@@ -2990,6 +2992,7 @@ function clearSubcomponentsWorkbenchFilters() {
   if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = "";
   if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = "";
   if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = "";
+  persistSubcomponentsWorkbenchUiState();
   renderSubcomponentsWorkbench();
 }
 
@@ -3101,6 +3104,7 @@ function bindSubcomponentsWorkbenchControls() {
     btn.addEventListener("click", () => {
       wb.preset = btn.getAttribute("data-preset") || "all";
       wb.selected.clear();
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     btn._bound = true;
@@ -3178,6 +3182,7 @@ function bindSubcomponentsWorkbenchControls() {
 
   bindDebouncedInput(els.subcomponentsWorkbenchSearch, (value) => {
     wb.filters.search = value || "";
+    persistSubcomponentsWorkbenchUiState();
     renderSubcomponentsWorkbench();
   });
 
@@ -3189,6 +3194,7 @@ function bindSubcomponentsWorkbenchControls() {
       if (els.subcomponentsWorkbenchSolution) {
         els.subcomponentsWorkbenchSolution.value = "";
       }
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchProject._bound = true;
@@ -3197,6 +3203,7 @@ function bindSubcomponentsWorkbenchControls() {
   if (els.subcomponentsWorkbenchSolution && !els.subcomponentsWorkbenchSolution._bound) {
     els.subcomponentsWorkbenchSolution.addEventListener("change", () => {
       wb.filters.solution_id = els.subcomponentsWorkbenchSolution.value || "";
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchSolution._bound = true;
@@ -3208,6 +3215,7 @@ function bindSubcomponentsWorkbenchControls() {
       wb.filters.assignee = value;
       const user = findUserBySoeid(value);
       wb.filters.assignee_name = user?.display_name || "";
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchAssignee._bound = true;
@@ -3216,6 +3224,7 @@ function bindSubcomponentsWorkbenchControls() {
   if (els.subcomponentsWorkbenchStatus && !els.subcomponentsWorkbenchStatus._bound) {
     els.subcomponentsWorkbenchStatus.addEventListener("change", () => {
       wb.filters.status = els.subcomponentsWorkbenchStatus.value || "";
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchStatus._bound = true;
@@ -3224,6 +3233,7 @@ function bindSubcomponentsWorkbenchControls() {
   if (els.subcomponentsWorkbenchPriority && !els.subcomponentsWorkbenchPriority._bound) {
     bindDebouncedInput(els.subcomponentsWorkbenchPriority, (value) => {
       wb.filters.priority_max = value || "";
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchPriority._bound = true;
@@ -3263,6 +3273,7 @@ function bindSubcomponentsWorkbenchControls() {
           if (checked) wb.selected.add(subId);
           else wb.selected.delete(subId);
         });
+        persistSubcomponentsWorkbenchUiState();
         renderSubcomponentsWorkbench();
       }
     });
@@ -3306,6 +3317,7 @@ function bindSubcomponentsWorkbenchControls() {
         });
         upsertById(state.subcomponents, updated, "subcomponent_id");
         wb.activeSubcomponentId = updated.subcomponent_id;
+        persistSubcomponentsWorkbenchUiState();
         renderSubcomponentsWorkbench();
         const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
         if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
@@ -3366,6 +3378,7 @@ function bindSubcomponentsWorkbenchControls() {
   if (els.subcomponentsWorkbenchReset && !els.subcomponentsWorkbenchReset._bound) {
     els.subcomponentsWorkbenchReset.addEventListener("click", () => {
       wb.activeSubcomponentId = "";
+      persistSubcomponentsWorkbenchUiState();
       renderSubcomponentsWorkbench();
     });
     els.subcomponentsWorkbenchReset._bound = true;
@@ -5562,6 +5575,94 @@ function activeSpaceId() {
   return state.activeSpace?.space_id || "";
 }
 
+function activeSpaceScopedStorageKey(prefix, spaceId = activeSpaceId()) {
+  const scope = normalize(spaceId || "no-space");
+  return `${prefix}:${scope}`;
+}
+
+function readStoredJson(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : fallback;
+  } catch (err) {
+    console.warn(`Unable to read stored state for ${key}`, err);
+    return fallback;
+  }
+}
+
+function writeStoredJson(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.warn(`Unable to persist state for ${key}`, err);
+  }
+}
+
+function persistMasterViewState() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX),
+    {
+      filters: { ...(state.filters || {}) },
+      deliverablesPreset: state.deliverablesPreset || "",
+    }
+  );
+}
+
+function restoreMasterViewState() {
+  const stored = readStoredJson(activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX), {});
+  state.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
+  state.deliverablesPreset = String(stored.deliverablesPreset || "");
+}
+
+function persistSubcomponentsWorkbenchUiState() {
+  const wb = state.subcomponentsWorkbench;
+  writeStoredJson(
+    activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX),
+    {
+      preset: wb.preset || "all",
+      filters: {
+        search: wb.filters?.search || "",
+        project_id: wb.filters?.project_id || "",
+        solution_id: wb.filters?.solution_id || "",
+        assignee: wb.filters?.assignee || "",
+        assignee_name: wb.filters?.assignee_name || "",
+        status: wb.filters?.status || "",
+        priority_max: wb.filters?.priority_max || "",
+      },
+      activeSubcomponentId: wb.activeSubcomponentId || "",
+      drawerOpen: wb.drawerOpen !== false,
+    }
+  );
+}
+
+function restoreSubcomponentsWorkbenchUiState() {
+  const wb = state.subcomponentsWorkbench;
+  const stored = readStoredJson(activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
+  wb.preset = String(stored.preset || "all");
+  wb.filters = {
+    search: String(stored.filters?.search || ""),
+    project_id: String(stored.filters?.project_id || ""),
+    solution_id: String(stored.filters?.solution_id || ""),
+    assignee: String(stored.filters?.assignee || ""),
+    assignee_name: String(stored.filters?.assignee_name || ""),
+    status: String(stored.filters?.status || ""),
+    priority_max: String(stored.filters?.priority_max || ""),
+  };
+  wb.selected.clear();
+  wb.activeSubcomponentId = String(stored.activeSubcomponentId || "");
+  wb.drawerOpen = stored.drawerOpen !== false;
+
+  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = wb.filters.search;
+  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = wb.filters.project_id;
+  updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
+  if (els.subcomponentsWorkbenchSolution) els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id;
+  if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = wb.filters.assignee;
+  if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = wb.filters.status;
+  if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max;
+}
+
 function renderSpaceAdminPanel() {
   if (!els.spaceList) return;
   const isGlobalAdmin = userIsGlobalAdmin();
@@ -6036,6 +6137,7 @@ function renderPlanning() {
     api,
     refreshFromServer,
     setStatus,
+    showConfirmModal,
     canDeleteAllocations: userCanAccessAdminViews(),
     assigneeKeyFromAlloc,
     findUserBySoeid,

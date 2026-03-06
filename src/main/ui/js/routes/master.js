@@ -19,6 +19,7 @@ export function renderMasterTable(ctx) {
     renderMasterQuickstart,
     renderKanban,
     renderCalendar,
+    persistMasterViewState,
   } = ctx;
 
   if (!els.masterTable) return;
@@ -175,12 +176,14 @@ export function renderMasterTable(ctx) {
 
   const setFilterValue = (key, value) => {
     state.filters[key] = value;
+    if (typeof persistMasterViewState === "function") persistMasterViewState();
   };
   const filterKeyFromId = (id) => id.replace("filter-", "").replaceAll("-", "_");
   let applyTimer = 0;
   const scheduleApply = () => {
     if (applyTimer) window.clearTimeout(applyTimer);
     applyTimer = window.setTimeout(() => {
+      if (typeof persistMasterViewState === "function") persistMasterViewState();
       renderMasterTable(ctx);
       if (typeof renderKanban === "function") renderKanban();
       if (typeof renderCalendar === "function") renderCalendar();
@@ -212,6 +215,7 @@ export function renderMasterTable(ctx) {
       if (event.key !== "Enter") return;
       event.preventDefault();
       commit();
+      if (typeof persistMasterViewState === "function") persistMasterViewState();
       renderMasterTable(ctx);
       if (typeof renderKanban === "function") renderKanban();
       if (typeof renderCalendar === "function") renderCalendar();
@@ -223,6 +227,7 @@ export function renderMasterTable(ctx) {
   if (typeSelect) {
     typeSelect.addEventListener("change", () => {
       setFilterValue("type", typeSelect.value);
+      if (typeof persistMasterViewState === "function") persistMasterViewState();
       renderMasterTable(ctx);
       if (typeof renderKanban === "function") renderKanban();
       if (typeof renderCalendar === "function") renderCalendar();

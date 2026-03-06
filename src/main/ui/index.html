@@ -22,7 +22,7 @@
         <button type="submit">Log in</button>
       </form>
       <div class="auth-links">
-        <button type="button" id="reset-link" class="text-link">Have a temp password?</button>
+        <button type="button" id="reset-link" class="text-link">Use reset token</button>
       </div>
       <form id="register-form" class="auth-form hidden">
         <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
@@ -74,12 +74,9 @@
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
       <h3 class="auth-title">Reset Password</h3>
-      <form id="verify-temp-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
-        <label>Temporary Password <input type="password" name="temp_password" autocomplete="current-password" required /></label>
-        <button type="submit">Verify temporary password</button>
-      </form>
-      <form id="reset-form" class="auth-form hidden">
+      <p class="auth-note">Enter the reset token from your password reset request, then choose a new password.</p>
+      <form id="reset-form" class="auth-form">
+        <label>Reset Token <input type="text" name="reset_token" autocomplete="one-time-code" required /></label>
         <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
         <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
         <button type="submit">Set new password</button>
@@ -94,12 +91,15 @@
     <aside class="sidebar">
       <div class="brand">SIPM</div>
       <div class="nav-group nav-section">
-        <p class="nav-label">Build</p>
+        <p class="nav-label">Work</p>
         <button data-view="master" class="nav-btn active">Deliverables</button>
-        <button data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
         <button data-view="planning" class="nav-btn">Planning</button>
+        <button data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
         <button data-view="kanban" class="nav-btn">Kanban</button>
         <button data-view="calendar" class="nav-btn">Calendar</button>
+      </div>
+      <div class="nav-group nav-section">
+        <p class="nav-label">Insight</p>
         <button data-view="dashboard" class="nav-btn">Dashboard</button>
         <button data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
       </div>
@@ -131,9 +131,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / Deliverables</p>
+              <p class="view-breadcrumb">Work / Deliverables</p>
               <h2>Deliverables</h2>
-              <p class="view-route-hint"><code>#/master</code> Create and manage projects, solutions, and subcomponents in one workspace.</p>
             </div>
             <div class="panel-actions">
               <button id="create-project" class="primary">Create Project</button>
@@ -207,9 +206,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / Subcomponents</p>
+              <p class="view-breadcrumb">Work / Subcomponents</p>
               <h2>Subcomponents Workbench</h2>
-              <p class="view-route-hint"><code>#/subcomponents-workbench</code> Work across all subcomponents in the active space, then optionally narrow to your assignments.</p>
             </div>
             <div class="panel-actions">
               <button type="button" id="subcomponents-workbench-clear-filters" class="secondary">Clear Filters</button>
@@ -376,9 +374,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / Dashboard</p>
+              <p class="view-breadcrumb">Insight / Dashboard</p>
               <h2>Dashboard</h2>
-              <p class="view-route-hint"><code>#/dashboard</code> Customize your primary portfolio view and track completion, due pressure, and backlog flow.</p>
             </div>
           </div>
           <div class="dashboard-stack">
@@ -397,9 +394,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / PM Command Center</p>
+              <p class="view-breadcrumb">Insight / PM Command Center</p>
               <h2>PM Command Center</h2>
-              <p class="view-route-hint"><code>#/pm-dashboard</code> Monitor delivery health, portfolio risk, schedule pressure, and capacity utilization in one operational view.</p>
             </div>
           </div>
           <div class="pm-dashboard-stack">
@@ -631,9 +627,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / Kanban</p>
+              <p class="view-breadcrumb">Work / Kanban</p>
               <h2>Kanban</h2>
-              <p class="view-route-hint"><code>#/kanban</code> Track active solution flow by project and phase groups.</p>
             </div>
             <div class="filters compact">
               <label>Project
@@ -654,9 +649,8 @@
           <div class="panel">
             <div class="panel-header">
               <div class="view-heading">
-                <p class="view-breadcrumb">Build / Calendar</p>
+                <p class="view-breadcrumb">Work / Calendar</p>
                 <h2>Calendar</h2>
-                <p class="view-route-hint"><code>#/calendar</code> View monthly due dates and inspect day-level delivery workload.</p>
               </div>
               <div class="calendar-controls filters compact">
                 <label>Project
@@ -682,9 +676,8 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Build / Planning</p>
+              <p class="view-breadcrumb">Work / Planning</p>
               <h2>Work Allocation Board</h2>
-              <p class="view-route-hint"><code>#/planning</code> Allocate backlog work to teams and people by month using FTE-month capacity.</p>
             </div>
           </div>
           <div id="planning-board" class="table"></div>
@@ -697,7 +690,6 @@
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Team Capacity</p>
               <h2>Team Capacity</h2>
-              <p class="view-route-hint"><code>#/team-capacity</code> Manage roster members, capacity, and CSV import/export for the active space.</p>
             </div>
           </div>
           <div class="stacked">
@@ -744,7 +736,6 @@
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Spaces</p>
               <h2>Spaces</h2>
-              <p class="view-route-hint"><code>#/spaces</code> Create or archive spaces and manage memberships for each space.</p>
             </div>
           </div>
           <div class="stacked">
@@ -808,7 +799,6 @@
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Access</p>
               <h2>Access</h2>
-              <p class="view-route-hint"><code>#/access</code> Grant or revoke platform-wide global admin access.</p>
             </div>
           </div>
           <div class="stacked">

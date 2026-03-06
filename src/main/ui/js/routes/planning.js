@@ -57,6 +57,7 @@ const boardState = {
   flashItems: [],
   flashTimer: 0,
   focusReturnTaskId: "",
+  topPanel: "",
   drafts: defaultDrafts(),
   detailDraft: defaultDetailDraft(),
   data: defaultBoardData(),
@@ -169,12 +170,19 @@ function setNotice(message, tone = "info") {
   boardState.notice = { message: String(message || ""), tone };
 }
 
+function toggleTopPanel(panelName) {
+  const next = String(panelName || "").trim();
+  boardState.topPanel = boardState.topPanel === next ? "" : next;
+  rerender();
+}
+
 function resetBoardState(spaceId) {
   boardState.spaceId = spaceId || "";
   boardState.loaded = false;
   boardState.loading = false;
   boardState.error = "";
   boardState.personSearch = "";
+  boardState.topPanel = "";
   boardState.notice = { message: "", tone: "info" };
   boardState.undoStack = [];
   boardState.focusReturnTaskId = "";
@@ -602,6 +610,15 @@ function buildBoardMarkup() {
     return count + (ratio > 1 ? 1 : 0);
   }, 0);
 
+  const activeAdvancedFilters = [
+    boardState.teamFilter !== "all",
+    boardState.effortFilter !== "all",
+    String(boardState.personSearch || "").trim(),
+  ].filter(Boolean).length;
+  const hasSearchFilters = !!String(boardState.search || "").trim();
+  const hasAnyFilter = activeAdvancedFilters > 0 || hasSearchFilters;
+  const capacityPercent = totalCapacity > 0 ? clampPercent((totalAllocated / totalCapacity) * 100) : 0;
+
   const columnHtml = visibleColumns
     .map((column) => {
       const teamPeople = peopleByTeam.get(column.id) || [];
@@ -744,110 +761,171 @@ function buildBoardMarkup() {
 
   const loading = boardState.loading ? '<p class="muted">Loading work allocation board...</p>' : "";
   const error = boardState.error ? `<p class="muted">${esc(boardState.error)}</p>` : "";
-  const selectionSummary = selected
-    ? `<div class="wab-selection-summary">
-        <span class="wab-selection-label">Selected Task</span>
+  const selectedPill = selected
+    ? `<div class="wab-selected-pill">
+        <span class="wab-selected-pill-label">Selected Task</span>
         <strong>${esc(selected.title)}</strong>
         <span class="muted">${esc(selectedAssigneeSummary)} | ${formatFte(selected.fte_months)} FTE-mo</span>
       </div>`
-    : `<div class="wab-selection-summary wab-selection-summary-empty">
-        <span class="wab-selection-label">Selected Task</span>
-        <span class="muted">Choose a task to inspect assignments, save edits, or rebalance capacity.</span>
-      </div>`;
+    : "";
+
+  const toolsPendingCount = boardState.undoStack.length;
+  const toolbarPanels = [];
+
+  if (boardState.topPanel === "filters") {
+    toolbarPanels.push(`<div class="wab-toolbar-panel wab-toolbar-panel-grid" data-wab-panel="filters">
+      <label class="inline-field">Team
+        <select id="wab-team-filter">${teamOptions}</select>
+      </label>
+      <label class="inline-field">Effort
+        <select id="wab-effort-filter">
+          <option value="all" ${boardState.effortFilter === "all" ? "selected" : ""}>All effort</option>
+          <option value="small" ${boardState.effortFilter === "small" ? "selected" : ""}>Small (<= 0.25)</option>
+          <option value="medium" ${boardState.effortFilter === "medium" ? "selected" : ""}>Medium (0.26 - 0.50)</option>
+          <option value="large" ${boardState.effortFilter === "large" ? "selected" : ""}>Large (> 0.50)</option>
+        </select>
+      </label>
+      <label class="inline-field">Person
+        <input type="text" id="wab-person-search" value="${esc(boardState.personSearch)}" placeholder="Search people" />
+      </label>
+      <div class="wab-toolbar-panel-actions">
+        <button type="button" class="secondary" data-wab-action="reset-filters" ${hasAnyFilter ? "" : "disabled"}>Clear Filters</button>
+      </div>
+    </div>`);
+  }
+
+  if (boardState.topPanel === "create") {
+    toolbarPanels.push(`<div class="wab-toolbar-panel wab-toolbar-create-grid" data-wab-panel="create">
+      <section class="wab-toolbar-card">
+        <div class="wab-toolbar-card-head">
+          <div>
+            <span class="wab-toolbar-card-label">People & Teams</span>
+            <h3>Build capacity structure</h3>
+          </div>
+          <p class="muted">Create a team, then add people where they should land.</p>
+        </div>
+        <div class="wab-inline-forms wab-inline-forms-planning">
+          <label>Team Name
+            <input type="text" id="wab-new-team-name" value="${esc(boardState.drafts.teamName)}" placeholder="Create a team" />
+          </label>
+          <div class="wab-inline-action">
+            <button type="button" data-wab-action="add-team">Add Team</button>
+          </div>
+          <label>Person Name
+            <input type="text" id="wab-new-person-name" value="${esc(boardState.drafts.personName)}" placeholder="Add a person" />
+          </label>
+          <label>Team
+            <select id="wab-new-person-team">
+              <option value="">Unassigned Team</option>
+              ${teams.map((team) => `<option value="${esc(team.id)}" ${boardState.drafts.personTeamId === team.id ? "selected" : ""}>${esc(team.name)}</option>`).join("")}
+            </select>
+          </label>
+          <label>Capacity
+            <input type="number" id="wab-new-person-capacity" min="0.10" step="0.05" value="${esc(boardState.drafts.personCapacity)}" />
+          </label>
+          <div class="wab-inline-action">
+            <button type="button" data-wab-action="add-person">Add Person</button>
+          </div>
+        </div>
+      </section>
+      <section class="wab-toolbar-card">
+        <div class="wab-toolbar-card-head">
+          <div>
+            <span class="wab-toolbar-card-label">Backlog</span>
+            <h3>Create monthly work</h3>
+          </div>
+          <p class="muted">Add a task for the selected month, then assign it from the board.</p>
+        </div>
+        <div class="wab-inline-forms wab-inline-forms-planning">
+          <label class="wide">Task Title
+            <input type="text" id="wab-new-task-title" value="${esc(boardState.drafts.taskTitle)}" placeholder="Create backlog work for this month" />
+          </label>
+          <label>FTE-Months
+            <input type="number" id="wab-new-task-fte" min="0.05" step="0.05" value="${esc(boardState.drafts.taskFte)}" />
+          </label>
+          <div class="wab-inline-action">
+            <button type="button" data-wab-action="add-task">Add Task</button>
+          </div>
+        </div>
+      </section>
+    </div>`);
+  }
+
+  if (boardState.topPanel === "guide") {
+    toolbarPanels.push(`<div class="wab-toolbar-panel wab-toolbar-guide-grid" data-wab-panel="guide">
+      <div class="wab-toolbar-card">
+        <span class="wab-toolbar-card-label">Backlog</span>
+        <p class="muted">Unassigned tasks waiting for a team or person.</p>
+      </div>
+      <div class="wab-toolbar-card">
+        <span class="wab-toolbar-card-label">Team Queue</span>
+        <p class="muted">Work assigned to a team before it is routed to an individual.</p>
+      </div>
+      <div class="wab-toolbar-card">
+        <span class="wab-toolbar-card-label">Person Card</span>
+        <p class="muted">Direct assignments with live capacity load for that person.</p>
+      </div>
+      <div class="wab-toolbar-card">
+        <span class="wab-toolbar-card-label">Keyboard</span>
+        <p class="muted">Select a task with Enter or Space, assign with the detail panel, close with Escape.</p>
+      </div>
+    </div>`);
+  }
+
+  if (boardState.topPanel === "tools") {
+    toolbarPanels.push(`<div class="wab-toolbar-panel wab-toolbar-tools-grid" data-wab-panel="tools">
+      <button type="button" class="secondary" data-wab-action="refresh">Refresh</button>
+      <button type="button" class="secondary" data-wab-action="download-report">Download PDF Report</button>
+      <button type="button" class="secondary" data-wab-action="undo" ${boardState.undoStack.length ? "" : "disabled"}>Undo</button>
+    </div>`);
+  }
 
   return `${notice}${loading}${error}
     <div class="wab-toolbar wab-toolbar-sticky">
-      <div class="toolbar-group wab-toolbar-filters">
-        <label class="inline-field">Month
-          <input type="month" id="wab-month" value="${esc(boardState.month)}" />
-        </label>
-        <label class="inline-field">Team
-          <select id="wab-team-filter">${teamOptions}</select>
-        </label>
-        <label class="inline-field">Effort
-          <select id="wab-effort-filter">
-            <option value="all" ${boardState.effortFilter === "all" ? "selected" : ""}>All</option>
-            <option value="small" ${boardState.effortFilter === "small" ? "selected" : ""}>Small (<= 0.25)</option>
-            <option value="medium" ${boardState.effortFilter === "medium" ? "selected" : ""}>Medium (0.26 - 0.50)</option>
-            <option value="large" ${boardState.effortFilter === "large" ? "selected" : ""}>Large (> 0.50)</option>
-          </select>
-        </label>
-        <label class="inline-field">Person
-          <input type="text" id="wab-person-search" value="${esc(boardState.personSearch)}" placeholder="Search people" />
-        </label>
-        <label class="inline-field wab-search-field">Backlog Search
-          <input type="text" id="wab-search" value="${esc(boardState.search)}" placeholder="Search backlog tasks" />
-        </label>
-      </div>
-      <div class="toolbar-group wab-secondary-actions">
-        <button type="button" class="secondary" data-wab-action="refresh">Refresh</button>
-        <button type="button" class="secondary" data-wab-action="download-report">Download PDF Report</button>
-        <button type="button" class="secondary" data-wab-action="undo" ${boardState.undoStack.length ? "" : "disabled"}>Undo</button>
-      </div>
-    </div>
-    ${selectionSummary}
-    <div class="wab-inline-stack">
-      <div class="wab-inline-forms wab-inline-forms-planning">
-        <label>Team Name
-          <input type="text" id="wab-new-team-name" value="${esc(boardState.drafts.teamName)}" placeholder="Create a team" />
-        </label>
-        <div class="wab-inline-action">
-          <button type="button" data-wab-action="add-team">Add Team</button>
+      <div class="wab-toolbar-main">
+        <div class="toolbar-group wab-toolbar-primary">
+          <label class="inline-field">Month
+            <input type="month" id="wab-month" value="${esc(boardState.month)}" />
+          </label>
+          <label class="inline-field wab-search-field">Backlog Search
+            <input type="text" id="wab-search" value="${esc(boardState.search)}" placeholder="Search backlog tasks" />
+          </label>
         </div>
-        <label>Person Name
-          <input type="text" id="wab-new-person-name" value="${esc(boardState.drafts.personName)}" placeholder="Add a person" />
-        </label>
-        <label>Team
-          <select id="wab-new-person-team">
-            <option value="">Unassigned Team</option>
-            ${teams.map((team) => `<option value="${esc(team.id)}" ${boardState.drafts.personTeamId === team.id ? "selected" : ""}>${esc(team.name)}</option>`).join("")}
-          </select>
-        </label>
-        <label>Capacity
-          <input type="number" id="wab-new-person-capacity" min="0.10" step="0.05" value="${esc(boardState.drafts.personCapacity)}" />
-        </label>
-        <div class="wab-inline-action">
-          <button type="button" data-wab-action="add-person">Add Person</button>
+        <div class="toolbar-group wab-toolbar-actions">
+          <button type="button" class="secondary wab-toolbar-toggle${boardState.topPanel === "filters" ? " active" : ""}" data-wab-action="toggle-filters" aria-expanded="${boardState.topPanel === "filters" ? "true" : "false"}">
+            Filters${activeAdvancedFilters ? ` <span class="wab-toolbar-toggle-count">${activeAdvancedFilters}</span>` : ""}
+          </button>
+          <button type="button" class="secondary wab-toolbar-toggle${boardState.topPanel === "create" ? " active" : ""}" data-wab-action="toggle-create" aria-expanded="${boardState.topPanel === "create" ? "true" : "false"}">Add</button>
+          <button type="button" class="secondary wab-toolbar-toggle${boardState.topPanel === "guide" ? " active" : ""}" data-wab-action="toggle-guide" aria-expanded="${boardState.topPanel === "guide" ? "true" : "false"}">Guide</button>
+          <button type="button" class="secondary wab-toolbar-toggle${boardState.topPanel === "tools" ? " active" : ""}" data-wab-action="toggle-tools" aria-expanded="${boardState.topPanel === "tools" ? "true" : "false"}">
+            More${toolsPendingCount ? ` <span class="wab-toolbar-toggle-count">${toolsPendingCount}</span>` : ""}
+          </button>
         </div>
       </div>
-      <div class="wab-inline-forms wab-inline-forms-planning">
-        <label class="wide">Task Title
-          <input type="text" id="wab-new-task-title" value="${esc(boardState.drafts.taskTitle)}" placeholder="Create backlog work for this month" />
-        </label>
-        <label>FTE-Months
-          <input type="number" id="wab-new-task-fte" min="0.05" step="0.05" value="${esc(boardState.drafts.taskFte)}" />
-        </label>
-        <div class="wab-inline-action">
-          <button type="button" data-wab-action="add-task">Add Task</button>
+      <div class="wab-toolbar-meta">
+        <div class="wab-stat-chip">
+          <span class="wab-stat-label">Capacity</span>
+          <strong>${capacityPercent}%</strong>
+          <span class="muted">${formatFte(totalAllocated)} / ${formatFte(totalCapacity)} FTE-mo</span>
         </div>
+        <div class="wab-stat-chip">
+          <span class="wab-stat-label">Backlog</span>
+          <strong>${backlogTasks.length}</strong>
+          <span class="muted">${tasks.length} total tasks</span>
+        </div>
+        <div class="wab-stat-chip">
+          <span class="wab-stat-label">Attention</span>
+          <strong>${teamOverCapacity + peopleOverCapacity}</strong>
+          <span class="muted">${teamOverCapacity} teams, ${peopleOverCapacity} people over capacity</span>
+        </div>
+        <div class="wab-stat-chip">
+          <span class="wab-stat-label">Visible</span>
+          <strong>${visibleColumns.length}</strong>
+          <span class="muted">${people.length} people on board</span>
+        </div>
+        ${selectedPill}
       </div>
-    </div>
-    <div class="wab-summary-strip">
-      <div class="wab-summary-card">
-        <span class="wab-summary-label">Capacity</span>
-        <strong>${formatFte(totalAllocated)} / ${formatFte(totalCapacity)} FTE-mo</strong>
-        <span class="wab-summary-sub">${totalCapacity > 0 ? clampPercent((totalAllocated / totalCapacity) * 100) : 0}% utilized</span>
-      </div>
-      <div class="wab-summary-card">
-        <span class="wab-summary-label">Visible Columns</span>
-        <strong>${visibleColumns.length}</strong>
-        <span class="wab-summary-sub">${teamOverCapacity} over capacity</span>
-      </div>
-      <div class="wab-summary-card">
-        <span class="wab-summary-label">People</span>
-        <strong>${people.length}</strong>
-        <span class="wab-summary-sub">${peopleOverCapacity} over capacity</span>
-      </div>
-      <div class="wab-summary-card">
-        <span class="wab-summary-label">Tasks</span>
-        <strong>${tasks.length}</strong>
-        <span class="wab-summary-sub">${backlogTasks.length} in backlog</span>
-      </div>
-    </div>
-    <div class="wab-legend">
-      <span class="wab-legend-item"><span class="wab-legend-swatch backlog"></span>Backlog: unassigned tasks</span>
-      <span class="wab-legend-item"><span class="wab-legend-swatch team"></span>Team Queue: assigned to team</span>
-      <span class="wab-legend-item"><span class="wab-legend-swatch person"></span>Person Card: assigned to person</span>
+      ${toolbarPanels.join("")}
     </div>
     <div class="wab-layout${selected ? " has-detail" : ""}">
       <div class="wab-shell">
@@ -1026,6 +1104,31 @@ async function onAction(action, actionEl = null) {
   if (!root) return;
 
   try {
+    if (action === "toggle-filters") {
+      toggleTopPanel("filters");
+      return;
+    }
+    if (action === "toggle-create") {
+      toggleTopPanel("create");
+      return;
+    }
+    if (action === "toggle-guide") {
+      toggleTopPanel("guide");
+      return;
+    }
+    if (action === "toggle-tools") {
+      toggleTopPanel("tools");
+      return;
+    }
+    if (action === "reset-filters") {
+      boardState.teamFilter = "all";
+      boardState.effortFilter = "all";
+      boardState.search = "";
+      boardState.personSearch = "";
+      persistViewState();
+      rerender();
+      return;
+    }
     if (action === "refresh") {
       await loadBoard(ctx, { allocationsOnly: false });
       return;
@@ -1415,6 +1518,12 @@ function bindBoardEvents() {
     if (key === "Escape" && boardState.selectedTaskId) {
       event.preventDefault();
       closeTaskDetail({ restoreFocus: true });
+      return;
+    }
+    if (key === "Escape" && boardState.topPanel) {
+      event.preventDefault();
+      boardState.topPanel = "";
+      rerender();
       return;
     }
     const chip = event.target.closest(".wab-task-chip");

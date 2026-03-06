@@ -14,6 +14,17 @@ MAX_CONNECTIONS_PER_USER = int(os.getenv("SIPM_WS_MAX_CONNECTIONS_PER_USER", "8"
 IDLE_TIMEOUT_SECONDS = int(os.getenv("SIPM_WS_IDLE_TIMEOUT_SECONDS", "600"))
 DEFAULT_USER_ID = "anonymous"
 DEFAULT_SPACE_ID = "default"
+WS_CLOSE_AUTH_INVALID = 4401
+WS_CLOSE_SPACE_INVALID = 4403
+WS_CLOSE_CONNECTION_LIMIT = 4408
+WS_CLOSE_SERVER_BUSY = 1013
+
+
+class WebSocketRejected(RuntimeError):
+    def __init__(self, code: int, reason: str):
+        super().__init__(reason)
+        self.code = code
+        self.reason = reason
 
 
 @dataclass
@@ -61,11 +72,9 @@ async def register(
     space_id = (space_id or DEFAULT_SPACE_ID).strip() or DEFAULT_SPACE_ID
     _prune_idle_connections()
     if len(connections) >= MAX_CONNECTIONS_GLOBAL:
-        await ws.close(code=1013)
-        raise RuntimeError("Global websocket connection limit reached")
+        raise WebSocketRejected(WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
     if _user_connection_count(user_id) >= MAX_CONNECTIONS_PER_USER:
-        await ws.close(code=1008)
-        raise RuntimeError("Per-user websocket connection limit reached")
+        raise WebSocketRejected(WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached")
 
     await ws.accept()
     connections.add(ws)

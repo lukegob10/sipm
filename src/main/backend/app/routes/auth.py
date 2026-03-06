@@ -283,11 +283,15 @@ def me(current_user: User = Depends(require_user)):
 @router.get("/active-space", response_model=ActiveSpaceResponse)
 def get_active_space(
     request: Request,
+    response: Response,
     session: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
     requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
     ctx = resolve_active_space_context(session, current_user, requested_space_id=requested_space_id)
+    cookie_space_id = request.cookies.get("active_space_id")
+    if cookie_space_id != ctx.space_id:
+        set_active_space_cookie(response, ctx.space_id)
     return ActiveSpaceResponse(
         space_id=ctx.space_id,
         space_name=ctx.space_name,

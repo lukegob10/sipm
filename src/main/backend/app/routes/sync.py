@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from ..deps import authenticate_access_token, get_db
-from ..services.realtime import heartbeat, register, unregister
+from ..services.realtime import (
+    WS_CLOSE_AUTH_INVALID,
+    WS_CLOSE_SPACE_INVALID,
+    WebSocketRejected,
+    heartbeat,
+    register,
+    unregister,
+)
 from ..services.spaces import resolve_active_space_context
 
 router = APIRouter()
@@ -21,10 +28,28 @@ def _ws_requested_space_id(ws: WebSocket) -> str | None:
     return cookies.get("active_space_id")
 
 
+async def _reject_websocket(ws: WebSocket, *, code: int, reason: str = "") -> None:
+    try:
+        await ws.accept()
+    except Exception:
+        pass
+    close = getattr(ws, "close", None)
+    if close is None:
+        return
+    try:
+        await close(code=code, reason=reason)
+    except TypeError:
+        await close(code=code)
+
+
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
     if not hasattr(session, "query"):
-        await register(ws)
+        try:
+            await register(ws)
+        except WebSocketRejected as exc:
+            await _reject_websocket(ws, code=exc.code, reason=exc.reason)
+            return
         await _run_websocket_session(ws)
         return
 
@@ -34,28 +59,25 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
     try:
         user = authenticate_access_token(session, token)
     except Exception:
-        close = getattr(ws, "close", None)
-        if close is not None:
-            await close(code=1008)
+        await _reject_websocket(ws, code=WS_CLOSE_AUTH_INVALID, reason="auth-invalid")
         return
 
     requested_space_id = _ws_requested_space_id(ws)
     try:
         ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
     except Exception:
-        close = getattr(ws, "close", None)
-        if close is not None:
-            await close(code=1008)
+        await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-invalid")
         return
 
     if requested_space_id and ctx.space_id != requested_space_id:
-        close = getattr(ws, "close", None)
-        if close is not None:
-            await close(code=1008)
+        await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-mismatch")
         return
 
     try:
         await register(ws, user_id=user.user_id, space_id=ctx.space_id)
+    except WebSocketRejected as exc:
+        await _reject_websocket(ws, code=exc.code, reason=exc.reason)
+        return
     except Exception:
         return
 

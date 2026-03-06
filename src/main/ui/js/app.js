@@ -387,11 +387,18 @@ const state = {
   planningGroupCollapsed: new Set(),
   capacitySelectedSoeid: "",
   teamCapacity: createTeamCapacityState(),
+  shellStatus: { text: "Loading…", tone: "" },
+  liveSync: {
+    phase: "idle",
+    statusText: "",
+    statusTone: "",
+    socketSpaceId: "",
+    pausedForHidden: false,
+  },
   structureStudio: null,
   loadedEntities: new Set(),
 };
 
-let liveSyncStarted = false;
 let refreshInFlight = false;
 const pendingRefreshEntities = new Set();
 const ignoreNextRefresh = new Set();
@@ -405,6 +412,11 @@ const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
 const RECENT_SPACES_LIMIT = 5;
+const LIVE_SYNC_CLOSE_AUTH = 4401;
+const LIVE_SYNC_CLOSE_SPACE = 4403;
+const LIVE_SYNC_CLOSE_LIMIT = 4408;
+const LIVE_SYNC_CLOSE_BUSY = 1013;
+const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 let idleLastActive = Date.now();
 let idleWarned = false;
 let idleInterval = null;
@@ -413,6 +425,12 @@ let sessionRefreshPromise = null;
 let lastSessionRefreshAt = 0;
 let pendingConfirmResolve = null;
 let confirmReturnFocusEl = null;
+let liveSyncSocket = null;
+let liveSyncRetryTimer = null;
+let liveSyncRecoveryPromise = null;
+let liveSyncReconnectAttempt = 0;
+let liveSyncAuthRecoveryUsed = false;
+let liveSyncSpaceRecoveryUsed = false;
 const csvUploadState = {
   kind: "",
   file: null,
@@ -720,10 +738,40 @@ async function refreshFromServer(entity = "all") {
   }
 }
 
-function setStatus(text, type = "") {
+function renderTopbarStatus() {
   if (!els.status) return;
-  els.status.textContent = text;
-  els.status.className = `pill ${type}`;
+  const source = state.authed && state.liveSync.statusText
+    ? state.liveSync
+    : state.shellStatus;
+  const text = source?.statusText ?? source?.text ?? "Loading…";
+  const tone = source?.statusTone ?? source?.tone ?? "";
+  els.status.textContent = text || "Loading…";
+  els.status.className = `pill ${tone}`.trim();
+}
+
+function setStatus(text, type = "") {
+  state.shellStatus = { text, tone: type };
+  renderTopbarStatus();
+}
+
+function setLiveSyncPhase(phase, options = {}) {
+  state.liveSync.phase = phase;
+  if (options.clear) {
+    state.liveSync.statusText = "";
+    state.liveSync.statusTone = "";
+    renderTopbarStatus();
+    return;
+  }
+  const defaultByPhase = {
+    live: { text: "Sync live", tone: "positive" },
+    reconnecting: { text: "Reconnecting…", tone: "warn" },
+    paused: { text: "Sync paused", tone: "muted" },
+    attention: { text: "Space attention", tone: "warn" },
+  };
+  const fallback = defaultByPhase[phase] || { text: "", tone: "" };
+  state.liveSync.statusText = options.text !== undefined ? options.text : fallback.text;
+  state.liveSync.statusTone = options.tone !== undefined ? options.tone : fallback.tone;
+  renderTopbarStatus();
 }
 
 const importResultTimers = new WeakMap();
@@ -997,12 +1045,10 @@ async function switchActiveSpace(targetSpaceId) {
     }
     state.activeSpace = switched || state.activeSpace;
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
+    stopLiveSync({ phase: "reconnecting" });
     clearDataState();
-    if (state.currentView === "team-capacity") {
-      await loadTeamCapacityData({ force: true, preserveSelection: false });
-    } else {
-      await loadData({ force: true });
-    }
+    await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
+    startLiveSync({ force: true });
     state.spaceSwitcherOpen = false;
     setSpaceFeedback(`Now working in ${state.activeSpace?.space_name || targetName || target}.`, "success", 4200);
     return true;
@@ -1027,6 +1073,8 @@ async function switchActiveSpace(targetSpaceId) {
 
 async function refreshSpaceContext(options = {}) {
   const apiOptions = options.apiOptions || {};
+  const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
+  const previousActiveSpaceId = state.activeSpace?.space_id || "";
   if (!state.authed) {
     state.spaces = [];
     state.activeSpace = null;
@@ -1087,6 +1135,16 @@ async function refreshSpaceContext(options = {}) {
   renderSpaceSwitcher();
   loadSubcomponentsWorkbenchSavedViews();
   updateSubcomponentsWorkbenchSavedViewsUI();
+  const nextActiveSpaceId = state.activeSpace?.space_id || "";
+  if (
+    !suppressLiveSyncRestart
+    && state.authed
+    && previousActiveSpaceId
+    && nextActiveSpaceId
+    && previousActiveSpaceId !== nextActiveSpaceId
+  ) {
+    startLiveSync({ force: true });
+  }
 }
 
 
@@ -1096,6 +1154,7 @@ function setAuthed(user) {
   lastSessionRefreshAt = user ? Date.now() : 0;
   if (!user) {
     sessionRefreshPromise = null;
+    stopLiveSync();
   }
   if (els.currentUser) {
     els.currentUser.textContent = user ? user.display_name || user.email : "Not signed in";
@@ -1137,6 +1196,7 @@ function setAuthed(user) {
     closeSpaceCreateModal();
     closeSpaceMemberModal();
     stopIdleWatch();
+    setLiveSyncPhase("idle", { clear: true });
   }
   setAuthVisible(!state.authed);
   if (!state.authed) {
@@ -1144,6 +1204,7 @@ function setAuthed(user) {
   }
   renderSpaceSwitcher();
   updateSubcomponentsWorkbenchSavedViewsUI();
+  renderTopbarStatus();
 }
 
 function setAuthMode(mode) {
@@ -1228,6 +1289,7 @@ async function refreshSessionTokens(options = {}) {
   const force = !!options.force;
   const allowLoggedOut = !!options.allowLoggedOut;
   const silentFailure = !!options.silentFailure;
+  const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
 
   if (!force && !state.authed && !allowLoggedOut) {
     return null;
@@ -1273,7 +1335,10 @@ async function refreshSessionTokens(options = {}) {
       lastSessionRefreshAt = Date.now();
 
       try {
-        await refreshSpaceContext({ apiOptions: { skipAuthRefresh: true } });
+        await refreshSpaceContext({
+          apiOptions: { skipAuthRefresh: true },
+          suppressLiveSyncRestart,
+        });
       } catch (err) {
         console.warn("Space context refresh after token refresh failed", err);
       }
@@ -1379,9 +1444,11 @@ function handleAuthError(err) {
 }
 
 function handleSessionExpired() {
+  stopLiveSync();
   sessionRefreshPromise = null;
   lastSessionRefreshAt = 0;
   setAuthed(null);
+  setStatus("Session expired", "warn");
   showAuthNotice("Your session expired due to inactivity. Please sign in again.");
 }
 
@@ -1450,9 +1517,9 @@ function bindAuthUI() {
       const user = await performLogin(form.get("soeid"), form.get("password"));
       setAuthed(user);
       setAuthVisible(false);
-      startLiveSyncOnce();
       await refreshSpaceContext();
-      await loadData();
+      startLiveSync();
+      await reloadCurrentViewData();
     } catch (err) {
       if (!handleAuthError(err)) {
         showAuthError(err.message || "Login failed");
@@ -1468,9 +1535,9 @@ function bindAuthUI() {
       const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
       setAuthed(user);
       setAuthVisible(false);
-      startLiveSyncOnce();
       await refreshSpaceContext();
-      await loadData();
+      startLiveSync();
+      await reloadCurrentViewData();
     } catch (err) {
       if (!handleAuthError(err)) {
         showAuthError(err.message || "Registration failed");
@@ -1517,7 +1584,7 @@ function bindAuthUI() {
     try {
       const user = await refreshSessionTokens({ force: true });
       if (!user) throw new Error("Session refresh failed");
-      setStatus("Online", "positive");
+      startLiveSync({ force: true });
       resetIdleTimer();
       hideIdleModal();
     } catch (err) {
@@ -1537,10 +1604,271 @@ function bindAuthUI() {
   });
 }
 
-function startLiveSyncOnce() {
-  if (liveSyncStarted) return;
-  initLiveSync();
-  liveSyncStarted = true;
+function clearLiveSyncRetry() {
+  if (liveSyncRetryTimer) {
+    clearTimeout(liveSyncRetryTimer);
+    liveSyncRetryTimer = null;
+  }
+}
+
+function resetLiveSyncRecoveryFlags() {
+  liveSyncReconnectAttempt = 0;
+  liveSyncAuthRecoveryUsed = false;
+  liveSyncSpaceRecoveryUsed = false;
+}
+
+function closeLiveSyncSocket(closeCode = 1000, reason = "") {
+  const socket = liveSyncSocket;
+  liveSyncSocket = null;
+  state.liveSync.socketSpaceId = "";
+  if (!socket) return;
+  try {
+    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+      socket.close(closeCode, reason);
+    }
+  } catch (err) {
+    console.warn("Live sync close failed", err);
+  }
+}
+
+function stopLiveSync(options = {}) {
+  clearLiveSyncRetry();
+  liveSyncRecoveryPromise = null;
+  if (!options.preserveRecovery) {
+    resetLiveSyncRecoveryFlags();
+  }
+  closeLiveSyncSocket(options.closeCode || 1000, options.reason || "");
+  state.liveSync.pausedForHidden = !!options.pausedForHidden;
+  if (options.clearStatus) {
+    setLiveSyncPhase("idle", { clear: true });
+    return;
+  }
+  if (options.phase) {
+    setLiveSyncPhase(options.phase, { text: options.text, tone: options.tone });
+  } else {
+    setLiveSyncPhase("idle", { clear: true });
+  }
+}
+
+function liveUrl() {
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  const url = new URL(`${protocol}://${location.host}/api/ws`);
+  if (state.activeSpace?.space_id) {
+    url.searchParams.set("space_id", state.activeSpace.space_id);
+  }
+  return url.toString();
+}
+
+function liveSyncRetryDelayMs() {
+  const idx = Math.min(liveSyncReconnectAttempt, LIVE_SYNC_RETRY_DELAYS_MS.length - 1);
+  const base = LIVE_SYNC_RETRY_DELAYS_MS[idx];
+  const jitter = 0.85 + (Math.random() * 0.3);
+  return Math.round(base * jitter);
+}
+
+function scheduleLiveSyncRetry() {
+  if (!state.authed) return;
+  if (document.hidden) {
+    stopLiveSync({ phase: "paused", pausedForHidden: true });
+    return;
+  }
+  clearLiveSyncRetry();
+  const delay = liveSyncRetryDelayMs();
+  liveSyncReconnectAttempt += 1;
+  setLiveSyncPhase("reconnecting");
+  liveSyncRetryTimer = window.setTimeout(() => {
+    liveSyncRetryTimer = null;
+    startLiveSync({ force: true, preserveRecovery: true });
+  }, delay);
+}
+
+async function recoverLiveSyncAuth() {
+  if (liveSyncRecoveryPromise) return liveSyncRecoveryPromise;
+  if (liveSyncAuthRecoveryUsed) {
+    handleSessionExpired();
+    return false;
+  }
+  liveSyncAuthRecoveryUsed = true;
+  setLiveSyncPhase("reconnecting");
+  liveSyncRecoveryPromise = (async () => {
+    const refreshed = await refreshSessionTokens({
+      force: true,
+      silentFailure: true,
+      suppressLiveSyncRestart: true,
+    });
+    if (!refreshed) {
+      handleSessionExpired();
+      return false;
+    }
+    startLiveSync({ force: true, preserveRecovery: true });
+    return true;
+  })();
+  try {
+    return await liveSyncRecoveryPromise;
+  } finally {
+    liveSyncRecoveryPromise = null;
+  }
+}
+
+async function recoverLiveSyncSpace() {
+  if (liveSyncRecoveryPromise) return liveSyncRecoveryPromise;
+  if (liveSyncSpaceRecoveryUsed) {
+    setSpaceFeedback(
+      "Live sync lost access to the active space. Refresh this tab or switch to another space to restore sync.",
+      "error",
+      9000,
+    );
+    stopLiveSync({ phase: "attention", text: "Space attention", tone: "warn", preserveRecovery: true });
+    return false;
+  }
+  liveSyncSpaceRecoveryUsed = true;
+  setLiveSyncPhase("reconnecting");
+  liveSyncRecoveryPromise = (async () => {
+    const previousSpaceId = state.activeSpace?.space_id || "";
+    try {
+      await refreshSpaceContext({
+        apiOptions: { skipAuthRefresh: true },
+        suppressLiveSyncRestart: true,
+      });
+    } catch (err) {
+      if (handleAuthError(err)) return false;
+      console.warn("Live sync space recovery failed", err);
+    }
+    if (!state.authed) return false;
+    const nextSpaceId = state.activeSpace?.space_id || "";
+    if (!nextSpaceId) {
+      setSpaceFeedback("Unable to restore the active space for live sync.", "error", 9000);
+      stopLiveSync({ phase: "attention", text: "Space attention", tone: "warn", preserveRecovery: true });
+      return false;
+    }
+    if (nextSpaceId !== previousSpaceId) {
+      setSpaceFeedback(`Live sync moved to ${spaceNameForId(nextSpaceId) || nextSpaceId}.`, "info", 4200);
+    }
+    clearDataState();
+    try {
+      await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
+    } catch (err) {
+      console.warn("Live sync space recovery failed to reload current view", err);
+      if (handleAuthError(err)) return false;
+    }
+    startLiveSync({ force: true, preserveRecovery: true });
+    return true;
+  })();
+  try {
+    return await liveSyncRecoveryPromise;
+  } finally {
+    liveSyncRecoveryPromise = null;
+  }
+}
+
+async function handleLiveSyncClose(event) {
+  if (!state.authed) return;
+  if (document.hidden) {
+    stopLiveSync({ phase: "paused", pausedForHidden: true });
+    return;
+  }
+  if (event.code === LIVE_SYNC_CLOSE_AUTH) {
+    await recoverLiveSyncAuth();
+    return;
+  }
+  if (event.code === LIVE_SYNC_CLOSE_SPACE) {
+    await recoverLiveSyncSpace();
+    return;
+  }
+  if (event.code === LIVE_SYNC_CLOSE_LIMIT) {
+    setSpaceFeedback(
+      "Live sync paused because this account already has the maximum number of connected tabs.",
+      "info",
+      9000,
+    );
+    stopLiveSync({ phase: "paused", text: "Sync paused", tone: "warn", preserveRecovery: true });
+    return;
+  }
+  if (event.code === LIVE_SYNC_CLOSE_BUSY || event.code === 1006 || event.code === 1011 || event.code === 1001) {
+    scheduleLiveSyncRetry();
+    return;
+  }
+  scheduleLiveSyncRetry();
+}
+
+function startLiveSync(options = {}) {
+  const force = !!options.force;
+  const preserveRecovery = !!options.preserveRecovery;
+  if (!state.authed || isResetPath()) {
+    stopLiveSync({ clearStatus: true });
+    return;
+  }
+  if (document.hidden) {
+    stopLiveSync({ phase: "paused", pausedForHidden: true, preserveRecovery });
+    return;
+  }
+  if (!state.activeSpace?.space_id) {
+    stopLiveSync({ phase: "paused", text: "Sync paused", tone: "muted", preserveRecovery });
+    return;
+  }
+  clearLiveSyncRetry();
+  const currentSpaceId = state.activeSpace.space_id;
+  const isOpenForCurrentSpace = !!liveSyncSocket
+    && state.liveSync.socketSpaceId === currentSpaceId
+    && (liveSyncSocket.readyState === WebSocket.CONNECTING || liveSyncSocket.readyState === WebSocket.OPEN);
+  if (!force && isOpenForCurrentSpace) return;
+  if (!preserveRecovery) {
+    resetLiveSyncRecoveryFlags();
+  }
+  closeLiveSyncSocket(1000, "restart");
+  state.liveSync.pausedForHidden = false;
+  setLiveSyncPhase("reconnecting");
+  const socket = new WebSocket(liveUrl());
+  liveSyncSocket = socket;
+  state.liveSync.socketSpaceId = currentSpaceId;
+
+  socket.addEventListener("open", () => {
+    if (socket !== liveSyncSocket) return;
+    resetLiveSyncRecoveryFlags();
+    setLiveSyncPhase("live");
+  });
+
+  socket.addEventListener("message", (event) => {
+    if (socket !== liveSyncSocket) return;
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "refresh") {
+        refreshFromServer(msg.entity || "all");
+      }
+    } catch (err) {
+      console.warn("Live message parse failed", err);
+    }
+  });
+
+  socket.addEventListener("error", () => {
+    if (socket !== liveSyncSocket) return;
+    setLiveSyncPhase("reconnecting");
+  });
+
+  socket.addEventListener("close", (event) => {
+    if (socket !== liveSyncSocket) return;
+    liveSyncSocket = null;
+    state.liveSync.socketSpaceId = "";
+    void handleLiveSyncClose(event);
+  });
+}
+
+async function handleLiveSyncVisibilityChange() {
+  if (document.hidden) {
+    if (state.authed) {
+      stopLiveSync({ phase: "paused", pausedForHidden: true, preserveRecovery: true });
+    }
+    return;
+  }
+  if (!state.authed || !state.liveSync.pausedForHidden) return;
+  state.liveSync.pausedForHidden = false;
+  try {
+    await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
+  } catch (err) {
+    console.warn("Live sync visibility refresh failed", err);
+    if (handleAuthError(err)) return;
+  }
+  startLiveSync({ force: true, preserveRecovery: true });
 }
 
 function initSubcomponentsWorkbench() {
@@ -1564,13 +1892,9 @@ async function bootstrapAuth() {
   const user = await fetchCurrentUser();
   if (user) {
     setAuthVisible(false);
-    startLiveSyncOnce();
     await refreshSpaceContext();
-    if (state.currentView === "team-capacity") {
-      await loadTeamCapacityData({ force: true });
-    } else {
-      await loadData();
-    }
+    startLiveSync();
+    await reloadCurrentViewData();
   } else {
     setStatus("Sign in required", "warn");
   }
@@ -1663,6 +1987,17 @@ async function loadData(options = {}) {
       }
     }
   }
+}
+
+async function reloadCurrentViewData(options = {}) {
+  const force = !!options.force;
+  const silent = !!options.silent;
+  const preserveCapacitySelection = options.preserveCapacitySelection !== false;
+  if (state.currentView === "team-capacity") {
+    await loadTeamCapacityData({ force, preserveSelection: preserveCapacitySelection });
+    return;
+  }
+  await loadData({ force, silent, entities: options.entities });
 }
 
 function setView(view, options = {}) {
@@ -1849,47 +2184,6 @@ function renderActiveView() {
     renderSolutionActivity(openSolutionId);
     renderSolutionPhases(openSolutionId);
   }
-}
-
-function liveUrl() {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${location.host}/api/ws`;
-}
-
-function initLiveSync() {
-  let socket;
-  let backoff = 1000;
-
-  const connect = () => {
-    socket = new WebSocket(liveUrl());
-
-    socket.addEventListener("open", () => {
-      backoff = 1000;
-      setStatus("Online", "positive");
-    });
-
-    socket.addEventListener("message", (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === "refresh") {
-          refreshFromServer(msg.entity || "all");
-        }
-      } catch (err) {
-        console.warn("Live message parse failed", err);
-      }
-    });
-
-    const retry = () => {
-      socket = null;
-      backoff = Math.min(backoff * 1.5, 5000);
-      setTimeout(connect, backoff);
-    };
-
-    socket.addEventListener("close", retry);
-    socket.addEventListener("error", retry);
-  };
-
-  connect();
 }
 
 function restoreSelections(projectId, solutionId, subcomponentId) {
@@ -7008,7 +7302,9 @@ function init() {
   bindCsvControls();
   bindSpaceSwitcher();
   bindNav();
+  document.addEventListener("visibilitychange", handleLiveSyncVisibilityChange);
   bindConfirmModal();
+  renderTopbarStatus();
   renderSpaceSwitcher();
   bindDeliverablesControls();
   bindDeliverablesTable();

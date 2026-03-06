@@ -220,6 +220,41 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 
 
 @pytest.mark.anyio
+async def test_get_active_space_repairs_missing_active_space_cookie(auth_client):
+    register = await auth_client.post(
+        "/api/auth/register",
+        json={"soeid": "COOKIE1", "display_name": "Cookie User", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    auth_client.cookies.pop("active_space_id", None)
+
+    resp = await auth_client.get("/api/auth/active-space")
+    assert resp.status_code == 200, resp.text
+    active_space_id = resp.json()["space_id"]
+    set_cookies = resp.headers.get_list("set-cookie")
+    assert any(f"active_space_id={active_space_id}" in cookie for cookie in set_cookies)
+
+
+@pytest.mark.anyio
+async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
+    register = await auth_client.post(
+        "/api/auth/register",
+        json={"soeid": "COOKIE2", "display_name": "Stale Cookie User", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    auth_client.cookies.set("active_space_id", "stale-space-id")
+
+    resp = await auth_client.get("/api/auth/active-space")
+    assert resp.status_code == 200, resp.text
+    active_space_id = resp.json()["space_id"]
+    set_cookies = resp.headers.get_list("set-cookie")
+    assert any(f"active_space_id={active_space_id}" in cookie for cookie in set_cookies)
+    assert all("active_space_id=stale-space-id" not in cookie for cookie in set_cookies)
+
+
+@pytest.mark.anyio
 async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
     register = await auth_client.post(
         "/api/auth/register",

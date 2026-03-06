@@ -71,6 +71,46 @@ async def test_create_and_list_solutions(client):
 
 
 @pytest.mark.anyio
+async def test_list_and_export_solutions_hide_work_allocation_board_solution(client):
+    board_project_resp = await client.post("/api/projects/", json={"project_name": "Work Allocation Board [bfab593b]"})
+    assert board_project_resp.status_code == 201, board_project_resp.text
+    board_project_id = board_project_resp.json()["project_id"]
+
+    board_solution_resp = await client.post(
+        f"/api/projects/{board_project_id}/solutions",
+        json={"solution_name": "Backlog", "version": "1.0.0"},
+    )
+    assert board_solution_resp.status_code == 201, board_solution_resp.text
+
+    normal_project_resp = await client.post("/api/projects/", json={"project_name": "Visible Project"})
+    assert normal_project_resp.status_code == 201, normal_project_resp.text
+    normal_project_id = normal_project_resp.json()["project_id"]
+
+    visible_solution_resp = await client.post(
+        f"/api/projects/{normal_project_id}/solutions",
+        json={"solution_name": "Visible Solution", "version": "1.0.0"},
+    )
+    assert visible_solution_resp.status_code == 201, visible_solution_resp.text
+    visible_solution_id = visible_solution_resp.json()["solution_id"]
+
+    list_resp = await client.get("/api/solutions")
+    assert list_resp.status_code == 200, list_resp.text
+    rows = list_resp.json()
+    ids = {row["solution_id"] for row in rows}
+    assert visible_solution_id in ids
+    assert all(not (row["project_id"] == board_project_id and row["solution_name"] == "Backlog") for row in rows)
+
+    by_project_resp = await client.get(f"/api/projects/{board_project_id}/solutions")
+    assert by_project_resp.status_code == 200, by_project_resp.text
+    assert by_project_resp.json() == []
+
+    export_resp = await client.get("/api/solutions/export")
+    assert export_resp.status_code == 200, export_resp.text
+    assert "Visible Solution" in export_resp.text
+    assert "Backlog" not in export_resp.text
+
+
+@pytest.mark.anyio
 async def test_solution_uniqueness_per_project_version(client):
     project = await create_project(client)
     payload = {

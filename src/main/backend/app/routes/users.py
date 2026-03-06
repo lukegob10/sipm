@@ -7,7 +7,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from ..auth.auth import hash_password
+from ..auth.auth import hash_bootstrap_password
 from ..deps import (
     current_space as current_space_dep,
     current_user as current_user_dep,
@@ -16,8 +16,9 @@ from ..deps import (
     require_space_role,
 )
 from ..models import SpaceMembership, User
-from ..schemas import UserRead, UserUpdate
+from ..schemas import PasswordResetIssueRequest, PasswordResetIssueResponse, UserRead, UserUpdate
 from ..services.audit_log import log_changes
+from ..services.password_reset import issue_reset_token
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..utils import read_csv
@@ -272,6 +273,28 @@ def revoke_global_admin_by_soeid(
     )
 
 
+
+@router.post(
+    "/users/{user_id}/password-reset-request",
+    response_model=PasswordResetIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def request_user_password_reset(
+    user_id: str,
+    payload: Optional[PasswordResetIssueRequest] = Body(default=None),
+    session: Session = Depends(get_db),
+    admin_user: User = Depends(require_global_admin),
+) -> PasswordResetIssueResponse:
+    user = _user_or_404(session, user_id)
+    token, expires_at = issue_reset_token(
+        session,
+        target_user=user,
+        issued_by_user_id=admin_user.user_id,
+        expires_minutes=payload.expires_minutes if payload else None,
+    )
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
+    return PasswordResetIssueResponse(status="issued", reset_token=token, expires_at=expires_at)
+
 @router.patch("/users/{user_id}", response_model=UserRead)
 def update_user(
     user_id: str,
@@ -401,7 +424,7 @@ def import_users(
                 soeid=soeid,
                 email=f"{soeid}@{domain}",
                 display_name=display_name,
-                password_hash=hash_password("changeme"),
+                password_hash=hash_bootstrap_password(),
                 role="user",
                 is_active=True,
                 team_tag=team_tag or None,
@@ -461,3 +484,7 @@ def export_users(
     buffer.seek(0)
     headers = {"Content-Disposition": 'attachment; filename="roster.csv"'}
     return StreamingResponse(buffer, media_type="text/csv", headers=headers)
+
+
+
+

@@ -25,11 +25,14 @@ def anyio_backend():
 
 
 @pytest.fixture
-def db_sessionmaker():
+def db_sessionmaker(tmp_path):
     db_url = (os.getenv("SIPM_TEST_DATABASE_URL") or "").strip()
     if not db_url:
-        raise RuntimeError("SIPM_TEST_DATABASE_URL must be set for test database initialization.")
-    engine = create_engine(db_url)
+        db_url = f"sqlite+pysqlite:///{tmp_path / 'sipm-test.db'}"
+    engine_kwargs = {}
+    if db_url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+    engine = create_engine(db_url, **engine_kwargs)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

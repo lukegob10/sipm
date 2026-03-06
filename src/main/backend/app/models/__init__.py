@@ -85,6 +85,21 @@ class User(TimestampMixin, Base):
     temp_password_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     force_password_reset: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, default=_utcnow_naive, nullable=True)
+    
+class PasswordResetToken(TimestampMixin, Base):
+    __tablename__ = physical_table_name("password_reset_tokens")
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uix_password_reset_token_hash"),
+        Index("idx_password_reset_user_expires", "user_id", "expires_at"),
+        Index("idx_password_reset_issued_by", "issued_by_user_id", "created_at"),
+    )
+
+    reset_token_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=False, index=True)
+    issued_by_user_id: Mapped[str] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
 
 class Space(TimestampMixin, SoftDeleteMixin, Base):
@@ -535,3 +550,4 @@ class ExternalDocument(TimestampMixin, SoftDeleteMixin, Base):
     content_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     storage_path: Mapped[str] = mapped_column(String, nullable=False)
     uploaded_by_user_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("users", "user_id")), nullable=True, index=True)
+

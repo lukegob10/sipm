@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep
+from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_space_role
 from ..models import Phase, Solution, SolutionPhase, User
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
 from ..services.realtime import schedule_broadcast
@@ -32,6 +32,7 @@ def set_solution_phases(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     """
     Upsert enabled phases for a solution. Payload shape:
@@ -127,7 +128,7 @@ def set_solution_phases(
                 changes={"current_phase": (before_phase, solution.current_phase)},
             )
             session.commit()
-    schedule_broadcast("solutions")
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
     return _ordered_solution_phases(session, solution_id, space_ctx)
 
 

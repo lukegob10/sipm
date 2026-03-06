@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from ..auth.auth import hash_password
+from ..auth.auth import hash_bootstrap_password
 from ..deps import (
     current_space as current_space_dep,
     current_user as current_user_dep,
@@ -49,27 +49,6 @@ _WORK_ALLOCATION_PROJECT_PREFIX = "Work Allocation Board"
 _WORK_ALLOCATION_SOLUTION_NAME = "Backlog"
 _WORK_ALLOCATION_SOLUTION_VERSION = "1.0.0"
 _WORK_ALLOCATION_DEFAULT_ASSIGNEE = "Unassigned"
-_WORK_ALLOCATION_SEED_TEAMS = ("Platform Team", "Product Team")
-_WORK_ALLOCATION_SEED_PEOPLE = (
-    ("Alex Morgan", 0, 1.0),
-    ("Jordan Lee", 0, 0.85),
-    ("Priya Patel", 0, 1.0),
-    ("Sam Rivera", 1, 1.0),
-    ("Casey Nguyen", 1, 0.9),
-    ("Taylor Kim", 1, 1.1),
-)
-_WORK_ALLOCATION_SEED_TASKS = (
-    ("API Hardening", 0.25),
-    ("Auth Service Cleanup", 0.5),
-    ("UI Navigation Polish", 0.5),
-    ("Search Performance Fix", 0.25),
-    ("Reporting Export MVP", 1.0),
-    ("Integrations Retry Logic", 0.5),
-    ("Notifications Queue Spike", 0.25),
-    ("A11y Audit Pass", 0.25),
-    ("Team Dashboard Rollup", 0.75),
-    ("Onboarding Flow Refresh", 0.5),
-)
 
 _WORK_ALLOCATION_UNIQUE_CONSTRAINT = "UIX_ALLOC_UNIQUE_ASSIGNMENT"
 
@@ -472,6 +451,54 @@ def _raise_on_unique_allocation_conflict(err: IntegrityError) -> None:
             detail="Task is already allocated to this assignee for this month",
         ) from err
     raise err
+
+
+def _is_window_name_conflict_integrity_error(err: IntegrityError) -> bool:
+    text = " ".join(
+        [
+            str(err),
+            str(getattr(err, "orig", "")),
+            str(getattr(err, "statement", "")),
+        ]
+    ).lower()
+    if "uix_planning_window_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker:
+        return False
+    return "tb_ta_pm_planning_windows" in text or "planning_window" in text
+
+
+def _is_team_name_conflict_integrity_error(err: IntegrityError) -> bool:
+    text = " ".join(
+        [
+            str(err),
+            str(getattr(err, "orig", "")),
+            str(getattr(err, "statement", "")),
+        ]
+    ).lower()
+    if "uix_team_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker:
+        return False
+    return "tb_ta_pm_teams" in text or "team" in text
 
 
 def _pdf_escape(value: str) -> str:
@@ -1034,18 +1061,18 @@ def _build_work_allocation_report_pdf(
     return document.build()
 
 
-def _normalize_soeid_seed(name: str) -> str:
+def _normalize_soeid_base(name: str) -> str:
     raw = re.sub(r"[^a-z0-9]+", "", str(name or "").strip().lower())
     return raw[:14] or "person"
 
 
 def _next_available_soeid(session: Session, name: str) -> str:
-    seed = _normalize_soeid_seed(name)
-    candidate = seed
+    base = _normalize_soeid_base(name)
+    candidate = base
     counter = 1
     while session.query(User).filter(func.lower(User.soeid) == candidate).first():
         counter += 1
-        candidate = f"{seed[:10]}{counter:02d}"
+        candidate = f"{base[:10]}{counter:02d}"
     return candidate
 
 
@@ -1070,102 +1097,6 @@ def _ensure_membership(session: Session, user_id: str, space_id: str) -> None:
     if not (membership.role or "").strip():
         membership.role = "member"
     session.add(membership)
-
-
-def _seed_token(space_ctx: SpaceContext) -> str:
-    raw = re.sub(r"[^a-z0-9]+", "", str(space_ctx.space_id or "").lower())
-    return raw[:6] or "space"
-
-
-def _seed_team_name(base: str, token: str) -> str:
-    stem = (base or "Team").strip() or "Team"
-    return f"{stem} [{token}]"
-
-
-def _ensure_work_allocation_seed_data(session: Session, space_ctx: SpaceContext) -> None:
-    solution, task_query = _board_task_query(session, space_ctx)
-    teams = _team_query(session, space_ctx).order_by(Team.name.asc()).all()
-    active_people_count = _active_space_user_query(session, space_ctx).count()
-    has_tasks = task_query.first() is not None
-    seed_teams = not teams
-    seed_people = active_people_count < 2
-    seed_tasks = not has_tasks
-    if not (seed_teams or seed_people or seed_tasks):
-        return
-
-    now = datetime.now(timezone.utc)
-    if seed_teams:
-        token = _seed_token(space_ctx)
-        for base_name in _WORK_ALLOCATION_SEED_TEAMS:
-            candidate = _seed_team_name(base_name, token)
-            counter = 1
-            while (
-                session.query(Team)
-                .filter(func.lower(Team.name) == candidate.lower())
-                .first()
-            ):
-                counter += 1
-                candidate = f"{_seed_team_name(base_name, token)}-{counter}"
-            row = Team(
-                space_id=space_ctx.space_id,
-                name=candidate,
-                capacity_unit="fte_month",
-                default_capacity_per_week=0,
-                default_capacity_fte_month=0.0,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-            session.flush()
-            teams.append(row)
-
-    if seed_people:
-        if not teams:
-            teams = _team_query(session, space_ctx).order_by(Team.name.asc()).all()
-        for name, team_slot, capacity in _WORK_ALLOCATION_SEED_PEOPLE:
-            team_name = None
-            if teams:
-                selected_index = min(max(team_slot, 0), len(teams) - 1)
-                team_name = teams[selected_index].name
-            soeid = _next_available_soeid(session, name)
-            row = User(
-                soeid=soeid,
-                email=f"{soeid}@{_WORK_ALLOCATION_DOMAIN}",
-                display_name=name,
-                password_hash=hash_password("changeme"),
-                role="user",
-                is_active=True,
-                team_tag=team_name,
-                capacity_fte_month=round(float(capacity), 3),
-                capacity_hours=max(int(round(float(capacity) * 40.0)), 0),
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-            session.flush()
-            _ensure_membership(session, row.user_id, space_ctx.space_id)
-
-    if seed_tasks:
-        for title, fte_months in _WORK_ALLOCATION_SEED_TASKS:
-            hours = max(int(round(float(fte_months) * _HOURS_PER_FTE_MONTH)), 1)
-            row = Subcomponent(
-                space_id=space_ctx.space_id,
-                project_id=solution.project_id,
-                solution_id=solution.solution_id,
-                subcomponent_name=title,
-                status=SubcomponentStatus.to_do,
-                priority=3,
-                assignee=_WORK_ALLOCATION_DEFAULT_ASSIGNEE,
-                estimate_hours=hours,
-                capacity_hours=hours,
-                blocked=False,
-                created_at=now,
-                updated_at=now,
-            )
-            session.add(row)
-
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["teams", "users", "subcomponents", "planning"])
 
 
 @router.get("/resource-allocations", response_model=List[ResourceAllocationRead])
@@ -1227,7 +1158,7 @@ def create_allocation(
     payload: ResourceAllocationCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> ResourceAllocationRead:
     _active_team(session, payload.team_id, space_ctx)
     if payload.window_id:
@@ -1260,7 +1191,7 @@ def update_allocation(
     payload: ResourceAllocationUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> ResourceAllocationRead:
     alloc = _get_allocation(session, allocation_id, space_ctx)
     if payload.team_id is not None:
@@ -1326,7 +1257,7 @@ def allocations_summary(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     params = {
         "from_date": from_date.isoformat() if from_date else None,
@@ -1414,7 +1345,7 @@ def create_window(
     payload: PlanningWindowCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> PlanningWindowRead:
     win = PlanningWindow(
         space_id=space_ctx.space_id,
@@ -1422,9 +1353,18 @@ def create_window(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
-    session.add(win)
-    session.commit()
-    session.refresh(win)
+    try:
+        session.add(win)
+        session.commit()
+        session.refresh(win)
+    except IntegrityError as err:
+        session.rollback()
+        if _is_window_name_conflict_integrity_error(err):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Planning window name already exists",
+            ) from err
+        raise
     invalidate_space(space_ctx.space_id, ["planning"])
     return PlanningWindowRead.model_validate(win)
 
@@ -1435,7 +1375,7 @@ def update_window(
     payload: PlanningWindowUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> PlanningWindowRead:
     win = _get_window(session, window_id, space_ctx)
     update_data = payload.model_dump(exclude_unset=True)
@@ -1443,9 +1383,18 @@ def update_window(
         if val is not None:
             setattr(win, field, val)
     win.updated_at = datetime.now(timezone.utc)
-    session.add(win)
-    session.commit()
-    session.refresh(win)
+    try:
+        session.add(win)
+        session.commit()
+        session.refresh(win)
+    except IntegrityError as err:
+        session.rollback()
+        if _is_window_name_conflict_integrity_error(err):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Planning window name already exists",
+            ) from err
+        raise
     invalidate_space(space_ctx.space_id, ["planning"])
     return PlanningWindowRead.model_validate(win)
 
@@ -1485,7 +1434,7 @@ def create_work_allocation_team(
     payload: WorkAllocationTeamCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTeamRead:
     name = (payload.name or "").strip()
     if not name:
@@ -1518,9 +1467,15 @@ def create_work_allocation_team(
         created_at=now,
         updated_at=now,
     )
-    session.add(row)
-    session.commit()
-    session.refresh(row)
+    try:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    except IntegrityError as err:
+        session.rollback()
+        if _is_team_name_conflict_integrity_error(err):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team already exists") from err
+        raise
     invalidate_space(space_ctx.space_id, ["teams", "planning"])
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
@@ -1531,7 +1486,7 @@ def update_work_allocation_team(
     payload: WorkAllocationTeamUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTeamRead:
     row = _active_team(session, team_id, space_ctx)
     next_name = (payload.name or "").strip() if payload.name is not None else None
@@ -1552,9 +1507,18 @@ def update_work_allocation_team(
             user.team_tag = next_name
             session.add(user)
     row.updated_at = datetime.now(timezone.utc)
-    session.add(row)
-    session.commit()
-    session.refresh(row)
+    try:
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+    except IntegrityError as err:
+        session.rollback()
+        if _is_team_name_conflict_integrity_error(err):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Team name already exists",
+            ) from err
+        raise
     invalidate_space(space_ctx.space_id, ["teams", "users", "planning"])
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
@@ -1564,7 +1528,7 @@ def delete_work_allocation_team(
     team_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
     row = _active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -1600,7 +1564,7 @@ def create_work_allocation_person(
     payload: WorkAllocationPersonCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationPersonRead:
     name = (payload.name or "").strip()
     if not name:
@@ -1613,7 +1577,7 @@ def create_work_allocation_person(
         soeid=soeid,
         email=f"{soeid}@{_WORK_ALLOCATION_DOMAIN}",
         display_name=name,
-        password_hash=hash_password("changeme"),
+        password_hash=hash_bootstrap_password(),
         role="user",
         is_active=True,
         team_tag=team.name if team else None,
@@ -1638,7 +1602,7 @@ def update_work_allocation_person(
     payload: WorkAllocationPersonUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationPersonRead:
     row = _active_person_by_soeid(session, person_id, space_ctx)
     updates = payload.model_dump(exclude_unset=True)
@@ -1673,7 +1637,7 @@ def delete_work_allocation_person(
     person_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
     row = _active_person_by_soeid(session, person_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -1703,7 +1667,6 @@ def list_work_allocation_tasks(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationTaskRead]:
-    _ensure_work_allocation_seed_data(session, space_ctx)
     month_start = _month_from_token(month or _month_token(None))
     _solution, query = _board_task_query(session, space_ctx)
     if search:
@@ -1734,7 +1697,7 @@ def create_work_allocation_task(
     month: Optional[str] = Query(None),
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTaskRead:
     solution, query = _board_task_query(session, space_ctx)
     title = (payload.title or "").strip()
@@ -1784,7 +1747,7 @@ def update_work_allocation_task(
     payload: WorkAllocationTaskUpdate = ...,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTaskRead:
     _solution, query = _board_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
@@ -1830,7 +1793,7 @@ def delete_work_allocation_task(
     task_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
     _solution, query = _board_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
@@ -1887,8 +1850,6 @@ def download_work_allocation_report_pdf(
     month_start = _month_from_token(month or _month_token(None))
     month_token = _month_token(month_start)
 
-    _ensure_work_allocation_seed_data(session, space_ctx)
-
     team_rows = _team_query(session, space_ctx).order_by(Team.name.asc()).all()
     team_map = _team_name_to_id_map(session, space_ctx)
     people_rows = _active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
@@ -1942,7 +1903,7 @@ def create_work_allocation_allocation(
     payload: WorkAllocationAssignmentCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationAssignmentRead:
     month_start = _month_from_token(payload.month)
     _solution, task_query = _board_task_query(session, space_ctx)
@@ -2071,7 +2032,7 @@ def delete_work_allocation_allocation(
     allocation_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
     row = _get_allocation(session, allocation_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -2081,3 +2042,6 @@ def delete_work_allocation_allocation(
     session.commit()
     invalidate_space(space_ctx.space_id, ["planning"])
     return None
+
+
+

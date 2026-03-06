@@ -33,6 +33,27 @@ async def test_create_and_list_projects(client):
 
 
 @pytest.mark.anyio
+async def test_list_and_export_projects_hide_work_allocation_board_project(client):
+    board_name = "Work Allocation Board [bfab593b]"
+    board_resp = await client.post("/api/projects/", json={"project_name": board_name})
+    assert board_resp.status_code == 201, board_resp.text
+
+    visible_resp = await client.post("/api/projects/", json={"project_name": "Visible Project"})
+    assert visible_resp.status_code == 201, visible_resp.text
+
+    list_resp = await client.get("/api/projects/")
+    assert list_resp.status_code == 200, list_resp.text
+    names = {row["project_name"] for row in list_resp.json()}
+    assert "Visible Project" in names
+    assert board_name not in names
+
+    export_resp = await client.get("/api/projects/export")
+    assert export_resp.status_code == 200, export_resp.text
+    assert "Visible Project" in export_resp.text
+    assert board_name not in export_resp.text
+
+
+@pytest.mark.anyio
 async def test_create_project_defaults_sponsor_and_priority(client):
     resp = await client.post("/api/projects/", json={"project_name": "Minimal Project"})
     assert resp.status_code == 201, resp.text

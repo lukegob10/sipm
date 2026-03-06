@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -73,6 +74,30 @@ def _fte_from_hours(hours: Optional[int]) -> float:
 
 def _hours_from_fte(fte_month: Optional[float]) -> int:
     return max(int(round(max(float(fte_month or 0.0), 0.0) * _HOURS_PER_FTE_CAPACITY)), 0)
+
+
+def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
+    text = " ".join(
+        [
+            str(exc),
+            str(getattr(exc, "orig", "")),
+            str(getattr(exc, "statement", "")),
+        ]
+    ).lower()
+    if "uix_team_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker:
+        return False
+    return "tb_ta_pm_teams" in text or "team" in text
 
 
 def _member_capacity_fields(payload: TeamMemberCreate | TeamMemberUpdate) -> tuple[Optional[int], Optional[float]]:
@@ -154,7 +179,7 @@ def create_team(
     payload: TeamCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> TeamRead:
     existing = (
         session.query(Team)
@@ -202,9 +227,18 @@ def create_team(
         created_at=now,
         updated_at=now,
     )
-    session.add(team)
-    session.commit()
-    session.refresh(team)
+    try:
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+    except IntegrityError as exc:
+        session.rollback()
+        if _is_team_name_conflict_integrity_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Team name already exists",
+            ) from exc
+        raise
     invalidate_space(space_ctx.space_id, ["teams"])
     return _team_with_members(session, team, space_ctx)
 
@@ -241,7 +275,7 @@ def update_team(
     payload: TeamUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> TeamRead:
     team = _active_team(session, team_id, space_ctx)
     for field in ["name", "description", "lead"]:
@@ -257,9 +291,18 @@ def update_team(
     if payload.capacity_unit is not None:
         team.capacity_unit = payload.capacity_unit
     team.updated_at = datetime.now(timezone.utc)
-    session.add(team)
-    session.commit()
-    session.refresh(team)
+    try:
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+    except IntegrityError as exc:
+        session.rollback()
+        if _is_team_name_conflict_integrity_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Team name already exists",
+            ) from exc
+        raise
     invalidate_space(space_ctx.space_id, ["teams"])
     return _team_with_members(session, team, space_ctx)
 
@@ -319,7 +362,7 @@ def create_team_member(
     payload: TeamMemberCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> TeamMemberRead:
     _active_team(session, team_id, space_ctx)
     hours_capacity, capacity_fte_month = _member_capacity_fields(payload)
@@ -350,7 +393,7 @@ def update_team_member(
     payload: TeamMemberUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("member")),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> TeamMemberRead:
     _active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
@@ -393,3 +436,5 @@ def delete_team_member(
     _recompute_team_capacity(session, team_id, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
     return None
+
+

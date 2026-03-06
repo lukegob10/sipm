@@ -281,6 +281,7 @@ def create_subcomponent(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     solution = _ensure_solution(session, solution_id, space_ctx)
 
@@ -350,7 +351,7 @@ def create_subcomponent(
     session.commit()
     session.refresh(subcomponent)
     invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents")
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return subcomponent
 
 
@@ -361,6 +362,7 @@ def import_subcomponents(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
@@ -619,7 +621,7 @@ def import_subcomponents(
             errors.append(f"Row {idx}: {exc}")
 
     invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents")
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return {
         "created": created,
         "updated": updated,
@@ -737,6 +739,7 @@ def update_subcomponent(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
 
@@ -782,7 +785,7 @@ def update_subcomponent(
     session.commit()
     session.refresh(subcomponent)
     invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents")
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return subcomponent
 
 
@@ -792,6 +795,7 @@ def batch_update_subcomponents(
     session: Session = Depends(get_db),
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     unique_ids: list[str] = []
     seen: set[str] = set()
@@ -882,7 +886,7 @@ def batch_update_subcomponents(
     for row in updated_rows:
         session.refresh(row)
     invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents")
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return [_subcomponent_payload(row) for row in updated_rows]
 
 
@@ -910,5 +914,6 @@ def delete_subcomponent(
     )
     session.commit()
     invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents")
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return None
+

@@ -755,8 +755,8 @@
                   <span id="space-admin-note" class="muted"></span>
                 </div>
                 <form id="space-create-form" class="form compact inline-form">
-                  <label class="wide">Space Name <input name="name" placeholder="e.g. Platform Team" /></label>
-                  <label>Slug (optional) <input name="slug" placeholder="platform-team" /></label>
+                  <label class="wide">Space Name <input name="name" placeholder="e.g. Treasury Ops" /></label>
+                  <label>Slug (optional) <input name="slug" placeholder="treasury-ops" /></label>
                   <div class="form-actions full-span">
                     <button type="submit">Create Space</button>
                     <button type="reset" class="secondary">Clear</button>
@@ -769,7 +769,10 @@
               <div class="panel soft">
                 <div class="panel-header">
                   <h3>Space Memberships</h3>
-                  <span id="space-membership-note" class="muted"></span>
+                  <div class="space-membership-note-wrap">
+                    <span id="space-membership-note" class="muted"></span>
+                    <button type="button" id="space-membership-switch-btn" class="secondary hidden">Switch to selected space</button>
+                  </div>
                 </div>
                 <form id="space-membership-form" class="form compact inline-form">
                   <label class="wide">Manage Space

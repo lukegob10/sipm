@@ -1,22 +1,61 @@
-import os
 import hashlib
+import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 import bcrypt
 import jwt
-from fastapi import HTTPException, Response, status
+from fastapi import Response, status
 
-SECRET_KEY = os.getenv("SIPM_SECRET_KEY", "dev-secret-change-me")
+from ..security import security_http_exception
+
+DEFAULT_DEV_SECRET = "dev-secret-change-me-at-least-32-bytes"
+
+
+def _deployment_env() -> str:
+    aliases = {
+        "production": "prod",
+        "prod": "prod",
+        "uat": "uat",
+        "development": "dev",
+        "dev": "dev",
+        "test": "test",
+        "local": "dev",
+    }
+    raw = (os.getenv("ENV") or "dev").strip().lower()
+    return aliases.get(raw, raw or "dev")
+
+
+DEPLOYMENT_ENV = _deployment_env()
+IS_NON_DEV = DEPLOYMENT_ENV in {"prod", "uat"}
+
+SECRET_KEY = os.getenv("SIPM_SECRET_KEY", DEFAULT_DEV_SECRET)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ACCESS_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_REFRESH_MINUTES", "60"))
 RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_RESET_MINUTES", "30"))
-SECURE_COOKIES = os.getenv("SIPM_SECURE_COOKIES", "false").lower() == "true"
-COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "lax").lower()
+ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ONE_TIME_RESET_MINUTES", "30"))
+
+SECURE_COOKIES = os.getenv("SIPM_SECURE_COOKIES", "true" if IS_NON_DEV else "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax").lower()
 ACTIVE_SPACE_COOKIE = "active_space_id"
 
 BCRYPT_ROUNDS = int(os.getenv("SIPM_BCRYPT_ROUNDS", "12"))
+
+
+# Keep local/dev/test environments usable without extra auth bootstrapping.
+ALLOW_SELF_REGISTER = os.getenv(
+    "SIPM_ALLOW_SELF_REGISTER",
+    "false" if IS_NON_DEV else "true",
+).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def validate_auth_configuration() -> None:
+    if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
+        raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
+    if IS_NON_DEV and not SECURE_COOKIES:
+        raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
 
 
 def _password_bytes_for_bcrypt(password: str) -> bytes:
@@ -37,12 +76,25 @@ def hash_password(password: str) -> str:
     return hashed.decode("utf-8")
 
 
+def hash_bootstrap_password() -> str:
+    # Never provision users with a known shared default password.
+    return hash_password(secrets.token_urlsafe(48))
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     password_bytes = _password_bytes_for_bcrypt(plain_password)
     try:
         return bcrypt.checkpw(password_bytes, hashed_password.encode("utf-8"))
     except ValueError:
         return False
+
+
+def generate_one_time_reset_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_one_time_reset_token(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
 
 
 def _expiry(delta: timedelta) -> datetime:
@@ -71,12 +123,24 @@ def create_token(user_id: str, role: str, token_type: str) -> str:
 def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    except jwt.ExpiredSignatureError as exc:
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="TOKEN_EXPIRED",
+            message="Token expired",
+        ) from exc
+    except jwt.InvalidTokenError as exc:
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="TOKEN_INVALID",
+            message="Invalid token",
+        ) from exc
     if payload.get("type") != expected_type:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token type")
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="TOKEN_TYPE_INVALID",
+            message="Invalid token type",
+        )
     return payload
 
 
@@ -114,18 +178,3 @@ def set_active_space_cookie(response: Response, space_id: str) -> None:
         samesite=COOKIE_SAMESITE,
         path="/",
     )
-
-
-def set_reset_cookie(response: Response, reset_token: str) -> None:
-    response.set_cookie(
-        key="reset_token",
-        value=reset_token,
-        httponly=True,
-        secure=SECURE_COOKIES,
-        samesite=COOKIE_SAMESITE,
-        path="/",
-    )
-
-
-def clear_reset_cookie(response: Response) -> None:
-    response.delete_cookie("reset_token", path="/")

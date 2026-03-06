@@ -39,6 +39,7 @@ from ..services.smart_cache import cached_call, invalidate_space, make_scope_tok
 router = APIRouter()
 _SOLUTIONS_LIST_TTL_SECONDS = 20
 _SOLUTIONS_DETAIL_TTL_SECONDS = 30
+_WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:
@@ -79,6 +80,19 @@ def _solution_query(session: Session, space_ctx: SpaceContext):
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space_ctx.space_id)
     )
+
+
+def _work_allocation_project_id_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(Project.project_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(Project.project_name.like(f"{_WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
+    )
+
+
+def _exclude_work_allocation_board_solutions(query, session: Session, space_ctx: SpaceContext):
+    return query.filter(~Solution.project_id.in_(_work_allocation_project_id_query(session, space_ctx)))
 
 
 def _get_solution_or_404(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
@@ -174,7 +188,7 @@ def list_all_solutions(
     scope_token = make_scope_token("solutions", space_ctx.space_id)
 
     def _load():
-        query = _solution_query(session, space_ctx)
+        query = _exclude_work_allocation_board_solutions(_solution_query(session, space_ctx), session, space_ctx)
         if project_id:
             query = query.filter(Solution.project_id == project_id)
         if status_filter:
@@ -248,7 +262,8 @@ def list_solutions(
     scope_token = make_scope_token("solutions", space_ctx.space_id)
 
     def _load():
-        query = _solution_query(session, space_ctx).filter(Solution.project_id == project_id)
+        query = _exclude_work_allocation_board_solutions(_solution_query(session, space_ctx), session, space_ctx)
+        query = query.filter(Solution.project_id == project_id)
         if status_filter:
             query = query.filter(Solution.status == status_filter)
         if owner_norm:
@@ -293,6 +308,7 @@ def create_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
 
@@ -409,7 +425,7 @@ def create_solution(
     enable_all_phases(session, solution.solution_id)
     session.refresh(solution)
     invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions")
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
     return solution
 
 
@@ -420,6 +436,7 @@ def import_solutions(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
@@ -703,7 +720,7 @@ def import_solutions(
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
     invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions")
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
     return {
         "created": created,
         "updated": updated,
@@ -718,7 +735,7 @@ def export_solutions(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    solutions = _solution_query(session, space_ctx).all()
+    solutions = _exclude_work_allocation_board_solutions(_solution_query(session, space_ctx), session, space_ctx).all()
     project_map = {
         p.project_id: p.project_name
         for p in (
@@ -824,6 +841,7 @@ def update_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
@@ -883,7 +901,7 @@ def update_solution(
     session.commit()
     session.refresh(solution)
     invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions")
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
     return solution
 
 
@@ -912,5 +930,6 @@ def delete_solution(
     )
     session.commit()
     invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions")
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
     return None
+

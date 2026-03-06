@@ -26,15 +26,10 @@ Then open `http://127.0.0.1:8000/#/planning`.
 - Inline add team/person/task.
 - Undo last action (client-side stack).
 
-## Seed Data
+## Initial Data
 
-On first load of `GET /api/planning/work-allocation/tasks` in a low-data space:
-
-- Seeds 2 teams
-- Seeds up to 6 sample people (when active roster is near-empty)
-- Seeds 10 backlog tasks with varied FTE-month sizes
-
-This is persisted to the existing app database.
+No sample teams, people, or tasks are auto-created.
+Use the work-allocation create endpoints to add board data explicitly.
 
 ## Work Allocation API
 

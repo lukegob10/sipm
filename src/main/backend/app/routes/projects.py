@@ -29,6 +29,7 @@ from ..services.smart_cache import cached_call, invalidate_space, make_scope_tok
 router = APIRouter()
 _PROJECTS_LIST_TTL_SECONDS = 20
 _PROJECTS_DETAIL_TTL_SECONDS = 30
+_WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:
@@ -47,6 +48,18 @@ def _project_query(session: Session, space_ctx: SpaceContext):
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
     )
+
+
+def _active_project_name_conflict_query(session: Session, project_name: str):
+    return (
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.project_name == project_name)
+    )
+
+
+def _exclude_work_allocation_board_projects(query):
+    return query.filter(~Project.project_name.like(f"{_WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
 
 
 def _get_project_or_404(session: Session, project_id: str, space_ctx: SpaceContext) -> Project:
@@ -120,7 +133,7 @@ def list_projects(
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
     def _load():
-        query = _project_query(session, space_ctx)
+        query = _exclude_work_allocation_board_projects(_project_query(session, space_ctx))
         if status_filter:
             query = query.filter(Project.status == status_filter)
         if sponsor_norm:
@@ -149,13 +162,10 @@ def create_project(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     # Active name conflict in this space should be rejected up-front.
-    existing = (
-        _project_query(session, space_ctx)
-        .filter(Project.project_name == payload.project_name)
-        .first()
-    )
+    existing = _active_project_name_conflict_query(session, payload.project_name).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
@@ -166,7 +176,6 @@ def create_project(
     now = datetime.now(timezone.utc)
     deleted_conflicts = (
         session.query(Project)
-        .filter(Project.space_id == space_ctx.space_id)
         .filter(Project.deleted_at.is_not(None))
         .filter(Project.project_name == payload.project_name)
         .all()
@@ -237,7 +246,7 @@ def create_project(
             detail="Failed to create project.",
         ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
-    schedule_broadcast("projects")
+    schedule_broadcast("projects", space_id=space_ctx.space_id)
     return project
 
 
@@ -248,6 +257,7 @@ def import_projects(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
@@ -374,7 +384,7 @@ def import_projects(
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
     invalidate_space(space_ctx.space_id, ["projects"])
-    schedule_broadcast("projects")
+    schedule_broadcast("projects", space_id=space_ctx.space_id)
     return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows)}
 
 
@@ -383,7 +393,7 @@ def export_projects(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    projects = _project_query(session, space_ctx).all()
+    projects = _exclude_work_allocation_board_projects(_project_query(session, space_ctx)).all()
     buffer = StringIO()
     fieldnames = [
         "project_name",
@@ -447,6 +457,7 @@ def update_project(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     project = _get_project_or_404(session, project_id, space_ctx)
 
@@ -500,7 +511,7 @@ def update_project(
             detail="Failed to update project.",
         ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
-    schedule_broadcast("projects")
+    schedule_broadcast("projects", space_id=space_ctx.space_id)
     return project
 
 
@@ -534,5 +545,7 @@ def delete_project(
     )
     session.commit()
     invalidate_space(space_ctx.space_id, ["projects"])
-    schedule_broadcast("projects")
+    schedule_broadcast("projects", space_id=space_ctx.space_id)
     return None
+
+

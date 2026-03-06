@@ -142,6 +142,7 @@ const els = {
   spaceMembershipForm: document.getElementById("space-membership-form"),
   spaceMembershipNote: document.getElementById("space-membership-note"),
   spaceMembershipSpaceSelect: document.getElementById("space-membership-space-select"),
+  spaceMembershipSwitchBtn: document.getElementById("space-membership-switch-btn"),
   spaceMembershipList: document.getElementById("space-membership-list"),
   globalAdminForm: document.getElementById("global-admin-form"),
   globalAdminRevoke: document.getElementById("global-admin-revoke"),
@@ -313,6 +314,7 @@ const state = {
   authed: false,
   spaces: [],
   activeSpace: null,
+  spaceSwitching: false,
   spaceMembershipSpaceId: "",
   spaceMembersBySpace: {},
   spaceMembersLoadedBySpace: {},
@@ -800,6 +802,7 @@ function renderSpaceSwitcher() {
     if (!state.authed) {
       els.spaceSwitcher.innerHTML = "<option value=''>Sign in</option>";
       els.spaceSwitcher.disabled = true;
+      els.spaceSwitcher.classList.remove("is-busy");
     } else {
       const active = state.activeSpace;
       const options = (state.spaces || [])
@@ -810,7 +813,9 @@ function renderSpaceSwitcher() {
       } else {
         els.spaceSwitcher.innerHTML = options || "<option value=''>No spaces</option>";
       }
-      els.spaceSwitcher.disabled = !state.spaces?.length;
+      const hasSpaces = Array.isArray(state.spaces) && state.spaces.length > 0;
+      els.spaceSwitcher.disabled = !hasSpaces || state.spaceSwitching;
+      els.spaceSwitcher.classList.toggle("is-busy", !!state.spaceSwitching);
       if (active?.space_id) {
         els.spaceSwitcher.value = active.space_id;
       }
@@ -825,11 +830,73 @@ function renderSpaceSwitcher() {
 }
 
 
+function spaceNameForId(spaceId) {
+  const id = String(spaceId || "").trim();
+  if (!id) return "";
+  const match = (state.spaces || []).find((space) => space.space_id === id);
+  if (match?.name) return match.name;
+  if ((state.activeSpace?.space_id || "") === id) return state.activeSpace?.space_name || id;
+  return id;
+}
+
+
+async function switchActiveSpace(targetSpaceId) {
+  const target = String(targetSpaceId || "").trim();
+  const current = state.activeSpace?.space_id || "";
+  if (!state.authed || !target) return false;
+  if (target === current) return true;
+  if (state.spaceSwitching) return false;
+
+  state.spaceSwitching = true;
+  renderSpaceSwitcher();
+  if (state.currentView === "spaces") {
+    renderSpaceAdminPanel();
+    renderSpaceMembershipPanel();
+  }
+
+  const targetName = spaceNameForId(target);
+  setStatus(`Switching space to ${targetName || target}...`, "warn");
+  try {
+    const switched = await api("/auth/active-space", {
+      method: "POST",
+      body: JSON.stringify({ space_id: target }),
+    });
+    state.activeSpace = switched || state.activeSpace;
+    state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
+    clearDataState();
+    if (state.currentView === "team-capacity") {
+      await loadTeamCapacityData({ force: true, preserveSelection: false });
+    } else {
+      await loadData({ force: true });
+    }
+    setStatus("Online", "positive");
+    return true;
+  } catch (err) {
+    console.warn("Space switch failed", err);
+    setStatus(`Space switch failed: ${err?.message || err}`, "danger");
+    try {
+      await refreshSpaceContext();
+    } catch (refreshErr) {
+      console.warn("Space context refresh failed", refreshErr);
+    }
+    return false;
+  } finally {
+    state.spaceSwitching = false;
+    renderSpaceSwitcher();
+    if (state.currentView === "spaces") {
+      renderSpaceAdminPanel();
+      renderSpaceMembershipPanel();
+    }
+  }
+}
+
+
 async function refreshSpaceContext(options = {}) {
   const apiOptions = options.apiOptions || {};
   if (!state.authed) {
     state.spaces = [];
     state.activeSpace = null;
+    state.spaceSwitching = false;
     state.spaceMembershipSpaceId = "";
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
@@ -896,6 +963,7 @@ function setAuthed(user) {
     clearDataState();
     state.spaces = [];
     state.activeSpace = null;
+    state.spaceSwitching = false;
     state.spaceMembershipSpaceId = "";
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
@@ -4957,33 +5025,8 @@ function bindSpaceSwitcher() {
   if (!els.spaceSwitcher) return;
   els.spaceSwitcher.addEventListener("change", async () => {
     const targetSpaceId = els.spaceSwitcher.value || "";
-    const currentSpaceId = state.activeSpace?.space_id || "";
-    if (!targetSpaceId || targetSpaceId === currentSpaceId || !state.authed) return;
-    try {
-      setStatus("Switching space...", "warn");
-      const switched = await api("/auth/active-space", {
-        method: "POST",
-        body: JSON.stringify({ space_id: targetSpaceId }),
-      });
-      state.activeSpace = switched || state.activeSpace;
-      state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
-      renderSpaceSwitcher();
-      clearDataState();
-      if (state.currentView === "team-capacity") {
-        await loadTeamCapacityData({ force: true, preserveSelection: false });
-      } else {
-        await loadData({ force: true });
-      }
-      setStatus("Online", "positive");
-    } catch (err) {
-      console.warn("Space switch failed", err);
-      alert(`Space switch failed: ${err.message || err}`);
-      try {
-        await refreshSpaceContext();
-      } catch (refreshErr) {
-        console.warn("Space context refresh failed", refreshErr);
-      }
-    }
+    if (!targetSpaceId || !state.authed) return;
+    await switchActiveSpace(targetSpaceId);
   });
 }
 
@@ -5533,17 +5576,20 @@ function renderSpaceAdminPanel() {
     });
   }
   const currentSpaceId = activeSpaceId();
+  const switchesDisabled = !!state.spaceSwitching;
   const rows = (state.spaces || [])
     .map((space) => {
       const isCurrent = space.space_id === currentSpaceId;
       const statusLabel = space.is_active ? "active" : "archived";
+      const switchDisabled = switchesDisabled || isCurrent;
+      const switchLabel = switchesDisabled ? "Switching..." : (isCurrent ? "Current" : "Switch");
       return `<tr data-space-id="${space.space_id}">
         <td>${space.name || space.space_id}</td>
         <td>${space.slug || "—"}</td>
         <td>${statusLabel}</td>
         <td>${isCurrent ? "<span class='pill'>current</span>" : ""}</td>
         <td>
-          <button type="button" class="secondary" data-action="switch-space" data-space-id="${space.space_id}">Switch</button>
+          <button type="button" class="secondary" data-action="switch-space" data-space-id="${space.space_id}" ${switchDisabled ? "disabled" : ""}>${switchLabel}</button>
           ${isGlobalAdmin ? `<button type="button" class="secondary" data-action="toggle-space-active" data-space-id="${space.space_id}" data-next-active="${space.is_active ? "false" : "true"}">${space.is_active ? "Archive" : "Reactivate"}</button>` : ""}
         </td>
       </tr>`;
@@ -5582,19 +5628,42 @@ function renderSpaceMembershipPanel() {
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || spaces[0]?.space_id || "";
   }
   const selectedSpaceId = state.spaceMembershipSpaceId || "";
+  const selectedSpace = spaces.find((space) => space.space_id === selectedSpaceId) || null;
+  const selectedSpaceName = selectedSpace?.name || selectedSpaceId;
+  const isSwitching = !!state.spaceSwitching;
   const canManage = canManageSpaceMembership(selectedSpaceId);
+  const canManageNow = canManage && !isSwitching;
+  const canSwitchToManage = (
+    !userIsGlobalAdmin()
+    && isSpaceAdminRole(state.activeSpace?.space_role)
+    && !!selectedSpaceId
+    && selectedSpaceId !== activeSpaceId()
+  );
 
   els.spaceMembershipSpaceSelect.innerHTML = spaces
     .map((space) => `<option value="${space.space_id}">${space.name || space.space_id}</option>`)
     .join("");
   if (selectedSpaceId) els.spaceMembershipSpaceSelect.value = selectedSpaceId;
-  els.spaceMembershipSpaceSelect.disabled = !spaces.length;
+  els.spaceMembershipSpaceSelect.disabled = !spaces.length || isSwitching;
+
+  if (els.spaceMembershipSwitchBtn) {
+    const showSwitch = canSwitchToManage && !isSwitching;
+    els.spaceMembershipSwitchBtn.classList.toggle("hidden", !showSwitch);
+    els.spaceMembershipSwitchBtn.disabled = !showSwitch;
+    els.spaceMembershipSwitchBtn.textContent = selectedSpaceName
+      ? `Switch to ${selectedSpaceName}`
+      : "Switch to selected space";
+  }
 
   if (els.spaceMembershipNote) {
-    if (!selectedSpaceId) {
+    if (isSwitching) {
+      els.spaceMembershipNote.textContent = "Switching active space...";
+    } else if (!selectedSpaceId) {
       els.spaceMembershipNote.textContent = "No available space selected";
     } else if (canManage) {
       els.spaceMembershipNote.textContent = "Membership management enabled";
+    } else if (canSwitchToManage) {
+      els.spaceMembershipNote.textContent = "Read-only for selected space. Switch active space to manage memberships.";
     } else {
       els.spaceMembershipNote.textContent = "Read-only: you can manage memberships only as global_admin or space_admin for the selected active space";
     }
@@ -5603,12 +5672,22 @@ function renderSpaceMembershipPanel() {
   if (els.spaceMembershipForm) {
     const controls = Array.from(els.spaceMembershipForm.querySelectorAll("input[name='soeid'], select[name='role'], select[name='status'], button"));
     controls.forEach((control) => {
-      control.disabled = !canManage || !selectedSpaceId;
+      control.disabled = !canManageNow || !selectedSpaceId;
     });
   }
 
   if (!selectedSpaceId) {
     els.spaceMembershipList.innerHTML = "<p class='muted'>Select a space to view memberships.</p>";
+    return;
+  }
+  if (!canManageNow) {
+    if (isSwitching) {
+      els.spaceMembershipList.innerHTML = "<p class='muted'>Switching active space...</p>";
+    } else if (canSwitchToManage) {
+      els.spaceMembershipList.innerHTML = `<p class='muted'>Switch active space to <strong>${esc(selectedSpaceName || selectedSpaceId)}</strong> to manage memberships.</p>`;
+    } else {
+      els.spaceMembershipList.innerHTML = "<p class='muted'>You do not have permission to manage memberships for this space.</p>";
+    }
     return;
   }
   if (!state.spaceMembersLoadedBySpace[selectedSpaceId]) {
@@ -5626,7 +5705,7 @@ function renderSpaceMembershipPanel() {
       const nextStatus = row.status === "active" ? "inactive" : "active";
       const roleActionLabel = nextRole === "space_admin" ? "Promote" : "Demote";
       const statusActionLabel = nextStatus === "active" ? "Activate" : "Deactivate";
-      const actions = canManage
+      const actions = canManageNow
         ? `<button type="button" class="secondary" data-action="toggle-space-member-role" data-membership-id="${row.membership_id}" data-next-role="${nextRole}">${roleActionLabel}</button>
           <button type="button" class="secondary" data-action="toggle-space-member-status" data-membership-id="${row.membership_id}" data-next-status="${nextStatus}">${statusActionLabel}</button>
           <button type="button" class="secondary" data-action="delete-space-member" data-membership-id="${row.membership_id}">Remove</button>`
@@ -5762,22 +5841,8 @@ function bindSpaceAdminControls() {
       const spaceId = button.getAttribute("data-space-id") || "";
       if (!spaceId) return;
       if (action === "switch-space") {
-        if (!state.authed || spaceId === activeSpaceId()) return;
-        try {
-          const switched = await api("/auth/active-space", {
-            method: "POST",
-            body: JSON.stringify({ space_id: spaceId }),
-          });
-          state.activeSpace = switched || state.activeSpace;
-          state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
-          renderSpaceSwitcher();
-          clearDataState();
-          await loadData({ force: true });
-          renderSpaceAdminPanel();
-          renderSpaceMembershipPanel();
-        } catch (err) {
-          alert(`Space switch failed: ${err.message || err}`);
-        }
+        if (!state.authed) return;
+        await switchActiveSpace(spaceId);
         return;
       }
       if (action === "toggle-space-active" && userIsGlobalAdmin()) {
@@ -5863,9 +5928,19 @@ function bindSpaceAdminControls() {
     });
   }
 
+  if (els.spaceMembershipSwitchBtn) {
+    els.spaceMembershipSwitchBtn.addEventListener("click", async () => {
+      const target = state.spaceMembershipSpaceId || "";
+      if (!target) return;
+      await switchActiveSpace(target);
+      renderSpaceMembershipPanel();
+    });
+  }
+
   if (els.spaceMembershipForm) {
     els.spaceMembershipForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (state.spaceSwitching) return;
       const spaceId = state.spaceMembershipSpaceId || "";
       if (!spaceId) {
         alert("Select a space first.");
@@ -5900,6 +5975,7 @@ function bindSpaceAdminControls() {
 
   if (els.spaceMembershipList) {
     els.spaceMembershipList.addEventListener("click", async (e) => {
+      if (state.spaceSwitching) return;
       const button = e.target.closest("button[data-action]");
       if (!button) return;
       const action = button.getAttribute("data-action");

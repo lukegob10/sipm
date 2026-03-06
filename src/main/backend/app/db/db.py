@@ -37,34 +37,21 @@ def _ensure_session_local():
     return SessionLocal
 
 
-def init_db(run_seed: bool = False, create_schema: bool = False) -> None:
+def init_db(create_schema: bool = False) -> None:
     """
-    Optional DB bootstrap helpers for TA/Oracle deployments.
+    Optional DB bootstrap helper for TA/Oracle deployments.
 
     - `create_schema=True` runs SQLAlchemy `create_all`.
-    - `run_seed=True` runs phase/sample seed routines.
     Defaults keep startup non-mutating for managed Oracle environments.
     """
-    if not create_schema and not run_seed:
+    if not create_schema:
         return
 
-    local_session = _ensure_session_local()
+    _ensure_session_local()
 
-    if create_schema:
-        from ..models import Base  # imported lazily to avoid circulars
+    from ..models import Base  # imported lazily to avoid circulars
 
-        Base.metadata.create_all(bind=engine)
-
-    if not run_seed:
-        return
-
-    # Imported lazily to keep seed routines isolated from startup wiring.
-    from ..services.sample_seed import seed_sample_data
-    from ..services.seed import seed_phases
-
-    with local_session() as session:
-        seed_phases(session)
-        seed_sample_data(session)
+    Base.metadata.create_all(bind=engine)
 
 
 def get_session():

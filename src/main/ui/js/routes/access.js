@@ -1,6 +1,6 @@
 export function renderAccess(ctx) {
-  const { renderGlobalAdminPanel } = ctx;
-  if (typeof renderGlobalAdminPanel === "function") {
-    renderGlobalAdminPanel();
+  const { renderGovernanceHub } = ctx;
+  if (typeof renderGovernanceHub === "function") {
+    renderGovernanceHub("platform-access");
   }
 }

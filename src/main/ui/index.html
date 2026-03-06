@@ -107,7 +107,6 @@
         <p class="nav-label">Admin</p>
         <button data-view="team-capacity" class="nav-btn">Team Capacity</button>
         <button data-view="spaces" class="nav-btn">Spaces</button>
-        <button data-view="access" class="nav-btn">Access</button>
       </div>
     </aside>
 
@@ -117,10 +116,56 @@
           <span id="connection-status" class="pill">Loading…</span>
         </div>
         <div class="topbar-actions">
-          <label class="inline-field topbar-space-field">Space
-            <select id="space-switcher" class="topbar-select"></select>
-          </label>
-          <span id="space-role-pill" class="pill muted"></span>
+          <div id="space-switcher-shell" class="space-switcher-shell">
+            <button
+              type="button"
+              id="space-switcher-trigger"
+              class="space-switcher-trigger"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="space-switcher-panel"
+            >
+              <span class="space-switcher-trigger-main">
+                <span id="space-switcher-current" class="space-switcher-trigger-name">Select a space</span>
+                <span id="space-switcher-meta" class="space-switcher-trigger-meta pill muted">Role</span>
+              </span>
+              <span class="space-switcher-trigger-caret" aria-hidden="true">▾</span>
+            </button>
+            <div id="space-switcher-panel" class="space-switcher-panel hidden" role="dialog" aria-modal="false" aria-label="Switch active space">
+              <div class="space-switcher-panel-head">
+                <div class="space-switcher-panel-heading">
+                  <p class="space-switcher-panel-kicker">Workspace Switcher</p>
+                  <h3>Change Active Space</h3>
+                </div>
+                <button type="button" id="space-switcher-close" class="secondary modal-close-x" aria-label="Close space switcher" title="Close">×</button>
+              </div>
+              <label class="space-switcher-search">
+                <span>Search spaces</span>
+                <input id="space-switcher-search" type="search" placeholder="Find a space" autocomplete="off" />
+              </label>
+              <p id="space-switcher-feedback" class="form-notice" role="status" aria-live="polite"></p>
+              <div class="space-switcher-sections">
+                <section class="space-switcher-section">
+                  <div class="space-switcher-section-head">
+                    <h4>Current</h4>
+                  </div>
+                  <div id="space-switcher-current-list" class="space-switcher-list"></div>
+                </section>
+                <section class="space-switcher-section">
+                  <div class="space-switcher-section-head">
+                    <h4>Recent</h4>
+                  </div>
+                  <div id="space-switcher-recent-list" class="space-switcher-list"></div>
+                </section>
+                <section class="space-switcher-section">
+                  <div class="space-switcher-section-head">
+                    <h4>All Spaces</h4>
+                  </div>
+                  <div id="space-switcher-all-list" class="space-switcher-list"></div>
+                </section>
+              </div>
+            </div>
+          </div>
           <span id="current-user" class="pill muted"></span>
           <button id="logout-btn" class="secondary">Logout</button>
           <button id="theme-toggle" class="secondary">Light Mode</button>
@@ -623,6 +668,61 @@
         </div>
       </div>
 
+      <div id="space-create-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="space-create-modal-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="space-create-modal-title">Create Space</h3>
+            <button type="button" id="space-create-modal-close" class="secondary modal-close-x" aria-label="Close create space dialog" title="Close">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="space-create-modal-form" class="form compact">
+              <label class="wide">Space Name <input name="name" placeholder="e.g. Treasury Ops" required /></label>
+              <label>Slug (optional) <input name="slug" placeholder="treasury-ops" /></label>
+              <div class="form-actions full-span">
+                <button type="submit">Create Space</button>
+                <button type="reset" class="secondary">Clear</button>
+              </div>
+              <p id="space-create-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="space-member-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="space-member-modal-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="space-member-modal-title">Add Space Member</h3>
+            <button type="button" id="space-member-modal-close" class="secondary modal-close-x" aria-label="Close add member dialog" title="Close">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="space-member-modal-form" class="form compact">
+              <input type="hidden" name="space_id" />
+              <p id="space-member-modal-context" class="form-notice full-span">Adding a member to the active space.</p>
+              <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" required /></label>
+              <label>Role
+                <select name="role">
+                  <option value="member">member</option>
+                  <option value="space_admin">space_admin</option>
+                </select>
+              </label>
+              <label>Status
+                <select name="status">
+                  <option value="active">active</option>
+                  <option value="inactive">inactive</option>
+                </select>
+              </label>
+              <div class="form-actions full-span">
+                <button type="submit">Add Member</button>
+                <button type="reset" class="secondary">Clear</button>
+              </div>
+              <p id="space-member-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </div>
+      </div>
+
       <section id="view-kanban" class="view">
         <div class="panel">
           <div class="panel-header">
@@ -734,62 +834,11 @@
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Admin / Spaces</p>
-              <h2>Spaces</h2>
+              <p class="view-breadcrumb">Admin / Space Governance</p>
+              <h2>Space Governance</h2>
             </div>
           </div>
-          <div class="stacked">
-            <div class="stack-block">
-              <div class="panel soft">
-                <div class="panel-header">
-                  <h3>Spaces</h3>
-                  <span id="space-admin-note" class="muted"></span>
-                </div>
-                <form id="space-create-form" class="form compact inline-form">
-                  <label class="wide">Space Name <input name="name" placeholder="e.g. Treasury Ops" /></label>
-                  <label>Slug (optional) <input name="slug" placeholder="treasury-ops" /></label>
-                  <div class="form-actions full-span">
-                    <button type="submit">Create Space</button>
-                    <button type="reset" class="secondary">Clear</button>
-                  </div>
-                </form>
-                <div id="space-list" class="table"></div>
-              </div>
-            </div>
-            <div class="stack-block">
-              <div class="panel soft">
-                <div class="panel-header">
-                  <h3>Space Memberships</h3>
-                  <div class="space-membership-note-wrap">
-                    <span id="space-membership-note" class="muted"></span>
-                    <button type="button" id="space-membership-switch-btn" class="secondary hidden">Switch to selected space</button>
-                  </div>
-                </div>
-                <form id="space-membership-form" class="form compact inline-form">
-                  <label class="wide">Manage Space
-                    <select id="space-membership-space-select"></select>
-                  </label>
-                  <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-                  <label>Role
-                    <select name="role">
-                      <option value="member">member</option>
-                      <option value="space_admin">space_admin</option>
-                    </select>
-                  </label>
-                  <label>Status
-                    <select name="status">
-                      <option value="active">active</option>
-                      <option value="inactive">inactive</option>
-                    </select>
-                  </label>
-                  <div class="form-actions full-span">
-                    <button type="submit">Add Space Member</button>
-                  </div>
-                </form>
-                <div id="space-membership-list" class="table"></div>
-              </div>
-            </div>
-          </div>
+          <div id="space-governance-shell" class="space-governance-shell"></div>
         </div>
       </section>
 
@@ -801,24 +850,7 @@
               <h2>Access</h2>
             </div>
           </div>
-          <div class="stacked">
-            <div class="stack-block">
-              <div class="panel soft">
-                <div class="panel-header">
-                  <h3>Global Admins</h3>
-                  <span id="global-admin-note" class="muted"></span>
-                </div>
-                <form id="global-admin-form" class="form compact inline-form">
-                  <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-                  <div class="form-actions full-span">
-                    <button type="submit">Grant Global Admin</button>
-                    <button type="button" id="global-admin-revoke" class="secondary">Revoke Global Admin</button>
-                  </div>
-                </form>
-                <div id="global-admin-list" class="table"></div>
-              </div>
-            </div>
-          </div>
+          <p class="muted">Platform access is managed inside the Space Governance hub.</p>
         </div>
       </section>
     </main>

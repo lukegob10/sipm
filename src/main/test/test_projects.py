@@ -11,7 +11,7 @@ from backend.app.services.spaces import SpaceContext
 @pytest.mark.anyio
 async def test_create_and_list_projects(client):
     resp = await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={
             "project_name": "Data Platform",
             "description": "Modernize data stack",
@@ -25,7 +25,7 @@ async def test_create_and_list_projects(client):
     assert data["status"] == "not_started"
     assert data["success_criteria"] == "Reduce run time by 30% and decommission legacy tooling"
 
-    list_resp = await client.get("/api/projects/")
+    list_resp = await client.get("/project-manager/api/projects/")
     assert list_resp.status_code == 200
     projects = list_resp.json()
     assert len(projects) == 1
@@ -35,19 +35,19 @@ async def test_create_and_list_projects(client):
 @pytest.mark.anyio
 async def test_list_and_export_projects_hide_work_allocation_board_project(client):
     board_name = "Work Allocation Board [bfab593b]"
-    board_resp = await client.post("/api/projects/", json={"project_name": board_name})
+    board_resp = await client.post("/project-manager/api/projects/", json={"project_name": board_name})
     assert board_resp.status_code == 201, board_resp.text
 
-    visible_resp = await client.post("/api/projects/", json={"project_name": "Visible Project"})
+    visible_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Visible Project"})
     assert visible_resp.status_code == 201, visible_resp.text
 
-    list_resp = await client.get("/api/projects/")
+    list_resp = await client.get("/project-manager/api/projects/")
     assert list_resp.status_code == 200, list_resp.text
     names = {row["project_name"] for row in list_resp.json()}
     assert "Visible Project" in names
     assert board_name not in names
 
-    export_resp = await client.get("/api/projects/export")
+    export_resp = await client.get("/project-manager/api/projects/export")
     assert export_resp.status_code == 200, export_resp.text
     assert "Visible Project" in export_resp.text
     assert board_name not in export_resp.text
@@ -55,7 +55,7 @@ async def test_list_and_export_projects_hide_work_allocation_board_project(clien
 
 @pytest.mark.anyio
 async def test_create_project_defaults_sponsor_and_priority(client):
-    resp = await client.post("/api/projects/", json={"project_name": "Minimal Project"})
+    resp = await client.post("/project-manager/api/projects/", json={"project_name": "Minimal Project"})
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["project_name"] == "Minimal Project"
@@ -72,8 +72,8 @@ async def test_project_name_uniqueness(client):
         "status": "active",
         "sponsor": "CFO Office",
     }
-    assert (await client.post("/api/projects/", json=payload)).status_code == 201
-    dup_resp = await client.post("/api/projects/", json=payload)
+    assert (await client.post("/project-manager/api/projects/", json=payload)).status_code == 201
+    dup_resp = await client.post("/project-manager/api/projects/", json=payload)
     assert dup_resp.status_code == 400
     assert dup_resp.json()["detail"] == "Project name already exists"
 
@@ -81,13 +81,13 @@ async def test_project_name_uniqueness(client):
 @pytest.mark.anyio
 async def test_delete_project_releases_name_for_recreate(client, db_sessionmaker):
     create = await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={"project_name": "Enhancements", "sponsor": "Sponsor A"},
     )
     assert create.status_code == 201, create.text
     project_id = create.json()["project_id"]
 
-    deleted = await client.delete(f"/api/projects/{project_id}")
+    deleted = await client.delete(f"/project-manager/api/projects/{project_id}")
     assert deleted.status_code == 204, deleted.text
 
     with db_sessionmaker() as session:
@@ -98,7 +98,7 @@ async def test_delete_project_releases_name_for_recreate(client, db_sessionmaker
         assert "[deleted " in row.project_name
 
     recreated = await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={"project_name": "Enhancements", "sponsor": "Sponsor B"},
     )
     assert recreated.status_code == 201, recreated.text
@@ -129,7 +129,7 @@ async def test_create_project_handles_db_unique_conflict_with_helpful_message(cl
             space_role="space_admin",
         )
         first = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Enhancements", "sponsor": "Sponsor A"},
         )
         assert first.status_code == 201, first.text
@@ -144,7 +144,7 @@ async def test_create_project_handles_db_unique_conflict_with_helpful_message(cl
             space_role="space_admin",
         )
         dup = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Enhancements", "sponsor": "Sponsor B"},
         )
         assert dup.status_code == 400, dup.text
@@ -160,7 +160,7 @@ async def test_create_project_handles_db_unique_conflict_with_helpful_message(cl
 async def test_update_project_status_and_description(client):
     create = (
         await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={
             "project_name": "Portal",
             "status": "active",
@@ -171,7 +171,7 @@ async def test_update_project_status_and_description(client):
     project_id = create["project_id"]
 
     update_resp = await client.patch(
-        f"/api/projects/{project_id}",
+        f"/project-manager/api/projects/{project_id}",
         json={
             "status": "on_hold",
             "description": "Waiting on vendor",
@@ -189,7 +189,7 @@ async def test_update_project_status_and_description(client):
 async def test_delete_project_soft_deletes(client):
     create = (
         await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={
             "project_name": "Billing",
             "sponsor": "CFO Office",
@@ -198,13 +198,13 @@ async def test_delete_project_soft_deletes(client):
     ).json()
     project_id = create["project_id"]
 
-    delete_resp = await client.delete(f"/api/projects/{project_id}")
+    delete_resp = await client.delete(f"/project-manager/api/projects/{project_id}")
     assert delete_resp.status_code == 204
 
-    get_resp = await client.get(f"/api/projects/{project_id}")
+    get_resp = await client.get(f"/project-manager/api/projects/{project_id}")
     assert get_resp.status_code == 404
 
-    list_resp = await client.get("/api/projects/")
+    list_resp = await client.get("/project-manager/api/projects/")
     assert list_resp.status_code == 200
     assert list_resp.json() == []
 
@@ -220,7 +220,7 @@ async def test_member_cannot_delete_project(client):
             space_role="space_admin",
         )
         create_resp = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={
                 "project_name": "Delete Guard Project",
                 "sponsor": "CFO Office",
@@ -235,7 +235,7 @@ async def test_member_cannot_delete_project(client):
             is_global_admin=False,
             space_role="member",
         )
-        denied = await client.delete(f"/api/projects/{project_id}")
+        denied = await client.delete(f"/project-manager/api/projects/{project_id}")
         assert denied.status_code == 403, denied.text
 
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -244,7 +244,7 @@ async def test_member_cannot_delete_project(client):
             is_global_admin=False,
             space_role="space_admin",
         )
-        allowed = await client.delete(f"/api/projects/{project_id}")
+        allowed = await client.delete(f"/project-manager/api/projects/{project_id}")
         assert allowed.status_code == 204, allowed.text
     finally:
         if original_current_space is None:

@@ -1,4 +1,15 @@
-const API_BASE = "/api";
+const APP_CONTEXT_PATH = (() => {
+  try {
+    const modulePath = new URL(import.meta.url, window.location.href).pathname || "";
+    const marker = "/js/";
+    const idx = modulePath.lastIndexOf(marker);
+    if (idx <= 0) return "";
+    return modulePath.slice(0, idx).replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+})();
+const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
 const APP_ASSET_VERSION = (() => {
@@ -18,6 +29,60 @@ const APP_ASSET_VERSION = (() => {
     sheet.href = url.toString();
   }
 })();
+
+function buildAppUrl(path = "/") {
+  let normalized = String(path || "/").trim() || "/";
+  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
+  if (normalized === "/") {
+    return APP_CONTEXT_PATH ? `${APP_CONTEXT_PATH}/` : "/";
+  }
+  return APP_CONTEXT_PATH ? `${APP_CONTEXT_PATH}${normalized}` : normalized;
+}
+
+function buildApiUrl(path = "") {
+  let normalized = String(path || "").trim();
+  if (!normalized) return API_BASE;
+  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
+  return `${API_BASE}${normalized}`;
+}
+
+function buildWsUrl(path = "/ws") {
+  const url = new URL(buildApiUrl(path), window.location.origin);
+  url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
+}
+
+function formatDateTime(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString();
+}
+
+function buildResetPageUrl() {
+  return new URL(buildAppUrl("/reset-password"), window.location.origin).toString();
+}
+
+async function copyText(value) {
+  const text = String(value || "");
+  if (!text) throw new Error("Nothing to copy.");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const helper = document.createElement("textarea");
+  helper.value = text;
+  helper.setAttribute("readonly", "readonly");
+  helper.style.position = "fixed";
+  helper.style.opacity = "0";
+  helper.style.pointerEvents = "none";
+  document.body.appendChild(helper);
+  helper.select();
+  helper.setSelectionRange(0, helper.value.length);
+  const copied = document.execCommand("copy");
+  document.body.removeChild(helper);
+  if (!copied) throw new Error("Clipboard copy is not available in this browser.");
+}
 
 const els = {
   navButtons: document.querySelectorAll(".nav-btn[data-view]"),
@@ -154,6 +219,9 @@ const els = {
   spaceMemberModalForm: document.getElementById("space-member-modal-form"),
   spaceMemberModalContext: document.getElementById("space-member-modal-context"),
   spaceMemberStatus: document.getElementById("space-member-status"),
+  spaceDirectoryModal: document.getElementById("space-directory-modal"),
+  spaceDirectoryModalClose: document.getElementById("space-directory-modal-close"),
+  spaceDirectoryModalBody: document.getElementById("space-directory-modal-body"),
   projectForm: document.getElementById("project-form"),
   projectSubmitBtn: document.getElementById("project-submit-btn"),
   projectFormStatus: document.getElementById("project-form-status"),
@@ -334,10 +402,12 @@ const state = {
   spaceMembershipActionMenuId: "",
   archivedSpacesById: {},
   spaceMembershipSpaceId: "",
+  spaceDirectoryModalOpen: false,
   spaceMembersBySpace: {},
   spaceMembersLoadedBySpace: {},
   globalAdmins: [],
   globalAdminsLoaded: false,
+  platformPasswordReset: null,
   authMode: "login",
   phases: [],
   projects: [],
@@ -402,7 +472,7 @@ const state = {
 let refreshInFlight = false;
 const pendingRefreshEntities = new Set();
 const ignoreNextRefresh = new Set();
-let suppressHashChange = false;
+let suppressRouteChange = false;
 let viewPrefetchTimer = null;
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const IDLE_WARN_MS = 55 * 60 * 1000;
@@ -546,24 +616,49 @@ function resolveAccessibleView(view) {
   return normalized;
 }
 
-function viewFromHash() {
-  const raw = (window.location.hash || "").trim();
-  if (!raw) return "master";
-  const stripped = raw.replace(/^#\/?/, "").split("?")[0].trim().toLowerCase();
-  return normalizeView(stripped);
+function appRelativePath(pathname = window.location.pathname) {
+  const raw = String(pathname || "/").trim() || "/";
+  if (APP_CONTEXT_PATH && raw.startsWith(APP_CONTEXT_PATH)) {
+    const trimmed = raw.slice(APP_CONTEXT_PATH.length) || "/";
+    return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  }
+  return raw.startsWith("/") ? raw : `/${raw}`;
 }
 
-function syncHashForView(view, replace = false) {
-  const target = `#/${normalizeView(view)}`;
-  if (window.location.hash === target) return;
-  suppressHashChange = true;
+function routePathForView(view) {
+  const normalized = normalizeView(view);
+  return normalized === "master" ? "/" : `/${normalized}`;
+}
+
+function viewHref(view) {
+  return buildAppUrl(routePathForView(view));
+}
+
+function isResetPathname(pathname = window.location.pathname) {
+  const current = appRelativePath(pathname).replace(/\/+$/, "");
+  return current === "/reset-password";
+}
+
+function viewFromLocationPath(pathname = window.location.pathname) {
+  const relative = appRelativePath(pathname).replace(/\/+$/, "");
+  if (relative === "/" || relative === "") return "master";
+  const firstSegment = relative.replace(/^\/+/, "").split("/")[0].trim().toLowerCase();
+  return normalizeView(firstSegment);
+}
+
+function syncPathForView(view, replace = false) {
+  const target = viewHref(view);
+  const currentUrl = new URL(window.location.href);
+  const targetUrl = new URL(target, window.location.origin);
+  if (currentUrl.pathname === targetUrl.pathname) return;
+  suppressRouteChange = true;
   if (replace) {
-    window.history.replaceState(null, "", target);
+    window.history.replaceState(null, "", targetUrl.pathname);
   } else {
-    window.location.hash = target;
+    window.history.pushState(null, "", targetUrl.pathname);
   }
   window.setTimeout(() => {
-    suppressHashChange = false;
+    suppressRouteChange = false;
   }, 0);
 }
 
@@ -925,7 +1020,7 @@ function syncRoleAwareNavigation() {
   }
   syncRoleAwareActions();
   if (!canAccessView(state.currentView)) {
-    setView("master", { replaceHash: true });
+    setView("master", { replacePath: true });
   }
 }
 
@@ -1090,6 +1185,7 @@ async function refreshSpaceContext(options = {}) {
     state.spaceMembershipActionMenuId = "";
     state.archivedSpacesById = {};
     state.spaceMembershipSpaceId = "";
+    state.spaceDirectoryModalOpen = false;
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
@@ -1100,6 +1196,7 @@ async function refreshSpaceContext(options = {}) {
     state.deliverablesPreset = "";
     closeSpaceCreateModal();
     closeSpaceMemberModal();
+    closeSpaceDirectoryModal();
     renderSpaceSwitcher();
     updateSubcomponentsWorkbenchSavedViewsUI();
     return;
@@ -1187,6 +1284,7 @@ function setAuthed(user) {
     state.spaceMembershipActionMenuId = "";
     state.archivedSpacesById = {};
     state.spaceMembershipSpaceId = "";
+    state.spaceDirectoryModalOpen = false;
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
@@ -1195,6 +1293,7 @@ function setAuthed(user) {
     state.subcomponentsWorkbench.selectedSavedViewId = "";
     closeSpaceCreateModal();
     closeSpaceMemberModal();
+    closeSpaceDirectoryModal();
     stopIdleWatch();
     setLiveSyncPhase("idle", { clear: true });
   }
@@ -1489,16 +1588,7 @@ async function performRegister(display_name, email, password) {
 }
 
 function isResetPath() {
-  return window.location.pathname.replace(/\/+$/, "") === "/reset-password";
-}
-
-function resetTokenFromLocation() {
-  try {
-    const params = new URLSearchParams(window.location.search || "");
-    return String(params.get("token") || params.get("reset_token") || "").trim();
-  } catch {
-    return "";
-  }
+  return isResetPathname(window.location.pathname);
 }
 
 function bindAuthUI() {
@@ -1506,7 +1596,7 @@ function bindAuthUI() {
   els.authTabLogin?.addEventListener("click", () => setAuthMode("login"));
   els.authTabRegister?.addEventListener("click", () => setAuthMode("register"));
   els.resetLink?.addEventListener("click", () => {
-    window.location.href = "/reset-password";
+    window.location.href = buildAppUrl("/reset-password");
   });
 
   els.loginForm?.addEventListener("submit", async (e) => {
@@ -1551,17 +1641,18 @@ function bindAuthUI() {
     showResetSuccess("");
     const form = new FormData(els.resetForm);
     try {
-      await api("/auth/reset-password-with-token", {
+      await api("/auth/reset-password", {
         method: "POST",
         body: JSON.stringify({
-          reset_token: form.get("reset_token"),
+          soeid: form.get("soeid"),
+          temp_password: form.get("temp_password"),
           new_password: form.get("new_password"),
           confirm_password: form.get("confirm_password"),
         }),
       });
       showResetSuccess("Password reset complete. Redirecting to login...");
       setTimeout(() => {
-        window.location.href = "/";
+        window.location.href = buildAppUrl("/");
       }, 1200);
     } catch (err) {
       showResetError(err.message || "Reset failed");
@@ -1651,8 +1742,7 @@ function stopLiveSync(options = {}) {
 }
 
 function liveUrl() {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  const url = new URL(`${protocol}://${location.host}/api/ws`);
+  const url = new URL(buildWsUrl("/ws"));
   if (state.activeSpace?.space_id) {
     url.searchParams.set("space_id", state.activeSpace.space_id);
   }
@@ -1879,10 +1969,6 @@ async function bootstrapAuth() {
   if (isResetPath()) {
     showResetError("");
     showResetSuccess("");
-    const resetTokenInput = els.resetForm?.querySelector('[name="reset_token"]');
-    if (resetTokenInput) {
-      resetTokenInput.value = resetTokenFromLocation();
-    }
     setResetVisible(true);
     setStatus("Password reset", "warn");
     return;
@@ -2004,8 +2090,8 @@ function setView(view, options = {}) {
   const previousView = state.currentView;
   const requestedView = normalizeView(view);
   const nextView = resolveAccessibleView(requestedView);
-  const fromHash = !!options.fromHash;
-  const replaceHash = !!options.replaceHash;
+  const fromHistory = !!options.fromHistory;
+  const replacePath = !!options.replacePath;
   const redirected = requestedView !== nextView;
   const nextDomView = viewDomIdForRoute(nextView);
   const nextNavView = navViewForRoute(nextView);
@@ -2018,8 +2104,8 @@ function setView(view, options = {}) {
   }
   els.views.forEach((v) => v.classList.toggle("active", v.id === `view-${nextDomView}`));
   els.navButtons.forEach((b) => b.classList.toggle("active", b.dataset.view === nextNavView));
-  if (!fromHash || redirected) {
-    syncHashForView(nextView, redirected ? true : replaceHash);
+  if (!fromHistory || redirected) {
+    syncPathForView(nextView, redirected ? true : replacePath);
   }
   const hasLazyModule = !!ROUTE_MODULE_LOADERS[nextView];
   if (hasLazyModule) {
@@ -3952,6 +4038,7 @@ function renderPMDashboard() {
     state,
     els,
     formatStatus,
+    viewHref,
     assigneeKeyFromAlloc,
     assigneeLabelFromKey,
     allocationFteMonths,
@@ -5618,10 +5705,39 @@ function bindNav() {
       setView(btn.dataset.view);
     })
   );
-  window.addEventListener("hashchange", () => {
-    if (suppressHashChange) return;
-    setView(viewFromHash(), { fromHash: true });
+  window.addEventListener("popstate", () => {
+    if (suppressRouteChange) return;
+    setView(viewFromLocationPath(), { fromHistory: true });
   });
+  if (!document._appRouteClickBound) {
+    document.addEventListener("click", (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!link) return;
+      if (link.hasAttribute("download")) return;
+      const targetAttr = (link.getAttribute("target") || "").trim().toLowerCase();
+      if (targetAttr && targetAttr !== "_self") return;
+      const href = link.getAttribute("href") || "";
+      if (!href || href.startsWith("#")) return;
+      let url;
+      try {
+        url = new URL(link.href, window.location.origin);
+      } catch {
+        return;
+      }
+      if (url.origin !== window.location.origin) return;
+      if (isResetPathname(url.pathname)) return;
+      const relativePath = appRelativePath(url.pathname);
+      if (!relativePath.startsWith("/")) return;
+      const candidateView = viewFromLocationPath(url.pathname);
+      const canonicalPath = new URL(viewHref(candidateView), window.location.origin).pathname;
+      if (url.pathname !== canonicalPath && url.pathname !== canonicalPath.replace(/\/+$/, "")) return;
+      event.preventDefault();
+      setView(candidateView);
+    });
+    document._appRouteClickBound = true;
+  }
 }
 
 function bindCalendarControls() {
@@ -6328,6 +6444,15 @@ function effectiveDirectorySpaces() {
   return Array.from(merged.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
+function directorySpaceById(spaceId) {
+  const targetSpaceId = String(spaceId || "").trim();
+  if (!targetSpaceId) return null;
+  return effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId)
+    || (state.spaces || []).find((space) => space.space_id === targetSpaceId)
+    || Object.values(state.archivedSpacesById || {}).find((space) => space?.space_id === targetSpaceId)
+    || null;
+}
+
 function ensureSelectedDirectorySpace() {
   const spaces = effectiveDirectorySpaces();
   const availableIds = new Set(spaces.map((space) => space.space_id));
@@ -6395,6 +6520,23 @@ function openSpaceMemberModal(spaceId = activeSpaceId()) {
 
 function closeSpaceMemberModal() {
   els.spaceMemberModal?.classList.add("hidden");
+}
+
+function openSpaceDirectoryModal(spaceId) {
+  const targetSpaceId = String(spaceId || state.spaceMembershipSpaceId || "").trim();
+  if (!targetSpaceId || !els.spaceDirectoryModal) return;
+  state.spaceMembershipSpaceId = targetSpaceId;
+  state.spaceDirectoryModalOpen = true;
+  renderSpaceDirectoryModal();
+  els.spaceDirectoryModal.classList.remove("hidden");
+  window.setTimeout(() => {
+    els.spaceDirectoryModalClose?.focus();
+  }, 0);
+}
+
+function closeSpaceDirectoryModal() {
+  state.spaceDirectoryModalOpen = false;
+  els.spaceDirectoryModal?.classList.add("hidden");
 }
 
 function renderGovernanceNotice() {
@@ -6505,7 +6647,7 @@ function renderCurrentSpaceSection() {
   `;
 }
 
-function renderDirectoryPreview(selectedSpace) {
+function renderDirectoryDetailSurface(selectedSpace) {
   if (!selectedSpace) {
     return `
       <div class="space-empty-card">
@@ -6518,6 +6660,11 @@ function renderDirectoryPreview(selectedSpace) {
   const canManage = canManageSpaceMembership(selectedSpace.space_id);
   const canSwitchToManage = !userIsGlobalAdmin() && isSpaceAdminRole(state.activeSpace?.space_role) && !isCurrent;
   const isArchived = selectedSpace.is_active === false;
+  const canToggleActive = userIsGlobalAdmin() && (isArchived || !isCurrent);
+  const archiveLabel = isArchived ? "Reactivate" : "Archive";
+  const previewMode = isCurrent
+    ? "Current workspace"
+    : (canManage ? "Ready to manage" : (canSwitchToManage ? "Switch to manage" : "Read-only preview"));
   if (!state.spaceMembersLoadedBySpace[selectedSpace.space_id] && (canManage || userIsGlobalAdmin()) && !state.spaceSwitching) {
     refreshSpaceMembers(selectedSpace.space_id).catch((err) => {
       console.warn("Failed to load directory space memberships", err);
@@ -6528,58 +6675,93 @@ function renderDirectoryPreview(selectedSpace) {
     ? membershipSummaryForSpace(selectedSpace.space_id)
     : null;
   return `
-    <div class="panel soft space-directory-preview">
-      <div class="panel-header">
-        <div>
-          <p class="space-card-kicker">Selected space</p>
-          <h3>${esc(selectedSpace.name || selectedSpace.space_id)}</h3>
-          <p class="muted">Review the current state before switching or continuing governance work.</p>
-        </div>
-        <div class="space-hero-actions">
-          <span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(selectedSpace))}">${esc(roleBadgeLabelForSpace(selectedSpace))}</span>
-          ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
-          ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
-        </div>
-      </div>
-      <div class="space-directory-preview-grid">
-        <div class="space-summary-card panel">
-          <span class="muted">Slug</span>
-          <strong>${esc(selectedSpace.slug || "Not set")}</strong>
-        </div>
-        <div class="space-summary-card panel">
-          <span class="muted">Members</span>
-          <strong>${summary ? summary.total : "Preview after load"}</strong>
-        </div>
-        <div class="space-summary-card panel">
-          <span class="muted">Active Admins</span>
-          <strong>${summary ? summary.admins : "Preview after load"}</strong>
-        </div>
-      </div>
-      ${canSwitchToManage ? `
-        <div class="space-inline-callout">
+    <div class="space-directory-modal-shell">
+      <div class="panel soft space-directory-preview space-directory-modal-preview">
+        <div class="space-directory-preview-hero">
           <div>
-            <strong>Read-only preview</strong>
-            <p class="muted">Switch into ${esc(selectedSpace.name || selectedSpace.space_id)} to manage memberships and work with full governance controls.</p>
+            <p class="space-card-kicker">Space details</p>
+            <h3>${esc(selectedSpace.name || selectedSpace.space_id)}</h3>
+            <p class="space-directory-preview-id">${esc(selectedSpace.space_id)}</p>
+            <p class="muted">Review the current state first, then take the next action from this layer without cluttering the directory.</p>
           </div>
-          <button type="button" class="primary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}">Switch to manage</button>
+          <div class="space-hero-actions">
+            <span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(selectedSpace))}">${esc(roleBadgeLabelForSpace(selectedSpace))}</span>
+            ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
+            ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
+          </div>
         </div>
-      ` : ""}
-      ${canManage ? `
-        <div class="space-directory-preview-actions">
-          <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${isCurrent || state.spaceSwitching ? "disabled" : ""}>${isCurrent ? "Already current" : "Switch to this space"}</button>
-          <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${isArchived ? "disabled" : ""}>Add Member</button>
+        <div class="space-directory-preview-grid">
+          <div class="space-summary-card panel">
+            <span class="muted">Slug</span>
+            <strong>${esc(selectedSpace.slug || "Not set")}</strong>
+          </div>
+          <div class="space-summary-card panel">
+            <span class="muted">Members</span>
+            <strong>${summary ? summary.total : "Preview after load"}</strong>
+          </div>
+          <div class="space-summary-card panel">
+            <span class="muted">Active Admins</span>
+            <strong>${summary ? summary.admins : "Preview after load"}</strong>
+          </div>
+          <div class="space-summary-card panel">
+            <span class="muted">Mode</span>
+            <strong>${esc(previewMode)}</strong>
+          </div>
         </div>
-      ` : ""}
+        ${canSwitchToManage ? `
+          <div class="space-inline-callout">
+            <div>
+              <strong>Read-only preview</strong>
+              <p class="muted">Switch into ${esc(selectedSpace.name || selectedSpace.space_id)} to manage memberships and work with full governance controls.</p>
+            </div>
+            <button type="button" class="primary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}">Switch to manage</button>
+          </div>
+        ` : ""}
+        ${isArchived ? `
+          <p class="muted">Archived spaces remain visible here for review. Reactivate the space before adding or changing memberships.</p>
+        ` : ""}
+        ${(canManage || userIsGlobalAdmin()) ? `
+          <div class="space-directory-preview-actions">
+            <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${isCurrent || state.spaceSwitching ? "disabled" : ""}>${isCurrent ? "Already current" : "Switch to this space"}</button>
+            <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${canManage && !isArchived ? "" : "disabled"}>Add Member</button>
+            ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canToggleActive ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-active="${isArchived ? "true" : "false"}" ${canToggleActive ? "" : "disabled"}>${archiveLabel}</button>` : ""}
+          </div>
+        ` : ""}
+      </div>
+      <div class="form-actions space-directory-modal-footer">
+        <button type="button" class="secondary" data-space-action="close-directory-space-modal">Close</button>
+      </div>
     </div>
   `;
 }
 
+function renderSpaceDirectoryModal() {
+  if (!els.spaceDirectoryModal || !els.spaceDirectoryModalBody) return;
+  if (!state.spaceDirectoryModalOpen) {
+    els.spaceDirectoryModal.classList.add("hidden");
+    els.spaceDirectoryModalBody.innerHTML = "";
+    return;
+  }
+  const selectedSpace = directorySpaceById(state.spaceMembershipSpaceId);
+  if (!selectedSpace) {
+    closeSpaceDirectoryModal();
+    els.spaceDirectoryModalBody.innerHTML = "";
+    return;
+  }
+  els.spaceDirectoryModalBody.innerHTML = renderDirectoryDetailSurface(selectedSpace);
+  els.spaceDirectoryModal.classList.remove("hidden");
+}
+
 function renderDirectorySection() {
-  const spaces = effectiveDirectorySpaces().filter((space) => {
+  const allSpaces = effectiveDirectorySpaces();
+  const spaces = allSpaces.filter((space) => {
     const query = normalize(state.spaceDirectoryQuery);
     if (!query) return true;
     return [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query));
   });
+  const totalSpaces = allSpaces.length;
+  const activeSpaces = allSpaces.filter((space) => space.is_active !== false).length;
+  const archivedSpaces = allSpaces.filter((space) => space.is_active === false).length;
   const ensuredSelected = ensureSelectedDirectorySpace();
   const selectedSpace = spaces.length
     ? (spaces.find((space) => space.space_id === state.spaceMembershipSpaceId) || spaces[0] || ensuredSelected)
@@ -6588,13 +6770,12 @@ function renderDirectorySection() {
     state.spaceMembershipSpaceId = selectedSpace.space_id;
   }
   const cards = spaces.length
-    ? spaces.map((space) => {
+      ? spaces.map((space) => {
         const isCurrent = space.space_id === activeSpaceId();
         const isSelected = space.space_id === state.spaceMembershipSpaceId;
         const isArchived = space.is_active === false;
-        const canArchive = userIsGlobalAdmin() && !isCurrent;
-        const archiveLabel = isArchived ? "Reactivate" : "Archive";
-        return `<article class="space-directory-card${isSelected ? " is-selected" : ""}">
+        const workspaceState = isArchived ? "Archived" : (isCurrent ? "Current" : "Active");
+        return `<article class="space-directory-card${isSelected ? " is-selected" : ""}${isCurrent ? " is-current" : ""}${isArchived ? " is-archived" : ""}">
           <div class="space-directory-card-head">
             <div>
               <p class="space-card-kicker">${esc(space.slug || "workspace")}</p>
@@ -6606,10 +6787,22 @@ function renderDirectorySection() {
               ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
             </div>
           </div>
-          <div class="space-directory-card-actions">
-            <button type="button" class="secondary" data-space-action="preview-space" data-space-id="${escapeAttr(space.space_id)}">${isSelected ? "Previewing" : "Preview"}</button>
-            <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(space.space_id)}" ${isCurrent || state.spaceSwitching ? "disabled" : ""}>${isCurrent ? "Current" : "Switch"}</button>
-            ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canArchive && !isArchived ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(space.space_id)}" data-next-active="${isArchived ? "true" : "false"}" ${(!canArchive && !isArchived) ? "disabled" : ""}>${archiveLabel}</button>` : ""}
+          <div class="space-directory-card-body">
+            <p class="space-directory-card-id">${esc(space.space_id)}</p>
+            <p class="space-directory-card-note muted">Open the space sheet to review status, switch workspaces, and handle space-level actions in one layer.</p>
+            <div class="space-directory-card-facts">
+              <div class="space-directory-card-fact">
+                <span>Mode</span>
+                <strong>${esc(workspaceState)}</strong>
+              </div>
+              <div class="space-directory-card-fact">
+                <span>Access</span>
+                <strong>${esc(isCurrent ? "Current workspace" : roleBadgeLabelForSpace(space))}</strong>
+              </div>
+            </div>
+          </div>
+          <div class="space-directory-card-actions space-directory-card-actions-single">
+            <button type="button" class="primary" data-space-action="open-directory-space" data-space-id="${escapeAttr(space.space_id)}">${isSelected ? "Reopen details" : (isCurrent ? "Open current space" : "View details")}</button>
           </div>
         </article>`;
       }).join("")
@@ -6621,16 +6814,71 @@ function renderDirectorySection() {
     `;
   return `
     <div class="space-section-stack">
-      <div class="space-directory-toolbar">
-        <label class="wide">Search spaces
-          <input type="search" id="space-directory-search" placeholder="Name, slug, or ID" value="${escapeAttr(state.spaceDirectoryQuery)}" />
-        </label>
-        ${userIsGlobalAdmin() ? `<label class="checkbox-row space-directory-toggle"><input type="checkbox" id="space-directory-show-archived" ${state.spaceDirectoryShowArchived ? "checked" : ""} /> Show archived</label>` : ""}
-        ${userIsGlobalAdmin() ? `<button type="button" class="primary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
+      <div class="panel soft space-directory-overview">
+        <div class="space-directory-overview-copy">
+          <p class="space-card-kicker">Workspace atlas</p>
+          <h3>Space Directory</h3>
+          <p class="muted">Scan every space, inspect the current state, and move into the right workspace without losing your governance context.</p>
+        </div>
+        <div class="space-directory-overview-stats">
+          <div class="space-directory-stat">
+            <span>Total spaces</span>
+            <strong>${totalSpaces}</strong>
+          </div>
+          <div class="space-directory-stat">
+            <span>Active</span>
+            <strong>${activeSpaces}</strong>
+          </div>
+          <div class="space-directory-stat">
+            <span>Archived</span>
+            <strong>${archivedSpaces}</strong>
+          </div>
+          <div class="space-directory-stat">
+            <span>In view</span>
+            <strong>${spaces.length}</strong>
+          </div>
+        </div>
+        <div class="space-directory-toolbar">
+          <label class="space-directory-search-field">Search spaces
+            <input type="search" id="space-directory-search" placeholder="Name, slug, or ID" value="${escapeAttr(state.spaceDirectoryQuery)}" />
+          </label>
+          ${userIsGlobalAdmin() ? `<label class="checkbox-row space-directory-toggle"><input type="checkbox" id="space-directory-show-archived" ${state.spaceDirectoryShowArchived ? "checked" : ""} /> Show archived</label>` : ""}
+          ${userIsGlobalAdmin() ? `<button type="button" class="primary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
+        </div>
       </div>
       <div class="space-directory-layout">
         <div class="space-directory-grid">${cards}</div>
-        ${renderDirectoryPreview(selectedSpace)}
+      </div>
+    </div>
+  `;
+}
+
+function renderPlatformPasswordResetResult() {
+  const issued = state.platformPasswordReset;
+  if (!issued?.temp_password) return "";
+  const expiresText = formatDateTime(issued.expires_at) || "Unknown expiration";
+  return `
+    <div class="panel soft platform-reset-output">
+      <div class="platform-reset-output-head">
+        <div>
+          <p class="space-card-kicker">Temporary password issued</p>
+          <h3>Share the temporary password</h3>
+          <p class="muted">Issued for ${esc(issued.soeid || "user")} and valid until ${esc(expiresText)}. Send them to the reset page with this temporary password.</p>
+        </div>
+        <span class="pill positive">Ready</span>
+      </div>
+      <div class="platform-reset-grid">
+        <label class="wide">Temporary password
+          <input type="text" readonly value="${escapeAttr(issued.temp_password)}" />
+        </label>
+        <label class="wide">Reset page
+          <input type="text" readonly value="${escapeAttr(issued.reset_url || "")}" />
+        </label>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="secondary" data-space-action="copy-temp-password">Copy temp password</button>
+        <button type="button" class="secondary" data-space-action="copy-reset-link">Copy reset page</button>
+        <button type="button" class="secondary" data-space-action="clear-reset-result">Clear</button>
       </div>
     </div>
   `;
@@ -6658,7 +6906,12 @@ function renderPlatformAccessSection() {
           <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
           <td>${esc(user.soeid || "—")}</td>
           <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
-          <td><button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke</button></td>
+          <td>
+            <div class="platform-access-actions">
+              <button type="button" class="secondary" data-space-action="issue-password-reset" data-soeid="${escapeAttr(user.soeid)}">Reset Password</button>
+              <button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke</button>
+            </div>
+          </td>
         </tr>`;
       }).join("")
     : "<tr><td colspan='4' class='muted'>Loading global admins...</td></tr>";
@@ -6668,7 +6921,7 @@ function renderPlatformAccessSection() {
         <div>
           <p class="space-card-kicker">Platform-wide access</p>
           <h3>Global Admins</h3>
-          <p class="muted">Grant or revoke the platform-level role that unlocks governance across every active space.</p>
+          <p class="muted">Grant platform-wide access, revoke it when needed, or issue password resets without leaving the governance hub.</p>
         </div>
       </div>
       <div class="panel soft">
@@ -6679,6 +6932,17 @@ function renderPlatformAccessSection() {
           </div>
         </form>
       </div>
+      <div class="panel soft">
+        <form id="space-password-reset-form" class="form compact inline-form">
+          <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+          <label>Expires in minutes <input type="number" name="expires_minutes" min="5" max="1440" placeholder="30" /></label>
+          <p class="muted full-span">Issuing a reset signs the user out, generates a temporary password on this screen, and requires them to choose a new password on the reset page.</p>
+          <div class="form-actions full-span">
+            <button type="submit">Issue Password Reset</button>
+          </div>
+        </form>
+      </div>
+      ${renderPlatformPasswordResetResult()}
       <div class="panel soft">
         <div class="table">
           <table>
@@ -6729,6 +6993,11 @@ function renderGovernanceHub(preferredSection = "") {
     ${renderGovernanceNotice()}
     <div class="space-governance-body">${body}</div>
   `;
+  if (activeSection !== "space-directory") {
+    closeSpaceDirectoryModal();
+  } else {
+    renderSpaceDirectoryModal();
+  }
 }
 
 async function refreshGlobalAdmins() {
@@ -6749,6 +7018,31 @@ async function refreshGlobalAdmins() {
       refreshGlobalAdmins._inFlight = null;
     });
   return refreshGlobalAdmins._inFlight;
+}
+
+async function issuePasswordResetForSoeid(soeid, expiresMinutes = null) {
+  const soeidNorm = String(soeid || "").trim().toLowerCase();
+  if (!soeidNorm) {
+    throw new Error("SOEID is required.");
+  }
+  const body = {};
+  if (expiresMinutes !== null && expiresMinutes !== undefined && String(expiresMinutes).trim() !== "") {
+    body.expires_minutes = Number(expiresMinutes);
+  }
+  const issued = await api(`/users/by-soeid/${encodeURIComponent(soeidNorm)}/password-reset-request`, {
+    method: "POST",
+    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
+  });
+  state.platformPasswordReset = {
+    soeid: soeidNorm,
+    temp_password: issued?.temp_password || "",
+    expires_at: issued?.expires_at || "",
+    reset_url: buildResetPageUrl(),
+  };
+  if (isSpaceGovernanceView(state.currentView)) {
+    renderGovernanceHub();
+  }
+  return state.platformPasswordReset;
 }
 
 async function refreshSpaceMembers(spaceId, options = {}) {
@@ -6777,6 +7071,183 @@ async function refreshSpaceMembers(spaceId, options = {}) {
       delete refreshSpaceMembers._inFlight[targetSpaceId];
     });
   return refreshSpaceMembers._inFlight[targetSpaceId];
+}
+
+async function handleSpaceGovernanceAction(button) {
+  if (!button) return false;
+  const action = button.getAttribute("data-space-action") || "";
+  const spaceId = button.getAttribute("data-space-id") || "";
+  const membershipId = button.getAttribute("data-membership-id") || "";
+  const soeid = button.getAttribute("data-soeid") || "";
+  const launchedFromDirectoryModal = !!button.closest("#space-directory-modal");
+  if (action !== "toggle-member-menu") {
+    state.spaceMembershipActionMenuId = "";
+  }
+  if (action === "select-section") {
+    state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
+    renderGovernanceHub();
+    return true;
+  }
+  if (action === "open-directory-space") {
+    openSpaceDirectoryModal(spaceId);
+    return true;
+  }
+  if (action === "close-directory-space-modal") {
+    closeSpaceDirectoryModal();
+    return true;
+  }
+  if (action === "preview-space") {
+    state.spaceMembershipSpaceId = spaceId;
+    renderGovernanceHub();
+    return true;
+  }
+  if (action === "open-create-space-modal") {
+    openSpaceCreateModal();
+    return true;
+  }
+  if (action === "open-member-modal") {
+    if (launchedFromDirectoryModal) {
+      closeSpaceDirectoryModal();
+    }
+    openSpaceMemberModal(spaceId || activeSpaceId());
+    return true;
+  }
+  if (action === "switch-space") {
+    if (launchedFromDirectoryModal) {
+      closeSpaceDirectoryModal();
+    }
+    await switchActiveSpace(spaceId);
+    return true;
+  }
+  if (action === "toggle-member-menu") {
+    state.spaceMembershipActionMenuId = state.spaceMembershipActionMenuId === membershipId ? "" : membershipId;
+    renderGovernanceHub();
+    return true;
+  }
+  if (action === "toggle-space-active" && userIsGlobalAdmin()) {
+    const nextActive = normalize(button.getAttribute("data-next-active")) === "true";
+    const targetName = spaceNameForId(spaceId) || "this space";
+    const confirmed = await showConfirmModal({
+      title: nextActive ? "Reactivate Space" : "Archive Space",
+      message: nextActive
+        ? `Reactivate ${targetName}?`
+        : `Archive ${targetName}? It will stop appearing in active space lists until reactivated.`,
+      confirmLabel: nextActive ? "Reactivate" : "Archive",
+    });
+    if (!confirmed) return true;
+    try {
+      const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: nextActive }),
+      });
+      if (updated?.is_active === false) {
+        state.archivedSpacesById[updated.space_id] = updated;
+      } else if (updated?.space_id) {
+        delete state.archivedSpacesById[updated.space_id];
+      }
+      await refreshSpaceContext();
+      state.spaceMembershipSpaceId = updated?.space_id || state.spaceMembershipSpaceId;
+      state.spaceAdminSection = "space-directory";
+      if (launchedFromDirectoryModal) {
+        closeSpaceDirectoryModal();
+      }
+      setSpaceGovernanceNotice(
+        `${nextActive ? "Reactivated" : "Archived"} ${updated?.name || targetName}.`,
+        "success",
+        4500
+      );
+    } catch (err) {
+      setSpaceGovernanceNotice(err?.message || "Space update failed.", "error", 7000);
+    }
+    return true;
+  }
+  if (action === "toggle-space-member-role" || action === "toggle-space-member-status" || action === "delete-space-member") {
+    if (!membershipId || !spaceId || !canManageSpaceMembership(spaceId)) {
+      setSpaceGovernanceNotice("Switch into this space to manage its memberships.", "error", 7000);
+      return true;
+    }
+    try {
+      if (action === "toggle-space-member-role") {
+        const nextRole = (button.getAttribute("data-next-role") || "").trim();
+        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ role: nextRole }),
+        });
+      } else if (action === "toggle-space-member-status") {
+        const nextStatus = (button.getAttribute("data-next-status") || "").trim();
+        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: nextStatus }),
+        });
+      } else {
+        const confirmed = await showConfirmModal({
+          title: "Remove Space Member",
+          message: "Remove this member from the selected space?",
+          confirmLabel: "Remove",
+        });
+        if (!confirmed) return true;
+        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+          method: "DELETE",
+        });
+      }
+      state.spaceMembersLoadedBySpace[spaceId] = false;
+      await refreshSpaceMembers(spaceId, { force: true });
+      setSpaceGovernanceNotice("Membership updated.", "success", 3500);
+    } catch (err) {
+      setSpaceGovernanceNotice(err?.message || "Membership update failed.", "error", 7000);
+    }
+    return true;
+  }
+  if (action === "issue-password-reset" && userIsGlobalAdmin()) {
+    const confirmed = await showConfirmModal({
+      title: "Issue Password Reset",
+      message: `Issue a one-time password reset for ${soeid}? This will invalidate their active sessions.`,
+      confirmLabel: "Issue Reset",
+    });
+    if (!confirmed) return true;
+    try {
+      await issuePasswordResetForSoeid(soeid);
+      setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
+    } catch (err) {
+      setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
+    }
+    return true;
+  }
+  if (action === "copy-temp-password" || action === "copy-reset-link") {
+    const issued = state.platformPasswordReset;
+    const text = action === "copy-temp-password" ? issued?.temp_password : issued?.reset_url;
+    try {
+      await copyText(text);
+      setSpaceGovernanceNotice(action === "copy-temp-password" ? "Temporary password copied." : "Reset page copied.", "success", 3000);
+    } catch (err) {
+      setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
+    }
+    return true;
+  }
+  if (action === "clear-reset-result") {
+    state.platformPasswordReset = null;
+    renderGovernanceHub();
+    return true;
+  }
+  if (action === "revoke-global-admin" && userIsGlobalAdmin()) {
+    const confirmed = await showConfirmModal({
+      title: "Revoke Global Admin",
+      message: `Revoke global admin from ${soeid}?`,
+      confirmLabel: "Revoke",
+    });
+    if (!confirmed) return true;
+    try {
+      await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "DELETE" });
+      state.globalAdminsLoaded = false;
+      await refreshGlobalAdmins();
+      await refreshFromServer("users");
+      setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
+    } catch (err) {
+      setSpaceGovernanceNotice(err?.message || "Revoke failed.", "error", 7000);
+    }
+    return true;
+  }
+  return false;
 }
 
 function bindSpaceAdminControls() {
@@ -6862,134 +7333,25 @@ function bindSpaceAdminControls() {
     els.spaceMemberModalForm._bound = true;
   }
 
+  if (els.spaceDirectoryModalClose && !els.spaceDirectoryModalClose._bound) {
+    els.spaceDirectoryModalClose.addEventListener("click", closeSpaceDirectoryModal);
+    els.spaceDirectoryModalClose._bound = true;
+  }
+  if (els.spaceDirectoryModal && !els.spaceDirectoryModal._bound) {
+    els.spaceDirectoryModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceDirectoryModal);
+    els.spaceDirectoryModal.addEventListener("click", async (event) => {
+      const button = event.target.closest("button[data-space-action]");
+      if (!button) return;
+      await handleSpaceGovernanceAction(button);
+    });
+    els.spaceDirectoryModal._bound = true;
+  }
+
   if (els.spaceGovernanceShell && !els.spaceGovernanceShell._bound) {
     els.spaceGovernanceShell.addEventListener("click", async (event) => {
       const button = event.target.closest("button[data-space-action]");
-      if (!button) {
-        return;
-      }
-      const action = button.getAttribute("data-space-action") || "";
-      const spaceId = button.getAttribute("data-space-id") || "";
-      const membershipId = button.getAttribute("data-membership-id") || "";
-      const soeid = button.getAttribute("data-soeid") || "";
-      if (action !== "toggle-member-menu") {
-        state.spaceMembershipActionMenuId = "";
-      }
-      if (action === "select-section") {
-        state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
-        renderGovernanceHub();
-        return;
-      }
-      if (action === "preview-space") {
-        state.spaceMembershipSpaceId = spaceId;
-        renderGovernanceHub();
-        return;
-      }
-      if (action === "open-create-space-modal") {
-        openSpaceCreateModal();
-        return;
-      }
-      if (action === "open-member-modal") {
-        openSpaceMemberModal(spaceId || activeSpaceId());
-        return;
-      }
-      if (action === "switch-space") {
-        await switchActiveSpace(spaceId);
-        return;
-      }
-      if (action === "toggle-member-menu") {
-        state.spaceMembershipActionMenuId = state.spaceMembershipActionMenuId === membershipId ? "" : membershipId;
-        renderGovernanceHub();
-        return;
-      }
-      if (action === "toggle-space-active" && userIsGlobalAdmin()) {
-        const nextActive = normalize(button.getAttribute("data-next-active")) === "true";
-        const targetName = spaceNameForId(spaceId) || "this space";
-        const confirmed = await showConfirmModal({
-          title: nextActive ? "Reactivate Space" : "Archive Space",
-          message: nextActive
-            ? `Reactivate ${targetName}?`
-            : `Archive ${targetName}? It will stop appearing in active space lists until reactivated.`,
-          confirmLabel: nextActive ? "Reactivate" : "Archive",
-        });
-        if (!confirmed) return;
-        try {
-          const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
-            method: "PATCH",
-            body: JSON.stringify({ is_active: nextActive }),
-          });
-          if (updated?.is_active === false) {
-            state.archivedSpacesById[updated.space_id] = updated;
-          } else if (updated?.space_id) {
-            delete state.archivedSpacesById[updated.space_id];
-          }
-          await refreshSpaceContext();
-          state.spaceMembershipSpaceId = updated?.space_id || state.spaceMembershipSpaceId;
-          state.spaceAdminSection = "space-directory";
-          setSpaceGovernanceNotice(
-            `${nextActive ? "Reactivated" : "Archived"} ${updated?.name || targetName}.`,
-            "success",
-            4500
-          );
-        } catch (err) {
-          setSpaceGovernanceNotice(err?.message || "Space update failed.", "error", 7000);
-        }
-        return;
-      }
-      if (action === "toggle-space-member-role" || action === "toggle-space-member-status" || action === "delete-space-member") {
-        if (!membershipId || !spaceId || !canManageSpaceMembership(spaceId)) {
-          setSpaceGovernanceNotice("Switch into this space to manage its memberships.", "error", 7000);
-          return;
-        }
-        try {
-          if (action === "toggle-space-member-role") {
-            const nextRole = (button.getAttribute("data-next-role") || "").trim();
-            await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-              method: "PATCH",
-              body: JSON.stringify({ role: nextRole }),
-            });
-          } else if (action === "toggle-space-member-status") {
-            const nextStatus = (button.getAttribute("data-next-status") || "").trim();
-            await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-              method: "PATCH",
-              body: JSON.stringify({ status: nextStatus }),
-            });
-          } else {
-            const confirmed = await showConfirmModal({
-              title: "Remove Space Member",
-              message: "Remove this member from the selected space?",
-              confirmLabel: "Remove",
-            });
-            if (!confirmed) return;
-            await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-              method: "DELETE",
-            });
-          }
-          state.spaceMembersLoadedBySpace[spaceId] = false;
-          await refreshSpaceMembers(spaceId, { force: true });
-          setSpaceGovernanceNotice("Membership updated.", "success", 3500);
-        } catch (err) {
-          setSpaceGovernanceNotice(err?.message || "Membership update failed.", "error", 7000);
-        }
-        return;
-      }
-      if (action === "revoke-global-admin" && userIsGlobalAdmin()) {
-        const confirmed = await showConfirmModal({
-          title: "Revoke Global Admin",
-          message: `Revoke global admin from ${soeid}?`,
-          confirmLabel: "Revoke",
-        });
-        if (!confirmed) return;
-        try {
-          await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "DELETE" });
-          state.globalAdminsLoaded = false;
-          await refreshGlobalAdmins();
-          await refreshFromServer("users");
-          setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
-        } catch (err) {
-          setSpaceGovernanceNotice(err?.message || "Revoke failed.", "error", 7000);
-        }
-      }
+      if (!button) return;
+      await handleSpaceGovernanceAction(button);
     });
     els.spaceGovernanceShell.addEventListener("submit", async (event) => {
       const form = event.target.closest("form");
@@ -7012,6 +7374,30 @@ function bindSpaceAdminControls() {
           setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
         } catch (err) {
           setSpaceGovernanceNotice(err?.message || "Grant failed.", "error", 7000);
+        }
+      } else if (form.id === "space-password-reset-form") {
+        event.preventDefault();
+        if (!userIsGlobalAdmin()) return;
+        const data = new FormData(form);
+        const soeid = String(data.get("soeid") || "").trim().toLowerCase();
+        const expiresMinutesRaw = String(data.get("expires_minutes") || "").trim();
+        if (!soeid) {
+          setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
+          return;
+        }
+        if (expiresMinutesRaw) {
+          const expiresMinutes = Number(expiresMinutesRaw);
+          if (!Number.isInteger(expiresMinutes) || expiresMinutes < 5 || expiresMinutes > 1440) {
+            setSpaceGovernanceNotice("Expiration must be a whole number between 5 and 1440 minutes.", "error", 6000);
+            return;
+          }
+        }
+        try {
+          await issuePasswordResetForSoeid(soeid, expiresMinutesRaw || null);
+          form.reset();
+          setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
+        } catch (err) {
+          setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
         }
       }
     });
@@ -7044,13 +7430,23 @@ function bindSpaceAdminControls() {
         closeSpaceCreateModal();
         return;
       }
+      if (els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden")) {
+        closeSpaceDirectoryModal();
+        return;
+      }
       if (els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
         closeSpaceMemberModal();
       }
     });
     document.addEventListener("click", (event) => {
       if (!state.spaceMembershipActionMenuId) return;
-      if (els.spaceGovernanceShell?.contains(event.target)) return;
+      const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+      const clickedInsideMemberActions = eventPath.some((node) => (
+        node
+        && node.classList
+        && (node.classList.contains("space-member-actions") || node.classList.contains("space-action-menu"))
+      ));
+      if (clickedInsideMemberActions) return;
       state.spaceMembershipActionMenuId = "";
       renderGovernanceHub();
     });
@@ -7318,10 +7714,10 @@ function init() {
   bindCapacityUsers();
   bindSpaceAdminControls();
   initSubcomponentsWorkbench();
-  const initialView = viewFromHash();
-  setView(initialView, { fromHash: true });
-  if (!window.location.hash) {
-    syncHashForView(initialView, true);
+  const initialView = viewFromLocationPath();
+  setView(initialView, { fromHistory: true });
+  if (!isResetPath()) {
+    syncPathForView(initialView, true);
   }
   bootstrapAuth();
 }

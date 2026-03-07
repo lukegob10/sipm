@@ -123,12 +123,18 @@ export function renderPMDashboard(ctx) {
     state,
     els,
     formatStatus,
+    viewHref,
     assigneeKeyFromAlloc,
     assigneeLabelFromKey,
     allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
   } = ctx;
+  const hrefFor = (view) => {
+    const normalized = String(view || "master").trim();
+    if (typeof viewHref === "function") return viewHref(normalized);
+    return normalized === "master" ? "/project-manager/" : `/project-manager/${normalized}`;
+  };
 
   const activeSpaceName = String(state.activeSpace?.space_name || "").trim();
   const activeSpaceId = String(state.activeSpace?.space_id || "").trim();
@@ -537,7 +543,7 @@ export function renderPMDashboard(ctx) {
       tone: "danger",
       title: `${redSolutions.length} red solutions need intervention`,
       detail: "Review RAG reasons and assign recovery owners.",
-      href: "#/master",
+      href: hrefFor("master"),
       cta: "Open Deliverables",
     });
   }
@@ -546,7 +552,7 @@ export function renderPMDashboard(ctx) {
       tone: "danger",
       title: `${overdueTotal} overdue items require replan`,
       detail: "Rebaseline due dates or de-scope low-value work.",
-      href: "#/calendar",
+      href: hrefFor("calendar"),
       cta: "Open Calendar",
     });
   }
@@ -555,7 +561,7 @@ export function renderPMDashboard(ctx) {
       tone: "warn",
       title: `${blockedSubcomponents.length} blocked tasks are stalling flow`,
       detail: "Clear blocker notes and escalate dependency owners.",
-      href: "#/subcomponents-workbench",
+      href: hrefFor("subcomponents-workbench"),
       cta: "Open Subcomponents",
     });
   }
@@ -564,7 +570,7 @@ export function renderPMDashboard(ctx) {
       tone: "warn",
       title: `${overloadedRows.length} assignees are overloaded`,
       detail: "Reallocate work in the planning window to reduce delivery risk.",
-      href: "#/planning",
+      href: hrefFor("planning"),
       cta: "Open Planning",
     });
   }
@@ -573,7 +579,7 @@ export function renderPMDashboard(ctx) {
       tone: "warn",
       title: `${unassignedSubcomponents.length} active tasks are unassigned`,
       detail: "Assign owners so execution can start and status can move.",
-      href: "#/subcomponents-workbench",
+      href: hrefFor("subcomponents-workbench"),
       cta: "Assign Tasks",
     });
   }
@@ -582,7 +588,7 @@ export function renderPMDashboard(ctx) {
       tone: "positive",
       title: "No critical blockers detected",
       detail: "Portfolio is currently stable. Track due-soon work and keep cadence.",
-      href: "#/dashboard",
+      href: hrefFor("dashboard"),
       cta: "Open Standard Dashboard",
     });
   }
@@ -652,7 +658,7 @@ export function renderPMDashboard(ctx) {
       els.pmDashboardHealth.innerHTML = `
         <div class="pm-card-header">
           <h3>Project Health</h3>
-          <a href="#/master" class="pm-card-link">Deliverables</a>
+          <a href="${esc(hrefFor("master"))}" class="pm-card-link">Deliverables</a>
         </div>
         <div class="table pm-table-wrap">
           <table>
@@ -681,7 +687,7 @@ export function renderPMDashboard(ctx) {
     els.pmDashboardRisks.innerHTML = `
       <div class="pm-card-header">
         <h3>Risk Radar</h3>
-        <a href="#/master" class="pm-card-link">Update Status</a>
+        <a href="${esc(hrefFor("master"))}" class="pm-card-link">Update Status</a>
       </div>
       ${rows
         ? `<div class="table pm-table-wrap"><table><thead><tr><th>Solution</th><th>Risk</th><th>Owner</th><th>Due</th><th>Signals</th></tr></thead><tbody>${rows}</tbody></table></div>`
@@ -706,7 +712,7 @@ export function renderPMDashboard(ctx) {
     els.pmDashboardTimeline.innerHTML = `
       <div class="pm-card-header">
         <h3>Delivery Timeline</h3>
-        <a href="#/calendar" class="pm-card-link">Calendar</a>
+        <a href="${esc(hrefFor("calendar"))}" class="pm-card-link">Calendar</a>
       </div>
       <p class="muted">Overdue: ${overdueTotal} | Due in 14 days: ${dueSoonTotal}</p>
       ${rows
@@ -743,7 +749,7 @@ export function renderPMDashboard(ctx) {
     els.pmDashboardCapacity.innerHTML = `
       <div class="pm-card-header">
         <h3>Capacity and Allocation</h3>
-        <a href="#/planning" class="pm-card-link">Planning</a>
+        <a href="${esc(hrefFor("planning"))}" class="pm-card-link">Planning</a>
       </div>
       <p class="muted">${esc(allocationScopeLabel)}</p>
       <div class="pm-capacity-summary">
@@ -780,7 +786,7 @@ export function renderPMDashboard(ctx) {
     els.pmDashboardStatus.innerHTML = `
       <div class="pm-card-header">
         <h3>Portfolio Flow</h3>
-        <a href="#/kanban" class="pm-card-link">Kanban</a>
+        <a href="${esc(hrefFor("kanban"))}" class="pm-card-link">Kanban</a>
       </div>
       <div class="pm-status-grid">
         <section>
@@ -825,10 +831,10 @@ export function renderPMDashboard(ctx) {
       </div>
       <ul class="pm-actions-list">${actionRows}</ul>
       <div class="pm-quick-links">
-        <a href="#/master">Deliverables</a>
-        <a href="#/planning">Planning</a>
-        <a href="#/subcomponents-workbench">Subcomponents</a>
-        <a href="#/calendar">Calendar</a>
+        <a href="${esc(hrefFor("master"))}">Deliverables</a>
+        <a href="${esc(hrefFor("planning"))}">Planning</a>
+        <a href="${esc(hrefFor("subcomponents-workbench"))}">Subcomponents</a>
+        <a href="${esc(hrefFor("calendar"))}">Calendar</a>
       </div>
     `;
   }

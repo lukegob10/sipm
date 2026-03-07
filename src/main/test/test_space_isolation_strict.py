@@ -51,12 +51,12 @@ async def test_projects_list_excludes_legacy_null_space_rows(client, db_sessionm
     try:
         _set_current_space(space_id)
         create_resp = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Strict Space Project", "sponsor": "Space Sponsor"},
         )
         assert create_resp.status_code == 201, create_resp.text
 
-        list_resp = await client.get("/api/projects/")
+        list_resp = await client.get("/project-manager/api/projects/")
         assert list_resp.status_code == 200, list_resp.text
         names = {row["project_name"] for row in list_resp.json()}
         assert "Strict Space Project" in names
@@ -98,18 +98,18 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
     try:
         _set_current_space(space_id)
         project_resp = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Strict Space Project Solutions", "sponsor": "Space Sponsor"},
         )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]
         solution_resp = await client.post(
-            f"/api/projects/{project_id}/solutions",
+            f"/project-manager/api/projects/{project_id}/solutions",
             json={"solution_name": "Strict Space Solution"},
         )
         assert solution_resp.status_code == 201, solution_resp.text
 
-        list_resp = await client.get("/api/solutions")
+        list_resp = await client.get("/project-manager/api/solutions")
         assert list_resp.status_code == 200, list_resp.text
         names = {row["solution_name"] for row in list_resp.json()}
         assert "Strict Space Solution" in names
@@ -127,20 +127,20 @@ async def test_subcomponents_list_excludes_legacy_null_space_rows(client, db_ses
     try:
         _set_current_space(space_id)
         project_resp = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Strict Space Project Subcomponents", "sponsor": "Space Sponsor"},
         )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]
         solution_resp = await client.post(
-            f"/api/projects/{project_id}/solutions",
+            f"/project-manager/api/projects/{project_id}/solutions",
             json={"solution_name": "Strict Space Solution Subcomponents"},
         )
         assert solution_resp.status_code == 201, solution_resp.text
         solution_id = solution_resp.json()["solution_id"]
 
         create_sub_resp = await client.post(
-            f"/api/solutions/{solution_id}/subcomponents",
+            f"/project-manager/api/solutions/{solution_id}/subcomponents",
             json={"subcomponent_name": "Strict Space Subcomponent"},
         )
         assert create_sub_resp.status_code == 201, create_sub_resp.text
@@ -159,7 +159,7 @@ async def test_subcomponents_list_excludes_legacy_null_space_rows(client, db_ses
             )
             session.commit()
 
-        list_resp = await client.get("/api/subcomponents")
+        list_resp = await client.get("/project-manager/api/subcomponents")
         assert list_resp.status_code == 200, list_resp.text
         names = {row["subcomponent_name"] for row in list_resp.json()}
         assert "Strict Space Subcomponent" in names

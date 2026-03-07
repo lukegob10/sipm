@@ -32,7 +32,7 @@ def seed_phases(SessionLocal):
 async def create_project_solution(client):
     project = (
         await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={
             "project_name": "Data Platform",
             "description": "Modernize data stack",
@@ -42,7 +42,7 @@ async def create_project_solution(client):
     ).json()
     solution = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "Access Controls", "version": "0.1.0", "owner": "Solution Owner"},
         )
     ).json()
@@ -51,7 +51,7 @@ async def create_project_solution(client):
 
 async def enable_phases(client, solution_id: str):
     resp = await client.post(
-        f"/api/solutions/{solution_id}/phases",
+        f"/project-manager/api/solutions/{solution_id}/phases",
         json={
             "phases": [
                 {"phase_id": "backlog", "is_enabled": True},
@@ -68,7 +68,7 @@ async def test_create_and_list_subcomponents(client, db_sessionmaker):
     _, solution = await create_project_solution(client)
 
     resp = await client.post(
-        f"/api/solutions/{solution['solution_id']}/subcomponents",
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
         json={
             "subcomponent_name": "Define RBAC roles",
             "priority": 1,
@@ -82,7 +82,7 @@ async def test_create_and_list_subcomponents(client, db_sessionmaker):
     assert data["priority"] == 1
     assert data["assignee"] == "Engineer A"
 
-    list_resp = await client.get(f"/api/solutions/{solution['solution_id']}/subcomponents")
+    list_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")
     assert list_resp.status_code == 200
     items = list_resp.json()
     assert len(items) == 1
@@ -95,7 +95,7 @@ async def test_create_subcomponent_defaults_assignee_and_priority(client, db_ses
     _, solution = await create_project_solution(client)
 
     resp = await client.post(
-        f"/api/solutions/{solution['solution_id']}/subcomponents",
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
         json={"subcomponent_name": "Minimal Subcomponent"},
     )
     assert resp.status_code == 201, resp.text
@@ -115,24 +115,24 @@ async def test_list_all_subcomponents_filter_by_assignee(client, db_sessionmaker
 
     assert (
         (await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Task A", "assignee": "Engineer A"},
         )).status_code
         == 201
     )
     assert (
         (await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Task B", "assignee": "Engineer B"},
         )).status_code
         == 201
     )
 
-    all_resp = await client.get("/api/subcomponents")
+    all_resp = await client.get("/project-manager/api/subcomponents")
     assert all_resp.status_code == 200
     assert len(all_resp.json()) == 2
 
-    filtered = await client.get("/api/subcomponents", params={"assignee": "Engineer A"})
+    filtered = await client.get("/project-manager/api/subcomponents", params={"assignee": "Engineer A"})
     assert filtered.status_code == 200
     items = filtered.json()
     assert len(items) == 1
@@ -170,7 +170,7 @@ async def test_list_subcomponents_includes_actionability_metadata(client, db_ses
     ]
     for payload in create_payloads:
         resp = await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json=payload,
         )
         assert resp.status_code == 201, resp.text
@@ -188,7 +188,7 @@ async def test_list_subcomponents_includes_actionability_metadata(client, db_ses
         session.add(stale)
         session.commit()
 
-    list_resp = await client.get("/api/subcomponents")
+    list_resp = await client.get("/project-manager/api/subcomponents")
     assert list_resp.status_code == 200, list_resp.text
     rows = {item["subcomponent_name"]: item for item in list_resp.json()}
 
@@ -208,7 +208,7 @@ async def test_batch_update_subcomponents(client, db_sessionmaker):
     _, solution = await create_project_solution(client)
 
     first_resp = await client.post(
-        f"/api/solutions/{solution['solution_id']}/subcomponents",
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
         json={
             "subcomponent_name": "Batch Task A",
             "status": "to_do",
@@ -220,7 +220,7 @@ async def test_batch_update_subcomponents(client, db_sessionmaker):
     assert first_resp.status_code == 201, first_resp.text
     first = first_resp.json()
     second_resp = await client.post(
-        f"/api/solutions/{solution['solution_id']}/subcomponents",
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
         json={
             "subcomponent_name": "Batch Task B",
             "status": "to_do",
@@ -233,7 +233,7 @@ async def test_batch_update_subcomponents(client, db_sessionmaker):
     second = second_resp.json()
 
     patch_resp = await client.patch(
-        "/api/subcomponents/actions/batch",
+        "/project-manager/api/subcomponents/actions/batch",
         json={
             "subcomponent_ids": [first["subcomponent_id"], second["subcomponent_id"]],
             "status": "in_progress",
@@ -267,13 +267,13 @@ async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
         )
         _, solution = await create_project_solution(client)
         create_resp = await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Activity Task", "status": "to_do"},
         )
         assert create_resp.status_code == 201, create_resp.text
         subcomponent_id = create_resp.json()["subcomponent_id"]
         update_resp = await client.patch(
-            f"/api/subcomponents/{subcomponent_id}",
+            f"/project-manager/api/subcomponents/{subcomponent_id}",
             json={"status": "in_progress", "blocked": True},
         )
         assert update_resp.status_code == 200, update_resp.text
@@ -284,7 +284,7 @@ async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
             is_global_admin=False,
             space_role="member",
         )
-        activity_resp = await client.get(f"/api/subcomponents/{subcomponent_id}/activity")
+        activity_resp = await client.get(f"/project-manager/api/subcomponents/{subcomponent_id}/activity")
         assert activity_resp.status_code == 200, activity_resp.text
         rows = activity_resp.json()
         assert len(rows) >= 2
@@ -304,19 +304,19 @@ async def test_subcomponent_uniqueness_and_soft_delete(client, db_sessionmaker):
     _, solution = await create_project_solution(client)
 
     payload = {"subcomponent_name": "Billing UI", "assignee": "Engineer A"}
-    assert (await client.post(f"/api/solutions/{solution['solution_id']}/subcomponents", json=payload)).status_code == 201
-    dup = await client.post(f"/api/solutions/{solution['solution_id']}/subcomponents", json=payload)
+    assert (await client.post(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents", json=payload)).status_code == 201
+    dup = await client.post(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents", json=payload)
     assert dup.status_code == 400
 
     # soft delete
-    created = (await client.get(f"/api/solutions/{solution['solution_id']}/subcomponents")).json()[0]
-    delete_resp = await client.delete(f"/api/subcomponents/{created['subcomponent_id']}")
+    created = (await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")).json()[0]
+    delete_resp = await client.delete(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
     assert delete_resp.status_code == 204
 
-    get_resp = await client.get(f"/api/subcomponents/{created['subcomponent_id']}")
+    get_resp = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
     assert get_resp.status_code == 404
 
-    list_resp = await client.get(f"/api/solutions/{solution['solution_id']}/subcomponents")
+    list_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")
     assert list_resp.status_code == 200
     assert list_resp.json() == []
 
@@ -334,7 +334,7 @@ async def test_member_cannot_delete_subcomponent(client, db_sessionmaker):
         )
         _, solution = await create_project_solution(client)
         create_resp = await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Delete Guard Subcomponent"},
         )
         assert create_resp.status_code == 201, create_resp.text
@@ -346,7 +346,7 @@ async def test_member_cannot_delete_subcomponent(client, db_sessionmaker):
             is_global_admin=False,
             space_role="member",
         )
-        denied = await client.delete(f"/api/subcomponents/{subcomponent_id}")
+        denied = await client.delete(f"/project-manager/api/subcomponents/{subcomponent_id}")
         assert denied.status_code == 403, denied.text
 
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -355,7 +355,7 @@ async def test_member_cannot_delete_subcomponent(client, db_sessionmaker):
             is_global_admin=False,
             space_role="space_admin",
         )
-        allowed = await client.delete(f"/api/subcomponents/{subcomponent_id}")
+        allowed = await client.delete(f"/project-manager/api/subcomponents/{subcomponent_id}")
         assert allowed.status_code == 204, allowed.text
     finally:
         if original_current_space is None:

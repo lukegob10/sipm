@@ -6,13 +6,15 @@ APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
+PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
 
 
 def test_master_remains_default_view_and_fallback():
     text = APP_JS.read_text(encoding="utf-8")
     assert 'currentView: "master"' in text
-    assert 'if (!raw) return "master";' in text
-    assert 'return "master";' in text
+    assert "function viewFromLocationPath" in text
+    assert 'if (relative === "/" || relative === "") return "master";' in text
+    assert 'return normalizeView(firstSegment);' in text
 
 
 def test_route_hint_copy_removed_from_main_html_views():
@@ -47,17 +49,37 @@ def test_frontend_ux_state_is_persisted_per_space():
     assert "persistMasterViewState" in master_text
 
 
-def test_reset_password_ui_uses_live_token_flow_only():
+def test_reset_password_ui_uses_temp_password_flow():
     app_text = APP_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "/auth/reset-password-with-token" in app_text
-    assert 'params.get("token")' in app_text
-    assert 'params.get("reset_token")' in app_text
-    assert 'name="reset_token"' in html_text
-    assert "/auth/verify-temp-password" not in app_text
-    assert '/auth/reset-password"' not in app_text
+    assert "/auth/reset-password" in app_text
+    assert 'name="soeid"' in html_text
+    assert 'name="temp_password"' in html_text
+    assert 'Use temporary password' in html_text
+    assert "/auth/reset-password-with-token" not in app_text
     assert "verify-temp-form" not in html_text
+
+
+def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    pm_dashboard_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
+
+    assert "const APP_CONTEXT_PATH = (() => {" in app_text
+    assert 'const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";' in app_text
+    assert "function routePathForView(view)" in app_text
+    assert "function syncPathForView(view, replace = false)" in app_text
+    assert 'window.addEventListener("popstate"' in app_text
+    assert 'buildAppUrl("/reset-password")' in app_text
+    assert 'window.location.href = buildAppUrl("/reset-password");' in app_text
+    assert 'window.location.href = buildAppUrl("/");' in app_text
+    assert 'const url = new URL(buildWsUrl("/ws"));' in app_text
+    assert "resolveApiBase(ctx)" in planning_text
+    assert "viewHref," in app_text
+    assert "const hrefFor = (view) => {" in pm_dashboard_text
+    assert "/api/planning/work-allocation/report.pdf" not in planning_text
+    assert "#/" not in pm_dashboard_text
 
 
 def test_planning_route_uses_inline_forms_confirm_modal_and_keyboard_detail_controls():

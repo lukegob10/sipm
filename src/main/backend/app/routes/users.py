@@ -18,7 +18,7 @@ from ..deps import (
 from ..models import SpaceMembership, User
 from ..schemas import PasswordResetIssueRequest, PasswordResetIssueResponse, UserRead, UserUpdate
 from ..services.audit_log import log_changes
-from ..services.password_reset import issue_reset_token
+from ..services.password_reset import issue_temp_password
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..utils import read_csv
@@ -286,14 +286,36 @@ def request_user_password_reset(
     admin_user: User = Depends(require_global_admin),
 ) -> PasswordResetIssueResponse:
     user = _user_or_404(session, user_id)
-    token, expires_at = issue_reset_token(
+    temp_password, expires_at = issue_temp_password(
         session,
         target_user=user,
         issued_by_user_id=admin_user.user_id,
         expires_minutes=payload.expires_minutes if payload else None,
     )
     _invalidate_user_caches_for_user_memberships(session, user.user_id)
-    return PasswordResetIssueResponse(status="issued", reset_token=token, expires_at=expires_at)
+    return PasswordResetIssueResponse(status="issued", temp_password=temp_password, expires_at=expires_at)
+
+
+@router.post(
+    "/users/by-soeid/{soeid}/password-reset-request",
+    response_model=PasswordResetIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def request_user_password_reset_by_soeid(
+    soeid: str,
+    payload: Optional[PasswordResetIssueRequest] = Body(default=None),
+    session: Session = Depends(get_db),
+    admin_user: User = Depends(require_global_admin),
+) -> PasswordResetIssueResponse:
+    user = _user_by_soeid_or_404(session, soeid)
+    temp_password, expires_at = issue_temp_password(
+        session,
+        target_user=user,
+        issued_by_user_id=admin_user.user_id,
+        expires_minutes=payload.expires_minutes if payload else None,
+    )
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
+    return PasswordResetIssueResponse(status="issued", temp_password=temp_password, expires_at=expires_at)
 
 @router.patch("/users/{user_id}", response_model=UserRead)
 def update_user(

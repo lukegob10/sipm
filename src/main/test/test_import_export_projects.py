@@ -14,7 +14,7 @@ from backend.app.services.spaces import SpaceContext
 async def test_projects_import_updates_creates_and_exports(client):
     existing = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={
                 "project_name": "Data Platform",
                 "status": "active",
@@ -43,7 +43,7 @@ async def test_projects_import_updates_creates_and_exports(client):
     )
 
     resp = await client.post(
-        "/api/projects/import",
+        "/project-manager/api/projects/import",
         content=csv_text.encode("utf-8"),
         headers={"Content-Type": "text/csv"},
     )
@@ -54,23 +54,23 @@ async def test_projects_import_updates_creates_and_exports(client):
     assert data["total_rows"] == 5
     assert len(data["errors"]) == 3
 
-    updated = await client.get(f"/api/projects/{existing['project_id']}")
+    updated = await client.get(f"/project-manager/api/projects/{existing['project_id']}")
     assert updated.status_code == 200
     assert updated.json()["status"] == "on_hold"
     assert updated.json()["description"] == "Waiting on vendor"
     assert updated.json()["success_criteria"] == "New criteria"
 
-    export = await client.get("/api/projects/export")
+    export = await client.get("/project-manager/api/projects/export")
     assert export.status_code == 200
     assert "text/csv" in export.headers.get("content-type", "")
     rows = list(csv.DictReader(StringIO(export.text)))
     assert {row["project_name"] for row in rows} == {"Data Platform", "Risk Platform"}
 
-    filtered = await client.get("/api/projects", params={"status_filter": "on_hold"})
+    filtered = await client.get("/project-manager/api/projects", params={"status_filter": "on_hold"})
     assert filtered.status_code == 200
     assert [p["project_name"] for p in filtered.json()] == ["Data Platform"]
 
-    sponsor_filtered = await client.get("/api/projects", params={"sponsor": "cfo office"})
+    sponsor_filtered = await client.get("/project-manager/api/projects", params={"sponsor": "cfo office"})
     assert sponsor_filtered.status_code == 200
     assert [p["project_name"] for p in sponsor_filtered.json()] == ["Data Platform"]
 
@@ -86,7 +86,7 @@ async def test_projects_export_is_scoped_to_active_space(client):
             space_role="space_admin",
         )
         create_a = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Export Scope Project A", "sponsor": "Sponsor A"},
         )
         assert create_a.status_code == 201, create_a.text
@@ -98,12 +98,12 @@ async def test_projects_export_is_scoped_to_active_space(client):
             space_role="space_admin",
         )
         create_b = await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Export Scope Project B", "sponsor": "Sponsor B"},
         )
         assert create_b.status_code == 201, create_b.text
 
-        export_b = await client.get("/api/projects/export")
+        export_b = await client.get("/project-manager/api/projects/export")
         assert export_b.status_code == 200, export_b.text
         rows_b = list(csv.DictReader(StringIO(export_b.text)))
         assert {row["project_name"] for row in rows_b} == {"Export Scope Project B"}
@@ -114,7 +114,7 @@ async def test_projects_export_is_scoped_to_active_space(client):
             is_global_admin=False,
             space_role="space_admin",
         )
-        export_a = await client.get("/api/projects/export")
+        export_a = await client.get("/project-manager/api/projects/export")
         assert export_a.status_code == 200, export_a.text
         rows_a = list(csv.DictReader(StringIO(export_a.text)))
         assert {row["project_name"] for row in rows_a} == {"Export Scope Project A"}
@@ -129,17 +129,17 @@ async def test_projects_export_is_scoped_to_active_space(client):
 async def test_update_project_rejects_name_conflict(client):
     p1 = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Project A", "sponsor": "Sponsor A"},
         )
     ).json()
     p2 = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Project B", "sponsor": "Sponsor B"},
         )
     ).json()
 
-    resp = await client.patch(f"/api/projects/{p2['project_id']}", json={"project_name": p1["project_name"]})
+    resp = await client.patch(f"/project-manager/api/projects/{p2['project_id']}", json={"project_name": p1["project_name"]})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Project name already exists"

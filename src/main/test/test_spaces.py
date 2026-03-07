@@ -88,20 +88,20 @@ async def test_cannot_remove_last_active_space_admin(client, db_sessionmaker):
     try:
         _set_current_space_override(space_id, role="space_admin")
         demote = await client.patch(
-            f"/api/spaces/{space_id}/members/{membership_id}",
+            f"/project-manager/api/spaces/{space_id}/members/{membership_id}",
             json={"role": "member"},
         )
         assert demote.status_code == 400, demote.text
         assert demote.json()["detail"] == "Space must retain at least one active space_admin"
 
         deactivate = await client.patch(
-            f"/api/spaces/{space_id}/members/{membership_id}",
+            f"/project-manager/api/spaces/{space_id}/members/{membership_id}",
             json={"status": "inactive"},
         )
         assert deactivate.status_code == 400, deactivate.text
         assert deactivate.json()["detail"] == "Space must retain at least one active space_admin"
 
-        delete_resp = await client.delete(f"/api/spaces/{space_id}/members/{membership_id}")
+        delete_resp = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{membership_id}")
         assert delete_resp.status_code == 400, delete_resp.text
         assert delete_resp.json()["detail"] == "Space must retain at least one active space_admin"
     finally:
@@ -121,16 +121,16 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
     try:
         _set_current_space_override(space_id, role="space_admin")
         demote = await client.patch(
-            f"/api/spaces/{space_id}/members/{first_admin}",
+            f"/project-manager/api/spaces/{space_id}/members/{first_admin}",
             json={"role": "member"},
         )
         assert demote.status_code == 200, demote.text
         assert demote.json()["role"] == "member"
 
-        delete_member = await client.delete(f"/api/spaces/{space_id}/members/{member_membership_id}")
+        delete_member = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}")
         assert delete_member.status_code == 204, delete_member.text
 
-        delete_last_admin = await client.delete(f"/api/spaces/{space_id}/members/{second_admin}")
+        delete_last_admin = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{second_admin}")
         assert delete_last_admin.status_code == 400, delete_last_admin.text
         assert delete_last_admin.json()["detail"] == "Space must retain at least one active space_admin"
     finally:
@@ -161,18 +161,18 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
         _set_current_space_override(space_id, role="space_admin")
 
         created = await client.post(
-            f"/api/spaces/{space_id}/members/by-soeid",
+            f"/project-manager/api/spaces/{space_id}/members/by-soeid",
             json={"soeid": "membernew", "role": "member", "status": "active"},
         )
         assert created.status_code == 201, created.text
         assert created.json()["role"] == "member"
         assert created.json()["status"] == "active"
 
-        delete_resp = await client.delete(f"/api/spaces/{space_id}/members/{member_membership_id}")
+        delete_resp = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}")
         assert delete_resp.status_code == 204, delete_resp.text
 
         restored = await client.post(
-            f"/api/spaces/{space_id}/members/by-soeid",
+            f"/project-manager/api/spaces/{space_id}/members/by-soeid",
             json={"soeid": "member0", "role": "space_admin", "status": "active"},
         )
         assert restored.status_code == 201, restored.text
@@ -180,7 +180,7 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
         assert restored.json()["role"] == "space_admin"
 
         duplicate = await client.post(
-            f"/api/spaces/{space_id}/members/by-soeid",
+            f"/project-manager/api/spaces/{space_id}/members/by-soeid",
             json={"soeid": "member0"},
         )
         assert duplicate.status_code == 400, duplicate.text
@@ -199,7 +199,7 @@ async def test_list_space_members_includes_user_identity_fields(client, db_sessi
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         _set_current_space_override(space_id, role="space_admin")
-        resp = await client.get(f"/api/spaces/{space_id}/members")
+        resp = await client.get(f"/project-manager/api/spaces/{space_id}/members")
         assert resp.status_code == 200, resp.text
         rows = resp.json()
         target = next((row for row in rows if row["membership_id"] == member_membership_id), None)

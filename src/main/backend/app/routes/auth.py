@@ -17,18 +17,18 @@ from ..auth.auth import (
 )
 from ..deps import get_db, require_global_admin, require_user
 from ..models import User
+from ..paths import API_PREFIX
 from ..schemas import (
     ActiveSpaceResponse,
     ActiveSpaceSwitchRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
-    ResetPasswordWithTokenRequest,
     UserCreate,
     UserLogin,
     UserRead,
 )
 from ..security import security_http_exception
-from ..services.password_reset import consume_reset_token
+from ..services.password_reset import reset_password_with_temp_password
 from ..services.spaces import resolve_active_space_context
 
 router = APIRouter()
@@ -228,7 +228,7 @@ def admin_reset_removed(
     raise security_http_exception(
         status_code=status.HTTP_410_GONE,
         code="ENDPOINT_REMOVED",
-        message="Use /api/users/{user_id}/password-reset-request",
+        message=f"Use {API_PREFIX}/users/{{user_id}}/password-reset-request",
     )
 
 
@@ -237,23 +237,13 @@ def verify_temp_password_removed():
     raise security_http_exception(
         status_code=status.HTTP_410_GONE,
         code="ENDPOINT_REMOVED",
-        message="Use /api/auth/reset-password-with-token",
+        message=f"Use {API_PREFIX}/auth/reset-password",
     )
 
 
 @router.post("/reset-password")
-def reset_password_removed(payload: ResetPasswordRequest):
-    _ = payload
-    raise security_http_exception(
-        status_code=status.HTTP_410_GONE,
-        code="ENDPOINT_REMOVED",
-        message="Use /api/auth/reset-password-with-token",
-    )
-
-
-@router.post("/reset-password-with-token")
-def reset_password_with_token(
-    payload: ResetPasswordWithTokenRequest,
+def reset_password(
+    payload: ResetPasswordRequest,
     response: Response,
     session: Session = Depends(get_db),
 ):
@@ -263,10 +253,30 @@ def reset_password_with_token(
             code="RESET_PASSWORD_MISMATCH",
             message="Passwords do not match",
         )
+    if not payload.soeid or not payload.temp_password:
+        raise security_http_exception(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="RESET_PASSWORD_INPUT_INVALID",
+            message="SOEID and temporary password are required",
+        )
 
-    consume_reset_token(session, token=payload.reset_token, new_password=payload.new_password)
+    reset_password_with_temp_password(
+        session,
+        soeid=payload.soeid,
+        temp_password=payload.temp_password,
+        new_password=payload.new_password,
+    )
     clear_auth_cookies(response)
     return {"status": "ok"}
+
+
+@router.post("/reset-password-with-token")
+def reset_password_with_token_removed():
+    raise security_http_exception(
+        status_code=status.HTTP_410_GONE,
+        code="ENDPOINT_REMOVED",
+        message=f"Use {API_PREFIX}/auth/reset-password",
+    )
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

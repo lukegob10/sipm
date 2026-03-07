@@ -8,6 +8,7 @@ import bcrypt
 import jwt
 from fastapi import Response, status
 
+from ..paths import COOKIE_PATH
 from ..security import security_http_exception
 
 DEFAULT_DEV_SECRET = "dev-secret-change-me-at-least-32-bytes"
@@ -144,14 +145,21 @@ def decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     return payload
 
 
+def _delete_legacy_root_cookie(response: Response, key: str) -> None:
+    if COOKIE_PATH != "/":
+        response.delete_cookie(key, path="/")
+
+
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    _delete_legacy_root_cookie(response, "access_token")
+    _delete_legacy_root_cookie(response, "refresh_token")
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
-        path="/",
+        path=COOKIE_PATH,
     )
     response.set_cookie(
         key="refresh_token",
@@ -159,7 +167,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         httponly=True,
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
-        path="/",
+        path=COOKIE_PATH,
     )
 
 
@@ -167,14 +175,18 @@ def clear_auth_cookies(response: Response) -> None:
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
     response.delete_cookie(ACTIVE_SPACE_COOKIE, path="/")
+    response.delete_cookie("access_token", path=COOKIE_PATH)
+    response.delete_cookie("refresh_token", path=COOKIE_PATH)
+    response.delete_cookie(ACTIVE_SPACE_COOKIE, path=COOKIE_PATH)
 
 
 def set_active_space_cookie(response: Response, space_id: str) -> None:
+    _delete_legacy_root_cookie(response, ACTIVE_SPACE_COOKIE)
     response.set_cookie(
         key=ACTIVE_SPACE_COOKIE,
         value=space_id,
         httponly=True,
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
-        path="/",
+        path=COOKIE_PATH,
     )

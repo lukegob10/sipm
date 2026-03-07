@@ -29,6 +29,7 @@ def test_space_governance_hub_and_modals_exist_in_html():
     assert "Space Governance" in html
     assert 'id="space-create-modal"' in html
     assert 'id="space-member-modal"' in html
+    assert 'id="space-directory-modal"' in html
 
 
 def test_space_governance_app_logic_tracks_recents_and_access_alias():
@@ -39,6 +40,15 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'if (normalized === "access") return userCanAccessAdminViews();' in text
     assert "recordRecentSpace(spaceId)" in text
     assert "renderGovernanceHub(preferredSection = \"\")" in text
+    assert "Issue Password Reset" in text
+    assert 'data-space-action="issue-password-reset"' in text
+    assert 'data-space-action="copy-temp-password"' in text
+    assert 'data-space-action="copy-reset-link"' in text
+    assert 'event.composedPath()' in text
+    assert 'classList.contains("space-member-actions")' in text
+    assert "Workspace atlas" in text
+    assert "space-directory-card-fact" in text
+    assert 'data-space-action="open-directory-space"' in text
 
 
 def test_spaces_and_access_routes_share_the_same_governance_hub():
@@ -58,6 +68,15 @@ def test_space_governance_styles_cover_compact_switcher_and_hub():
         ".space-governance-shell",
         ".space-governance-tabs",
         ".space-directory-layout",
+        ".space-directory-overview",
+        ".space-directory-stat",
         ".space-action-menu",
+        ".space-member-actions",
+        ".space-directory-card-fact",
+        ".space-directory-card-note",
+        ".space-directory-modal-shell",
+        ".space-directory-preview-hero",
+        ".platform-reset-grid",
+        ".platform-access-actions",
     ]:
         assert selector in css

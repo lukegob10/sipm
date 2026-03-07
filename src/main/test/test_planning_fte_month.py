@@ -4,14 +4,14 @@ import pytest
 @pytest.mark.anyio
 async def test_create_allocation_with_fte_months_sets_legacy_fields(client):
     window_resp = await client.post(
-        "/api/planning/windows",
+        "/project-manager/api/planning/windows",
         json={"name": "FY26-Q1", "start_date": "2026-01-01", "end_date": "2026-03-31"},
     )
     assert window_resp.status_code == 201, window_resp.text
     window_id = window_resp.json()["window_id"]
 
     created = await client.post(
-        "/api/resource-allocations",
+        "/project-manager/api/resource-allocations",
         json={
             "work_item_type": "solution",
             "work_item_id": "sol-1",
@@ -33,14 +33,14 @@ async def test_create_allocation_with_fte_months_sets_legacy_fields(client):
 @pytest.mark.anyio
 async def test_create_allocation_legacy_hours_backfills_fte_months(client):
     window_resp = await client.post(
-        "/api/planning/windows",
+        "/project-manager/api/planning/windows",
         json={"name": "FY26-Q2", "start_date": "2026-04-01", "end_date": "2026-06-30"},
     )
     assert window_resp.status_code == 201, window_resp.text
     window_id = window_resp.json()["window_id"]
 
     created = await client.post(
-        "/api/resource-allocations",
+        "/project-manager/api/resource-allocations",
         json={
             "work_item_type": "subcomponent",
             "work_item_id": "task-1",
@@ -62,14 +62,14 @@ async def test_create_allocation_legacy_hours_backfills_fte_months(client):
 @pytest.mark.anyio
 async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     window_resp = await client.post(
-        "/api/planning/windows",
+        "/project-manager/api/planning/windows",
         json={"name": "FY26-Q3", "start_date": "2026-07-01", "end_date": "2026-09-30"},
     )
     assert window_resp.status_code == 201, window_resp.text
     window_id = window_resp.json()["window_id"]
 
     first = await client.post(
-        "/api/resource-allocations",
+        "/project-manager/api/resource-allocations",
         json={
             "work_item_type": "solution",
             "work_item_id": "sol-a",
@@ -83,7 +83,7 @@ async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     assert first.status_code == 201, first.text
 
     second = await client.post(
-        "/api/resource-allocations",
+        "/project-manager/api/resource-allocations",
         json={
             "work_item_type": "subcomponent",
             "work_item_id": "task-b",
@@ -96,7 +96,7 @@ async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     )
     assert second.status_code == 201, second.text
 
-    summary = await client.get(f"/api/resource-allocations/summary?window_id={window_id}")
+    summary = await client.get(f"/project-manager/api/resource-allocations/summary?window_id={window_id}")
     assert summary.status_code == 200, summary.text
     rows = summary.json()
     assert len(rows) == 1

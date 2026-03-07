@@ -112,14 +112,20 @@ def test_auth_cookie_helpers_set_and_clear():
     response = Response()
     set_auth_cookies(response, "access", "refresh")
     cookies = response.headers.getlist("set-cookie")
-    assert any("access_token=" in cookie for cookie in cookies)
-    assert any("refresh_token=" in cookie for cookie in cookies)
+    assert any("access_token=" in cookie and "Path=/project-manager" in cookie for cookie in cookies)
+    assert any("refresh_token=" in cookie and "Path=/project-manager" in cookie for cookie in cookies)
 
     clear = Response()
     clear_auth_cookies(clear)
     cleared = clear.headers.getlist("set-cookie")
-    assert any("access_token=" in cookie and "Max-Age=0" in cookie for cookie in cleared)
-    assert any("refresh_token=" in cookie and "Max-Age=0" in cookie for cookie in cleared)
+    assert any(
+        "access_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+        for cookie in cleared
+    )
+    assert any(
+        "refresh_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+        for cookie in cleared
+    )
 
 
 def test_require_space_role_normalizes_space_admin_aliases():
@@ -158,35 +164,86 @@ def test_require_space_role_rejects_member_for_space_admin_threshold():
 @pytest.mark.anyio
 async def test_register_refresh_logout_and_me(auth_client):
     payload = {"soeid": "ABC1", "display_name": "Alice", "password": "Password123"}
-    resp = await auth_client.post("/api/auth/register", json=payload)
+    resp = await auth_client.post("/project-manager/api/auth/register", json=payload)
     assert resp.status_code == 201, resp.text
     created = resp.json()
     assert created["soeid"] == "abc1"
     assert created["email"] == "abc1@citi.com"
 
-    me = await auth_client.get("/api/auth/me")
+    me = await auth_client.get("/project-manager/api/auth/me")
     assert me.status_code == 200, me.text
     assert me.json()["user_id"] == created["user_id"]
 
-    refresh = await auth_client.post("/api/auth/refresh")
+    refresh = await auth_client.post("/project-manager/api/auth/refresh")
     assert refresh.status_code == 200, refresh.text
 
-    logout = await auth_client.post("/api/auth/logout")
+    logout = await auth_client.post("/project-manager/api/auth/logout")
     assert logout.status_code == 204
 
     auth_client.cookies.clear()
-    me_unauth = await auth_client.get("/api/auth/me")
+    me_unauth = await auth_client.get("/project-manager/api/auth/me")
     assert me_unauth.status_code == 401
 
-    dup = await auth_client.post("/api/auth/register", json=payload)
+    dup = await auth_client.post("/project-manager/api/auth/register", json=payload)
     assert dup.status_code == 400
     assert dup.json()["detail"] == "SOEID already registered"
 
 
 @pytest.mark.anyio
+async def test_global_admin_can_issue_temp_password_and_user_reset_with_it(auth_client, db_sessionmaker):
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "GA2", "display_name": "Global Admin", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    with db_sessionmaker() as session:
+        admin = session.query(User).filter(User.soeid == "ga2").first()
+        assert admin is not None
+        admin.role = "global_admin"
+        target = User(
+            soeid="resettarget1",
+            email="resettarget1@example.com",
+            display_name="Reset Target",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+        )
+        session.add_all([admin, target])
+        session.commit()
+
+    issued = await auth_client.post(
+        "/project-manager/api/users/by-soeid/resettarget1/password-reset-request",
+        json={"expires_minutes": 30},
+    )
+    assert issued.status_code == 201, issued.text
+    payload = issued.json()
+    assert payload["status"] == "issued"
+    assert payload["temp_password"]
+
+    reset = await auth_client.post(
+        "/project-manager/api/auth/reset-password",
+        json={
+            "soeid": "resettarget1",
+            "temp_password": payload["temp_password"],
+            "new_password": "Password456",
+            "confirm_password": "Password456",
+        },
+    )
+    assert reset.status_code == 200, reset.text
+
+    login = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "resettarget1", "password": "Password456"},
+    )
+    assert login.status_code == 200, login.text
+    assert login.json()["soeid"] == "resettarget1"
+
+
+@pytest.mark.anyio
 async def test_refresh_preserves_active_space_selection(auth_client, db_sessionmaker):
     register = await auth_client.post(
-        "/api/auth/register",
+        "/project-manager/api/auth/register",
         json={"soeid": "GA1", "display_name": "Global Admin", "password": "Password123"},
     )
     assert register.status_code == 201, register.text
@@ -199,7 +256,7 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
         session.commit()
 
     create_space = await auth_client.post(
-        "/api/spaces",
+        "/project-manager/api/spaces",
         json={"name": "Ops Alpha"},
     )
     assert create_space.status_code == 201, create_space.text
@@ -207,14 +264,14 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 
     auth_client.cookies.set("active_space_id", ops_space_id)
 
-    before = await auth_client.get("/api/auth/active-space")
+    before = await auth_client.get("/project-manager/api/auth/active-space")
     assert before.status_code == 200, before.text
     assert before.json()["space_id"] == ops_space_id
 
-    refreshed = await auth_client.post("/api/auth/refresh")
+    refreshed = await auth_client.post("/project-manager/api/auth/refresh")
     assert refreshed.status_code == 200, refreshed.text
 
-    after = await auth_client.get("/api/auth/active-space")
+    after = await auth_client.get("/project-manager/api/auth/active-space")
     assert after.status_code == 200, after.text
     assert after.json()["space_id"] == ops_space_id
 
@@ -222,14 +279,14 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 @pytest.mark.anyio
 async def test_get_active_space_repairs_missing_active_space_cookie(auth_client):
     register = await auth_client.post(
-        "/api/auth/register",
+        "/project-manager/api/auth/register",
         json={"soeid": "COOKIE1", "display_name": "Cookie User", "password": "Password123"},
     )
     assert register.status_code == 201, register.text
 
     auth_client.cookies.pop("active_space_id", None)
 
-    resp = await auth_client.get("/api/auth/active-space")
+    resp = await auth_client.get("/project-manager/api/auth/active-space")
     assert resp.status_code == 200, resp.text
     active_space_id = resp.json()["space_id"]
     set_cookies = resp.headers.get_list("set-cookie")
@@ -239,14 +296,14 @@ async def test_get_active_space_repairs_missing_active_space_cookie(auth_client)
 @pytest.mark.anyio
 async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
     register = await auth_client.post(
-        "/api/auth/register",
+        "/project-manager/api/auth/register",
         json={"soeid": "COOKIE2", "display_name": "Stale Cookie User", "password": "Password123"},
     )
     assert register.status_code == 201, register.text
 
     auth_client.cookies.set("active_space_id", "stale-space-id")
 
-    resp = await auth_client.get("/api/auth/active-space")
+    resp = await auth_client.get("/project-manager/api/auth/active-space")
     assert resp.status_code == 200, resp.text
     active_space_id = resp.json()["space_id"]
     set_cookies = resp.headers.get_list("set-cookie")
@@ -257,7 +314,7 @@ async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
 @pytest.mark.anyio
 async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
     register = await auth_client.post(
-        "/api/auth/register",
+        "/project-manager/api/auth/register",
         json={"soeid": "LOCK1", "display_name": "Locker", "password": "Password123"},
     )
     assert register.status_code == 201, register.text
@@ -265,12 +322,12 @@ async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
 
     for _ in range(5):
         bad = await auth_client.post(
-            "/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
+            "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
         )
         assert bad.status_code == 401
 
     locked = await auth_client.post(
-        "/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
+        "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
     )
     assert locked.status_code == 423
 
@@ -282,7 +339,7 @@ async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
         session.commit()
 
     ok = await auth_client.post(
-        "/api/auth/login", json={"soeid": "lock1", "password": "Password123"}
+        "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "Password123"}
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["last_login_at"] is not None
@@ -297,17 +354,17 @@ async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
 @pytest.mark.anyio
 async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(auth_client, db_sessionmaker):
     register = await auth_client.post(
-        "/api/auth/register",
+        "/project-manager/api/auth/register",
         json={"soeid": "AUTH1", "display_name": "Auth", "password": "Password123"},
     )
     assert register.status_code == 201
 
     auth_client.cookies.clear()
-    missing_cookie = await auth_client.get("/api/auth/me")
+    missing_cookie = await auth_client.get("/project-manager/api/auth/me")
     assert missing_cookie.status_code == 401
 
     auth_client.cookies.set("access_token", "not-a-token")
-    invalid = await auth_client.get("/api/auth/me")
+    invalid = await auth_client.get("/project-manager/api/auth/me")
     assert invalid.status_code == 401
     assert invalid.json()["detail"] == "Invalid token"
 
@@ -325,7 +382,7 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
             algorithm=ALGORITHM,
         ),
     )
-    missing_user = await auth_client.get("/api/auth/me")
+    missing_user = await auth_client.get("/project-manager/api/auth/me")
     assert missing_user.status_code == 401
     assert missing_user.json()["detail"] == "User inactive or missing"
 
@@ -338,7 +395,7 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
             algorithm=ALGORITHM,
         ),
     )
-    no_subject = await auth_client.get("/api/auth/me")
+    no_subject = await auth_client.get("/project-manager/api/auth/me")
     assert no_subject.status_code == 401
     assert no_subject.json()["detail"] == "Invalid token subject"
 
@@ -364,7 +421,7 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
             algorithm=ALGORITHM,
         ),
     )
-    locked = await auth_client.get("/api/auth/me")
+    locked = await auth_client.get("/project-manager/api/auth/me")
     assert locked.status_code == 423
     assert locked.json()["detail"] == "Account locked"
 

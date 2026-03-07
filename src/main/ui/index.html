@@ -22,7 +22,7 @@
         <button type="submit">Log in</button>
       </form>
       <div class="auth-links">
-        <button type="button" id="reset-link" class="text-link">Use reset token</button>
+        <button type="button" id="reset-link" class="text-link">Use temporary password</button>
       </div>
       <form id="register-form" class="auth-form hidden">
         <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
@@ -74,9 +74,10 @@
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
       <h3 class="auth-title">Reset Password</h3>
-      <p class="auth-note">Enter the reset token from your password reset request, then choose a new password.</p>
+      <p class="auth-note">Enter your SOEID and the temporary password from your admin, then choose a new password.</p>
       <form id="reset-form" class="auth-form">
-        <label>Reset Token <input type="text" name="reset_token" autocomplete="one-time-code" required /></label>
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>Temporary Password <input type="password" name="temp_password" autocomplete="one-time-code" required /></label>
         <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
         <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
         <button type="submit">Set new password</button>
@@ -720,6 +721,17 @@
               <p id="space-member-status" class="form-notice full-span" role="status" aria-live="polite"></p>
             </form>
           </div>
+        </div>
+      </div>
+
+      <div id="space-directory-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="space-directory-modal-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content wide space-directory-modal-content">
+          <div class="modal-header modal-header-sticky">
+            <h3 id="space-directory-modal-title">Space Details</h3>
+            <button type="button" id="space-directory-modal-close" class="secondary modal-close-x" aria-label="Close space details dialog" title="Close">×</button>
+          </div>
+          <div id="space-directory-modal-body" class="modal-body"></div>
         </div>
       </div>
 

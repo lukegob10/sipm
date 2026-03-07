@@ -60,6 +60,7 @@ const boardState = {
   topPanel: "",
   drafts: defaultDrafts(),
   detailDraft: defaultDetailDraft(),
+  dragItem: null,
   data: defaultBoardData(),
 };
 
@@ -186,6 +187,7 @@ function resetBoardState(spaceId) {
   boardState.notice = { message: "", tone: "info" };
   boardState.undoStack = [];
   boardState.focusReturnTaskId = "";
+  boardState.dragItem = null;
   boardState.drafts = defaultDrafts();
   boardState.detailDraft = defaultDetailDraft();
   boardState.data = defaultBoardData();
@@ -250,11 +252,24 @@ function closeTaskDetail({ restoreFocus = true } = {}) {
   if (focusTargetId) restoreTaskFocusSoon(focusTargetId);
 }
 
+function resolveApiBase(ctx) {
+  if (ctx?.apiBase) return String(ctx.apiBase);
+  try {
+    const modulePath = new URL(import.meta.url, window.location.href).pathname || "";
+    const marker = "/js/";
+    const idx = modulePath.lastIndexOf(marker);
+    const contextPath = idx <= 0 ? "" : modulePath.slice(0, idx).replace(/\/+$/, "");
+    return `${contextPath}/api` || "/api";
+  } catch {
+    return "/api";
+  }
+}
+
 async function callApi(ctx, path, options = {}) {
   if (typeof ctx.api === "function") return ctx.api(path, options);
   const headers = { ...(options.headers || {}) };
   if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${resolveApiBase(ctx)}${path}`, {
     method: options.method || "GET",
     headers,
     body: options.body,
@@ -416,13 +431,14 @@ function parseAssignmentTarget(value) {
 }
 
 function assignmentOptionsHtml(teams, people, selectedValue = "") {
+  const assignablePeople = people.filter((person) => normalizeTeamId(person.team_id));
   const teamOptions = teams
     .map((team) => {
       const value = `team:${team.id}`;
       return `<option value="team:${esc(team.id)}" ${selectedValue === value ? "selected" : ""}>${esc(team.name)}</option>`;
     })
     .join("");
-  const personOptions = people
+  const personOptions = assignablePeople
     .map((person) => {
       const team = teams.find((teamRow) => teamRow.id === person.team_id);
       const suffix = team?.name ? ` (${team.name})` : "";
@@ -537,6 +553,12 @@ function buildDetailPanelHtml(task, allocations, teams, people) {
 function buildBoardMarkup() {
   const teams = sortedTeams();
   const people = sortedPeople();
+  if (
+    boardState.teamFilter === UNASSIGNED_TEAM_ID
+    || (boardState.teamFilter !== "all" && !teams.some((team) => team.id === boardState.teamFilter))
+  ) {
+    boardState.teamFilter = "all";
+  }
   const tasks = sortedTasks();
   const allocationMap = allocationsByTask();
   const assignedTaskIds = new Set(Array.from(allocationMap.keys()));
@@ -553,7 +575,6 @@ function buildBoardMarkup() {
   const teamOptions = [
     '<option value="all">All teams</option>',
     ...teams.map((team) => `<option value="${esc(team.id)}" ${boardState.teamFilter === team.id ? "selected" : ""}>${esc(team.name)}</option>`),
-    `<option value="${UNASSIGNED_TEAM_ID}" ${boardState.teamFilter === UNASSIGNED_TEAM_ID ? "selected" : ""}>Unassigned Team</option>`,
   ].join("");
 
   const allocationList = boardState.data.allocations || [];
@@ -586,11 +607,9 @@ function buildBoardMarkup() {
     personLoadById.set(person.id, load);
   });
 
-  const columns = teams.map((team) => ({ id: team.id, name: team.name, virtual: false }));
-  if (!columns.find((column) => column.id === UNASSIGNED_TEAM_ID)) {
-    columns.push({ id: UNASSIGNED_TEAM_ID, name: "Unassigned", virtual: true });
-  }
-  const visibleColumns = columns.filter((column) => boardState.teamFilter === "all" || boardState.teamFilter === column.id);
+  const visibleColumns = teams.filter((team) => boardState.teamFilter === "all" || boardState.teamFilter === team.id);
+  const unassignedPeople = peopleByTeam.get(UNASSIGNED_TEAM_ID) || [];
+  const visibleUnassignedPeople = unassignedPeople.filter(matchesPersonSearch);
 
   const peopleOverCapacity = people.reduce((count, person) => {
     const capacity = Math.max(numberOr(person.capacity_fte_months, 1), 0);
@@ -599,12 +618,11 @@ function buildBoardMarkup() {
     return count + (ratio > 1 ? 1 : 0);
   }, 0);
 
-  const teamOverCapacity = columns.reduce((count, column) => {
-    if (column.virtual) return count;
-    const teamPeople = peopleByTeam.get(column.id) || [];
+  const teamOverCapacity = teams.reduce((count, team) => {
+    const teamPeople = peopleByTeam.get(team.id) || [];
     const teamCapacity = teamPeople.reduce((sum, person) => sum + Math.max(numberOr(person.capacity_fte_months, 1), 0), 0);
     const teamPersonLoad = teamPeople.reduce((sum, person) => sum + numberOr(personLoadById.get(person.id), 0), 0);
-    const teamDirectLoad = (teamAllocationMap.get(column.id) || []).reduce((sum, alloc) => sum + numberOr(alloc.fte_months_allocated, 0), 0);
+    const teamDirectLoad = (teamAllocationMap.get(team.id) || []).reduce((sum, alloc) => sum + numberOr(alloc.fte_months_allocated, 0), 0);
     const teamLoad = teamPersonLoad + teamDirectLoad;
     const ratio = teamCapacity > 0 ? teamLoad / teamCapacity : (teamLoad > 0 ? 1 : 0);
     return count + (ratio > 1 ? 1 : 0);
@@ -677,27 +695,32 @@ function buildBoardMarkup() {
                 <div class="wab-person-name">${esc(person.name)}</div>
                 <div class="wab-person-meta">${personAllocations.length} ${personAllocations.length === 1 ? "task" : "tasks"}</div>
               </div>
-              <div class="wab-capacity-text ${toneClass(personRatio, personCapacity > 0)}">${formatFte(personLoad)} / ${formatFte(personCapacity)} FTE-mo</div>
+              <div class="wab-person-head-actions">
+                <div class="wab-capacity-text ${toneClass(personRatio, personCapacity > 0)}">${formatFte(personLoad)} / ${formatFte(personCapacity)} FTE-mo</div>
+                <button
+                  type="button"
+                  class="secondary wab-person-unassign"
+                  data-wab-action="move-person-to-unassigned"
+                  data-person-id="${esc(person.id)}"
+                  title="Move ${esc(person.name)} to Unassigned"
+                >Unassign</button>
+              </div>
             </div>
             <div class="wab-capacity-bar"><span class="${toneClass(personRatio, personCapacity > 0)}" style="width:${clampPercent(personRatio * 100)}%"></span></div>
             <div class="wab-task-stack">${personTasksHtml || '<p class="muted wab-empty-note">No assignments yet. Select a task, then press Enter here or drag one in.</p>'}</div>
           </section>`;
         })
-        .join("");
+            .join("");
 
-      const teamDropLabel = column.virtual ? "Backlog Return" : "Team Assignment";
-      const teamDropHelp = column.virtual
-        ? "Press Enter here to move the selected task back to backlog, or drop tasks here to unassign them."
-        : "Press Enter here to queue the selected task for this team, or drop tasks here.";
+      const teamDropLabel = "Team Assignment";
+      const teamDropHelp = "Press Enter here to queue the selected task for this team, or drop tasks here.";
       const peopleEmptyMessage = teamPeople.length
         ? `No people match "${esc(boardState.personSearch)}" in this column.`
-        : "No people in this team yet. Add a person above or move one into this column.";
-      const teamTitleHtml = column.virtual
-        ? `<div class="wab-team-name">${esc(column.name)}</div>`
-        : `<div class="wab-team-title-row">
-            <div class="wab-team-name">${esc(column.name)}</div>
-            <button type="button" class="secondary wab-team-delete" data-wab-action="delete-team" data-team-id="${esc(column.id)}" title="Delete team">x</button>
-          </div>`;
+        : "No people in this team yet. Drag someone in from Unassigned or add a person above.";
+      const teamTitleHtml = `<div class="wab-team-title-row">
+          <div class="wab-team-name">${esc(column.name)}</div>
+          <button type="button" class="secondary wab-team-delete" data-wab-action="delete-team" data-team-id="${esc(column.id)}" title="Delete team">x</button>
+        </div>`;
 
       return `<article class="wab-team-column${flashClass("team", column.id)}" data-dropzone="team" data-team-id="${esc(column.id)}">
         <header class="wab-team-head">
@@ -714,10 +737,10 @@ function buildBoardMarkup() {
           class="wab-team-assignment-zone"
           data-dropzone="team"
           data-team-id="${esc(column.id)}"
-          data-assign-target="${column.id === UNASSIGNED_TEAM_ID ? "backlog" : `team:${esc(column.id)}`}"
+          data-assign-target="team:${esc(column.id)}"
           tabindex="0"
           role="button"
-          aria-label="${column.id === UNASSIGNED_TEAM_ID ? "Move selected task to backlog" : `Assign selected task to ${esc(column.name)}`}"
+          aria-label="Assign selected task to ${esc(column.name)}"
         >
           <div class="wab-team-assignment-title">${esc(teamDropLabel)}</div>
           <p class="muted wab-team-assignment-help">${teamDropHelp}</p>
@@ -736,15 +759,18 @@ function buildBoardMarkup() {
         <div class="wab-people-grid">${peopleHtml || `<p class="muted wab-empty-note">${peopleEmptyMessage}</p>`}</div>
       </article>`;
     })
-    .join("");
-
-  const boardEmptyState =
-    !teams.length && !people.length
-      ? `<div class="wab-board-empty">
-          <h3>Start This Allocation Board</h3>
-          <p class="muted">Create a team, add people, then create tasks for ${esc(boardState.month)} to begin assigning work.</p>
-        </div>`
-      : "";
+    .join("")
+    || (
+      !teams.length
+        ? `<div class="wab-board-empty">
+            <h3>No teams yet</h3>
+            <p class="muted">${people.length ? "Create a team, then drag people in from Unassigned to start allocating work." : `Create a team, add people, then create tasks for ${esc(boardState.month)} to begin assigning work.`}</p>
+          </div>`
+        : `<div class="wab-board-empty">
+            <h3>No teams in view</h3>
+            <p class="muted">Clear the team filter to bring your team columns back into view.</p>
+          </div>`
+    );
 
   const backlogEmptyState = !tasks.length
     ? '<p class="muted wab-empty-note">No tasks for this month yet. Use the task quick-add row below the toolbar to create your first task.</p>'
@@ -753,6 +779,34 @@ function buildBoardMarkup() {
       : assignedTaskIds.size
         ? '<p class="muted wab-empty-note">No matching backlog tasks. Clear the backlog filters or unassign a task from the detail panel.</p>'
         : '<p class="muted wab-empty-note">Nothing is waiting in backlog. Create a task or adjust the current filters.</p>';
+  const unassignedEmptyState = unassignedPeople.length
+    ? `<p class="muted wab-empty-note">No unassigned people match "${esc(boardState.personSearch)}".</p>`
+    : '<p class="muted wab-empty-note">Everyone is assigned to a team. Drag a person here to take them off the board.</p>';
+  const unassignedPeopleHtml = visibleUnassignedPeople
+    .map((person) => {
+      const personCapacity = Math.max(numberOr(person.capacity_fte_months, 1), 0);
+      const personAllocations = personAllocationMap.get(person.id) || [];
+      const personLoad = personAllocations.reduce((sum, alloc) => sum + numberOr(alloc.fte_months_allocated, 0), 0);
+      const personRatio = personCapacity > 0 ? personLoad / personCapacity : (personLoad > 0 ? 1 : 0);
+      const taskCount = personAllocations.length;
+      const taskSummary = taskCount ? `${taskCount} ${taskCount === 1 ? "task attached" : "tasks attached"}` : "No active tasks";
+      return `<article
+        class="wab-unassigned-person-card${flashClass("person", person.id)}"
+        draggable="true"
+        data-person-id="${esc(person.id)}"
+      >
+        <div class="wab-unassigned-person-head">
+          <div class="wab-unassigned-person-name">${esc(person.name)}</div>
+          <span class="pill muted">${taskCount}</span>
+        </div>
+        <div class="wab-unassigned-person-meta">${esc(taskSummary)}</div>
+        <div class="wab-capacity-text wab-unassigned-person-capacity ${toneClass(personRatio, personCapacity > 0)}">${formatFte(personLoad)} / ${formatFte(personCapacity)} FTE-mo</div>
+      </article>`;
+    })
+    .join("");
+  const unassignedCountLabel = visibleUnassignedPeople.length !== unassignedPeople.length
+    ? `${visibleUnassignedPeople.length} / ${unassignedPeople.length}`
+    : `${unassignedPeople.length}`;
 
   const notice =
     boardState.notice?.message
@@ -862,8 +916,8 @@ function buildBoardMarkup() {
         <p class="muted">Work assigned to a team before it is routed to an individual.</p>
       </div>
       <div class="wab-toolbar-card">
-        <span class="wab-toolbar-card-label">Person Card</span>
-        <p class="muted">Direct assignments with live capacity load for that person.</p>
+        <span class="wab-toolbar-card-label">People</span>
+        <p class="muted">Team people can take work directly. Unassigned people stay parked on the right until moved onto a team.</p>
       </div>
       <div class="wab-toolbar-card">
         <span class="wab-toolbar-card-label">Keyboard</span>
@@ -929,17 +983,31 @@ function buildBoardMarkup() {
     </div>
     <div class="wab-layout${selected ? " has-detail" : ""}">
       <div class="wab-shell">
-        <aside class="wab-backlog" data-dropzone="backlog" data-assign-target="backlog" tabindex="0" role="button" aria-label="Move selected task back to backlog">
+        <aside class="wab-side-rail wab-backlog" data-dropzone="backlog" data-assign-target="backlog" tabindex="0" role="button" aria-label="Move selected task back to backlog">
           <div class="wab-panel-head">
             <div class="wab-panel-title-group">
               <h3>Backlog</h3>
-              <p class="muted wab-panel-sub">Drop tasks here to unassign them. Drop people here to move them into Unassigned.</p>
+              <p class="muted wab-panel-sub">Drop tasks here to unassign them and return them to backlog.</p>
             </div>
             <span class="pill muted">${backlogTasks.length}</span>
           </div>
           <div class="wab-task-list">${backlogTasks.map((task) => taskChip(task, null)).join("") || backlogEmptyState}</div>
         </aside>
-        <section class="wab-board-columns">${boardEmptyState}${columnHtml}</section>
+        <section class="wab-board-columns">${columnHtml}</section>
+        <aside class="wab-side-rail wab-unassigned-rail" data-dropzone="unassigned" aria-label="Move people here to make them unassigned">
+          <div class="wab-panel-head">
+            <div class="wab-panel-title-group">
+              <h3>Unassigned People</h3>
+              <p class="muted wab-panel-sub">Drag people here to park them off the board. Move them onto a team before assigning new work.</p>
+            </div>
+            <span class="pill muted">${unassignedCountLabel}</span>
+          </div>
+          <div class="wab-unassigned-dropzone" aria-hidden="true">
+            <div class="wab-unassigned-drop-title">Drop People Here</div>
+            <p class="muted wab-unassigned-drop-help">Move a person out of a team without mixing them into backlog work.</p>
+          </div>
+          <div class="wab-unassigned-list">${unassignedPeopleHtml || unassignedEmptyState}</div>
+        </aside>
       </div>
       ${buildDetailPanelHtml(selected, selectedAllocations, teams, people)}
     </div>`;
@@ -949,6 +1017,19 @@ async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = t
   const ctx = boardState.ctx;
   const task = (boardState.data.tasks || []).find((row) => row.id === taskId);
   if (!task) return;
+  if (assigneeType === "person") {
+    const person = (boardState.data.people || []).find((row) => row.id === assigneeId);
+    if (!person) {
+      setNotice("Person not found", "warn");
+      rerender();
+      return;
+    }
+    if (!normalizeTeamId(person.team_id)) {
+      setNotice("Move this person onto a team before assigning work", "warn");
+      rerender();
+      return;
+    }
+  }
   const existingSame = (boardState.data.allocations || []).find(
     (row) => row.task_id === taskId && row.assignee_type === assigneeType && row.assignee_id === assigneeId
   );
@@ -1040,10 +1121,10 @@ async function movePersonToTeam(personId, teamId, { pushUndo = true } = {}) {
       teamId: previousTeamId,
     });
   }
-  setNotice("Person moved to team", "success");
+  setNotice(nextTeamToken === UNASSIGNED_TEAM_ID ? "Person moved to Unassigned" : "Person moved to team", "success");
   flashTargets([
     { kind: "person", id: personId },
-    { kind: "team", id: nextTeamToken },
+    ...(nextTeamToken === UNASSIGNED_TEAM_ID ? [] : [{ kind: "team", id: nextTeamToken }]),
   ]);
   await refreshGlobal(ctx, "users");
   rerender();
@@ -1138,11 +1219,14 @@ async function onAction(action, actionEl = null) {
       const headers = {};
       const activeSpaceId = ctx?.state?.activeSpace?.space_id || "";
       if (activeSpaceId) headers["X-Space-Id"] = activeSpaceId;
-      const response = await fetch(`/api/planning/work-allocation/report.pdf?month=${encodeURIComponent(month)}`, {
+      const response = await fetch(
+        `${resolveApiBase(ctx)}/planning/work-allocation/report.pdf?month=${encodeURIComponent(month)}`,
+        {
         method: "GET",
         headers,
         credentials: "include",
-      });
+        }
+      );
       if (!response.ok) {
         const text = await response.text();
         let message = `Download failed (${response.status})`;
@@ -1295,6 +1379,12 @@ async function onAction(action, actionEl = null) {
       await unassignAllocation(allocationId, { pushUndo: true, noticeMessage: "Assignee removed from task" });
       return;
     }
+    if (action === "move-person-to-unassigned") {
+      const personId = String(actionEl?.getAttribute("data-person-id") || "").trim();
+      if (!personId) return;
+      await movePersonToTeam(personId, UNASSIGNED_TEAM_ID, { pushUndo: true });
+      return;
+    }
     if (action === "save-task") {
       const selectedId = boardState.selectedTaskId;
       if (!selectedId) return;
@@ -1359,11 +1449,25 @@ function getDropzone(eventTarget) {
   };
 }
 
+function eventElement(target) {
+  if (target instanceof Element) return target;
+  if (target instanceof Node) return target.parentElement;
+  return null;
+}
+
 function plainDragData(dataTransfer) {
   return String(dataTransfer?.getData("text/plain") || "").trim();
 }
 
+function activeDragItem() {
+  return boardState.dragItem && typeof boardState.dragItem === "object" ? boardState.dragItem : null;
+}
+
 function dragKindFromDataTransfer(dataTransfer) {
+  const dragItem = activeDragItem();
+  if (dragItem?.kind === DRAG_KIND_PERSON || dragItem?.kind === DRAG_KIND_TASK) {
+    return dragItem.kind;
+  }
   const kind = String(dataTransfer?.getData("application/x-wab-kind") || "").trim();
   if (kind === DRAG_KIND_PERSON) return DRAG_KIND_PERSON;
   if (kind === DRAG_KIND_TASK) return DRAG_KIND_TASK;
@@ -1377,6 +1481,10 @@ function dragKindFromDataTransfer(dataTransfer) {
 }
 
 function personIdFromDataTransfer(dataTransfer) {
+  const dragItem = activeDragItem();
+  if (dragItem?.kind === DRAG_KIND_PERSON && dragItem.personId) {
+    return String(dragItem.personId);
+  }
   const explicit = String(dataTransfer?.getData("application/x-wab-person-id") || "").trim();
   if (explicit) return explicit;
   const plain = plainDragData(dataTransfer);
@@ -1385,6 +1493,10 @@ function personIdFromDataTransfer(dataTransfer) {
 }
 
 function taskIdFromDataTransfer(dataTransfer) {
+  const dragItem = activeDragItem();
+  if (dragItem?.kind === DRAG_KIND_TASK && dragItem.taskId) {
+    return String(dragItem.taskId);
+  }
   const explicit = String(dataTransfer?.getData("application/x-wab-task-id") || "").trim();
   if (explicit) return explicit;
   const plain = plainDragData(dataTransfer);
@@ -1395,13 +1507,17 @@ function taskIdFromDataTransfer(dataTransfer) {
 }
 
 function allocationIdFromDataTransfer(dataTransfer) {
+  const dragItem = activeDragItem();
+  if (dragItem?.kind === DRAG_KIND_TASK && dragItem.allocationId) {
+    return String(dragItem.allocationId);
+  }
   return String(dataTransfer?.getData("application/x-wab-allocation-id") || "").trim();
 }
 
 function canDropOnZone(zone, dragKind) {
   if (!zone) return false;
   if (dragKind === DRAG_KIND_PERSON) {
-    return zone.type === "team" || zone.type === "person" || zone.type === "backlog";
+    return zone.type === "team" || zone.type === "person" || zone.type === "unassigned";
   }
   if (zone.type === "backlog" || zone.type === "person") return true;
   if (zone.type === "team") return !!zone.teamId;
@@ -1542,8 +1658,9 @@ function bindBoardEvents() {
   });
 
   root.addEventListener("dragstart", (event) => {
-    if (!(event.target instanceof Element)) return;
-    const chip = event.target.closest(".wab-task-chip");
+    const target = eventElement(event.target);
+    if (!target) return;
+    const chip = target.closest(".wab-task-chip");
     if (chip && event.dataTransfer) {
       const taskId = chip.getAttribute("data-task-id") || "";
       const allocationId = chip.getAttribute("data-allocation-id") || "";
@@ -1553,9 +1670,14 @@ function bindBoardEvents() {
       event.dataTransfer.setData("application/x-wab-allocation-id", allocationId);
       event.dataTransfer.setData("application/x-wab-assigned", chip.getAttribute("data-assigned") || "0");
       event.dataTransfer.effectAllowed = "move";
+      boardState.dragItem = {
+        kind: DRAG_KIND_TASK,
+        taskId,
+        allocationId,
+      };
       return;
     }
-    const personCard = event.target.closest(".wab-person-card[data-person-id]");
+    const personCard = target.closest(".wab-person-card[data-person-id], .wab-unassigned-person-card[data-person-id]");
     if (personCard && event.dataTransfer) {
       const personId = personCard.getAttribute("data-person-id") || "";
       if (!personId) return;
@@ -1563,12 +1685,29 @@ function bindBoardEvents() {
       event.dataTransfer.setData("application/x-wab-person-id", personId);
       event.dataTransfer.setData("text/plain", `person:${personId}`);
       event.dataTransfer.effectAllowed = "move";
+      boardState.dragItem = {
+        kind: DRAG_KIND_PERSON,
+        personId,
+      };
     }
   });
 
+  root.addEventListener("dragenter", (event) => {
+    const target = eventElement(event.target);
+    if (!target) return;
+    const zone = getDropzone(target);
+    if (!zone) return;
+    const dragKind = dragKindFromDataTransfer(event.dataTransfer);
+    if (!canDropOnZone(zone, dragKind)) return;
+    event.preventDefault();
+    clearDropTargets();
+    zone.el.classList.add("is-drop-target");
+  });
+
   root.addEventListener("dragover", (event) => {
-    if (!(event.target instanceof Element)) return;
-    const zone = getDropzone(event.target);
+    const target = eventElement(event.target);
+    if (!target) return;
+    const zone = getDropzone(target);
     if (!zone) return;
     const dragKind = dragKindFromDataTransfer(event.dataTransfer);
     if (!canDropOnZone(zone, dragKind)) return;
@@ -1578,15 +1717,19 @@ function bindBoardEvents() {
   });
 
   root.addEventListener("dragleave", (event) => {
-    if (!(event.target instanceof Element)) return;
-    const zone = getDropzone(event.target);
+    const target = eventElement(event.target);
+    if (!target) return;
+    const zone = getDropzone(target);
     if (!zone) return;
+    const nextTarget = eventElement(event.relatedTarget);
+    if (nextTarget && zone.el.contains(nextTarget)) return;
     zone.el.classList.remove("is-drop-target");
   });
 
   root.addEventListener("drop", async (event) => {
-    if (!(event.target instanceof Element)) return;
-    const zone = getDropzone(event.target);
+    const target = eventElement(event.target);
+    if (!target) return;
+    const zone = getDropzone(target);
     if (!zone) return;
     const dragKind = dragKindFromDataTransfer(event.dataTransfer);
     if (!canDropOnZone(zone, dragKind)) return;
@@ -1596,7 +1739,7 @@ function bindBoardEvents() {
       if (dragKind === DRAG_KIND_PERSON) {
         const personId = personIdFromDataTransfer(event.dataTransfer);
         if (!personId) return;
-        if (zone.type === "backlog") {
+        if (zone.type === "unassigned") {
           await movePersonToTeam(personId, UNASSIGNED_TEAM_ID, { pushUndo: true });
           return;
         }
@@ -1639,10 +1782,13 @@ function bindBoardEvents() {
     } catch (err) {
       setNotice(err?.message || "Drop failed", "error");
       rerender();
+    } finally {
+      boardState.dragItem = null;
     }
   });
 
   root.addEventListener("dragend", () => {
+    boardState.dragItem = null;
     clearDropTargets();
   });
 }

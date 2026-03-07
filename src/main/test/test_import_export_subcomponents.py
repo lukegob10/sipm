@@ -11,20 +11,20 @@ import pytest
 async def test_subcomponents_import_updates_creates_and_exports(client):
     project = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Data Platform", "sponsor": "CFO Office"},
         )
     ).json()
     solution = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "Access Controls", "version": "0.1.0", "owner": "Owner"},
         )
     ).json()
 
     created = (
         await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Task A", "assignee": "Engineer A"},
         )
     ).json()
@@ -110,7 +110,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     )
 
     resp = await client.post(
-        "/api/subcomponents/import",
+        "/project-manager/api/subcomponents/import",
         content=buf.getvalue().encode("utf-8"),
         headers={"Content-Type": "text/csv"},
     )
@@ -123,14 +123,14 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert data["total_rows"] == 5
     assert len(data["errors"]) == 3
 
-    updated = await client.get(f"/api/subcomponents/{created['subcomponent_id']}")
+    updated = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
     assert updated.status_code == 200
     updated_json = updated.json()
     assert updated_json["status"] == "complete"
     assert updated_json["completed_at"] is not None
     assert updated_json["assignee"] == "Engineer Updated"
 
-    exported = await client.get("/api/subcomponents/export")
+    exported = await client.get("/project-manager/api/subcomponents/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
     rows = list(csv.DictReader(StringIO(exported.text)))
@@ -142,35 +142,35 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
 async def test_update_subcomponent_sets_completed_at_and_rejects_name_conflict(client):
     project = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={"project_name": "Project Subcomponents", "sponsor": "CFO Office"},
         )
     ).json()
     solution = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "S", "version": "0.1.0", "owner": "Owner"},
         )
     ).json()
     a = (
         await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "A", "assignee": "Engineer"},
         )
     ).json()
     b = (
         await client.post(
-            f"/api/solutions/{solution['solution_id']}/subcomponents",
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "B", "assignee": "Engineer"},
         )
     ).json()
 
-    complete = await client.patch(f"/api/subcomponents/{b['subcomponent_id']}", json={"status": "complete"})
+    complete = await client.patch(f"/project-manager/api/subcomponents/{b['subcomponent_id']}", json={"status": "complete"})
     assert complete.status_code == 200
     assert complete.json()["completed_at"] is not None
 
     conflict = await client.patch(
-        f"/api/subcomponents/{b['subcomponent_id']}",
+        f"/project-manager/api/subcomponents/{b['subcomponent_id']}",
         json={"subcomponent_name": a["subcomponent_name"]},
     )
     assert conflict.status_code == 400

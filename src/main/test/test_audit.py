@@ -12,7 +12,7 @@ from backend.app.models import ChangeLog
 async def test_audit_endpoint_supports_filters(client):
     project = (
         await client.post(
-            "/api/projects/",
+            "/project-manager/api/projects/",
             json={
                 "project_name": "Audit Project",
                 "status": "active",
@@ -21,12 +21,12 @@ async def test_audit_endpoint_supports_filters(client):
         )
     ).json()
 
-    all_rows = await client.get("/api/audit")
+    all_rows = await client.get("/project-manager/api/audit")
     assert all_rows.status_code == 200
     assert len(all_rows.json()) > 0
 
     filtered = await client.get(
-        "/api/audit",
+        "/project-manager/api/audit",
         params={
             "entity_type": "project",
             "entity_id": project["project_id"],

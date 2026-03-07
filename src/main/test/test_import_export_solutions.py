@@ -13,7 +13,7 @@ from backend.app.services.spaces import SpaceContext
 
 async def create_project(client, name: str = "Data Platform"):
     resp = await client.post(
-        "/api/projects/",
+        "/project-manager/api/projects/",
         json={
             "project_name": name,
             "description": "Modernize data stack",
@@ -43,13 +43,13 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
 
     sol_phase = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "Update Phase", "version": "0.1.0", "status": "active", "owner": "Owner"},
         )
     ).json()
     sol_complete = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "Mark Complete", "version": "0.1.0", "status": "active", "owner": "Owner"},
         )
     ).json()
@@ -159,7 +159,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     )
 
     resp = await client.post(
-        "/api/solutions/import",
+        "/project-manager/api/solutions/import",
         content=buf.getvalue().encode("utf-8"),
         headers={"Content-Type": "text/csv"},
     )
@@ -171,23 +171,23 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     assert data["total_rows"] == 7
     assert len(data["errors"]) == 3
 
-    updated_phase = (await client.get(f"/api/solutions/{sol_phase['solution_id']}")).json()
+    updated_phase = (await client.get(f"/project-manager/api/solutions/{sol_phase['solution_id']}")).json()
     assert updated_phase["current_phase"] == "requirements"
     assert updated_phase["priority"] == 2
 
-    updated_complete = (await client.get(f"/api/solutions/{sol_complete['solution_id']}")).json()
+    updated_complete = (await client.get(f"/project-manager/api/solutions/{sol_complete['solution_id']}")).json()
     assert updated_complete["status"] == "complete"
     assert updated_complete["completed_at"] is not None
     assert updated_complete["current_phase"] == "requirements"
 
-    exported = await client.get("/api/solutions/export")
+    exported = await client.get("/project-manager/api/solutions/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
     rows = list(csv.DictReader(StringIO(exported.text)))
     assert any(r["solution_name"] == "Manual RAG" for r in rows)
     assert any(r["project_name"] == "Auto Project" for r in rows)
 
-    list_complete = await client.get("/api/solutions", params={"status": "complete"})
+    list_complete = await client.get("/project-manager/api/solutions", params={"status": "complete"})
     assert list_complete.status_code == 200
     assert [s["solution_name"] for s in list_complete.json()] == ["Mark Complete"]
 
@@ -205,7 +205,7 @@ async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmake
         )
         project_a = await create_project(client, name="Solution Export Project A")
         create_solution_a = await client.post(
-            f"/api/projects/{project_a['project_id']}/solutions",
+            f"/project-manager/api/projects/{project_a['project_id']}/solutions",
             json={"solution_name": "Scoped Solution A", "version": "0.1.0", "owner": "Owner A"},
         )
         assert create_solution_a.status_code == 201, create_solution_a.text
@@ -218,12 +218,12 @@ async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmake
         )
         project_b = await create_project(client, name="Solution Export Project B")
         create_solution_b = await client.post(
-            f"/api/projects/{project_b['project_id']}/solutions",
+            f"/project-manager/api/projects/{project_b['project_id']}/solutions",
             json={"solution_name": "Scoped Solution B", "version": "0.1.0", "owner": "Owner B"},
         )
         assert create_solution_b.status_code == 201, create_solution_b.text
 
-        export_b = await client.get("/api/solutions/export")
+        export_b = await client.get("/project-manager/api/solutions/export")
         assert export_b.status_code == 200, export_b.text
         rows_b = list(csv.DictReader(StringIO(export_b.text)))
         assert {row["solution_name"] for row in rows_b} == {"Scoped Solution B"}
@@ -235,7 +235,7 @@ async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmake
             is_global_admin=False,
             space_role="space_admin",
         )
-        export_a = await client.get("/api/solutions/export")
+        export_a = await client.get("/project-manager/api/solutions/export")
         assert export_a.status_code == 200, export_a.text
         rows_a = list(csv.DictReader(StringIO(export_a.text)))
         assert {row["solution_name"] for row in rows_a} == {"Scoped Solution A"}
@@ -251,13 +251,13 @@ async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmake
 async def test_create_solution_rejects_unknown_project_and_current_phase(client, db_sessionmaker):
     seed_minimal_phases(db_sessionmaker)
 
-    missing_project = await client.get("/api/projects/does-not-exist/solutions")
+    missing_project = await client.get("/project-manager/api/projects/does-not-exist/solutions")
     assert missing_project.status_code == 404
     assert missing_project.json()["detail"] == "Project not found"
 
     project = await create_project(client)
     bad_phase = await client.post(
-        f"/api/projects/{project['project_id']}/solutions",
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
         json={
             "solution_name": "S",
             "version": "0.1.0",
@@ -275,7 +275,7 @@ async def test_create_solution_accepts_rag_reason(client):
     project = await create_project(client)
 
     created = await client.post(
-        f"/api/projects/{project['project_id']}/solutions",
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
         json={
             "solution_name": "Manual Reason",
             "version": "0.1.0",
@@ -295,13 +295,13 @@ async def test_update_solution_sets_manual_when_rag_fields_provided_without_sour
     project = await create_project(client)
     created = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "S", "version": "0.1.0", "owner": "Owner"},
         )
     ).json()
 
     resp = await client.patch(
-        f"/api/solutions/{created['solution_id']}",
+        f"/project-manager/api/solutions/{created['solution_id']}",
         json={"rag_status": "green", "rag_reason": "Approved"},
     )
     assert resp.status_code == 200, resp.text
@@ -315,13 +315,13 @@ async def test_update_solution_allows_empty_patch(client):
     project = await create_project(client)
     created = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "S", "version": "0.1.0", "owner": "Owner"},
         )
     ).json()
 
     resp = await client.patch(
-        f"/api/solutions/{created['solution_id']}",
+        f"/project-manager/api/solutions/{created['solution_id']}",
         json={},
     )
     assert resp.status_code == 200
@@ -332,19 +332,19 @@ async def test_update_solution_rejects_name_version_conflict(client):
     project = await create_project(client)
     s1 = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "A", "version": "0.1.0", "owner": "Owner"},
         )
     ).json()
     s2 = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "B", "version": "0.2.0", "owner": "Owner"},
         )
     ).json()
 
     resp = await client.patch(
-        f"/api/solutions/{s2['solution_id']}",
+        f"/project-manager/api/solutions/{s2['solution_id']}",
         json={"solution_name": s1["solution_name"], "version": s1["version"]},
     )
     assert resp.status_code == 400
@@ -356,7 +356,7 @@ async def test_solution_auto_rag_marks_abandoned_as_red(client):
     project = await create_project(client)
     created = (
         await client.post(
-            f"/api/projects/{project['project_id']}/solutions",
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
             json={"solution_name": "Abandoned", "version": "0.1.0", "status": "abandoned", "owner": "Owner"},
         )
     ).json()

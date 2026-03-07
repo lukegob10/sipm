@@ -30,22 +30,20 @@ class VerifyTempPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
+    soeid: str
+    temp_password: str
     new_password: str
     confirm_password: str
+
+
 class PasswordResetIssueRequest(BaseModel):
     expires_minutes: Optional[int] = None
 
 
 class PasswordResetIssueResponse(BaseModel):
     status: str
-    reset_token: str
+    temp_password: str
     expires_at: datetime
-
-
-class ResetPasswordWithTokenRequest(BaseModel):
-    reset_token: str
-    new_password: str
-    confirm_password: str
 
 
 class UserRead(BaseModel):

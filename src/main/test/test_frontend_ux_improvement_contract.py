@@ -7,6 +7,7 @@ INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
+SUBCOMPONENTS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
 
 
 def test_master_remains_default_view_and_fallback():
@@ -94,3 +95,23 @@ def test_planning_route_uses_inline_forms_confirm_modal_and_keyboard_detail_cont
     assert "wab-person-search" in text
     assert "window.prompt" not in text
     assert "window.confirm" not in text
+
+
+def test_operational_views_can_hide_completed_work_across_space():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    workbench_text = SUBCOMPONENTS_WORKBENCH_ROUTE.read_text(encoding="utf-8")
+
+    assert 'id="completed-visibility-toggle"' in html_text
+    assert 'const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";' in app_text
+    assert 'workspacePrefs: { showCompleted: false },' in app_text
+    assert "function renderCompletedVisibilityToggle()" in app_text
+    assert "function showCompletedOperationalWork()" in app_text
+    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;" in app_text
+    assert "if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;" in app_text
+    assert "if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;" in app_text
+    assert "Completed items are hidden here. Use Show Completed in the top bar" in app_text
+    assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_text
+    assert "completed or abandoned task" in planning_text
+    assert "summary?.hiddenClosed" in workbench_text

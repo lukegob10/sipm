@@ -44,7 +44,10 @@ export function renderSubcomponentsWorkbench(ctx) {
   if (!els.subcomponentsWorkbenchTable) return;
 
   if (!rows.length) {
-    els.subcomponentsWorkbenchTable.innerHTML = "<p class='muted'>No subcomponents match the current filters in this space.</p>";
+    const hiddenClosed = Number(summary?.hiddenClosed || 0);
+    els.subcomponentsWorkbenchTable.innerHTML = hiddenClosed
+      ? `<p class='muted'>No open subcomponents match the current filters. ${hiddenClosed} completed or abandoned item${hiddenClosed === 1 ? "" : "s"} are hidden. Use Show Completed in the top bar to review them.</p>`
+      : "<p class='muted'>No subcomponents match the current filters in this space.</p>";
     return;
   }
 

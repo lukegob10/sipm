@@ -101,6 +101,7 @@ const els = {
   spaceSwitcherRecentList: document.getElementById("space-switcher-recent-list"),
   spaceSwitcherAllList: document.getElementById("space-switcher-all-list"),
   currentUser: document.getElementById("current-user"),
+  completedVisibilityToggle: document.getElementById("completed-visibility-toggle"),
   logoutBtn: document.getElementById("logout-btn"),
   themeToggle: document.getElementById("theme-toggle"),
   appShell: document.getElementById("app-shell"),
@@ -251,6 +252,7 @@ const els = {
   csvUploadStatus: document.getElementById("csv-upload-status"),
   phasesTable: document.getElementById("phases-table"),
   subcomponentForm: document.getElementById("subcomponent-form"),
+  subcomponentSubmitBtn: document.getElementById("subcomponent-submit-btn"),
   subcomponentFormStatus: document.getElementById("subcomponent-form-status"),
   showSubcomponentFormBtn: document.getElementById("show-subcomponent-form"),
   kanbanBoard: document.getElementById("kanban-board"),
@@ -295,7 +297,6 @@ const els = {
   planningRoster: document.getElementById("planning-roster"),
   planningWindowSummary: document.getElementById("planning-window-summary"),
   planningKpis: document.getElementById("planning-kpis"),
-  newSubcomponentBtn: document.getElementById("new-subcomponent"),
   deleteProjectBtn: document.getElementById("delete-project"),
   deleteSolutionBtn: document.getElementById("delete-solution"),
   deleteSubcomponentBtn: document.getElementById("delete-subcomponent"),
@@ -446,6 +447,7 @@ const state = {
   },
   currentView: "master",
   theme: "dark",
+  workspacePrefs: { showCompleted: false },
   loading: false,
   pendingRefresh: false,
   calendarMonth: (() => {
@@ -478,6 +480,7 @@ const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const IDLE_WARN_MS = 55 * 60 * 1000;
 const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";
+const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
@@ -1227,6 +1230,7 @@ async function refreshSpaceContext(options = {}) {
   }
   state.spaceRecentIds = readRecentSpaceIds().filter((spaceId) => visibleSpaceIds.has(spaceId));
   persistRecentSpaceIds();
+  restoreWorkspaceViewPreferences();
   restoreMasterViewState();
   restoreSubcomponentsWorkbenchUiState();
   renderSpaceSwitcher();
@@ -1269,6 +1273,7 @@ function setAuthed(user) {
     startIdleWatch();
     state.spaceRecentIds = readRecentSpaceIds();
   } else {
+    state.workspacePrefs = { showCompleted: false };
     clearDataState();
     state.spaces = [];
     state.activeSpace = null;
@@ -1302,6 +1307,7 @@ function setAuthed(user) {
     setStatus("Sign in required", "warn");
   }
   renderSpaceSwitcher();
+  renderCompletedVisibilityToggle();
   updateSubcomponentsWorkbenchSavedViewsUI();
   renderTopbarStatus();
 }
@@ -2159,6 +2165,20 @@ function initTheme() {
   });
 }
 
+function bindWorkspaceViewPreferences() {
+  renderCompletedVisibilityToggle();
+  if (els.completedVisibilityToggle && !els.completedVisibilityToggle._bound) {
+    els.completedVisibilityToggle.addEventListener("click", () => {
+      if (!state.authed) return;
+      state.workspacePrefs.showCompleted = !state.workspacePrefs.showCompleted;
+      persistWorkspaceViewPreferences();
+      renderCompletedVisibilityToggle();
+      renderActiveView();
+    });
+    els.completedVisibilityToggle._bound = true;
+  }
+}
+
 function upsertById(list, item, idKey) {
   if (!item || !list) return;
   const id = item[idKey];
@@ -2339,6 +2359,11 @@ function restoreSelections(projectId, solutionId, subcomponentId) {
       els.subcomponentForm.querySelector('[name="blocked"]').checked = !!sub.blocked;
       els.subcomponentForm.querySelector('[name="blocker_note"]').value = sub.blocker_note || "";
       els.subcomponentForm.querySelector('[name="done_criteria"]').value = sub.done_criteria || "";
+      els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(sub.capacity_hours, 0);
+      if (els.deleteSubcomponentBtn) {
+        els.deleteSubcomponentBtn.disabled = !sub.subcomponent_id;
+      }
+      setSubcomponentActionButtonLabel(true);
     }
   }
 }
@@ -2396,9 +2421,39 @@ function renderMasterFilters() {
   });
 }
 
-function isCompletedSubcomponentStatus(statusValue) {
+function isClosedLifecycleStatus(statusValue) {
   const status = normalize(statusValue);
   return status === "complete" || status === "abandoned";
+}
+
+function isClosedProjectStatus(statusValue) {
+  return isClosedLifecycleStatus(statusValue);
+}
+
+function isClosedSolutionStatus(statusValue) {
+  return isClosedLifecycleStatus(statusValue);
+}
+
+function isCompletedSubcomponentStatus(statusValue) {
+  return isClosedLifecycleStatus(statusValue);
+}
+
+function showCompletedOperationalWork() {
+  return !!state.workspacePrefs?.showCompleted;
+}
+
+function requestsClosedStatuses(filterValue) {
+  const status = normalize(filterValue);
+  if (!status) return false;
+  return status.includes("complete") || status.includes("abandoned");
+}
+
+function hideClosedDeliverables() {
+  return !showCompletedOperationalWork() && !requestsClosedStatuses(state.filters?.status);
+}
+
+function hideClosedSubcomponentsWorkbench() {
+  return !showCompletedOperationalWork() && !requestsClosedStatuses(state.subcomponentsWorkbench?.filters?.status);
 }
 
 function deriveSubcomponentActionability(subcomponent) {
@@ -2468,6 +2523,7 @@ function subcomponentsWorkbenchRows() {
   const userSoeid = normalize(state.user?.soeid);
 
   const visible = rows.filter((row) => {
+    if (hideClosedSubcomponentsWorkbench() && isCompletedSubcomponentStatus(row.status)) return false;
     if (filters.project_id && row.project_id !== filters.project_id) return false;
     if (filters.solution_id && row.solution_id !== filters.solution_id) return false;
     if (filters.status && row.status !== filters.status) return false;
@@ -2544,6 +2600,9 @@ function subcomponentsWorkbenchSummary(allRows, visibleRows) {
   return {
     total: rows.length,
     visible: (visibleRows || []).length,
+    hiddenClosed: hideClosedSubcomponentsWorkbench()
+      ? rows.filter((row) => isCompletedSubcomponentStatus(row.status)).length
+      : 0,
     overdue: rows.filter((row) => row.is_overdue).length,
     dueSoon: rows.filter((row) => row.is_due_soon).length,
     blocked: rows.filter((row) => row.blocked).length,
@@ -3009,6 +3068,7 @@ function filteredSolutions() {
   const preset = state.deliverablesPreset || "";
   const userName = (state.user?.display_name || state.user?.soeid || "").toLowerCase();
   return state.solutions.filter((s) => {
+    if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;
     // Deliverables filters for every column
     const project = state.projects.find((p) => p.project_id === s.project_id);
     if (f.project && !(project?.project_name || "").toLowerCase().includes(f.project.toLowerCase())) return false;
@@ -3043,6 +3103,7 @@ function filteredSolutions() {
 
 function projectMatchesDeliverablesFilters(project, filters, preset) {
   const f = filters || {};
+  if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;
   if (f.project && !(project?.project_name || "").toLowerCase().includes(f.project.toLowerCase())) return false;
   if (f.sponsor && !(project?.sponsor || "").toLowerCase().includes(f.sponsor.toLowerCase())) return false;
   if (f.priority && Number(project?.priority) > Number(f.priority)) return false;
@@ -3127,6 +3188,7 @@ function filteredSubcomponentsForCalendar() {
   const { project, owner } = state.calendarFilters || {};
   const ownerNorm = (owner || "").toLowerCase();
   return (state.subcomponents || []).filter((sc) => {
+    if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;
     if (!sc?.due_date) return false;
     if (project && sc.project_id !== project) return false;
     if (ownerNorm) {
@@ -3242,6 +3304,10 @@ function renderMasterQuickstart(rowCount = 0) {
   const hasRows = Number(rowCount) > 0;
   const hasDeliverableData = (state.projects?.length || 0) > 0 || (state.solutions?.length || 0) > 0;
   const hasFilters = hasActiveDeliverableFilters();
+  const hiddenClosedDeliverables = !showCompletedOperationalWork()
+    ? (state.projects || []).filter((project) => isClosedProjectStatus(project.status)).length
+      + (state.solutions || []).filter((solution) => isClosedSolutionStatus(solution.status)).length
+    : 0;
 
   if (hasRows) {
     els.masterQuickstart.classList.add("hidden");
@@ -3278,6 +3344,20 @@ function renderMasterQuickstart(rowCount = 0) {
       </div>
       <div class="quickstart-actions">
         <button type="button" class="secondary" data-quick-action="clear-filters">Clear filters</button>
+      </div>
+    `;
+    return;
+  }
+
+  if (hiddenClosedDeliverables > 0) {
+    els.masterQuickstart.classList.remove("hidden");
+    els.masterQuickstart.innerHTML = `
+      <div class="quickstart-head">
+        <h3>Completed Work Hidden</h3>
+        <p class="muted">${hiddenClosedDeliverables} completed or abandoned deliverable${hiddenClosedDeliverables === 1 ? "" : "s"} are hidden from the workspace.</p>
+      </div>
+      <div class="quickstart-actions">
+        <button type="button" class="secondary" data-quick-action="show-completed">Show completed work</button>
       </div>
     `;
     return;
@@ -3503,6 +3583,11 @@ function bindDeliverablesControls() {
         openSolutionModal(null, "details");
       } else if (action === "clear-filters") {
         clearDeliverablesFilters();
+      } else if (action === "show-completed") {
+        state.workspacePrefs.showCompleted = true;
+        persistWorkspaceViewPreferences();
+        renderCompletedVisibilityToggle();
+        renderActiveView();
       }
     });
     els.masterQuickstart._bound = true;
@@ -4363,6 +4448,26 @@ function buildSolutionPayload(data) {
   return payload;
 }
 
+function buildSubcomponentPayload(data) {
+  const assigneeUserId = (data.get("assignee") || "").toString().trim();
+  const assigneeUser = findUserBySoeid(assigneeUserId);
+  return {
+    subcomponent_name: data.get("subcomponent_name"),
+    status: data.get("status"),
+    priority: Number(data.get("priority") || 3),
+    due_date: data.get("due_date") || null,
+    assignee: assigneeUser?.display_name || "",
+    assignee_user_soeid: assigneeUserId || null,
+    estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
+    estimate_fte_months: numberOr(data.get("estimate_hours"), 0),
+    blocked: data.get("blocked") ? true : false,
+    blocker_note: data.get("blocker_note") || null,
+    done_criteria: data.get("done_criteria") || null,
+    capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
+    capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
+  };
+}
+
 function fillSolutionForm(solution = null) {
   if (!els.solutionForm) return;
   els.solutionForm.reset();
@@ -4408,10 +4513,20 @@ function setSolutionActionButtonLabel(isEditing) {
   }
 }
 
+function setSubcomponentActionButtonLabel(isEditing) {
+  if (els.subcomponentSubmitBtn) {
+    els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";
+  }
+}
+
 function openSolutionModal(solution = null, tab = "details") {
   if (!els.solutionModal) return;
   fillSolutionForm(solution);
   setSolutionActionButtonLabel(!!solution?.solution_id);
+  if (els.subcomponentForm) {
+    els.subcomponentForm.classList.add("hidden");
+    setSubcomponentActionButtonLabel(false);
+  }
   els.solutionModal.classList.remove("hidden");
   if (els.subcomponentViewToggle) {
     els.subcomponentViewToggle.textContent = state.subcomponentView === "table" ? "Swimlane View" : "Table View";
@@ -4434,7 +4549,10 @@ function closeSolutionModal() {
   setSolutionActionButtonLabel(false);
   els.solutionModal.classList.add("hidden");
   setSolutionTab("details");
-  if (els.subcomponentForm) els.subcomponentForm.classList.add("hidden");
+  if (els.subcomponentForm) {
+    els.subcomponentForm.classList.add("hidden");
+    setSubcomponentActionButtonLabel(false);
+  }
 }
 
 function setSolutionTab(tab) {
@@ -4468,19 +4586,28 @@ function bindSolutionTabs() {
   tabs._bound = true;
 }
 
-function showSubcomponentForm(solution) {
+function prepareSubcomponentCreateForm(solution, options = {}) {
   if (!els.subcomponentForm) return;
+  const { resetForm = true } = options;
   const sol = solution || state.solutions.find((s) => s.solution_id === els.solutionForm?.querySelector('[name="solution_id"]')?.value);
   if (!sol) return;
   els.subcomponentForm.classList.remove("hidden");
-  els.subcomponentForm.reset();
+  if (resetForm) els.subcomponentForm.reset();
   clearDeliverableFormNotice(els.subcomponentFormStatus);
   els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
   els.subcomponentForm.querySelector('[name="project_id"]').value = sol.project_id;
   els.subcomponentForm.querySelector('[name="solution_id"]').value = sol.solution_id;
+  els.subcomponentForm.querySelector('[name="priority"]').value = 3;
+  els.subcomponentForm.querySelector('[name="status"]').value = "to_do";
+  els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(0, 0);
   if (els.deleteSubcomponentBtn) {
     els.deleteSubcomponentBtn.disabled = true;
   }
+  setSubcomponentActionButtonLabel(false);
+}
+
+function showSubcomponentForm(solution) {
+  prepareSubcomponentCreateForm(solution);
 }
 
 function fillSubcomponentForm(sub) {
@@ -4506,6 +4633,7 @@ function fillSubcomponentForm(sub) {
   if (els.deleteSubcomponentBtn) {
     els.deleteSubcomponentBtn.disabled = !sub.subcomponent_id;
   }
+  setSubcomponentActionButtonLabel(!!sub.subcomponent_id);
 }
 
 function renderSolutionSubcomponents(solutionId) {
@@ -4514,7 +4642,16 @@ function renderSolutionSubcomponents(solutionId) {
     els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Select a solution to see subcomponents.</p>";
     return;
   }
-  const subs = state.subcomponents.filter((s) => s.solution_id === solutionId);
+  const allSubs = state.subcomponents.filter((s) => s.solution_id === solutionId);
+  const hiddenClosedCount = !showCompletedOperationalWork()
+    ? allSubs.filter((subcomponent) => isCompletedSubcomponentStatus(subcomponent.status)).length
+    : 0;
+  const subs = showCompletedOperationalWork()
+    ? allSubs
+    : allSubs.filter((subcomponent) => !isCompletedSubcomponentStatus(subcomponent.status));
+  const hiddenNote = hiddenClosedCount
+    ? `<p class="form-notice">Completed items are hidden here. Use Show Completed in the top bar to review ${hiddenClosedCount} closed subcomponent${hiddenClosedCount === 1 ? "" : "s"}.</p>`
+    : "";
   if (state.subcomponentView === "swimlane") {
     const grouped = {
       to_do: [],
@@ -4541,7 +4678,7 @@ function renderSolutionSubcomponents(solutionId) {
         return `<div class="swimlane-column"><h4>${formatStatus(status)}</h4>${cards}</div>`;
       })
       .join("");
-    els.solutionSubcomponentTable.innerHTML = `<div class="swimlane-board">${columns}</div>`;
+    els.solutionSubcomponentTable.innerHTML = `${hiddenNote}<div class="swimlane-board">${columns}</div>`;
   } else {
     const rows = subs
       .map(
@@ -4557,6 +4694,7 @@ function renderSolutionSubcomponents(solutionId) {
       )
       .join("");
     els.solutionSubcomponentTable.innerHTML = `
+      ${hiddenNote}
       <table class="subcomponent-table">
         <thead>
           <tr>
@@ -4568,7 +4706,7 @@ function renderSolutionSubcomponents(solutionId) {
             <th>Due</th>
           </tr>
         </thead>
-        <tbody>${rows || "<tr><td colspan='6' class='muted'>No subcomponents</td></tr>"}</tbody>
+        <tbody>${rows || `<tr><td colspan='6' class='muted'>${hiddenClosedCount ? "No open subcomponents in view." : "No subcomponents"}</td></tr>`}</tbody>
       </table>`;
   }
 }
@@ -4740,100 +4878,61 @@ function bindSubcomponentForm() {
   els.subcomponentForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = new FormData(els.subcomponentForm);
-    const id = data.get("subcomponent_id");
-    if (!id) {
-      alert("Select a subcomponent or use Create Subcomponent to add one.");
+    const id = (data.get("subcomponent_id") || "").toString().trim();
+    const solutionId = (data.get("solution_id") || "").toString().trim();
+    const isEditing = !!id;
+    if (!solutionId) {
+      alert("Save the solution before adding subcomponents.");
       return;
     }
-    const assigneeUserId = data.get("assignee") || "";
-    const assigneeUser = findUserBySoeid(assigneeUserId);
-    const assigneeName = assigneeUser?.display_name || "";
-    const payload = {
-      subcomponent_name: data.get("subcomponent_name"),
-      status: data.get("status"),
-      priority: Number(data.get("priority") || 3),
-      due_date: data.get("due_date") || null,
-      assignee: assigneeName,
-      assignee_user_soeid: assigneeUserId || null,
-      estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
-      estimate_fte_months: numberOr(data.get("estimate_hours"), 0),
-      blocked: data.get("blocked") ? true : false,
-      blocker_note: data.get("blocker_note") || null,
-      done_criteria: data.get("done_criteria") || null,
-      capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-      capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-    };
+    const payload = buildSubcomponentPayload(data);
     try {
-      setDeliverableFormNotice(els.subcomponentFormStatus, "Saving subcomponent...");
+      if (isEditing) {
+        setDeliverableFormNotice(els.subcomponentFormStatus, "Saving subcomponent...");
+      } else {
+        setDeliverableFormNotice(els.subcomponentFormStatus, "Creating subcomponent...");
+      }
       markIgnoreRefresh("subcomponents");
-      const updated = await api(`/subcomponents/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.subcomponents, updated, "subcomponent_id");
-      renderSolutionSubcomponents(updated.solution_id);
+      const saved = isEditing
+        ? await api(`/subcomponents/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
+        : await api(`/solutions/${solutionId}/subcomponents`, { method: "POST", body: JSON.stringify(payload) });
+      upsertById(state.subcomponents, saved, "subcomponent_id");
+      fillSubcomponentForm(saved);
+      renderSolutionSubcomponents(saved.solution_id);
       renderDashboard();
+      const successMessage = isEditing
+        ? `Saved subcomponent at ${timestampLabel()}.`
+        : `Created subcomponent at ${timestampLabel()}.`;
       setDeliverableFormNotice(
         els.subcomponentFormStatus,
-        `Saved subcomponent at ${timestampLabel()}.`,
+        successMessage,
         "success",
         3200
       );
     } catch (err) {
       ignoreNextRefresh.delete("subcomponents");
-      setDeliverableFormNotice(els.subcomponentFormStatus, `Save failed: ${err.message}`, "error");
-      alert(`Save failed: ${err.message}`);
+      setDeliverableFormNotice(
+        els.subcomponentFormStatus,
+        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+        "error"
+      );
+      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   });
   els.subcomponentForm.addEventListener("reset", () => {
     clearDeliverableFormNotice(els.subcomponentFormStatus);
+    const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+    const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
+    if (solution) {
+      prepareSubcomponentCreateForm(solution, { resetForm: false });
+      return;
+    }
     els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
     if (els.deleteSubcomponentBtn) {
       els.deleteSubcomponentBtn.disabled = true;
     }
+    setSubcomponentActionButtonLabel(false);
   });
-  if (els.newSubcomponentBtn) {
-    els.newSubcomponentBtn.addEventListener("click", async () => {
-      const data = new FormData(els.subcomponentForm);
-      const solutionId = data.get("solution_id");
-      const projectId = data.get("project_id");
-      const name = data.get("subcomponent_name");
-      const assigneeUserId = data.get("assignee") || "";
-      const assigneeUser = findUserBySoeid(assigneeUserId);
-      const assignee = assigneeUser?.display_name || "";
-      if (!projectId || !solutionId || !name) {
-        alert("Project, solution, and task name are required to create.");
-        return;
-      }
-      const payload = {
-        subcomponent_name: name,
-        status: data.get("status"),
-        priority: Number(data.get("priority") || 3),
-        due_date: data.get("due_date") || null,
-        assignee,
-        assignee_user_soeid: assigneeUserId || null,
-        estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
-        estimate_fte_months: numberOr(data.get("estimate_hours"), 0),
-        blocked: data.get("blocked") ? true : false,
-        blocker_note: data.get("blocker_note") || null,
-        done_criteria: data.get("done_criteria") || null,
-        capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-        capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-      };
-      try {
-        markIgnoreRefresh("subcomponents");
-        const created = await api(`/solutions/${solutionId}/subcomponents`, { method: "POST", body: JSON.stringify(payload) });
-        upsertById(state.subcomponents, created, "subcomponent_id");
-        els.subcomponentForm.reset();
-        els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
-        if (els.deleteSubcomponentBtn) {
-          els.deleteSubcomponentBtn.disabled = true;
-        }
-        renderSolutionSubcomponents(solutionId);
-        renderDashboard();
-      } catch (err) {
-        ignoreNextRefresh.delete("subcomponents");
-        alert(`Create failed: ${err.message}`);
-      }
-    });
-  }
   if (els.deleteSubcomponentBtn) {
     els.deleteSubcomponentBtn.addEventListener("click", async () => {
       const id = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
@@ -4854,6 +4953,7 @@ function bindSubcomponentForm() {
         els.subcomponentForm.reset();
         els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
         if (els.deleteSubcomponentBtn) els.deleteSubcomponentBtn.disabled = true;
+        setSubcomponentActionButtonLabel(false);
       }
       renderSolutionSubcomponents(solutionId);
       renderDashboard();
@@ -6290,6 +6390,18 @@ function userScopedStorageKey(prefix) {
   return `${prefix}:${scope}`;
 }
 
+function renderCompletedVisibilityToggle() {
+  if (!els.completedVisibilityToggle) return;
+  const showCompleted = !!state.workspacePrefs?.showCompleted;
+  els.completedVisibilityToggle.disabled = !state.authed;
+  els.completedVisibilityToggle.textContent = `Show Completed: ${showCompleted ? "On" : "Off"}`;
+  els.completedVisibilityToggle.setAttribute("aria-pressed", showCompleted ? "true" : "false");
+  els.completedVisibilityToggle.classList.toggle("active", showCompleted);
+  els.completedVisibilityToggle.title = showCompleted
+    ? "Completed and abandoned work is visible in operational views."
+    : "Completed and abandoned work is hidden from operational views.";
+}
+
 function readRecentSpaceIds() {
   const stored = readStoredJson(userScopedStorageKey(SPACE_RECENTS_KEY_PREFIX), { recent: [] });
   const recent = Array.isArray(stored.recent) ? stored.recent : [];
@@ -6321,6 +6433,23 @@ function persistMasterViewState() {
       deliverablesPreset: state.deliverablesPreset || "",
     }
   );
+}
+
+function persistWorkspaceViewPreferences() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX),
+    {
+      showCompleted: !!state.workspacePrefs?.showCompleted,
+    }
+  );
+}
+
+function restoreWorkspaceViewPreferences() {
+  const stored = readStoredJson(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});
+  state.workspacePrefs = {
+    showCompleted: stored.showCompleted === true,
+  };
+  renderCompletedVisibilityToggle();
 }
 
 function restoreMasterViewState() {
@@ -7694,6 +7823,7 @@ function renderPlanningRoster() {
 
 function init() {
   initTheme();
+  bindWorkspaceViewPreferences();
   bindAuthUI();
   bindCsvControls();
   bindSpaceSwitcher();

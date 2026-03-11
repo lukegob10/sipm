@@ -13,6 +13,17 @@ def test_deliverables_forms_have_status_placeholders():
     assert 'id="subcomponent-form-status"' in text
 
 
+def test_deliverables_forms_mark_required_fields():
+    text = INDEX_HTML.read_text(encoding="utf-8")
+    assert text.count('Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.') == 3
+    assert 'Project <span class="required-marker" aria-hidden="true">*</span><input name="project_name" required />' in text
+    assert 'Sponsor <span class="required-marker" aria-hidden="true">*</span><input name="sponsor" required />' in text
+    assert 'Project <span class="required-marker" aria-hidden="true">*</span>' in text
+    assert 'Solution <span class="required-marker" aria-hidden="true">*</span><input name="solution_name" required />' in text
+    assert 'Solution Owner <span class="required-marker" aria-hidden="true">*</span><input name="owner" required />' in text
+    assert 'Task <span class="required-marker" aria-hidden="true">*</span><input name="subcomponent_name" required />' in text
+
+
 def test_deliverables_save_handlers_show_inline_feedback():
     text = APP_JS.read_text(encoding="utf-8")
     assert "function setDeliverableFormNotice(" in text
@@ -22,3 +33,15 @@ def test_deliverables_save_handlers_show_inline_feedback():
     assert "Saved project at ${timestampLabel()}." in text
     assert "Saved solution at ${timestampLabel()}." in text
     assert "Saved subcomponent at ${timestampLabel()}." in text
+
+
+def test_subcomponent_form_uses_single_create_or_save_action():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    js_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'id="subcomponent-submit-btn"' in html_text
+    assert 'id="new-subcomponent"' not in html_text
+    assert "function setSubcomponentActionButtonLabel(" in js_text
+    assert 'els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";' in js_text
+    assert 'setDeliverableFormNotice(els.subcomponentFormStatus, "Creating subcomponent...")' in js_text
+    assert "Created subcomponent at ${timestampLabel()}." in js_text

@@ -168,6 +168,15 @@
             </div>
           </div>
           <span id="current-user" class="pill muted"></span>
+          <button
+            id="completed-visibility-toggle"
+            class="secondary"
+            type="button"
+            aria-pressed="false"
+            title="Completed and abandoned work is hidden from operational views."
+          >
+            Show Completed: Off
+          </button>
           <button id="logout-btn" class="secondary">Logout</button>
           <button id="theme-toggle" class="secondary">Light Mode</button>
         </div>
@@ -476,8 +485,9 @@
           <div class="modal-body">
             <form id="project-form" class="form compact">
               <h3 class="form-title">Project Details</h3>
+              <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
               <input type="hidden" name="project_id" />
-              <label>Project <input name="project_name" required /></label>
+              <label>Project <span class="required-marker" aria-hidden="true">*</span><input name="project_name" required /></label>
               <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
               <label>Status
                 <select name="status">
@@ -488,7 +498,7 @@
                   <option value="abandoned">Abandoned</option>
                 </select>
               </label>
-              <label>Sponsor <input name="sponsor" required /></label>
+              <label>Sponsor <span class="required-marker" aria-hidden="true">*</span><input name="sponsor" required /></label>
               <label>Sponsor SOEID <input name="sponsor_user_soeid" placeholder="SOEID" /></label>
               <label class="full-span">Description <textarea name="description"></textarea></label>
               <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
@@ -529,11 +539,12 @@
             <div class="modal-tab active" data-tab-panel="details">
               <form id="solution-form" class="form compact">
                 <h3 class="form-title">Solution Details</h3>
+                <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
                 <input type="hidden" name="solution_id" />
-                <label class="wide">Project
+                <label class="wide">Project <span class="required-marker" aria-hidden="true">*</span>
                   <select name="project_id" required></select>
                 </label>
-                <label class="wide">Solution <input name="solution_name" required /></label>
+                <label class="wide">Solution <span class="required-marker" aria-hidden="true">*</span><input name="solution_name" required /></label>
                 <label>Version <input name="version" value="0.1.0" /></label>
                 <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
                 <label>Status
@@ -568,7 +579,7 @@
                     <option value="high">High</option>
                   </select>
                 </label>
-                <label class="wide">Solution Owner <input name="owner" required /></label>
+                <label class="wide">Solution Owner <span class="required-marker" aria-hidden="true">*</span><input name="owner" required /></label>
                 <label>Owner SOEID <input name="owner_user_soeid" /></label>
                 <label class="wide">Assignee <input name="assignee" /></label>
                 <label>Assignee SOEID <input name="assignee_user_soeid" /></label>
@@ -607,10 +618,11 @@
               <div id="solution-subcomponent-table" class="table"></div>
               <form id="subcomponent-form" class="form compact hidden">
                 <h3 class="form-title">Subcomponent Details</h3>
+                <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
                 <input type="hidden" name="subcomponent_id" />
                 <input type="hidden" name="project_id" />
                 <input type="hidden" name="solution_id" />
-                <label class="full-span">Task <input name="subcomponent_name" required /></label>
+                <label class="full-span">Task <span class="required-marker" aria-hidden="true">*</span><input name="subcomponent_name" required /></label>
                 <label>Priority
                   <input type="number" name="priority" min="0" max="5" value="3" />
                 </label>
@@ -634,8 +646,7 @@
                 <label class="full-span">Blocker Note <textarea name="blocker_note" placeholder="What's blocking?"></textarea></label>
                 <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
                 <div class="form-actions full-span">
-                  <button type="submit">Save Subcomponent</button>
-                  <button type="button" id="new-subcomponent" class="secondary">Create Subcomponent</button>
+                  <button type="submit" id="subcomponent-submit-btn">Create Subcomponent</button>
                   <button type="reset" class="secondary">Reset</button>
                   <button type="button" id="delete-subcomponent" class="secondary" disabled>Delete</button>
                 </div>

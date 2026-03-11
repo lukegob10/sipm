@@ -86,6 +86,36 @@ function formatFte(value) {
   return numberOr(value, 0).toFixed(2);
 }
 
+function isClosedTaskStatus(statusValue) {
+  const status = String(statusValue || "").trim().toLowerCase();
+  return status === "complete" || status === "abandoned";
+}
+
+function showCompletedOperationalWork(ctx = boardState.ctx) {
+  return !!ctx?.state?.workspacePrefs?.showCompleted;
+}
+
+function visibleBoardTasks(ctx = boardState.ctx) {
+  const tasks = Array.isArray(boardState.data.tasks) ? boardState.data.tasks : [];
+  if (showCompletedOperationalWork(ctx)) return tasks;
+  const subcomponents = Array.isArray(ctx?.state?.subcomponents) ? ctx.state.subcomponents : [];
+  const statusByTaskId = new Map(
+    subcomponents
+      .filter((row) => row?.subcomponent_id)
+      .map((row) => [String(row.subcomponent_id), String(row.status || "")])
+  );
+  return tasks.filter((task) => {
+    const status = statusByTaskId.get(String(task?.id || ""));
+    if (!status) return true;
+    return !isClosedTaskStatus(status);
+  });
+}
+
+function visibleBoardAllocations(ctx = boardState.ctx, tasks = visibleBoardTasks(ctx)) {
+  const visibleTaskIds = new Set(tasks.map((task) => String(task?.id || "")).filter(Boolean));
+  return (boardState.data.allocations || []).filter((allocation) => visibleTaskIds.has(String(allocation?.task_id || "")));
+}
+
 function toneClass(value, hasCapacity = true) {
   if (!hasCapacity && value > 0) return "over";
   if (value > 1) return "over";
@@ -201,7 +231,7 @@ function rerender() {
 }
 
 function selectedTask() {
-  return (boardState.data.tasks || []).find((task) => task.id === boardState.selectedTaskId) || null;
+  return visibleBoardTasks().find((task) => task.id === boardState.selectedTaskId) || null;
 }
 
 function syncDetailDraft(task = selectedTask()) {
@@ -362,7 +392,7 @@ async function loadBoard(ctx, { allocationsOnly = false } = {}) {
 
 function allocationsByTask() {
   const map = new Map();
-  (boardState.data.allocations || []).forEach((allocation) => {
+  visibleBoardAllocations().forEach((allocation) => {
     if (!allocation?.task_id) return;
     const list = map.get(allocation.task_id) || [];
     list.push(allocation);
@@ -390,7 +420,7 @@ function sortedPeople() {
 }
 
 function sortedTasks() {
-  return [...(boardState.data.tasks || [])].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+  return [...visibleBoardTasks()].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 }
 
 function matchesPersonSearch(person) {
@@ -551,6 +581,7 @@ function buildDetailPanelHtml(task, allocations, teams, people) {
 }
 
 function buildBoardMarkup() {
+  const showCompleted = showCompletedOperationalWork();
   const teams = sortedTeams();
   const people = sortedPeople();
   if (
@@ -560,6 +591,7 @@ function buildBoardMarkup() {
     boardState.teamFilter = "all";
   }
   const tasks = sortedTasks();
+  const hiddenTaskCount = showCompleted ? 0 : Math.max((boardState.data.tasks || []).length - tasks.length, 0);
   const allocationMap = allocationsByTask();
   const assignedTaskIds = new Set(Array.from(allocationMap.keys()));
   const backlogTasks = applyBacklogFilters(tasks.filter((task) => !assignedTaskIds.has(task.id)));
@@ -577,7 +609,7 @@ function buildBoardMarkup() {
     ...teams.map((team) => `<option value="${esc(team.id)}" ${boardState.teamFilter === team.id ? "selected" : ""}>${esc(team.name)}</option>`),
   ].join("");
 
-  const allocationList = boardState.data.allocations || [];
+  const allocationList = visibleBoardAllocations(boardState.ctx, tasks);
   const personAllocationMap = new Map();
   const teamAllocationMap = new Map();
   allocationList.forEach((alloc) => {
@@ -815,6 +847,9 @@ function buildBoardMarkup() {
 
   const loading = boardState.loading ? '<p class="muted">Loading work allocation board...</p>' : "";
   const error = boardState.error ? `<p class="muted">${esc(boardState.error)}</p>` : "";
+  const hiddenCompletedNote = hiddenTaskCount
+    ? `<p class="muted wab-hidden-completed-note">${hiddenTaskCount} completed or abandoned task${hiddenTaskCount === 1 ? "" : "s"} hidden. Use Show Completed in the top bar to review them.</p>`
+    : "";
   const selectedPill = selected
     ? `<div class="wab-selected-pill">
         <span class="wab-selected-pill-label">Selected Task</span>
@@ -934,7 +969,7 @@ function buildBoardMarkup() {
     </div>`);
   }
 
-  return `${notice}${loading}${error}
+  return `${notice}${loading}${error}${hiddenCompletedNote}
     <div class="wab-toolbar wab-toolbar-sticky">
       <div class="wab-toolbar-main">
         <div class="toolbar-group wab-toolbar-primary">

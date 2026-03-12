@@ -1194,8 +1194,13 @@ label.wide {
   line-height: 1.3;
   color: var(--muted);
 }
+.field-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+}
 .required-marker {
-  margin-left: 2px;
+  margin-left: 0;
   color: var(--danger);
   font-weight: 700;
 }

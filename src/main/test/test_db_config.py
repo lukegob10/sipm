@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 from types import SimpleNamespace
 
 import pytest
 
+from backend import main as main_module
 from backend.app.db import db as db_module
 from backend.app import runtime as runtime_module
 
@@ -130,3 +132,44 @@ def test_db_engine_creator_uses_taconnection(monkeypatch):
     assert captured["env"] == "prod"
     assert captured["connect_called"] is True
     assert captured["creator_connection"] is fake_connection
+
+
+def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SIPM_SECRET_KEY=from-file\nSIPM_EMPTY_TEST=from-file\n", encoding="utf-8")
+
+    monkeypatch.delenv("SIPM_ENV_OVERRIDE", raising=False)
+    monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
+    monkeypatch.setenv("SIPM_EMPTY_TEST", "")
+
+    main_module._load_env_file(env_file)
+
+    assert os.environ["SIPM_SECRET_KEY"] == "from-env"
+    assert os.environ["SIPM_EMPTY_TEST"] == "from-file"
+
+
+def test_load_env_file_can_override_when_enabled(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SIPM_SECRET_KEY=from-file\n", encoding="utf-8")
+
+    monkeypatch.setenv("SIPM_ENV_OVERRIDE", "true")
+    monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
+
+    main_module._load_env_file(env_file)
+
+    assert os.environ["SIPM_SECRET_KEY"] == "from-file"
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_validates_auth_configuration(monkeypatch):
+    calls = {"count": 0}
+
+    def fake_validate() -> None:
+        calls["count"] += 1
+
+    monkeypatch.setattr(main_module, "validate_auth_configuration", fake_validate)
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        pass
+
+    assert calls["count"] == 1

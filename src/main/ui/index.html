@@ -487,7 +487,7 @@
               <h3 class="form-title">Project Details</h3>
               <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
               <input type="hidden" name="project_id" />
-              <label>Project <span class="required-marker" aria-hidden="true">*</span><input name="project_name" required /></label>
+              <label><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required /></label>
               <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
               <label>Status
                 <select name="status">
@@ -498,7 +498,7 @@
                   <option value="abandoned">Abandoned</option>
                 </select>
               </label>
-              <label>Sponsor <span class="required-marker" aria-hidden="true">*</span><input name="sponsor" required /></label>
+              <label><span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required /></label>
               <label>Sponsor SOEID <input name="sponsor_user_soeid" placeholder="SOEID" /></label>
               <label class="full-span">Description <textarea name="description"></textarea></label>
               <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
@@ -541,10 +541,10 @@
                 <h3 class="form-title">Solution Details</h3>
                 <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
                 <input type="hidden" name="solution_id" />
-                <label class="wide">Project <span class="required-marker" aria-hidden="true">*</span>
+                <label class="wide"><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span>
                   <select name="project_id" required></select>
                 </label>
-                <label class="wide">Solution <span class="required-marker" aria-hidden="true">*</span><input name="solution_name" required /></label>
+                <label class="wide"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span><input name="solution_name" required /></label>
                 <label>Version <input name="version" value="0.1.0" /></label>
                 <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
                 <label>Status
@@ -579,7 +579,7 @@
                     <option value="high">High</option>
                   </select>
                 </label>
-                <label class="wide">Solution Owner <span class="required-marker" aria-hidden="true">*</span><input name="owner" required /></label>
+                <label class="wide"><span class="field-label">Solution Owner<span class="required-marker" aria-hidden="true">*</span></span><input name="owner" required /></label>
                 <label>Owner SOEID <input name="owner_user_soeid" /></label>
                 <label class="wide">Assignee <input name="assignee" /></label>
                 <label>Assignee SOEID <input name="assignee_user_soeid" /></label>
@@ -622,7 +622,7 @@
                 <input type="hidden" name="subcomponent_id" />
                 <input type="hidden" name="project_id" />
                 <input type="hidden" name="solution_id" />
-                <label class="full-span">Task <span class="required-marker" aria-hidden="true">*</span><input name="subcomponent_name" required /></label>
+                <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="subcomponent_name" required /></label>
                 <label>Priority
                   <input type="number" name="priority" min="0" max="5" value="3" />
                 </label>

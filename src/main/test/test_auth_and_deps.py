@@ -277,6 +277,26 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 
 
 @pytest.mark.anyio
+async def test_refresh_rejects_token_issued_before_password_change(auth_client, db_sessionmaker):
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "REVOKE1", "display_name": "Revoke User", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "revoke1").first()
+        assert user is not None
+        user.password_changed_at = datetime.now(timezone.utc) + timedelta(seconds=5)
+        session.add(user)
+        session.commit()
+
+    refreshed = await auth_client.post("/project-manager/api/auth/refresh")
+    assert refreshed.status_code == 401
+    assert refreshed.json()["detail"] == "Token no longer valid"
+
+
+@pytest.mark.anyio
 async def test_get_active_space_repairs_missing_active_space_cookie(auth_client):
     register = await auth_client.post(
         "/project-manager/api/auth/register",

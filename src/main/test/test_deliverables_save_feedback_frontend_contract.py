@@ -4,6 +4,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
+STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_deliverables_forms_have_status_placeholders():
@@ -15,13 +16,15 @@ def test_deliverables_forms_have_status_placeholders():
 
 def test_deliverables_forms_mark_required_fields():
     text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = STYLES_CSS.read_text(encoding="utf-8")
     assert text.count('Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.') == 3
-    assert 'Project <span class="required-marker" aria-hidden="true">*</span><input name="project_name" required />' in text
-    assert 'Sponsor <span class="required-marker" aria-hidden="true">*</span><input name="sponsor" required />' in text
-    assert 'Project <span class="required-marker" aria-hidden="true">*</span>' in text
-    assert 'Solution <span class="required-marker" aria-hidden="true">*</span><input name="solution_name" required />' in text
-    assert 'Solution Owner <span class="required-marker" aria-hidden="true">*</span><input name="owner" required />' in text
-    assert 'Task <span class="required-marker" aria-hidden="true">*</span><input name="subcomponent_name" required />' in text
+    assert '<span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required />' in text
+    assert '<span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required />' in text
+    assert '<span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span>' in text
+    assert '<span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span><input name="solution_name" required />' in text
+    assert '<span class="field-label">Solution Owner<span class="required-marker" aria-hidden="true">*</span></span><input name="owner" required />' in text
+    assert '<span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="subcomponent_name" required />' in text
+    assert '.field-label {' in styles_text
 
 
 def test_deliverables_save_handlers_show_inline_feedback():

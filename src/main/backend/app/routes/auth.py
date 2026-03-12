@@ -15,7 +15,7 @@ from ..auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from ..deps import get_db, require_global_admin, require_user
+from ..deps import ensure_token_not_revoked, get_db, require_global_admin, require_user
 from ..models import User
 from ..paths import API_PREFIX
 from ..schemas import (
@@ -197,6 +197,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
+    ensure_token_not_revoked(user, payload.get("iat"))
     if user.force_password_reset:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,

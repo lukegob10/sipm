@@ -71,19 +71,7 @@ def authenticate_access_token(session: Session, token: str | None) -> User:
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
-    token_issued_at = payload.get("iat")
-    if token_issued_at and user.password_changed_at:
-        issued_at = datetime.fromtimestamp(token_issued_at, tz=timezone.utc)
-        changed_at = user.password_changed_at
-        if changed_at.tzinfo is None:
-            changed_at = changed_at.replace(tzinfo=timezone.utc)
-        # Allow 1s clock/precision skew between token iat (seconds) and DB timestamp (microseconds).
-        if issued_at < (changed_at - timedelta(seconds=1)):
-            raise security_http_exception(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                code="TOKEN_REVOKED",
-                message="Token no longer valid",
-            )
+    ensure_token_not_revoked(user, payload.get("iat"))
     if user.locked_until:
         locked_until = user.locked_until
         if locked_until.tzinfo is None:
@@ -95,6 +83,22 @@ def authenticate_access_token(session: Session, token: str | None) -> User:
                 message="Account locked",
             )
     return user
+
+
+def ensure_token_not_revoked(user: User, token_issued_at: int | None) -> None:
+    if not token_issued_at or not user.password_changed_at:
+        return
+    issued_at = datetime.fromtimestamp(token_issued_at, tz=timezone.utc)
+    changed_at = user.password_changed_at
+    if changed_at.tzinfo is None:
+        changed_at = changed_at.replace(tzinfo=timezone.utc)
+    # Allow 1s clock/precision skew between token iat (seconds) and DB timestamp (microseconds).
+    if issued_at < (changed_at - timedelta(seconds=1)):
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="TOKEN_REVOKED",
+            message="Token no longer valid",
+        )
 
 
 def require_user(request: Request, session: Session = Depends(get_db)) -> User:
@@ -203,4 +207,5 @@ __all__ = [
     "require_space_role",
     "require_global_admin",
     "authenticate_access_token",
+    "ensure_token_not_revoked",
 ]

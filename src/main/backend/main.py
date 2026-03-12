@@ -10,10 +10,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-def _load_env_file(path: Path) -> None:
+
+def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
     if not path.exists():
         return
-    override_existing = str(os.getenv("SIPM_ENV_OVERRIDE", "true")).strip().lower() in {"1", "true", "yes", "on"}
+    if override_existing is None:
+        override_existing = str(os.getenv("SIPM_ENV_OVERRIDE", "false")).strip().lower() in {"1", "true", "yes", "on"}
     for line in path.read_text().splitlines():
         raw = line.strip()
         if not raw or raw.startswith("#"):
@@ -30,7 +32,8 @@ def _load_env_file(path: Path) -> None:
         # Support inline comments: KEY=value # comment
         if " #" in value:
             value = value.split(" #", 1)[0].rstrip()
-        # Prefer env file values by default (configurable via SIPM_ENV_OVERRIDE=false).
+        # Prefer explicit process env by default. Opt in to file overrides with
+        # SIPM_ENV_OVERRIDE=true when local development needs it.
         if key and (override_existing or key not in os.environ or not str(os.environ.get(key) or "").strip()):
             os.environ[key] = value
 
@@ -43,12 +46,13 @@ _load_env_file(BASE_DIR / ".env.local")
 # This helps when running the app from different working directories.
 try:
     REPO_DIR = BASE_DIR.parents[1]
-    _load_env_file(REPO_DIR / ".env")
-    _load_env_file(REPO_DIR / ".env.local")
+    _load_env_file(REPO_DIR / ".env", override_existing=False)
+    _load_env_file(REPO_DIR / ".env.local", override_existing=False)
 except Exception:
     pass
 
 
+from backend.app.auth.auth import validate_auth_configuration
 from backend.app.db.db import init_db
 from backend.app.paths import (
     API_PREFIX,
@@ -65,6 +69,7 @@ from backend.app.routes import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_auth_configuration()
     # Avoid touching the on-disk DB during unit tests. Tests create their own in-memory DB
     # and override `get_db`/auth dependencies.
     disable_startup = os.getenv("SIPM_DISABLE_STARTUP", "").lower() == "true"

@@ -141,8 +141,8 @@ class ChangeLog(Base):
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
     action: Mapped[str] = mapped_column(String, nullable=False)
     field: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    old_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    new_value: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    old_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    new_value: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
     request_id: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -151,7 +151,7 @@ class ChangeLog(Base):
 
 class Team(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("teams")
-    __table_args__ = (UniqueConstraint("name", name="uix_team_name"),)
+    __table_args__ = (UniqueConstraint("space_id", "name", name="uix_team_space_name"),)
 
     team_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     space_id: Mapped[Optional[str]] = mapped_column(String, ForeignKey(fk_target("spaces", "space_id")), nullable=True, index=True)
@@ -181,7 +181,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 class Project(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("projects")
-    __table_args__ = (UniqueConstraint("project_name", name="uix_project_name"),)
+    __table_args__ = (UniqueConstraint("space_id", "project_name", name="uix_project_space_name"),)
 
     project_id: Mapped[str] = mapped_column(
         String, primary_key=True, default=lambda: str(uuid4())
@@ -191,8 +191,8 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus), index=True, nullable=False, default=ProjectStatus.not_started
     )
-    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    success_criteria: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sponsor: Mapped[str] = mapped_column(String, nullable=False, default="")
     sponsor_user_soeid: Mapped[Optional[str]] = mapped_column(
         String, nullable=True, index=True
@@ -231,9 +231,9 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False, index=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     current_phase: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    success_criteria: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    problem_statement: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    problem_statement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     owner: Mapped[str] = mapped_column(String, nullable=False, default="")
     owner_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     assignee: Mapped[str] = mapped_column(String, nullable=False, default="", index=True)

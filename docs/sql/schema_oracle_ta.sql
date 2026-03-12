@@ -74,26 +74,6 @@ CREATE TABLE "TB_TA_PM_USERS" (
 	CONSTRAINT uix_user_soeid UNIQUE (soeid)
 );
 
--- Table: TB_TA_PM_AI_REQUESTS
-
-CREATE TABLE "TB_TA_PM_AI_REQUESTS" (
-	ai_request_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	request_type VARCHAR2(255 CHAR) NOT NULL, 
-	entity_type VARCHAR2(255 CHAR), 
-	entity_id VARCHAR2(255 CHAR), 
-	instruction VARCHAR2(255 CHAR), 
-	prompt VARCHAR2(255 CHAR), 
-	output VARCHAR2(255 CHAR), 
-	approved SMALLINT NOT NULL, 
-	approved_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (ai_request_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(approved_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
 -- Table: TB_TA_PM_CHANGE_LOG
 
 CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
@@ -102,8 +82,8 @@ CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
 	entity_id VARCHAR2(255 CHAR) NOT NULL, 
 	action VARCHAR2(255 CHAR) NOT NULL, 
 	field VARCHAR2(255 CHAR), 
-	old_value VARCHAR2(255 CHAR), 
-	new_value VARCHAR2(255 CHAR), 
+	old_value CLOB, 
+	new_value CLOB, 
 	user_id VARCHAR2(255 CHAR) NOT NULL, 
 	space_id VARCHAR2(255 CHAR), 
 	request_id VARCHAR2(255 CHAR), 
@@ -135,8 +115,8 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	space_id VARCHAR2(255 CHAR), 
 	project_name VARCHAR2(255 CHAR) NOT NULL, 
 	status VARCHAR(11 CHAR) NOT NULL, 
-	description VARCHAR2(255 CHAR), 
-	success_criteria VARCHAR2(255 CHAR), 
+	description CLOB, 
+	success_criteria CLOB, 
 	sponsor VARCHAR2(255 CHAR) NOT NULL, 
 	sponsor_user_soeid VARCHAR2(255 CHAR), 
 	strategic_objective VARCHAR2(255 CHAR), 
@@ -145,7 +125,7 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
 	PRIMARY KEY (project_id), 
-	CONSTRAINT uix_project_name UNIQUE (project_name), 
+	CONSTRAINT uix_project_space_name UNIQUE (space_id, project_name), 
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
@@ -181,52 +161,8 @@ CREATE TABLE "TB_TA_PM_TEAMS" (
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
 	PRIMARY KEY (team_id), 
-	CONSTRAINT uix_team_name UNIQUE (name), 
+	CONSTRAINT uix_team_space_name UNIQUE (space_id, name), 
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
-);
-
--- Table: TB_TA_PM_AI_SESSIONS
-
-CREATE TABLE "TB_TA_PM_AI_SESSIONS" (
-	session_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR), 
-	entity_type VARCHAR2(255 CHAR), 
-	entity_id VARCHAR2(255 CHAR), 
-	user_id VARCHAR2(255 CHAR), 
-	messages CLOB, 
-	last_active_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (session_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
--- Table: TB_TA_PM_AI_TOOL_CALLS
-
-CREATE TABLE "TB_TA_PM_AI_TOOL_CALLS" (
-	tool_call_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	ai_request_id VARCHAR2(255 CHAR), 
-	tool_name VARCHAR2(255 CHAR) NOT NULL, 
-	payload CLOB, 
-	output CLOB, 
-	status VARCHAR2(255 CHAR), 
-	elapsed_ms INTEGER, 
-	payload_bytes INTEGER, 
-	output_bytes INTEGER, 
-	payload_tokens INTEGER, 
-	output_tokens INTEGER, 
-	cache_hit SMALLINT, 
-	drilldown SMALLINT, 
-	context_bytes INTEGER, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (tool_call_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(ai_request_id) REFERENCES "TB_TA_PM_AI_REQUESTS" (ai_request_id)
 );
 
 -- Table: TB_TA_PM_CHECKLIST_ITEMS
@@ -368,9 +304,9 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 	priority INTEGER NOT NULL, 
 	due_date DATE, 
 	current_phase VARCHAR2(255 CHAR), 
-	description VARCHAR2(255 CHAR), 
-	success_criteria VARCHAR2(255 CHAR), 
-	problem_statement VARCHAR2(255 CHAR), 
+	description CLOB, 
+	success_criteria CLOB, 
+	problem_statement CLOB, 
 	owner VARCHAR2(255 CHAR) NOT NULL, 
 	owner_user_soeid VARCHAR2(255 CHAR), 
 	assignee VARCHAR2(255 CHAR) NOT NULL, 
@@ -414,35 +350,6 @@ CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
 	PRIMARY KEY (team_member_id), 
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
 	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id)
-);
-
--- Table: TB_TA_PM_AI_QUERY_METRICS
-
-CREATE TABLE "TB_TA_PM_AI_QUERY_METRICS" (
-	query_metric_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	session_id VARCHAR2(255 CHAR), 
-	user_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR), 
-	entity_type VARCHAR2(255 CHAR), 
-	entity_id VARCHAR2(255 CHAR), 
-	tool_calls_count INTEGER NOT NULL, 
-	context_calls_count INTEGER NOT NULL, 
-	bytes_returned INTEGER NOT NULL, 
-	approx_tokens_returned INTEGER NOT NULL, 
-	bytes_sent INTEGER NOT NULL, 
-	approx_tokens_sent INTEGER NOT NULL, 
-	cache_hit_rate FLOAT, 
-	drilldown_rate FLOAT, 
-	answer_quality_score FLOAT, 
-	notes CLOB, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (query_metric_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(session_id) REFERENCES "TB_TA_PM_AI_SESSIONS" (session_id), 
-	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id)
 );
 
 -- Table: TB_TA_PM_EXTERNAL_DOCUMENTS
@@ -617,12 +524,6 @@ CREATE TABLE "TB_TA_PM_TASK_CARD_DIGESTS" (
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
--- Index: idx_ai_query_metrics_project_created
-CREATE INDEX idx_ai_query_metrics_project_created ON "TB_TA_PM_AI_QUERY_METRICS" (project_id, created_at);
-
--- Index: idx_ai_query_metrics_session_created
-CREATE INDEX idx_ai_query_metrics_session_created ON "TB_TA_PM_AI_QUERY_METRICS" (session_id, created_at);
-
 -- Index: idx_alloc_item
 CREATE INDEX idx_alloc_item ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (work_item_type, work_item_id);
 
@@ -640,39 +541,6 @@ CREATE INDEX idx_change_user_created ON "TB_TA_PM_CHANGE_LOG" (user_id, created_
 
 -- Index: idx_external_ref_work_item
 CREATE INDEX idx_external_ref_work_item ON "TB_TA_PM_EXTERNAL_REF" (work_item_type, work_item_id);
-
--- Index: ix_TB_TA_PM_AI_QUERY_METRICS_project_id
-CREATE INDEX "ix_TB_TA_PM_AI_QUERY_METRICS_project_id" ON "TB_TA_PM_AI_QUERY_METRICS" (project_id);
-
--- Index: ix_TB_TA_PM_AI_QUERY_METRICS_session_id
-CREATE INDEX "ix_TB_TA_PM_AI_QUERY_METRICS_session_id" ON "TB_TA_PM_AI_QUERY_METRICS" (session_id);
-
--- Index: ix_TB_TA_PM_AI_QUERY_METRICS_space_id
-CREATE INDEX "ix_TB_TA_PM_AI_QUERY_METRICS_space_id" ON "TB_TA_PM_AI_QUERY_METRICS" (space_id);
-
--- Index: ix_TB_TA_PM_AI_QUERY_METRICS_user_id
-CREATE INDEX "ix_TB_TA_PM_AI_QUERY_METRICS_user_id" ON "TB_TA_PM_AI_QUERY_METRICS" (user_id);
-
--- Index: ix_TB_TA_PM_AI_REQUESTS_approved_by_user_id
-CREATE INDEX "ix_TB_TA_PM_AI_REQUESTS_approved_by_user_id" ON "TB_TA_PM_AI_REQUESTS" (approved_by_user_id);
-
--- Index: ix_TB_TA_PM_AI_REQUESTS_space_id
-CREATE INDEX "ix_TB_TA_PM_AI_REQUESTS_space_id" ON "TB_TA_PM_AI_REQUESTS" (space_id);
-
--- Index: ix_TB_TA_PM_AI_SESSIONS_project_id
-CREATE INDEX "ix_TB_TA_PM_AI_SESSIONS_project_id" ON "TB_TA_PM_AI_SESSIONS" (project_id);
-
--- Index: ix_TB_TA_PM_AI_SESSIONS_space_id
-CREATE INDEX "ix_TB_TA_PM_AI_SESSIONS_space_id" ON "TB_TA_PM_AI_SESSIONS" (space_id);
-
--- Index: ix_TB_TA_PM_AI_SESSIONS_user_id
-CREATE INDEX "ix_TB_TA_PM_AI_SESSIONS_user_id" ON "TB_TA_PM_AI_SESSIONS" (user_id);
-
--- Index: ix_TB_TA_PM_AI_TOOL_CALLS_ai_request_id
-CREATE INDEX "ix_TB_TA_PM_AI_TOOL_CALLS_ai_request_id" ON "TB_TA_PM_AI_TOOL_CALLS" (ai_request_id);
-
--- Index: ix_TB_TA_PM_AI_TOOL_CALLS_space_id
-CREATE INDEX "ix_TB_TA_PM_AI_TOOL_CALLS_space_id" ON "TB_TA_PM_AI_TOOL_CALLS" (space_id);
 
 -- Index: ix_TB_TA_PM_CHANGE_LOG_created_at
 CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_created_at" ON "TB_TA_PM_CHANGE_LOG" (created_at);

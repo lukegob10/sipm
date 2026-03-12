@@ -8,6 +8,10 @@ from backend.app.routes import projects as projects_module
 from backend.app.services.spaces import SpaceContext
 
 
+def _long_text(prefix: str, repeats: int = 40) -> str:
+    return "\n".join(f"{prefix} line {idx}: detailed context and measurable outcomes." for idx in range(1, repeats + 1))
+
+
 @pytest.mark.anyio
 async def test_create_and_list_projects(client):
     resp = await client.post(
@@ -117,9 +121,16 @@ def test_project_conflict_detector_handles_oracle_wrapped_unique_error():
     )
     assert projects_module._is_project_name_conflict_integrity_error(exc) is True
 
+    exc_new_constraint = IntegrityError(
+        statement='INSERT INTO "TB_TA_PM_PROJECTS" (space_id, project_name) VALUES (:space_id, :project_name)',
+        params={"space_id": "space-a", "project_name": "Enhancements"},
+        orig=Exception("ORA-00001: unique constraint (APP.UIX_PROJECT_SPACE_NAME) violated"),
+    )
+    assert projects_module._is_project_name_conflict_integrity_error(exc_new_constraint) is True
+
 
 @pytest.mark.anyio
-async def test_create_project_handles_db_unique_conflict_with_helpful_message(client):
+async def test_create_project_allows_same_name_in_different_spaces(client):
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -134,21 +145,18 @@ async def test_create_project_handles_db_unique_conflict_with_helpful_message(cl
         )
         assert first.status_code == 201, first.text
 
-        # Existing schema enforces global project-name uniqueness at the DB level.
-        # Creating the same name in another active space must still return a clean
-        # API conflict message instead of a 500 error.
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
             space_id="space-b",
             space_name="Space B",
             is_global_admin=False,
             space_role="space_admin",
         )
-        dup = await client.post(
+        same_name_other_space = await client.post(
             "/project-manager/api/projects/",
             json={"project_name": "Enhancements", "sponsor": "Sponsor B"},
         )
-        assert dup.status_code == 400, dup.text
-        assert dup.json()["detail"] == "Project name already exists"
+        assert same_name_other_space.status_code == 201, same_name_other_space.text
+        assert same_name_other_space.json()["project_name"] == "Enhancements"
     finally:
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
@@ -183,6 +191,41 @@ async def test_update_project_status_and_description(client):
     assert updated["status"] == "on_hold"
     assert updated["description"] == "Waiting on vendor"
     assert updated["success_criteria"] == "Pilot with 3 teams and hit >90% satisfaction"
+
+
+@pytest.mark.anyio
+async def test_project_create_and_update_support_long_text_fields(client):
+    description = _long_text("Project description")
+    success_criteria = _long_text("Project success criteria")
+
+    create_resp = await client.post(
+        "/project-manager/api/projects/",
+        json={
+            "project_name": "Long Form Project",
+            "description": description,
+            "success_criteria": success_criteria,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert len(description) > 255
+    assert len(success_criteria) > 255
+    assert created["description"] == description
+    assert created["success_criteria"] == success_criteria
+
+    update_description = _long_text("Updated project description", repeats=24)
+    update_success_criteria = _long_text("Updated project success", repeats=24)
+    update_resp = await client.patch(
+        f"/project-manager/api/projects/{created['project_id']}",
+        json={
+            "description": update_description,
+            "success_criteria": update_success_criteria,
+        },
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    updated = update_resp.json()
+    assert updated["description"] == update_description
+    assert updated["success_criteria"] == update_success_criteria
 
 
 @pytest.mark.anyio

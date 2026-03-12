@@ -84,7 +84,7 @@ def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
             str(getattr(exc, "statement", "")),
         ]
     ).lower()
-    if "uix_team_name" in text:
+    if "uix_team_space_name" in text or "uix_team_name" in text:
         return True
     has_unique_marker = any(
         marker in text

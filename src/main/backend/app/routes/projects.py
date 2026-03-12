@@ -50,10 +50,11 @@ def _project_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _active_project_name_conflict_query(session: Session, project_name: str):
+def _active_project_name_conflict_query(session: Session, *, project_name: str, space_id: str):
     return (
         session.query(Project)
         .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_id)
         .filter(Project.project_name == project_name)
     )
 
@@ -82,7 +83,7 @@ def _is_project_name_conflict_integrity_error(exc: IntegrityError) -> bool:
         str(getattr(exc, "statement", "")),
     ]
     text = " ".join(parts).lower()
-    if "uix_project_name" in text:
+    if "uix_project_space_name" in text or "uix_project_name" in text:
         return True
     has_unique_marker = any(
         marker in text
@@ -165,7 +166,11 @@ def create_project(
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     # Active name conflict in this space should be rejected up-front.
-    existing = _active_project_name_conflict_query(session, payload.project_name).first()
+    existing = _active_project_name_conflict_query(
+        session,
+        project_name=payload.project_name,
+        space_id=space_ctx.space_id,
+    ).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
@@ -177,6 +182,7 @@ def create_project(
     deleted_conflicts = (
         session.query(Project)
         .filter(Project.deleted_at.is_not(None))
+        .filter(Project.space_id == space_ctx.space_id)
         .filter(Project.project_name == payload.project_name)
         .all()
     )

@@ -7,6 +7,10 @@ from backend.app import deps as deps_module
 from backend.app.services.spaces import SpaceContext
 
 
+def _long_text(prefix: str, repeats: int = 40) -> str:
+    return "\n".join(f"{prefix} line {idx}: detailed context and measurable outcomes." for idx in range(1, repeats + 1))
+
+
 async def create_project(client):
     resp = await client.post(
         "/project-manager/api/projects/",
@@ -160,6 +164,49 @@ async def test_update_solution_status_and_description(client):
     assert updated["description"] == "Shipped"
     assert updated["success_criteria"] == "100% traffic migrated; no Sev1 incidents for 30 days"
     assert updated["completed_at"] is not None
+
+
+@pytest.mark.anyio
+async def test_solution_create_and_update_support_long_text_fields(client):
+    project = await create_project(client)
+    description = _long_text("Solution description")
+    problem_statement = _long_text("Solution problem statement")
+    success_criteria = _long_text("Solution success criteria")
+
+    create_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Long Form Solution",
+            "description": description,
+            "problem_statement": problem_statement,
+            "success_criteria": success_criteria,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert len(description) > 255
+    assert len(problem_statement) > 255
+    assert len(success_criteria) > 255
+    assert created["description"] == description
+    assert created["problem_statement"] == problem_statement
+    assert created["success_criteria"] == success_criteria
+
+    update_description = _long_text("Updated solution description", repeats=24)
+    update_problem_statement = _long_text("Updated solution problem", repeats=24)
+    update_success_criteria = _long_text("Updated solution success", repeats=24)
+    update_resp = await client.patch(
+        f"/project-manager/api/solutions/{created['solution_id']}",
+        json={
+            "description": update_description,
+            "problem_statement": update_problem_statement,
+            "success_criteria": update_success_criteria,
+        },
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    updated = update_resp.json()
+    assert updated["description"] == update_description
+    assert updated["problem_statement"] == update_problem_statement
+    assert updated["success_criteria"] == update_success_criteria
 
 
 @pytest.mark.anyio

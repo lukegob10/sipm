@@ -60,6 +60,39 @@ async def test_create_allocation_legacy_hours_backfills_fte_months(client):
 
 
 @pytest.mark.anyio
+async def test_create_allocation_without_assignee_soeid_keeps_identity_field_empty(client):
+    window_resp = await client.post(
+        "/project-manager/api/planning/windows",
+        json={"name": "FY26-Q2B", "start_date": "2026-04-01", "end_date": "2026-06-30"},
+    )
+    assert window_resp.status_code == 201, window_resp.text
+    window_id = window_resp.json()["window_id"]
+
+    created = await client.post(
+        "/project-manager/api/resource-allocations",
+        json={
+            "work_item_type": "solution",
+            "work_item_id": "sol-no-soeid",
+            "assignee": "Display Name Only",
+            "month_start": "2026-05-01",
+            "fte_months": 0.25,
+            "window_id": window_id,
+        },
+    )
+    assert created.status_code == 201, created.text
+    payload = created.json()
+    assert payload["assignee"] == "Display Name Only"
+    assert payload["assignee_user_soeid"] is None
+
+    listed = await client.get("/project-manager/api/resource-allocations")
+    assert listed.status_code == 200, listed.text
+    created_row = next((row for row in listed.json() if row["allocation_id"] == payload["allocation_id"]), None)
+    assert created_row is not None
+    assert created_row["assignee"] == "Display Name Only"
+    assert created_row["assignee_user_soeid"] is None
+
+
+@pytest.mark.anyio
 async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     window_resp = await client.post(
         "/project-manager/api/planning/windows",

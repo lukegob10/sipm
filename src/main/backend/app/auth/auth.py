@@ -28,15 +28,32 @@ def _deployment_env() -> str:
     return aliases.get(raw, raw or "dev")
 
 
+def _int_env(name: str) -> int | None:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return None
+    return int(raw)
+
+
 DEPLOYMENT_ENV = _deployment_env()
 IS_NON_DEV = DEPLOYMENT_ENV in {"prod", "uat"}
 
 SECRET_KEY = os.getenv("SIPM_SECRET_KEY", DEFAULT_DEV_SECRET)
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ACCESS_MINUTES", "60"))
-REFRESH_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_REFRESH_MINUTES", "60"))
+_access_minutes = _int_env("SIPM_ACCESS_MINUTES")
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 if _access_minutes is None else _access_minutes
+_refresh_minutes = _int_env("SIPM_REFRESH_MINUTES")
+_refresh_days = _int_env("SIPM_REFRESH_DAYS")
+if _refresh_minutes is not None:
+    REFRESH_TOKEN_EXPIRE_MINUTES = _refresh_minutes
+elif _refresh_days is not None:
+    REFRESH_TOKEN_EXPIRE_MINUTES = _refresh_days * 24 * 60
+else:
+    REFRESH_TOKEN_EXPIRE_MINUTES = 60
 RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_RESET_MINUTES", "30"))
 ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ONE_TIME_RESET_MINUTES", "30"))
+ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS = max(ACCESS_TOKEN_EXPIRE_MINUTES, 0) * 60
+REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS = max(REFRESH_TOKEN_EXPIRE_MINUTES, 0) * 60
 
 SECURE_COOKIES = os.getenv("SIPM_SECURE_COOKIES", "true" if IS_NON_DEV else "false").lower() == "true"
 COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax").lower()
@@ -160,6 +177,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
         path=COOKIE_PATH,
+        max_age=ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS,
     )
     response.set_cookie(
         key="refresh_token",
@@ -168,6 +186,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
         path=COOKIE_PATH,
+        max_age=REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS,
     )
 
 
@@ -189,4 +208,5 @@ def set_active_space_cookie(response: Response, space_id: str) -> None:
         secure=SECURE_COOKIES,
         samesite=COOKIE_SAMESITE,
         path=COOKIE_PATH,
+        max_age=REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS,
     )

@@ -1,11 +1,66 @@
+const kanbanState = {
+  bound: false,
+  ctx: null,
+};
+
+function esc(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function renderKanbanSolutionLink(label, solutionId) {
+  const text = String(label || "").trim() || "Untitled";
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return `<strong>${esc(text)}</strong>`;
+  return `<button type="button" class="kanban-solution-link" data-kanban-action="open-solution" data-solution-id="${esc(targetId)}">${esc(text)}</button>`;
+}
+
+function renderKanbanProjectLink(label, projectId, className = "") {
+  const text = String(label || "").trim() || "Unassigned Project";
+  const targetId = String(projectId || "").trim();
+  const classToken = className ? ` ${className.trim()}` : "";
+  if (!targetId || targetId === "none") return `<span class="kanban-project-title-text">${esc(text)}</span>`;
+  return `<button type="button" class="kanban-project-link${classToken}" data-kanban-action="open-project" data-project-id="${esc(targetId)}">${esc(text)}</button>`;
+}
+
+function bindKanbanEvents() {
+  const viewRoot = document.getElementById("view-kanban");
+  if (!viewRoot || kanbanState.bound) return;
+  kanbanState.bound = true;
+  viewRoot.addEventListener("click", (event) => {
+    const actionEl = event.target.closest("[data-kanban-action]");
+    if (!actionEl) return;
+    const action = actionEl.getAttribute("data-kanban-action") || "";
+    if (action === "open-project") {
+      const projectId = actionEl.getAttribute("data-project-id") || "";
+      if (!projectId) return;
+      if (typeof kanbanState.ctx?.openKanbanProjectDrilldown === "function") {
+        kanbanState.ctx.openKanbanProjectDrilldown(projectId);
+      }
+      return;
+    }
+    if (action === "open-solution") {
+      const solutionId = actionEl.getAttribute("data-solution-id") || "";
+      if (!solutionId) return;
+      if (typeof kanbanState.ctx?.openKanbanSolutionDrilldown === "function") {
+        kanbanState.ctx.openKanbanSolutionDrilldown(solutionId);
+      }
+    }
+  });
+}
+
 function renderSolutionCards(cards, ctx) {
-  const { state, phaseDisplayName, formatStatus } = ctx;
+  const { phaseDisplayName, formatStatus } = ctx;
   if (!cards.length) return "<p class='muted'>Empty</p>";
   return cards
     .map((s) => {
-      const proj = state.projects.find((p) => p.project_id === s.project_id)?.project_name || "";
       const phaseLabel = phaseDisplayName(s.current_phase) || "No phase";
-      return `<div class="kanban-card"><strong>${s.solution_name}</strong><div class="meta">${proj}${s.version ? " • " + s.version : ""}</div><div class="meta">Owner ${s.owner || "—"} • Assignee ${s.assignee || "—"}</div><div class="meta">P${s.priority ?? ""} • ${phaseLabel}</div><div class="meta">Due ${s.due_date || "—"} • ${formatStatus(s.status)}</div></div>`;
+      const versionMeta = s.version ? `<div class="meta">${esc(s.version)}</div>` : "";
+      return `<div class="kanban-card"><div class="kanban-card-title">${renderKanbanSolutionLink(s.solution_name, s.solution_id)}</div>${versionMeta}<div class="meta">Owner ${s.owner || "—"} • Assignee ${s.assignee || "—"}</div><div class="meta">P${s.priority ?? ""} • ${phaseLabel}</div><div class="meta">Due ${s.due_date || "—"} • ${formatStatus(s.status)}</div></div>`;
     })
     .join("");
 }
@@ -31,6 +86,8 @@ function renderSolutionSwimlane(items, phaseGroups, ctx) {
 export function renderKanban(ctx) {
   const { state, els, filteredSolutionsForKanban } = ctx;
   if (!els.kanbanBoard) return;
+  kanbanState.ctx = ctx;
+  bindKanbanEvents();
 
   const list = filteredSolutionsForKanban();
   const phaseGroups = Array.from(
@@ -47,7 +104,7 @@ export function renderKanban(ctx) {
   let html = "";
   Object.entries(byProject).forEach(([pid, items]) => {
     const projName = state.projects.find((p) => p.project_id === pid)?.project_name || "Unassigned Project";
-    html += `<div class="kanban-project"><div class="kanban-project-title">${projName} <span class="pill">${items.length}</span></div>`;
+    html += `<div class="kanban-project"><div class="kanban-project-title">${renderKanbanProjectLink(projName, pid)} <span class="pill">${items.length}</span></div>`;
     html += renderSolutionSwimlane(items, phaseGroups, ctx);
     html += `</div>`;
   });

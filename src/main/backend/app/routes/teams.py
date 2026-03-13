@@ -111,7 +111,6 @@ def _member_capacity_fields(payload: TeamMemberCreate | TeamMemberUpdate) -> tup
 
 
 def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) -> TeamRead:
-    _recompute_team_capacity(session, team.team_id, space_ctx)
     members = (
         _member_query(session, space_ctx)
         .filter(TeamMember.team_id == team.team_id)
@@ -209,6 +208,7 @@ def create_team(
         session.add(existing)
         session.commit()
         session.refresh(existing)
+        invalidate_space(space_ctx.space_id, ["teams"])
         return _team_with_members(session, existing, space_ctx)
 
     default_capacity_fte_month = (

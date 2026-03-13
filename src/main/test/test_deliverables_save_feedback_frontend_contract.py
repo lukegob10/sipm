@@ -48,3 +48,60 @@ def test_subcomponent_form_uses_single_create_or_save_action():
     assert 'els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";' in js_text
     assert 'setDeliverableFormNotice(els.subcomponentFormStatus, "Creating subcomponent...")' in js_text
     assert "Created subcomponent at ${timestampLabel()}." in js_text
+
+
+def test_new_solution_requires_saved_parent_before_subcomponents_can_be_added():
+    js_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function setSubcomponentCreateAvailability(solutionId) {" in js_text
+    assert 'els.showSubcomponentFormBtn.disabled = !hasSolution;' in js_text
+    assert '? "Add a task to this solution"' in js_text
+    assert ': "Save the solution before adding subcomponents.";' in js_text
+    assert 'setSubcomponentCreateAvailability(solution?.solution_id || "");' in js_text
+    assert 'setSubcomponentCreateAvailability("");' in js_text
+    assert 'els.solutionSubcomponentTable.innerHTML = "<p class=\'muted\'>Save the solution to add subcomponents.</p>";' in js_text
+    assert 'setDeliverableFormNotice(els.subcomponentFormStatus, "Save the solution before adding subcomponents.", "error");' in js_text
+    assert 'alert("Save the solution before adding subcomponents.");' not in js_text
+
+
+def test_solution_form_uses_inline_feedback_for_required_project_and_failures():
+    js_text = APP_JS.read_text(encoding="utf-8")
+    solution_section = js_text.split("function bindSolutionForm() {", 1)[1].split("function buildSolutionPayload(data) {", 1)[0]
+
+    assert 'setDeliverableFormNotice(\n        els.solutionFormStatus,\n        "Select a project before creating a solution.",\n        "error"\n      );' in solution_section
+    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");' in solution_section
+    assert 'setDeliverableFormNotice(\n          els.solutionFormStatus,\n          `Delete failed: ${err.message}`,\n          "error"\n        );' in solution_section
+    assert 'alert("Project is required.");' not in solution_section
+    assert 'alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);' not in solution_section
+    assert 'alert(`Delete failed: ${err.message}`);' not in solution_section
+
+
+def test_project_form_uses_inline_feedback_for_failures():
+    js_text = APP_JS.read_text(encoding="utf-8")
+    project_section = js_text.split("function bindProjectForm() {", 1)[1].split("function bindSolutionForm() {", 1)[0]
+
+    assert 'setDeliverableFormNotice(\n        els.projectFormStatus,\n        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,\n        "error"\n      );' in project_section
+    assert 'setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");' in project_section
+    assert 'setDeliverableFormNotice(\n          els.projectFormStatus,\n          `Delete failed: ${err.message}`,\n          "error"\n        );' in project_section
+    assert 'alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);' not in project_section
+    assert 'alert(`Delete failed: ${err.message}`);' not in project_section
+
+
+def test_subcomponent_form_uses_inline_feedback_for_failures():
+    js_text = APP_JS.read_text(encoding="utf-8")
+    subcomponent_section = js_text.split("function bindSubcomponentForm() {", 1)[1].split("function populateSelects() {", 1)[0]
+
+    assert 'setDeliverableFormNotice(\n        els.subcomponentFormStatus,\n        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,\n        "error"\n      );' in subcomponent_section
+    assert 'setDeliverableFormNotice(\n          els.subcomponentFormStatus,\n          `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete subcomponent."}`,\n          "error"\n        );' in subcomponent_section
+    assert 'alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);' not in subcomponent_section
+
+
+def test_solution_phases_use_inline_feedback_for_failures():
+    js_text = APP_JS.read_text(encoding="utf-8")
+    phases_section = js_text.split("async function renderSolutionPhases(selectedId) {", 1)[1].split("function bindSubcomponentForm() {", 1)[0]
+
+    assert 'els.phasesTable.innerHTML = "<p class=\'muted\'>Unable to load phases.</p>";' in phases_section
+    assert 'setDeliverableFormNotice(\n        els.solutionFormStatus,\n        `Unable to load phases: ${err.message}`,\n        "error"\n      );' in phases_section
+    assert 'setDeliverableFormNotice(\n          els.solutionFormStatus,\n          `Phase update failed: ${err.message}`,\n          "error"\n        );' in phases_section
+    assert 'alert(`Load failed: ${err.message}`);' not in phases_section
+    assert 'alert(`Save failed: ${err.message}`);' not in phases_section

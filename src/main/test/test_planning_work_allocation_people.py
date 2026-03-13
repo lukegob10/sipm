@@ -92,3 +92,27 @@ async def test_space_admin_can_move_work_allocation_person_to_unassigned(client,
         assert refreshed_rows[0]["team_id"] is None
     finally:
         _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_space_admin_can_create_work_allocation_person_with_zero_capacity(client, db_sessionmaker):
+    space_id, team_id, _person_id = _seed_work_allocation_person(db_sessionmaker)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        _set_current_space_override(space_id, role="space_admin")
+
+        created = await client.post(
+            "/project-manager/api/planning/work-allocation/people",
+            json={
+                "name": "No Capacity Yet",
+                "team_id": team_id,
+                "capacity_fte_months": 0,
+            },
+        )
+        assert created.status_code == 201, created.text
+        payload = created.json()
+        assert payload["name"] == "No Capacity Yet"
+        assert payload["team_id"] == team_id
+        assert payload["capacity_fte_months"] == pytest.approx(0.0, abs=1e-6)
+    finally:
+        _restore_current_space_override(original_current_space)

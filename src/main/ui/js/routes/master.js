@@ -62,6 +62,18 @@ export function renderMasterTable(ctx) {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  const renderProjectNameLink = (label, projectId) => {
+    const text = String(label || "").trim() || "–";
+    const targetId = String(projectId || "").trim();
+    if (!targetId) return esc(text);
+    return `<button type="button" class="deliverables-name-link deliverables-name-link-project" data-action="edit" data-type="project" data-id="${esc(targetId)}">${esc(text)}</button>`;
+  };
+  const renderSolutionNameLink = (label, solutionId) => {
+    const text = String(label || "").trim() || "–";
+    const targetId = String(solutionId || "").trim();
+    if (!targetId) return esc(text);
+    return `<button type="button" class="deliverables-name-link deliverables-name-link-solution" data-action="edit" data-type="solution" data-id="${esc(targetId)}">${esc(text)}</button>`;
+  };
   const colgroup = `<colgroup>
       <col class="deliverable-select"><col class="deliverable-type"><col class="deliverable-project"><col class="deliverable-sponsor">
       <col class="deliverable-solution"><col class="deliverable-version"><col class="deliverable-owner">
@@ -156,9 +168,9 @@ export function renderMasterTable(ctx) {
     html += `<tr class="deliverable-row ${isSolution ? "deliverable-row-solution" : "deliverable-row-project"}">
       <td><input type="checkbox" class="deliverable-select" data-type="${row.type}" data-id="${itemId}" ${checked} /></td>
       <td>${deliverableChip}</td>
-      <td>${project?.project_name || "–"}</td>
+      <td>${renderProjectNameLink(project?.project_name, project?.project_id)}</td>
       <td>${project?.sponsor || "–"}</td>
-      <td>${solution?.solution_name || "–"}</td>
+      <td>${renderSolutionNameLink(solution?.solution_name, solution?.solution_id)}</td>
       <td>${solution?.version || "–"}</td>
       <td>${solution?.owner || "–"}</td>
       <td>${isSolution ? phaseDisplayName(solution.current_phase) || "–" : "—"}</td>

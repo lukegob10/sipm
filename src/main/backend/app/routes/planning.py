@@ -112,6 +112,12 @@ class WorkAllocationAssignmentCreate(BaseModel):
     fte_months_allocated: Optional[float] = None
 
 
+class WorkAllocationAssignmentUpdate(BaseModel):
+    assignee_type: Literal["person", "team"]
+    assignee_id: str = Field(min_length=1)
+    fte_months_allocated: Optional[float] = None
+
+
 class WorkAllocationAssignmentRead(BaseModel):
     id: str
     task_id: str
@@ -399,7 +405,7 @@ def _person_payload(user: User, team_map: dict[str, str]) -> WorkAllocationPerso
     team_key = str(user.team_tag or "").strip().lower()
     team_id = team_map.get(team_key) if team_key else None
     cap = user.capacity_fte_month
-    if not cap or cap <= 0:
+    if cap is None or cap < 0:
         cap = 1.0
     return WorkAllocationPersonRead(
         id=user.soeid,
@@ -438,6 +444,102 @@ def _allocation_for_board_payload(alloc: ResourceAllocation, space_ctx: SpaceCon
         month=_month_token(month_value),
         fte_months_allocated=round(max(fte, 0.0), 3),
     )
+
+
+def _resolve_work_allocation_assignee(
+    session: Session,
+    assignee_type: Literal["person", "team"],
+    assignee_id: str,
+    space_ctx: SpaceContext,
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    assignee_user_soeid: Optional[str] = None
+    assignee_name: Optional[str] = None
+    team_id: Optional[str] = None
+    if assignee_type == "person":
+        user = _active_person_by_soeid(session, assignee_id, space_ctx)
+        assignee_user_soeid = user.soeid
+        assignee_name = user.display_name
+    else:
+        team = _active_team(session, assignee_id, space_ctx)
+        team_id = team.team_id
+        assignee_name = team.name
+    return assignee_user_soeid, assignee_name, team_id
+
+
+def _ensure_work_allocation_assignment_available(
+    session: Session,
+    space_ctx: SpaceContext,
+    task_id: str,
+    month_start: date,
+    assignee_user_soeid: Optional[str],
+    team_id: Optional[str],
+    *,
+    exclude_allocation_id: Optional[str] = None,
+) -> None:
+    same_assignee = (
+        _allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_id == task_id)
+        .filter(_allocation_month_expr() == month_start)
+    )
+    if exclude_allocation_id:
+        same_assignee = same_assignee.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+    if assignee_user_soeid:
+        same_assignee = same_assignee.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+    else:
+        same_assignee = (
+            same_assignee
+            .filter(ResourceAllocation.assignee_user_soeid.is_(None))
+            .filter(ResourceAllocation.team_id == team_id)
+        )
+    if same_assignee.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Task is already allocated to this assignee for this month",
+        )
+
+    if team_id:
+        other_team_allocation = (
+            _allocation_query(session, space_ctx)
+            .filter(ResourceAllocation.work_item_type == "subcomponent")
+            .filter(ResourceAllocation.work_item_id == task_id)
+            .filter(_allocation_month_expr() == month_start)
+            .filter(ResourceAllocation.assignee_user_soeid.is_(None))
+        )
+        if exclude_allocation_id:
+            other_team_allocation = other_team_allocation.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+        other_team_allocation = other_team_allocation.first()
+        if other_team_allocation and other_team_allocation.team_id != team_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task already has a team-level allocation for this month",
+            )
+
+
+def _work_allocation_revival_query(
+    session: Session,
+    space_ctx: SpaceContext,
+    task_id: str,
+    month_start: date,
+    assignee_user_soeid: Optional[str],
+    *,
+    exclude_allocation_id: Optional[str] = None,
+):
+    revive_query = (
+        session.query(ResourceAllocation)
+        .filter(ResourceAllocation.space_id == space_ctx.space_id)
+        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_id == task_id)
+        .filter(ResourceAllocation.week_start == month_start)
+        .filter(ResourceAllocation.window_id.is_(None))
+    )
+    if exclude_allocation_id:
+        revive_query = revive_query.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+    if assignee_user_soeid:
+        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+    else:
+        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid.is_(None))
+    return revive_query
 
 
 def _raise_on_unique_allocation_conflict(err: IntegrityError) -> None:
@@ -1166,7 +1268,7 @@ def create_allocation(
         space_id=space_ctx.space_id,
         work_item_type=payload.work_item_type,
         work_item_id=payload.work_item_id,
-        assignee_user_soeid=payload.assignee_user_soeid or payload.assignee,
+        assignee_user_soeid=payload.assignee_user_soeid,
         assignee=payload.assignee,
         team_id=payload.team_id,
         week_start=payload.week_start or month_start,
@@ -1569,7 +1671,8 @@ def create_work_allocation_person(
     team = _active_team(session, payload.team_id, space_ctx) if payload.team_id else None
     soeid = _next_available_soeid(session, name)
     now = datetime.now(timezone.utc)
-    cap = max(float(payload.capacity_fte_months or 1.0), 0.0)
+    raw_capacity = payload.capacity_fte_months if payload.capacity_fte_months is not None else 1.0
+    cap = max(float(raw_capacity), 0.0)
     row = User(
         soeid=soeid,
         email=f"{soeid}@{_WORK_ALLOCATION_DOMAIN}",
@@ -1704,7 +1807,8 @@ def create_work_allocation_task(
     conflict = query.filter(func.lower(Subcomponent.subcomponent_name) == title.lower()).first()
     if conflict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")
-    fte = round(max(float(payload.fte_months or 0.25), 0.05), 3)
+    raw_fte = payload.fte_months if payload.fte_months is not None else 0.25
+    fte = round(max(float(raw_fte), 0.05), 3)
     hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
     now = datetime.now(timezone.utc)
     row = Subcomponent(
@@ -1910,52 +2014,17 @@ def create_work_allocation_allocation(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    assignee_user_soeid: Optional[str] = None
-    assignee_name: Optional[str] = None
-    team_id: Optional[str] = None
-    if payload.assignee_type == "person":
-        user = _active_person_by_soeid(session, payload.assignee_id, space_ctx)
-        assignee_user_soeid = user.soeid
-        assignee_name = user.display_name
-    else:
-        team = _active_team(session, payload.assignee_id, space_ctx)
-        team_id = team.team_id
-        assignee_name = team.name
-
-    same_assignee = (
-        _allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
-        .filter(ResourceAllocation.work_item_id == payload.task_id)
-        .filter(_allocation_month_expr() == month_start)
+    assignee_user_soeid, assignee_name, team_id = _resolve_work_allocation_assignee(
+        session, payload.assignee_type, payload.assignee_id, space_ctx
     )
-    if assignee_user_soeid:
-        same_assignee = same_assignee.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
-    else:
-        same_assignee = (
-            same_assignee
-            .filter(ResourceAllocation.assignee_user_soeid.is_(None))
-            .filter(ResourceAllocation.team_id == team_id)
-        )
-    if same_assignee.first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Task is already allocated to this assignee for this month",
-        )
-
-    if team_id:
-        other_team_allocation = (
-            _allocation_query(session, space_ctx)
-            .filter(ResourceAllocation.work_item_type == "subcomponent")
-            .filter(ResourceAllocation.work_item_id == payload.task_id)
-            .filter(_allocation_month_expr() == month_start)
-            .filter(ResourceAllocation.assignee_user_soeid.is_(None))
-            .first()
-        )
-        if other_team_allocation and other_team_allocation.team_id != team_id:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Task already has a team-level allocation for this month",
-            )
+    _ensure_work_allocation_assignment_available(
+        session,
+        space_ctx,
+        payload.task_id,
+        month_start,
+        assignee_user_soeid,
+        team_id,
+    )
 
     fte = payload.fte_months_allocated
     if fte is None:
@@ -1966,18 +2035,13 @@ def create_work_allocation_allocation(
 
     # Oracle unique key on allocations includes assignee_user_soeid/week_start/window_id but not deleted_at.
     # Reuse a matching soft-deleted row to avoid ORA-00001 on re-assignment flows.
-    revive_query = (
-        session.query(ResourceAllocation)
-        .filter(ResourceAllocation.space_id == space_ctx.space_id)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
-        .filter(ResourceAllocation.work_item_id == payload.task_id)
-        .filter(ResourceAllocation.week_start == month_start)
-        .filter(ResourceAllocation.window_id.is_(None))
+    revive_query = _work_allocation_revival_query(
+        session,
+        space_ctx,
+        payload.task_id,
+        month_start,
+        assignee_user_soeid,
     )
-    if assignee_user_soeid:
-        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
-    else:
-        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid.is_(None))
     revive_row = revive_query.first()
     if revive_row:
         revive_row.assignee_user_soeid = assignee_user_soeid
@@ -2015,6 +2079,107 @@ def create_work_allocation_allocation(
         created_at=now,
         updated_at=now,
     )
+    session.add(row)
+    try:
+        session.commit()
+    except IntegrityError as err:
+        session.rollback()
+        _raise_on_unique_allocation_conflict(err)
+    session.refresh(row)
+    invalidate_space(space_ctx.space_id, ["planning"])
+    return _allocation_for_board_payload(row, space_ctx, session)
+
+
+@router.patch(
+    "/planning/work-allocation/allocations/{allocation_id}",
+    response_model=WorkAllocationAssignmentRead,
+)
+def update_work_allocation_allocation(
+    allocation_id: str,
+    payload: WorkAllocationAssignmentUpdate,
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+) -> WorkAllocationAssignmentRead:
+    row = _get_allocation(session, allocation_id, space_ctx)
+    if row.work_item_type != "subcomponent":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation is not a planning task assignment")
+
+    month_start = row.month_start or (_month_start(row.week_start) if row.week_start else None)
+    if month_start is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation month is missing")
+
+    task = (
+        _planning_task_query(session, space_ctx)
+        .filter(Subcomponent.subcomponent_id == row.work_item_id)
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+
+    assignee_user_soeid, assignee_name, team_id = _resolve_work_allocation_assignee(
+        session, payload.assignee_type, payload.assignee_id, space_ctx
+    )
+    _ensure_work_allocation_assignment_available(
+        session,
+        space_ctx,
+        row.work_item_id,
+        month_start,
+        assignee_user_soeid,
+        team_id,
+        exclude_allocation_id=row.allocation_id,
+    )
+
+    fte = payload.fte_months_allocated
+    if fte is None:
+        fte = float(row.fte_months or 0.0)
+        if fte <= 0:
+            fte = _task_fte_months(task)
+    fte = round(max(float(fte), 0.05), 3)
+    hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
+    now = datetime.now(timezone.utc)
+
+    revive_row = _work_allocation_revival_query(
+        session,
+        space_ctx,
+        row.work_item_id,
+        month_start,
+        assignee_user_soeid,
+        exclude_allocation_id=row.allocation_id,
+    ).first()
+    if revive_row and revive_row.deleted_at is not None:
+        revive_row.assignee_user_soeid = assignee_user_soeid
+        revive_row.assignee = assignee_name
+        revive_row.team_id = team_id
+        revive_row.week_start = month_start
+        revive_row.month_start = month_start
+        revive_row.hours = hours
+        revive_row.fte_months = fte
+        revive_row.window_id = None
+        revive_row.deleted_at = None
+        revive_row.updated_at = now
+        row.deleted_at = now
+        row.updated_at = now
+        session.add(revive_row)
+        session.add(row)
+        try:
+            session.commit()
+        except IntegrityError as err:
+            session.rollback()
+            _raise_on_unique_allocation_conflict(err)
+        session.refresh(revive_row)
+        invalidate_space(space_ctx.space_id, ["planning"])
+        return _allocation_for_board_payload(revive_row, space_ctx, session)
+
+    row.assignee_user_soeid = assignee_user_soeid
+    row.assignee = assignee_name
+    row.team_id = team_id
+    row.week_start = month_start
+    row.month_start = month_start
+    row.hours = hours
+    row.fte_months = fte
+    row.window_id = None
+    row.updated_at = now
     session.add(row)
     try:
         session.commit()

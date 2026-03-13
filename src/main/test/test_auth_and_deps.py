@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -96,36 +97,107 @@ def test_decode_token_errors_and_type_check():
     assert exc.value.detail == "Invalid token type"
 
 
-def test_refresh_token_default_ttl_is_one_hour():
-    token = create_token("user-1", "user", "refresh")
-    payload = jwt.decode(
-        token,
-        SECRET_KEY,
-        algorithms=[ALGORITHM],
-        options={"verify_exp": False},
-    )
-    ttl_seconds = int(payload["exp"]) - int(payload["iat"])
-    assert 59 * 60 <= ttl_seconds <= 61 * 60
+def test_refresh_token_default_ttl_is_one_hour(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    with monkeypatch.context() as env:
+        env.delenv("SIPM_REFRESH_MINUTES", raising=False)
+        env.delenv("SIPM_REFRESH_DAYS", raising=False)
+        reloaded = importlib.reload(auth_module)
+        token = reloaded.create_token("user-1", "user", "refresh")
+        payload = jwt.decode(
+            token,
+            reloaded.SECRET_KEY,
+            algorithms=[reloaded.ALGORITHM],
+            options={"verify_exp": False},
+        )
+        ttl_seconds = int(payload["exp"]) - int(payload["iat"])
+        assert 59 * 60 <= ttl_seconds <= 61 * 60
+
+    importlib.reload(auth_module)
 
 
-def test_auth_cookie_helpers_set_and_clear():
-    response = Response()
-    set_auth_cookies(response, "access", "refresh")
-    cookies = response.headers.getlist("set-cookie")
-    assert any("access_token=" in cookie and "Path=/project-manager" in cookie for cookie in cookies)
-    assert any("refresh_token=" in cookie and "Path=/project-manager" in cookie for cookie in cookies)
+def test_access_token_ttl_supports_explicit_zero_minutes(monkeypatch):
+    import backend.app.auth.auth as auth_module
 
-    clear = Response()
-    clear_auth_cookies(clear)
-    cleared = clear.headers.getlist("set-cookie")
-    assert any(
-        "access_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
-        for cookie in cleared
-    )
-    assert any(
-        "refresh_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
-        for cookie in cleared
-    )
+    with monkeypatch.context() as env:
+        env.setenv("SIPM_ACCESS_MINUTES", "0")
+        reloaded = importlib.reload(auth_module)
+        assert reloaded.ACCESS_TOKEN_EXPIRE_MINUTES == 0
+        assert reloaded.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS == 0
+
+    importlib.reload(auth_module)
+
+
+def test_refresh_token_ttl_supports_days_env(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    with monkeypatch.context() as env:
+        env.delenv("SIPM_REFRESH_MINUTES", raising=False)
+        env.setenv("SIPM_REFRESH_DAYS", "7")
+        reloaded = importlib.reload(auth_module)
+        token = reloaded.create_token("user-1", "user", "refresh")
+        payload = jwt.decode(
+            token,
+            reloaded.SECRET_KEY,
+            algorithms=[reloaded.ALGORITHM],
+            options={"verify_exp": False},
+        )
+        ttl_seconds = int(payload["exp"]) - int(payload["iat"])
+        expected = 7 * 24 * 60 * 60
+        assert expected - 60 <= ttl_seconds <= expected + 60
+
+    importlib.reload(auth_module)
+
+
+def test_auth_cookie_helpers_set_lifetimes_and_clear(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    with monkeypatch.context() as env:
+        env.setenv("SIPM_ACCESS_MINUTES", "60")
+        env.delenv("SIPM_REFRESH_MINUTES", raising=False)
+        env.setenv("SIPM_REFRESH_DAYS", "7")
+        reloaded = importlib.reload(auth_module)
+
+        response = Response()
+        reloaded.set_auth_cookies(response, "access", "refresh")
+        cookies = response.headers.getlist("set-cookie")
+        assert any(
+            "access_token=" in cookie
+            and "Path=/project-manager" in cookie
+            and f"Max-Age={reloaded.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS}" in cookie
+            for cookie in cookies
+        )
+        assert any(
+            "refresh_token=" in cookie
+            and "Path=/project-manager" in cookie
+            and f"Max-Age={reloaded.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS}" in cookie
+            for cookie in cookies
+        )
+
+        active = Response()
+        reloaded.set_active_space_cookie(active, "space-1")
+        active_cookies = active.headers.getlist("set-cookie")
+        assert any(
+            "active_space_id=space-1" in cookie
+            and "Path=/project-manager" in cookie
+            and f"Max-Age={reloaded.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS}" in cookie
+            for cookie in active_cookies
+        )
+
+        clear = Response()
+        reloaded.clear_auth_cookies(clear)
+        cleared = clear.headers.getlist("set-cookie")
+        assert any(
+            "access_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+            for cookie in cleared
+        )
+        assert any(
+            "refresh_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+            for cookie in cleared
+        )
+
+    importlib.reload(auth_module)
 
 
 def test_require_space_role_normalizes_space_admin_aliases():

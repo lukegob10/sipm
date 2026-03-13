@@ -2,12 +2,14 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
 
-const DASHBOARD_PREFS_KEY = "sipm-dashboard-view-prefs-v3";
+const DASHBOARD_PREFS_KEY_PREFIX = "sipm-dashboard-view-prefs-v4";
+const DASHBOARD_PREFS_LEGACY_KEY = "sipm-dashboard-view-prefs-v3";
 const DEFAULT_PREFS = Object.freeze({
   scope: "active",
   sort: "risk_desc",
   rows: 10,
   horizon_days: 30,
+  last_config_section: "main",
 });
 
 const SCOPE_OPTIONS = new Set(["all", "active", "at_risk", "mine"]);
@@ -117,9 +119,11 @@ function emptySectionOptions() {
 const dashboardState = {
   ctx: null,
   bound: false,
-  prefs: loadPrefs(),
+  prefs: normalizePrefs(DEFAULT_PREFS),
+  prefsSpaceId: "",
   sectionOptions: emptySectionOptions(),
   modalSection: null,
+  lastConfigSection: "main",
 };
 
 function esc(value) {
@@ -142,6 +146,14 @@ function clamp(value, min, max) {
 
 function normalize(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function currentDashboardSpaceId() {
+  return normalize(dashboardState.ctx?.state?.activeSpace?.space_id || "no-space") || "no-space";
+}
+
+function dashboardPrefsStorageKey(spaceId = currentDashboardSpaceId()) {
+  return `${DASHBOARD_PREFS_KEY_PREFIX}:${normalize(spaceId || "no-space") || "no-space"}`;
 }
 
 function parseDate(value) {
@@ -262,25 +274,49 @@ function normalizeSectionPrefs(sectionId, input) {
   };
 }
 
-function loadPrefs() {
+function loadPrefs(spaceId = currentDashboardSpaceId()) {
   try {
     if (typeof localStorage === "undefined") return normalizePrefs(DEFAULT_PREFS);
-    const raw = localStorage.getItem(DASHBOARD_PREFS_KEY);
-    if (!raw) return normalizePrefs(DEFAULT_PREFS);
+    const scopedKey = dashboardPrefsStorageKey(spaceId);
+    const persistLoadedPrefs = (prefs) => {
+      localStorage.setItem(scopedKey, JSON.stringify(prefs));
+      return prefs;
+    };
+    const raw = localStorage.getItem(scopedKey);
+    if (!raw) {
+      const legacyRaw = localStorage.getItem(DASHBOARD_PREFS_LEGACY_KEY);
+      if (!legacyRaw) {
+        const defaultPrefs = normalizePrefs(DEFAULT_PREFS);
+        return persistLoadedPrefs(defaultPrefs);
+      }
+      const legacyParsed = normalizePrefs(JSON.parse(legacyRaw));
+      return persistLoadedPrefs(legacyParsed);
+    }
     const parsed = JSON.parse(raw);
-    return normalizePrefs(parsed);
+    const normalized = normalizePrefs(parsed);
+    if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
+      localStorage.setItem(scopedKey, JSON.stringify(normalized));
+    }
+    return normalized;
   } catch {
     return normalizePrefs(DEFAULT_PREFS);
   }
 }
 
-function savePrefs() {
+function savePrefs(spaceId = dashboardState.prefsSpaceId || currentDashboardSpaceId()) {
   try {
     if (typeof localStorage === "undefined") return;
-    localStorage.setItem(DASHBOARD_PREFS_KEY, JSON.stringify(dashboardState.prefs));
+    localStorage.setItem(dashboardPrefsStorageKey(spaceId), JSON.stringify(dashboardState.prefs));
   } catch {
     // Ignore persistence issues.
   }
+}
+
+function ensurePrefsLoaded(spaceId = currentDashboardSpaceId()) {
+  const targetSpaceId = normalize(spaceId || "no-space") || "no-space";
+  if (dashboardState.prefsSpaceId === targetSpaceId) return;
+  dashboardState.prefs = loadPrefs(targetSpaceId);
+  dashboardState.prefsSpaceId = targetSpaceId;
 }
 
 function normalizePrefs(input) {
@@ -289,12 +325,14 @@ function normalizePrefs(input) {
     sort: String(input?.sort || DEFAULT_PREFS.sort),
     rows: num(input?.rows, DEFAULT_PREFS.rows),
     horizon_days: num(input?.horizon_days, DEFAULT_PREFS.horizon_days),
+    last_config_section: String(input?.last_config_section || DEFAULT_PREFS.last_config_section),
   };
 
   if (!SCOPE_OPTIONS.has(next.scope)) next.scope = DEFAULT_PREFS.scope;
   if (!SORT_OPTIONS.has(next.sort)) next.sort = DEFAULT_PREFS.sort;
   if (!ROW_OPTIONS.has(next.rows)) next.rows = DEFAULT_PREFS.rows;
   if (!HORIZON_OPTIONS.has(next.horizon_days)) next.horizon_days = DEFAULT_PREFS.horizon_days;
+  if (!DASHBOARD_SECTIONS.includes(next.last_config_section)) next.last_config_section = DEFAULT_PREFS.last_config_section;
 
   const sections = {};
   DASHBOARD_SECTIONS.forEach((sectionId) => {
@@ -461,6 +499,46 @@ function buildSectionOptions(rows, pickRow = (entry) => entry) {
   });
 }
 
+function normalizeSectionSolutionSelections(sectionOptionsBySection = dashboardState.sectionOptions) {
+  const nextSections = {};
+  let changed = false;
+
+  DASHBOARD_SECTIONS.forEach((sectionId) => {
+    const current = getSectionPrefs(sectionId);
+    const solutionIds = Array.isArray(current.solution_ids) ? current.solution_ids : null;
+    if (!solutionIds) return;
+
+    const validSolutionIds = new Set(
+      (sectionOptionsBySection?.[sectionId] || [])
+        .map((option) => String(option.solutionId || "").trim())
+        .filter(Boolean)
+    );
+    const filteredIds = solutionIds.filter((solutionId) => validSolutionIds.has(String(solutionId || "").trim()));
+    const normalizedIds = filteredIds.length ? filteredIds : null;
+    const unchanged = Array.isArray(normalizedIds)
+      ? solutionIds.length === normalizedIds.length && solutionIds.every((solutionId, index) => solutionId === normalizedIds[index])
+      : normalizedIds === null && solutionIds.length === 0;
+    if (unchanged) return;
+
+    changed = true;
+    nextSections[sectionId] = {
+      ...current,
+      solution_ids: normalizedIds,
+    };
+  });
+
+  if (!changed) return false;
+  dashboardState.prefs = normalizePrefs({
+    ...(dashboardState.prefs || normalizePrefs(DEFAULT_PREFS)),
+    sections: {
+      ...(dashboardState.prefs?.sections || {}),
+      ...nextSections,
+    },
+  });
+  savePrefs();
+  return true;
+}
+
 function applySectionSolutionFilter(rows, sectionId, idFromRow = (row) => row.solutionId) {
   const solutionIds = getSectionPrefs(sectionId).solution_ids;
   if (!Array.isArray(solutionIds)) return rows;
@@ -473,12 +551,47 @@ function displayValue(value, fallback = "—") {
   return text || fallback;
 }
 
+function dashboardActionButtonMarkup(action, attrName, attrValue, label, extraClass = "") {
+  const attrToken = attrName && attrValue ? ` ${attrName}="${esc(attrValue)}"` : "";
+  const classToken = extraClass ? ` ${extraClass}` : "";
+  return `<button type="button" class="${extraClass ? esc(extraClass) : "dashboard-inline-action"}" data-dashboard-action="${action}"${attrToken}>${esc(label)}</button>`;
+}
+
+function dashboardSolutionLinkMarkup(solutionId, label) {
+  if (!solutionId) return `<strong>${esc(label)}</strong>`;
+  return `<button type="button" class="dashboard-solution-link" data-dashboard-action="open-solution" data-solution-id="${esc(solutionId)}">${esc(label)}</button>`;
+}
+
+function dashboardProjectLinkMarkup(projectId, label, extraClass = "") {
+  if (!projectId) return `<strong>${esc(label)}</strong>`;
+  const classToken = extraClass ? ` ${extraClass}` : "";
+  return `<button type="button" class="dashboard-project-link${classToken}" data-dashboard-action="open-project" data-project-id="${esc(projectId)}">${esc(label)}</button>`;
+}
+
+function renderDashboardConfigButton() {
+  return `<div class="dashboard-card-actions">${dashboardActionButtonMarkup(
+    "open-config",
+    "",
+    "",
+    "Customize Tables",
+    "dashboard-card-action"
+  )}</div>`;
+}
+
+function renderDashboardConfigSectionTabs(activeSectionId) {
+  return DASHBOARD_SECTIONS.map((sectionId) => {
+    const activeClass = sectionId === activeSectionId ? " active" : "";
+    return `<button type="button" class="tab${activeClass}" data-dashboard-action="switch-config-section" data-dashboard-section="${sectionId}">${esc(DASHBOARD_SECTION_TITLES[sectionId] || sectionId)}</button>`;
+  }).join("");
+}
+
 function createColumnDefinitions(formatStatusLabel) {
   const allColumns = {
     solution: {
       label: "Solution",
-      render: (row) =>
-        `<div><strong>${esc(row.solutionName)}</strong></div><div class="dashboard-cell-meta">${esc(row.projectName)}</div>`,
+      render: (row) => `<div class="dashboard-solution-cell">
+        <div>${dashboardSolutionLinkMarkup(row.solutionId, row.solutionName)}</div>
+      </div>`,
     },
     solution_id: {
       label: "Solution ID",
@@ -486,7 +599,7 @@ function createColumnDefinitions(formatStatusLabel) {
     },
     project: {
       label: "Project",
-      render: (row) => `<strong>${esc(row.projectName)}</strong>`,
+      render: (row) => dashboardProjectLinkMarkup(row.projectId, row.projectName, " strong"),
     },
     project_id: {
       label: "Project ID",
@@ -594,14 +707,7 @@ function renderSectionTable({ sectionId, rows, columnDefs, tableClass, emptyText
   const emptyRow = `<tr><td colspan="${Math.max(columns.length, 1)}" class="muted">${esc(emptyText)}</td></tr>`;
 
   return `
-    <div
-      class="table dashboard-table-shell dashboard-interactive-table"
-      role="button"
-      tabindex="0"
-      data-dashboard-action="open-config"
-      data-dashboard-section="${sectionId}"
-      aria-label="Customize ${esc(DASHBOARD_SECTION_TITLES[sectionId] || "dashboard")} table"
-    >
+    <div class="table dashboard-table-shell">
       <table class="${tableClass} dashboard-condensed-table">
         <colgroup>${colgroupHtml}</colgroup>
         <thead>
@@ -698,10 +804,11 @@ function ensureDashboardConfigModal() {
     <div class="modal-backdrop" data-dashboard-action="close-config"></div>
     <div class="modal-content dashboard-config-modal-content" role="dialog" aria-modal="true" aria-labelledby="dashboard-config-title">
       <div class="modal-header">
-        <h3 id="dashboard-config-title">Customize Table</h3>
+        <h3 id="dashboard-config-title">Customize Tables</h3>
         <button type="button" class="secondary" data-dashboard-action="close-config">Close</button>
       </div>
       <p id="dashboard-config-description" class="muted"></p>
+      <div id="dashboard-config-section-tabs" class="modal-tabs dashboard-config-section-tabs" role="tablist" aria-label="Dashboard tables"></div>
       <div class="dashboard-config-layout">
         <section class="dashboard-config-panel">
           <div class="modal-section-title">Columns</div>
@@ -711,8 +818,8 @@ function ensureDashboardConfigModal() {
           <div class="dashboard-config-list-head">
             <div class="modal-section-title">Solutions Included</div>
             <div class="dashboard-config-list-actions">
-              <button type="button" class="text-link" data-dashboard-action="select-all-solutions">Select all</button>
-              <button type="button" class="text-link" data-dashboard-action="clear-solutions">Clear</button>
+              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="select-all-solutions">Select all</button>
+              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="clear-solutions">Clear</button>
             </div>
           </div>
           <div id="dashboard-config-solutions" class="dashboard-config-checklist dashboard-config-solutions"></div>
@@ -744,12 +851,15 @@ function renderDashboardConfigModal(sectionId, options = {}) {
 
   const titleEl = modal.querySelector("#dashboard-config-title");
   const descriptionEl = modal.querySelector("#dashboard-config-description");
+  const sectionTabsEl = modal.querySelector("#dashboard-config-section-tabs");
   const columnsEl = modal.querySelector("#dashboard-config-columns");
   const solutionsEl = modal.querySelector("#dashboard-config-solutions");
-  if (!titleEl || !descriptionEl || !columnsEl || !solutionsEl) return;
+  if (!titleEl || !descriptionEl || !sectionTabsEl || !columnsEl || !solutionsEl) return;
 
-  titleEl.textContent = `Customize ${DASHBOARD_SECTION_TITLES[sectionId] || "Dashboard"}`;
-  descriptionEl.textContent = "Choose executive columns, reorder them, and pick which project solutions appear in this table.";
+  const activeSectionTitle = DASHBOARD_SECTION_TITLES[sectionId] || "Dashboard";
+  titleEl.textContent = "Customize Tables";
+  descriptionEl.textContent = `Editing ${activeSectionTitle}. Choose a table below, then reorder columns and pick which project solutions appear.`;
+  sectionTabsEl.innerHTML = renderDashboardConfigSectionTabs(sectionId);
 
   const columnOrder = DASHBOARD_SECTION_COLUMNS[sectionId] || [];
   const modalColumnOrder = [
@@ -798,14 +908,16 @@ function renderDashboardConfigModal(sectionId, options = {}) {
 }
 
 function openDashboardConfigModal(sectionId) {
-  if (!DASHBOARD_SECTIONS.includes(sectionId)) return;
+  const targetSection = DASHBOARD_SECTIONS.includes(sectionId)
+    ? sectionId
+    : dashboardState.prefs?.last_config_section || dashboardState.lastConfigSection || "main";
   const modal = ensureDashboardConfigModal();
   if (!modal) return;
-  dashboardState.modalSection = sectionId;
+  dashboardState.modalSection = targetSection;
+  dashboardState.lastConfigSection = targetSection;
+  updatePrefs({ last_config_section: targetSection });
   modal.classList.remove("hidden");
   modal.setAttribute("aria-hidden", "false");
-  const firstInput = modal.querySelector("input");
-  if (firstInput instanceof HTMLElement) firstInput.focus();
 }
 
 function closeDashboardConfigModal() {
@@ -910,19 +1022,6 @@ function bindDashboardEvents(ctx) {
     }
   });
 
-  viewRoot.addEventListener("keydown", (event) => {
-    if (!(event.target instanceof Element)) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    const trigger = event.target.closest("[data-dashboard-action='open-config']");
-    if (!trigger) return;
-    event.preventDefault();
-    const sectionId = String(trigger.getAttribute("data-dashboard-section") || "");
-    openDashboardConfigModal(sectionId);
-    renderDashboardConfigModal(sectionId, {
-      columnDefsBySection: dashboardState.columnDefsBySection || {},
-    });
-  });
-
   viewRoot.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;
     const actionEl = event.target.closest("[data-dashboard-action]");
@@ -940,13 +1039,41 @@ function bindDashboardEvents(ctx) {
       return;
     }
 
+    if (action === "open-solution") {
+      event.preventDefault();
+      const solutionId = String(actionEl.getAttribute("data-solution-id") || "");
+      if (typeof dashboardState.ctx?.openDashboardSolutionDrilldown === "function") {
+        dashboardState.ctx.openDashboardSolutionDrilldown(solutionId);
+      }
+      return;
+    }
+
+    if (action === "open-project") {
+      event.preventDefault();
+      const projectId = String(actionEl.getAttribute("data-project-id") || "");
+      if (typeof dashboardState.ctx?.openDashboardProjectDrilldown === "function") {
+        dashboardState.ctx.openDashboardProjectDrilldown(projectId);
+      }
+      return;
+    }
+
     if (action === "open-config") {
-      const sectionId = String(actionEl.getAttribute("data-dashboard-section") || "");
+      event.preventDefault();
+      const sectionId = String(
+        actionEl.getAttribute("data-dashboard-section")
+        || dashboardState.prefs?.last_config_section
+        || dashboardState.lastConfigSection
+        || "main"
+      );
       openDashboardConfigModal(sectionId);
       renderDashboardConfigModal(sectionId, {
         columnDefsBySection: dashboardState.columnDefsBySection || {},
       });
+      const activeTab = ensureDashboardConfigModal()?.querySelector(".dashboard-config-section-tabs .tab.active");
+      if (activeTab instanceof HTMLElement) activeTab.focus();
+      return;
     }
+
   });
 
   document.addEventListener("click", (event) => {
@@ -965,6 +1092,18 @@ function bindDashboardEvents(ctx) {
     }
     if (action === "clear-solutions") {
       setAllModalSolutionChecks(false);
+      return;
+    }
+    if (action === "switch-config-section") {
+      event.preventDefault();
+      const sectionId = String(actionEl.getAttribute("data-dashboard-section") || "");
+      if (!DASHBOARD_SECTIONS.includes(sectionId)) return;
+      dashboardState.modalSection = sectionId;
+      dashboardState.lastConfigSection = sectionId;
+      updatePrefs({ last_config_section: sectionId });
+      renderDashboardConfigModal(sectionId, {
+        columnDefsBySection: dashboardState.columnDefsBySection || {},
+      });
       return;
     }
     if (action === "move-column-up") {
@@ -994,6 +1133,7 @@ function bindDashboardEvents(ctx) {
 export function renderDashboard(ctx) {
   const { state, els, formatStatus } = ctx;
   dashboardState.ctx = ctx;
+  ensurePrefsLoaded(state.activeSpace?.space_id || "no-space");
   bindDashboardEvents(ctx);
 
   const prefs = dashboardState.prefs;
@@ -1007,7 +1147,6 @@ export function renderDashboard(ctx) {
   const projectNameById = new Map(
     projects.map((project) => [String(project.project_id || ""), String(project.project_name || "Unnamed Project")])
   );
-
   const subcomponentsBySolution = new Map();
   subcomponents.forEach((subcomponent) => {
     const solutionId = String(subcomponent.solution_id || "");
@@ -1032,7 +1171,6 @@ export function renderDashboard(ctx) {
       const dueDate = parseDate(solution.due_date);
       const dueDays = dueDate ? daysUntil(today, dueDate) : Number.NaN;
       const completedDate = parseDate(solution.completed_at) || parseDate(solution.updated_at);
-
       const row = {
         solutionId,
         projectId: String(solution.project_id || ""),
@@ -1102,13 +1240,7 @@ export function renderDashboard(ctx) {
 
   const scopedRows = applyScope(solutionRows, prefs.scope);
   const sortedScopedRows = sortRows(scopedRows, prefs.sort);
-  const filteredMainRows = applySectionSolutionFilter(sortedScopedRows, "main", (row) => row.solutionId);
-  const scopedActiveRows = scopedRows.filter((row) => !row.isClosed);
-  const scopedAtRiskRows = scopedActiveRows.filter((row) => row.riskScore >= 45);
-  const scopedOverdueRows = scopedActiveRows.filter((row) => Number.isFinite(row.dueDays) && row.dueDays < 0);
-
   const rowBudget = viewportRowBudget();
-  const mainRows = filteredMainRows.slice(0, Math.min(prefs.rows, rowBudget.main));
   const supportRows = rowBudget.secondary;
 
   const completedAllRows = solutionRows
@@ -1146,6 +1278,13 @@ export function renderDashboard(ctx) {
     upcoming: buildSectionOptions(upcomingAllRows, (entry) => entry.row),
     backlog: buildSectionOptions(deferredRows, (entry) => entry.row),
   };
+  normalizeSectionSolutionSelections(dashboardState.sectionOptions);
+
+  const filteredMainRows = applySectionSolutionFilter(sortedScopedRows, "main", (row) => row.solutionId);
+  const scopedActiveRows = scopedRows.filter((row) => !row.isClosed);
+  const scopedAtRiskRows = scopedActiveRows.filter((row) => row.riskScore >= 45);
+  const scopedOverdueRows = scopedActiveRows.filter((row) => Number.isFinite(row.dueDays) && row.dueDays < 0);
+  const mainRows = filteredMainRows.slice(0, Math.min(prefs.rows, rowBudget.main));
 
   const formatStatusLabel = (value) => {
     if (typeof formatStatus === "function") return formatStatus(value);
@@ -1193,6 +1332,7 @@ export function renderDashboard(ctx) {
           <h3>Current Deliverables</h3>
           <p class="dashboard-card-sub">Executive view of priority solutions and delivery pressure.</p>
         </div>
+        ${renderDashboardConfigButton()}
       </div>
       <p class="dashboard-main-meta">
         ${mainRows.length} shown · ${includedText} · ${scopedAtRiskRows.length} at risk · ${scopedOverdueRows.length} overdue

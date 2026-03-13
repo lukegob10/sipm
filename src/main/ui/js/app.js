@@ -144,6 +144,7 @@ const els = {
   subcomponentsWorkbenchBulkAssignee: document.getElementById("subcomponents-workbench-bulk-assignee"),
   subcomponentsWorkbenchBulkShift: document.getElementById("subcomponents-workbench-bulk-shift"),
   subcomponentsWorkbenchBulkApply: document.getElementById("subcomponents-workbench-bulk-apply"),
+  subcomponentsWorkbenchBulkFeedback: document.getElementById("subcomponents-workbench-bulk-feedback"),
   subcomponentsWorkbenchForm: document.getElementById("subcomponents-workbench-form"),
   subcomponentsWorkbenchFormStatus: document.getElementById("subcomponents-workbench-form-status"),
   subcomponentsWorkbenchDelete: document.getElementById("subcomponents-workbench-delete"),
@@ -179,6 +180,7 @@ const els = {
   bulkStatus: document.getElementById("bulk-status"),
   bulkOwner: document.getElementById("bulk-owner"),
   bulkApply: document.getElementById("bulk-apply"),
+  bulkFeedback: document.getElementById("bulk-feedback"),
   dashboardCards: document.getElementById("dashboard-cards"),
   dashboardSpaceCapacity: document.getElementById("dashboard-space-capacity"),
   dashboardTopProjects: document.getElementById("dashboard-top-projects"),
@@ -199,6 +201,7 @@ const els = {
   teamMemberList: document.getElementById("team-member-list"),
   deleteMemberBtn: document.getElementById("delete-member"),
   capacityUserForm: document.getElementById("capacity-user-form"),
+  capacityUserFormStatus: document.getElementById("capacity-user-form-status"),
   capacityUserList: document.getElementById("capacity-user-list"),
   capacityTeamFilter: document.getElementById("capacity-team-filter"),
   capacityNameFilter: document.getElementById("capacity-name-filter"),
@@ -419,6 +422,7 @@ const state = {
   users: [],
   allocations: [],
   planningWindows: [],
+  planningWindowSelectedId: "",
   filters: {},
   deliverableSelection: new Set(),
   deliverablesPreset: "",
@@ -481,9 +485,24 @@ const IDLE_WARN_MS = 55 * 60 * 1000;
 const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";
 const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";
+const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";
+const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
+const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
+const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
+const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);
+const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);
+const VALID_SUBCOMPONENTS_WORKBENCH_PRESETS = new Set([
+  "all",
+  "my",
+  "due_soon",
+  "overdue",
+  "blocked",
+  "unassigned",
+  "stale",
+]);
 const RECENT_SPACES_LIMIT = 5;
 const LIVE_SYNC_CLOSE_AUTH = 4401;
 const LIVE_SYNC_CLOSE_SPACE = 4403;
@@ -1232,6 +1251,10 @@ async function refreshSpaceContext(options = {}) {
   persistRecentSpaceIds();
   restoreWorkspaceViewPreferences();
   restoreMasterViewState();
+  restoreCalendarViewState();
+  restoreKanbanViewState();
+  restoreTeamCapacityViewState();
+  restorePlanningWindowViewState();
   restoreSubcomponentsWorkbenchUiState();
   renderSpaceSwitcher();
   loadSubcomponentsWorkbenchSavedViews();
@@ -2760,6 +2783,14 @@ function setSubcomponentsWorkbenchSavedStatus(text) {
   els.subcomponentsWorkbenchSavedStatus.textContent = text || "";
 }
 
+function clearSubcomponentsWorkbenchBulkFeedback() {
+  clearDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback);
+}
+
+function setSubcomponentsWorkbenchBulkFeedback(message, tone = "info", autoClearMs = 0) {
+  setDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback, message, tone, autoClearMs);
+}
+
 function loadSubcomponentsWorkbenchSavedViews() {
   const wb = state.subcomponentsWorkbench;
   wb.savedViews = [];
@@ -2813,10 +2844,16 @@ function updateSubcomponentsWorkbenchSavedViewsUI() {
     .map((row) => `<option value="${row.view_id}">${escapeHtml(row.name)}</option>`)
     .join("");
   els.subcomponentsWorkbenchSavedSelect.innerHTML = `<option value="">Select</option>${options}`;
+  let selectionChanged = false;
   if (wb.selectedSavedViewId && wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId)) {
     els.subcomponentsWorkbenchSavedSelect.value = wb.selectedSavedViewId;
+  } else if (wb.selectedSavedViewId) {
+    wb.selectedSavedViewId = "";
+    els.subcomponentsWorkbenchSavedSelect.value = "";
+    selectionChanged = true;
   } else if (els.subcomponentsWorkbenchSavedSelect.value) {
     wb.selectedSavedViewId = els.subcomponentsWorkbenchSavedSelect.value;
+    selectionChanged = true;
   }
   if (
     els.subcomponentsWorkbenchSavedName &&
@@ -2826,6 +2863,7 @@ function updateSubcomponentsWorkbenchSavedViewsUI() {
     const saved = wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId);
     if (saved) els.subcomponentsWorkbenchSavedName.value = saved.name || "";
   }
+  if (selectionChanged) persistSubcomponentsWorkbenchUiState();
 }
 
 function captureSubcomponentsWorkbenchCurrentView(name) {
@@ -2850,6 +2888,7 @@ function captureSubcomponentsWorkbenchCurrentView(name) {
 function applySubcomponentsWorkbenchSavedView(savedView) {
   if (!savedView) return;
   const wb = state.subcomponentsWorkbench;
+  wb.selectedSavedViewId = savedView.view_id || wb.selectedSavedViewId || "";
   wb.preset = savedView.preset || "all";
   wb.filters = {
     search: savedView.filters?.search || "",
@@ -2862,26 +2901,7 @@ function applySubcomponentsWorkbenchSavedView(savedView) {
   };
   wb.selected.clear();
   wb.activeSubcomponentId = "";
-  wb.selectedSavedViewId = "";
-  setSubcomponentsWorkbenchSavedStatus("");
-  if (els.subcomponentsWorkbenchSavedName) els.subcomponentsWorkbenchSavedName.value = "";
-
-  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = wb.filters.search || "";
-  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = wb.filters.project_id || "";
-  updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
-  if (els.subcomponentsWorkbenchSolution) {
-    els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id || "";
-  }
-  if (els.subcomponentsWorkbenchAssignee) {
-    els.subcomponentsWorkbenchAssignee.value = wb.filters.assignee || "";
-  }
-  if (els.subcomponentsWorkbenchStatus) {
-    els.subcomponentsWorkbenchStatus.value = wb.filters.status || "";
-  }
-  if (els.subcomponentsWorkbenchPriority) {
-    els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max || "";
-  }
-  persistSubcomponentsWorkbenchUiState();
+  normalizeSubcomponentsWorkbenchUiState({ persist: true });
   renderSubcomponentsWorkbench();
 }
 
@@ -3005,7 +3025,7 @@ function fillSubcomponentsWorkbenchForm(subcomponent) {
   if (els.subcomponentsWorkbenchContext) {
     const project = state.projects.find((p) => p.project_id === subcomponent.project_id)?.project_name || "Unknown project";
     const solution = state.solutions.find((s) => s.solution_id === subcomponent.solution_id)?.solution_name || "Unknown solution";
-    els.subcomponentsWorkbenchContext.textContent = `${project} / ${solution}`;
+    els.subcomponentsWorkbenchContext.innerHTML = `${renderSubcomponentsWorkbenchDrawerProjectLink(project, subcomponent.project_id)} / ${renderSubcomponentsWorkbenchDrawerSolutionLink(solution, subcomponent.solution_id)}`;
   }
   renderSubcomponentsWorkbenchActivity(subcomponent.subcomponent_id);
 }
@@ -3164,22 +3184,23 @@ function filteredDeliverables() {
 }
 
 function filteredSolutionsForKanban() {
-  const base = filteredSolutions();
   const { project, owner } = state.kanbanFilters || {};
-  return base.filter((s) => {
-    const proj = state.projects.find((p) => p.project_id === s.project_id);
+  const ownerNorm = (owner || "").toLowerCase();
+  return (state.solutions || []).filter((s) => {
+    if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;
     if (project && s.project_id !== project) return false;
-    if (owner && !(s.owner || "").toLowerCase().includes(owner.toLowerCase())) return false;
+    if (ownerNorm && !(s.owner || "").toLowerCase().includes(ownerNorm)) return false;
     return true;
   });
 }
 
 function filteredSolutionsForCalendar() {
-  const base = filteredSolutions();
   const { project, owner } = state.calendarFilters || {};
-  return base.filter((s) => {
+  const ownerNorm = (owner || "").toLowerCase();
+  return (state.solutions || []).filter((s) => {
+    if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;
     if (project && s.project_id !== project) return false;
-    if (owner && !(s.owner || "").toLowerCase().includes(owner.toLowerCase())) return false;
+    if (ownerNorm && !(s.owner || "").toLowerCase().includes(ownerNorm)) return false;
     return true;
   });
 }
@@ -3410,6 +3431,7 @@ function updateBulkSelectionCount() {
 }
 
 function syncBulkInputs() {
+  clearBulkFeedback();
   const action = els.bulkAction?.value || "";
   if (els.bulkStatus) els.bulkStatus.classList.toggle("hidden", action !== "status");
   if (els.bulkOwner) els.bulkOwner.classList.toggle("hidden", action !== "owner");
@@ -3422,16 +3444,16 @@ async function applyBulkAction() {
   const status = els.bulkStatus?.value || "";
   const owner = (els.bulkOwner?.value || "").trim();
   if (action === "status" && !status) {
-    alert("Select a status first.");
+    setBulkFeedback("Select a status first.", "error");
     return;
   }
   if (action === "owner" && !owner) {
-    alert("Enter an owner name.");
+    setBulkFeedback("Enter an owner name.", "error");
     return;
   }
   const updates = Array.from(state.deliverableSelection);
   try {
-    setStatus("Updating deliverables…");
+    setBulkFeedback("Updating deliverables…");
     for (const key of updates) {
       const [type, id] = key.split(":");
       if (action === "status") {
@@ -3452,13 +3474,15 @@ async function applyBulkAction() {
     renderDashboard();
     renderKanban();
     renderCalendar();
-    setStatus("Deliverables updated", "positive");
+    setBulkFeedback("Deliverables updated.", "success", 3200);
   } catch (err) {
-    alert(`Bulk update failed: ${err.message}`);
+    setBulkFeedback(`Bulk update failed: ${err.message}`, "error");
   }
 }
 
 async function updateDeliverableField(type, id, field, value) {
+  clearBulkFeedback();
+  setBulkFeedback("Saving deliverable change…");
   try {
     if (type === "project") {
       const payload = { [field]: field === "priority" ? Number(value) : value };
@@ -3476,8 +3500,9 @@ async function updateDeliverableField(type, id, field, value) {
     renderDashboard();
     renderKanban();
     renderCalendar();
+    setBulkFeedback("Deliverable updated.", "success", 2200);
   } catch (err) {
-    alert(`Update failed: ${err.message}`);
+    setBulkFeedback(`Update failed: ${err.message}`, "error");
   }
 }
 
@@ -3500,6 +3525,7 @@ function bindDeliverablesTable() {
       const key = deliverableKey(type, id);
       if (select.checked) state.deliverableSelection.add(key);
       else state.deliverableSelection.delete(key);
+      clearBulkFeedback();
       updateBulkSelectionCount();
       return;
     }
@@ -3572,6 +3598,8 @@ function bindDeliverablesControls() {
   els.presetClear?.addEventListener("click", clearDeliverablesFilters);
   els.bulkAction?.addEventListener("change", syncBulkInputs);
   els.bulkApply?.addEventListener("click", applyBulkAction);
+  els.bulkStatus?.addEventListener("change", clearBulkFeedback);
+  els.bulkOwner?.addEventListener("input", clearBulkFeedback);
   if (els.masterQuickstart && !els.masterQuickstart._bound) {
     els.masterQuickstart.addEventListener("click", (e) => {
       const btn = e.target.closest("button[data-quick-action]");
@@ -3624,6 +3652,7 @@ function clearSubcomponentsWorkbenchFilters() {
 }
 
 function syncSubcomponentsWorkbenchBulkInputs() {
+  clearSubcomponentsWorkbenchBulkFeedback();
   if (!els.subcomponentsWorkbenchBulkAction) return;
   const action = els.subcomponentsWorkbenchBulkAction.value || "";
   if (els.subcomponentsWorkbenchBulkStatus) {
@@ -3643,17 +3672,20 @@ async function applySubcomponentsWorkbenchBulkAction() {
   const selectedIds = Array.from(wb.selected);
   const action = els.subcomponentsWorkbenchBulkAction?.value || "";
   if (!action) {
-    alert("Choose a bulk action.");
+    setSubcomponentsWorkbenchBulkFeedback("Choose a bulk action.", "error");
     return;
   }
   const activeId = wb.activeSubcomponentId || "";
   const allowActiveDelete = action === "delete" && !selectedIds.length && !!activeId;
   if (!selectedIds.length && !allowActiveDelete) {
-    alert("Select at least one subcomponent.");
+    setSubcomponentsWorkbenchBulkFeedback("Select at least one subcomponent.", "error");
     return;
   }
   if (action === "delete") {
     const deleteTargets = selectedIds.length ? selectedIds : [activeId];
+    setSubcomponentsWorkbenchBulkFeedback(
+      deleteTargets.length === 1 ? "Deleting subcomponent…" : `Deleting ${deleteTargets.length} subcomponents…`
+    );
     markIgnoreRefresh("subcomponents");
     const result = await deleteSubcomponentsById(deleteTargets, {
       title: deleteTargets.length === 1 ? "Delete Subcomponent?" : "Delete Selected Subcomponents?",
@@ -3670,10 +3702,17 @@ async function applySubcomponentsWorkbenchBulkAction() {
     }
     renderDashboard();
     if (result.failed.length) {
-      setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");
+      setSubcomponentsWorkbenchBulkFeedback(
+        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,
+        "error"
+      );
       return;
     }
-    setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");
+    setSubcomponentsWorkbenchBulkFeedback(
+      `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,
+      "success",
+      3200
+    );
     return;
   }
 
@@ -3681,7 +3720,7 @@ async function applySubcomponentsWorkbenchBulkAction() {
   if (action === "status") {
     payload.status = els.subcomponentsWorkbenchBulkStatus?.value || "";
     if (!payload.status) {
-      alert("Select a status value.");
+      setSubcomponentsWorkbenchBulkFeedback("Select a status value.", "error");
       return;
     }
   } else if (action === "assignee") {
@@ -3696,12 +3735,12 @@ async function applySubcomponentsWorkbenchBulkAction() {
   } else if (action === "shift_due") {
     const shift = Number(els.subcomponentsWorkbenchBulkShift?.value || "");
     if (!Number.isFinite(shift) || Math.abs(shift) < 1) {
-      alert("Enter a due date shift in whole days (e.g. 3 or -2).");
+      setSubcomponentsWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");
       return;
     }
     payload.due_date_shift_days = Math.trunc(shift);
   } else {
-    alert("Unsupported bulk action.");
+    setSubcomponentsWorkbenchBulkFeedback("Unsupported bulk action.", "error");
     return;
   }
 
@@ -3718,9 +3757,30 @@ async function applySubcomponentsWorkbenchBulkAction() {
     if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
       renderSolutionSubcomponents(openSolutionId);
     }
+    setSubcomponentsWorkbenchBulkFeedback(
+      `Updated ${selectedIds.length} subcomponent${selectedIds.length === 1 ? "" : "s"}.`,
+      "success",
+      3200
+    );
   } catch (err) {
-    alert(`Bulk update failed: ${err.message || err}`);
+    setSubcomponentsWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");
   }
+}
+
+function clearBulkFeedback() {
+  clearDeliverableFormNotice(els.bulkFeedback);
+}
+
+function setBulkFeedback(message, tone = "info", autoClearMs = 0) {
+  setDeliverableFormNotice(els.bulkFeedback, message, tone, autoClearMs);
+}
+
+function clearCapacityUserFormStatus() {
+  clearDeliverableFormNotice(els.capacityUserFormStatus);
+}
+
+function setCapacityUserFormStatus(message, tone = "info", autoClearMs = 0) {
+  setDeliverableFormNotice(els.capacityUserFormStatus, message, tone, autoClearMs);
 }
 
 function bindSubcomponentsWorkbenchControls() {
@@ -3743,6 +3803,7 @@ function bindSubcomponentsWorkbenchControls() {
       wb.selectedSavedViewId = nextId;
       if (!nextId) {
         setSubcomponentsWorkbenchSavedStatus("");
+        persistSubcomponentsWorkbenchUiState();
         return;
       }
       const saved = wb.savedViews.find((row) => row.view_id === nextId);
@@ -3751,6 +3812,7 @@ function bindSubcomponentsWorkbenchControls() {
         els.subcomponentsWorkbenchSavedName.value = saved.name || "";
       }
       setSubcomponentsWorkbenchSavedStatus(`Applied "${saved.name}"`);
+      persistSubcomponentsWorkbenchUiState();
       applySubcomponentsWorkbenchSavedView(saved);
     });
     els.subcomponentsWorkbenchSavedSelect._bound = true;
@@ -3760,7 +3822,7 @@ function bindSubcomponentsWorkbenchControls() {
     els.subcomponentsWorkbenchSavedSave.addEventListener("click", () => {
       const rawName = (els.subcomponentsWorkbenchSavedName?.value || "").trim();
       if (!rawName) {
-        alert("Enter a view name before saving.");
+        setSubcomponentsWorkbenchSavedStatus("Enter a view name before saving.");
         return;
       }
       let existing = null;
@@ -3782,6 +3844,7 @@ function bindSubcomponentsWorkbenchControls() {
         wb.selectedSavedViewId = captured.view_id;
       }
       persistSubcomponentsWorkbenchSavedViews();
+      persistSubcomponentsWorkbenchUiState();
       updateSubcomponentsWorkbenchSavedViewsUI();
       setSubcomponentsWorkbenchSavedStatus(`Saved "${rawName}"`);
     });
@@ -3789,18 +3852,24 @@ function bindSubcomponentsWorkbenchControls() {
   }
 
   if (els.subcomponentsWorkbenchSavedDelete && !els.subcomponentsWorkbenchSavedDelete._bound) {
-    els.subcomponentsWorkbenchSavedDelete.addEventListener("click", () => {
+    els.subcomponentsWorkbenchSavedDelete.addEventListener("click", async () => {
       const selectedId = wb.selectedSavedViewId || els.subcomponentsWorkbenchSavedSelect?.value || "";
       if (!selectedId) {
-        alert("Select a saved view to delete.");
+        setSubcomponentsWorkbenchSavedStatus("Select a saved view to delete.");
         return;
       }
       const saved = wb.savedViews.find((row) => row.view_id === selectedId);
       if (!saved) return;
-      if (!confirm(`Delete saved view "${saved.name}"?`)) return;
+      const confirmed = await showConfirmModal({
+        title: "Delete Saved View?",
+        message: `Delete saved view "${saved.name}"?`,
+        confirmLabel: "Delete Saved View",
+      });
+      if (!confirmed) return;
       wb.savedViews = wb.savedViews.filter((row) => row.view_id !== selectedId);
       wb.selectedSavedViewId = "";
       persistSubcomponentsWorkbenchSavedViews();
+      persistSubcomponentsWorkbenchUiState();
       updateSubcomponentsWorkbenchSavedViewsUI();
       setSubcomponentsWorkbenchSavedStatus(`Deleted "${saved.name}"`);
     });
@@ -3891,6 +3960,7 @@ function bindSubcomponentsWorkbenchControls() {
         if (!subId) return;
         if (rowCheck.checked) wb.selected.add(subId);
         else wb.selected.delete(subId);
+        clearSubcomponentsWorkbenchBulkFeedback();
         updateSubcomponentsWorkbenchSelectionCount();
         return;
       }
@@ -3900,11 +3970,23 @@ function bindSubcomponentsWorkbenchControls() {
           if (checked) wb.selected.add(subId);
           else wb.selected.delete(subId);
         });
+        clearSubcomponentsWorkbenchBulkFeedback();
         persistSubcomponentsWorkbenchUiState();
         renderSubcomponentsWorkbench();
       }
     });
     els.subcomponentsWorkbenchTable.addEventListener("click", (e) => {
+      const actionEl = e.target.closest("[data-scwb-action]");
+      if (actionEl) {
+        const action = actionEl.getAttribute("data-scwb-action") || "";
+        if (action === "open-project") {
+          openSubcomponentsWorkbenchProjectDrilldown(actionEl.getAttribute("data-project-id"));
+        }
+        if (action === "open-solution") {
+          openSubcomponentsWorkbenchSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
+        }
+        return;
+      }
       const row = e.target.closest("tr[data-id]");
       if (!row) return;
       if (e.target.closest("button,input,select,textarea,label")) return;
@@ -3961,6 +4043,21 @@ function bindSubcomponentsWorkbenchControls() {
       }
     });
     els.subcomponentsWorkbenchForm._bound = true;
+  }
+
+  if (els.subcomponentsWorkbenchContext && !els.subcomponentsWorkbenchContext._bound) {
+    els.subcomponentsWorkbenchContext.addEventListener("click", (event) => {
+      const actionEl = event.target.closest("[data-scwb-context-action]");
+      if (!actionEl) return;
+      const action = actionEl.getAttribute("data-scwb-context-action") || "";
+      if (action === "open-project") {
+        openSubcomponentsWorkbenchProjectDrilldown(actionEl.getAttribute("data-project-id"));
+      }
+      if (action === "open-solution") {
+        openSubcomponentsWorkbenchSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
+      }
+    });
+    els.subcomponentsWorkbenchContext._bound = true;
   }
 
   if (els.subcomponentsWorkbenchDelete && !els.subcomponentsWorkbenchDelete._bound) {
@@ -4075,9 +4172,16 @@ function bindSubcomponentsWorkbenchControls() {
         }
         renderDashboard();
         if (result.failed.length) {
-          setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");
+          setSubcomponentsWorkbenchBulkFeedback(
+            `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,
+            "error"
+          );
         } else {
-          setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");
+          setSubcomponentsWorkbenchBulkFeedback(
+            `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,
+            "success",
+            3200
+          );
         }
         return;
       }
@@ -4100,7 +4204,29 @@ function renderDashboard() {
     });
     return;
   }
-  mod.renderDashboard({ state, els, formatStatus });
+  mod.renderDashboard({
+    state,
+    els,
+    formatStatus,
+    openDashboardSolutionDrilldown,
+    openDashboardProjectDrilldown,
+  });
+}
+
+function openDashboardSolutionDrilldown(solutionId) {
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = state.solutions.find((row) => row.solution_id === targetId);
+  if (!solution) return;
+  openSolutionModal(solution, "details");
+}
+
+function openDashboardProjectDrilldown(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = state.projects.find((row) => row.project_id === targetId);
+  if (!project) return;
+  openProjectForm(project);
 }
 
 function renderPMDashboard() {
@@ -4124,12 +4250,206 @@ function renderPMDashboard() {
     els,
     formatStatus,
     viewHref,
+    openPMDashboardCapacityDrilldown,
+    openPMDashboardProjectDrilldown,
+    openPMDashboardSolutionDrilldown,
+    openPMDashboardSubcomponentDrilldown,
     assigneeKeyFromAlloc,
     assigneeLabelFromKey,
     allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
   });
+}
+
+function openPMDashboardProjectDrilldown(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = state.projects.find((row) => row.project_id === targetId);
+  if (!project) return;
+  openProjectForm(project);
+}
+
+function closePlanningModal() {
+  if (els.planningModal) {
+    els.planningModal.classList.add("hidden");
+  }
+  if (els.planningModalBody) {
+    els.planningModalBody.innerHTML = "";
+  }
+}
+
+function openPlanningModal(title, bodyHtml) {
+  if (els.planningModalTitle) {
+    els.planningModalTitle.textContent = title || "Details";
+  }
+  if (els.planningModalBody) {
+    els.planningModalBody.innerHTML = bodyHtml || "";
+  }
+  els.planningModal?.classList.remove("hidden");
+}
+
+function openAllocationWorkItemDrilldown(allocationId) {
+  const targetId = String(allocationId || "").trim();
+  if (!targetId) return;
+  const allocation = state.allocations.find((row) => String(row.allocation_id || "") === targetId);
+  if (!allocation) {
+    setStatus("Allocation details are no longer available.", "warn");
+    return;
+  }
+  closePlanningModal();
+  const workItemId = String(allocation.work_item_id || "").trim();
+  if (!workItemId) {
+    setStatus("The linked work item is unavailable.", "warn");
+    return;
+  }
+  if (allocation.work_item_type === "project") {
+    const project = state.projects.find((row) => row.project_id === workItemId);
+    if (!project) {
+      setStatus("The linked project is unavailable.", "warn");
+      return;
+    }
+    openProjectForm(project);
+    return;
+  }
+  if (allocation.work_item_type === "solution") {
+    const solution = state.solutions.find((row) => row.solution_id === workItemId);
+    if (!solution) {
+      setStatus("The linked solution is unavailable.", "warn");
+      return;
+    }
+    openSolutionModal(solution, "details");
+    return;
+  }
+  if (allocation.work_item_type === "subcomponent") {
+    const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === workItemId);
+    if (!subcomponent) {
+      setStatus("The linked task is unavailable.", "warn");
+      return;
+    }
+    const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+    if (!solution) {
+      setStatus("The linked solution is unavailable.", "warn");
+      return;
+    }
+    openSolutionModal(solution, "subcomponents");
+    fillSubcomponentForm(subcomponent);
+    return;
+  }
+  setStatus("This allocation type does not have a linked drill-down yet.", "warn");
+}
+
+function openPMDashboardCapacityDrilldown(detail) {
+  const allocations = Array.isArray(detail?.allocations) ? detail.allocations : [];
+  const assigneeLabel = String(detail?.label || "Unassigned").trim() || "Unassigned";
+  const scopeLabel = String(detail?.scopeLabel || "").trim();
+  const allocated = Number(detail?.allocated);
+  const capacity = Number(detail?.capacity);
+  const utilization = Number(detail?.utilization);
+  const summaryBits = [];
+  if (scopeLabel) summaryBits.push(scopeLabel);
+  if (Number.isFinite(allocated)) summaryBits.push(`${formatFte(allocated)} FTE-mo allocated`);
+  if (Number.isFinite(capacity) && capacity > 0) summaryBits.push(`${formatFte(capacity)} FTE-mo capacity`);
+  if (Number.isFinite(utilization) && capacity > 0) summaryBits.push(`${Math.round(utilization)}% load`);
+  const itemsHtml = allocations.length
+    ? allocations
+        .map((allocation) => {
+          const type = String(allocation.work_item_type || "").trim().toLowerCase();
+          const itemTitle = allocationLabel(allocation) || allocation.work_item_id || "Unknown Item";
+          const teamName = allocation.team_id ? state.teams.find((team) => team.team_id === allocation.team_id)?.name : "";
+          const windowName = allocation.window_id ? state.planningWindows.find((row) => row.window_id === allocation.window_id)?.name : "";
+          const actionLabel =
+            type === "project" ? "Open Project" : type === "solution" ? "Open Solution" : type === "subcomponent" ? "Open Task" : "Open Item";
+          const itemClass = type === "solution" || type === "subcomponent" ? ` ${type}` : "";
+          return `<div class="modal-item${itemClass}">
+            <div class="modal-item-title">${esc(itemTitle)}</div>
+            <div class="modal-item-meta">${esc(allocation.work_item_type || "work item")} • ${formatFte(allocationFteMonths(allocation))} FTE-mo • ${esc(allocationMonthStart(allocation) || "—")}</div>
+            <div class="modal-item-meta">Team: ${esc(teamName || "Unassigned")}${windowName ? ` • Window: ${esc(windowName)}` : ""}</div>
+            <div class="modal-item-actions">
+              <button type="button" class="secondary modal-item-action" data-planning-modal-action="open-allocation-work-item" data-allocation-id="${esc(allocation.allocation_id || "")}">${esc(actionLabel)}</button>
+            </div>
+          </div>`;
+        })
+        .join("")
+    : '<p class="modal-empty">No allocations in this scope.</p>';
+  const bodyHtml = `<div class="modal-section">
+    <div class="modal-section-title">Capacity Summary</div>
+    <div class="modal-item">
+      <div class="modal-item-title">${esc(assigneeLabel)}</div>
+      <div class="modal-item-meta">${esc(summaryBits.join(" • ") || "Allocation detail")}</div>
+      <div class="modal-item-meta">${allocations.length} allocation${allocations.length === 1 ? "" : "s"} in this scope</div>
+    </div>
+  </div>
+  <div class="modal-section">
+    <div class="modal-section-title">Underlying Allocations</div>
+    <div class="modal-list">${itemsHtml}</div>
+  </div>`;
+  openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);
+}
+
+function openPMDashboardSolutionDrilldown(solutionId) {
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = state.solutions.find((row) => row.solution_id === targetId);
+  if (!solution) return;
+  openSolutionModal(solution, "details");
+}
+
+function openKanbanProjectDrilldown(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = state.projects.find((row) => row.project_id === targetId);
+  if (!project) return;
+  openProjectForm(project);
+}
+
+function openSubcomponentsWorkbenchProjectDrilldown(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = state.projects.find((row) => row.project_id === targetId);
+  if (!project) return;
+  openProjectForm(project);
+}
+
+function openSubcomponentsWorkbenchSolutionDrilldown(solutionId) {
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = state.solutions.find((row) => row.solution_id === targetId);
+  if (!solution) return;
+  openSolutionModal(solution, "details");
+}
+
+function renderSubcomponentsWorkbenchDrawerProjectLink(label, projectId) {
+  const text = String(label || "").trim() || "Unknown project";
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return escapeHtml(text);
+  return `<button type="button" class="sub-workbench-context-link" data-scwb-context-action="open-project" data-project-id="${escapeHtml(targetId)}">${escapeHtml(text)}</button>`;
+}
+
+function renderSubcomponentsWorkbenchDrawerSolutionLink(label, solutionId) {
+  const text = String(label || "").trim() || "Unknown solution";
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return escapeHtml(text);
+  return `<button type="button" class="sub-workbench-context-link" data-scwb-context-action="open-solution" data-solution-id="${escapeHtml(targetId)}">${escapeHtml(text)}</button>`;
+}
+
+function openKanbanSolutionDrilldown(solutionId) {
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = state.solutions.find((row) => row.solution_id === targetId);
+  if (!solution) return;
+  openSolutionModal(solution, "details");
+}
+
+function openPMDashboardSubcomponentDrilldown(subcomponentId) {
+  const targetId = String(subcomponentId || "").trim();
+  if (!targetId) return;
+  const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === targetId);
+  if (!subcomponent) return;
+  const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+  if (!solution) return;
+  openSolutionModal(solution, "subcomponents");
+  fillSubcomponentForm(subcomponent);
 }
 
 function closeConfirmModal(result = false) {
@@ -4286,7 +4606,6 @@ function bindProjectForm() {
         `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
         "error"
       );
-      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   });
   els.projectForm.addEventListener("reset", () => {
@@ -4306,6 +4625,7 @@ function bindProjectForm() {
       });
       if (!confirmed) return;
       try {
+        setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");
         markIgnoreRefresh("projects");
         await api(`/projects/${id}`, { method: "DELETE" });
         removeById(state.projects, id, "project_id");
@@ -4317,7 +4637,11 @@ function bindProjectForm() {
         renderCalendar();
       } catch (err) {
         ignoreNextRefresh.delete("projects");
-        alert(`Delete failed: ${err.message}`);
+        setDeliverableFormNotice(
+          els.projectFormStatus,
+          `Delete failed: ${err.message}`,
+          "error"
+        );
       }
     });
   }
@@ -4334,7 +4658,11 @@ function bindSolutionForm() {
     const isEditing = !!id;
     const projectId = (data.get("project_id") || "").toString().trim();
     if (!isEditing && !projectId) {
-      alert("Project is required.");
+      setDeliverableFormNotice(
+        els.solutionFormStatus,
+        "Select a project before creating a solution.",
+        "error"
+      );
       return;
     }
     const payload = buildSolutionPayload(data);
@@ -4372,7 +4700,6 @@ function bindSolutionForm() {
         `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
         "error"
       );
-      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   };
 
@@ -4399,6 +4726,7 @@ function bindSolutionForm() {
       });
       if (!confirmed) return;
       try {
+        setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");
         markIgnoreRefresh("solutions");
         await api(`/solutions/${id}`, { method: "DELETE" });
         removeById(state.solutions, id, "solution_id");
@@ -4411,7 +4739,11 @@ function bindSolutionForm() {
         renderCalendar();
       } catch (err) {
         ignoreNextRefresh.delete("solutions");
-        alert(`Delete failed: ${err.message}`);
+        setDeliverableFormNotice(
+          els.solutionFormStatus,
+          `Delete failed: ${err.message}`,
+          "error"
+        );
       }
     });
   }
@@ -4519,10 +4851,20 @@ function setSubcomponentActionButtonLabel(isEditing) {
   }
 }
 
+function setSubcomponentCreateAvailability(solutionId) {
+  if (!els.showSubcomponentFormBtn) return;
+  const hasSolution = !!String(solutionId || "").trim();
+  els.showSubcomponentFormBtn.disabled = !hasSolution;
+  els.showSubcomponentFormBtn.title = hasSolution
+    ? "Add a task to this solution"
+    : "Save the solution before adding subcomponents.";
+}
+
 function openSolutionModal(solution = null, tab = "details") {
   if (!els.solutionModal) return;
   fillSolutionForm(solution);
   setSolutionActionButtonLabel(!!solution?.solution_id);
+  setSubcomponentCreateAvailability(solution?.solution_id || "");
   if (els.subcomponentForm) {
     els.subcomponentForm.classList.add("hidden");
     setSubcomponentActionButtonLabel(false);
@@ -4547,6 +4889,7 @@ function closeSolutionModal() {
   if (!els.solutionModal) return;
   fillSolutionForm(null);
   setSolutionActionButtonLabel(false);
+  setSubcomponentCreateAvailability("");
   els.solutionModal.classList.add("hidden");
   setSolutionTab("details");
   if (els.subcomponentForm) {
@@ -4639,9 +4982,11 @@ function fillSubcomponentForm(sub) {
 function renderSolutionSubcomponents(solutionId) {
   if (!els.solutionSubcomponentTable) return;
   if (!solutionId) {
-    els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Select a solution to see subcomponents.</p>";
+    setSubcomponentCreateAvailability("");
+    els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Save the solution to add subcomponents.</p>";
     return;
   }
+  setSubcomponentCreateAvailability(solutionId);
   const allSubs = state.subcomponents.filter((s) => s.solution_id === solutionId);
   const hiddenClosedCount = !showCompletedOperationalWork()
     ? allSubs.filter((subcomponent) => isCompletedSubcomponentStatus(subcomponent.status)).length
@@ -4797,7 +5142,12 @@ async function renderSolutionPhases(selectedId) {
     try {
       state.solutionPhases[solutionId] = await api(`/solutions/${solutionId}/phases`);
     } catch (err) {
-      alert(`Load failed: ${err.message}`);
+      els.phasesTable.innerHTML = "<p class='muted'>Unable to load phases.</p>";
+      setDeliverableFormNotice(
+        els.solutionFormStatus,
+        `Unable to load phases: ${err.message}`,
+        "error"
+      );
       return;
     }
   }
@@ -4856,7 +5206,11 @@ async function renderSolutionPhases(selectedId) {
         renderCalendar();
       } catch (err) {
         ignoreNextRefresh.delete("solutions");
-        alert(`Save failed: ${err.message}`);
+        setDeliverableFormNotice(
+          els.solutionFormStatus,
+          `Phase update failed: ${err.message}`,
+          "error"
+        );
       }
     });
   });
@@ -4868,6 +5222,10 @@ function bindSubcomponentForm() {
     els.showSubcomponentFormBtn.onclick = () => {
       if (els.subcomponentForm.classList.contains("hidden")) {
         const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+        if (!solutionId) {
+          renderSolutionSubcomponents("");
+          return;
+        }
         const solution = state.solutions.find((s) => s.solution_id === solutionId);
         showSubcomponentForm(solution);
       } else {
@@ -4882,7 +5240,7 @@ function bindSubcomponentForm() {
     const solutionId = (data.get("solution_id") || "").toString().trim();
     const isEditing = !!id;
     if (!solutionId) {
-      alert("Save the solution before adding subcomponents.");
+      setDeliverableFormNotice(els.subcomponentFormStatus, "Save the solution before adding subcomponents.", "error");
       return;
     }
     const payload = buildSubcomponentPayload(data);
@@ -4916,7 +5274,6 @@ function bindSubcomponentForm() {
         `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
         "error"
       );
-      alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);
     }
   });
   els.subcomponentForm.addEventListener("reset", () => {
@@ -4977,6 +5334,13 @@ function bindSubcomponentForm() {
 
 function populateSelects() {
   const projectOpts = state.projects.map((p) => `<option value="${p.project_id}">${p.project_name}</option>`).join("");
+  const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);
+  const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });
+  const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);
+  const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {
+    includeSolutions: true,
+    includeSubcomponents: true,
+  });
   const projSelects = [
     els.solutionForm?.querySelector('[name="project_id"]'),
   ].filter(Boolean);
@@ -4996,18 +5360,30 @@ function populateSelects() {
     els.kanbanFilterProject.innerHTML = `<option value="">All</option>${projectOpts}`;
     els.kanbanFilterProject.value = state.kanbanFilters.project || "";
   }
+  if (els.kanbanFilterOwner) {
+    els.kanbanFilterOwner.value = state.kanbanFilters.owner || "";
+  }
   if (els.calendarFilterProject) {
     els.calendarFilterProject.innerHTML = `<option value="">All</option>${projectOpts}`;
     els.calendarFilterProject.value = state.calendarFilters.project || "";
   }
+  if (els.calendarFilterOwner) {
+    els.calendarFilterOwner.value = state.calendarFilters.owner || "";
+  }
+  if (kanbanProjectFilterChanged) {
+    persistKanbanViewState();
+  }
+  if (kanbanOwnerFilterChanged) {
+    persistKanbanViewState();
+  }
+  if (calendarProjectFilterChanged) {
+    persistCalendarViewState();
+  }
+  if (calendarOwnerFilterChanged) {
+    persistCalendarViewState();
+  }
   if (els.subcomponentsWorkbenchProject) {
-    const wb = state.subcomponentsWorkbench;
     els.subcomponentsWorkbenchProject.innerHTML = `<option value="">All Projects</option>${projectOpts}`;
-    els.subcomponentsWorkbenchProject.value = wb.filters.project_id || "";
-    updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
-    if (wb.filters.solution_id) {
-      els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id;
-    }
   }
   const teamOpts = state.teams.map((t) => `<option value="${t.team_id}">${t.name}</option>`).join("");
   const teamSelects = [els.teamMemberForm?.querySelector('[name="team_id"]')].filter(Boolean);
@@ -5020,13 +5396,17 @@ function populateSelects() {
     const winOpts = state.planningWindows
       .map((w) => `<option value="${w.window_id}">${w.name} (${w.start_date} → ${w.end_date})</option>`)
       .join("");
-    const prev = els.planningWindowSelect.value;
+    const prev = els.planningWindowSelect.value || state.planningWindowSelectedId || "";
     els.planningWindowSelect.innerHTML = `<option value="">Select window</option>${winOpts}`;
+    let nextSelectedId = "";
     if (prev && state.planningWindows.find((w) => w.window_id === prev)) {
-      els.planningWindowSelect.value = prev;
-    } else if (!prev && state.planningWindows.length) {
-      els.planningWindowSelect.value = state.planningWindows[0].window_id;
+      nextSelectedId = prev;
+    } else if (state.planningWindows.length) {
+      nextSelectedId = state.planningWindows[0].window_id;
     }
+    els.planningWindowSelect.value = nextSelectedId;
+    state.planningWindowSelectedId = nextSelectedId;
+    if (prev !== nextSelectedId) persistPlanningWindowViewState();
     const selectedWin = state.planningWindows.find((w) => w.window_id === els.planningWindowSelect.value);
     if (selectedWin) {
       if (els.planningFrom) els.planningFrom.value = selectedWin.start_date;
@@ -5067,9 +5447,7 @@ function populateSelects() {
     const userOptions = users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("");
 
     if (els.subcomponentsWorkbenchAssignee) {
-      const prior = wb.filters.assignee || "";
       els.subcomponentsWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;
-      els.subcomponentsWorkbenchAssignee.value = prior;
     }
     if (els.subcomponentsWorkbenchBulkAssignee) {
       const prior = els.subcomponentsWorkbenchBulkAssignee.value || "";
@@ -5093,6 +5471,7 @@ function populateSelects() {
       }
     }
   }
+  normalizeSubcomponentsWorkbenchUiState({ persist: true });
   if (els.allocationForm) {
     const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
     const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
@@ -5186,6 +5565,114 @@ function updateSubcomponentsWorkbenchSolutionOptions(projectId) {
   }
 }
 
+const VALID_SUBCOMPONENTS_WORKBENCH_STATUSES = new Set([
+  "",
+  "to_do",
+  "in_progress",
+  "on_hold",
+  "complete",
+  "abandoned",
+]);
+
+function normalizeSubcomponentsWorkbenchPriorityFilter(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) return "";
+  return String(parsed);
+}
+
+function normalizeSubcomponentsWorkbenchFilters(filters = {}) {
+  const next = {
+    search: String(filters.search || ""),
+    project_id: String(filters.project_id || ""),
+    solution_id: String(filters.solution_id || ""),
+    assignee: String(filters.assignee || ""),
+    assignee_name: String(filters.assignee_name || ""),
+    status: String(filters.status || ""),
+    priority_max: normalizeSubcomponentsWorkbenchPriorityFilter(filters.priority_max),
+  };
+  let changed = next.priority_max !== String(filters.priority_max || "");
+
+  if (!VALID_SUBCOMPONENTS_WORKBENCH_STATUSES.has(next.status)) {
+    next.status = "";
+    changed = true;
+  }
+
+  if (state.loadedEntities?.has("projects")) {
+    const validProjectIds = new Set((state.projects || []).map((project) => project.project_id));
+    if (next.project_id && !validProjectIds.has(next.project_id)) {
+      next.project_id = "";
+      changed = true;
+    }
+  }
+
+  if (state.loadedEntities?.has("solutions")) {
+    const filteredSolutions = next.project_id
+      ? (state.solutions || []).filter((solution) => solution.project_id === next.project_id)
+      : (state.solutions || []);
+    const validSolutionIds = new Set(filteredSolutions.map((solution) => solution.solution_id));
+    if (next.solution_id && !validSolutionIds.has(next.solution_id)) {
+      next.solution_id = "";
+      changed = true;
+    }
+  }
+
+  if (state.loadedEntities?.has("users")) {
+    const usersBySoeid = new Map(
+      (state.users || [])
+        .filter((user) => user?.soeid && user?.display_name)
+        .map((user) => [String(user.soeid), String(user.display_name)])
+    );
+    if (next.assignee === "__unassigned__") {
+      if (next.assignee_name) {
+        next.assignee_name = "";
+        changed = true;
+      }
+    } else if (next.assignee) {
+      const displayName = usersBySoeid.get(next.assignee) || "";
+      if (!displayName) {
+        next.assignee = "";
+        next.assignee_name = "";
+        changed = true;
+      } else if (next.assignee_name !== displayName) {
+        next.assignee_name = displayName;
+        changed = true;
+      }
+    } else if (next.assignee_name) {
+      next.assignee_name = "";
+      changed = true;
+    }
+  }
+
+  return { filters: next, changed };
+}
+
+function syncSubcomponentsWorkbenchFilterControls() {
+  const wb = state.subcomponentsWorkbench;
+  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = wb.filters.search || "";
+  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = wb.filters.project_id || "";
+  updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
+  if (els.subcomponentsWorkbenchSolution) els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id || "";
+  if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = wb.filters.assignee || "";
+  if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = wb.filters.status || "";
+  if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max || "";
+}
+
+function normalizeSubcomponentsWorkbenchUiState({ persist = false } = {}) {
+  const wb = state.subcomponentsWorkbench;
+  let changed = false;
+  if (!VALID_SUBCOMPONENTS_WORKBENCH_PRESETS.has(String(wb.preset || "all"))) {
+    wb.preset = "all";
+    changed = true;
+  }
+  const normalized = normalizeSubcomponentsWorkbenchFilters(wb.filters);
+  wb.filters = normalized.filters;
+  syncSubcomponentsWorkbenchFilterControls();
+  if (persist && (normalized.changed || changed)) persistSubcomponentsWorkbenchUiState();
+  return normalized.changed || changed;
+}
+
 function renderKanban() {
   const mod = getRouteModule("kanban");
   if (!mod || typeof mod.renderKanban !== "function") {
@@ -5203,7 +5690,36 @@ function renderKanban() {
     filteredSolutionsForKanban,
     phaseDisplayName,
     formatStatus,
+    openKanbanProjectDrilldown,
+    openKanbanSolutionDrilldown,
   });
+}
+
+function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {
+  if (!filterState || typeof filterState !== "object") return false;
+  const currentOwner = String(filterState.owner || "").trim();
+  if (!currentOwner) return false;
+  const ownerToken = currentOwner.toLowerCase();
+  const hasSolutionMatch = includeSolutions
+    && (state.solutions || []).some((solution) => String(solution?.owner || "").toLowerCase().includes(ownerToken));
+  const hasSubcomponentMatch = includeSubcomponents
+    && (state.subcomponents || []).some((subcomponent) => {
+      const assigneeName = String(subcomponent?.assignee || "").toLowerCase();
+      const assigneeSoeid = String(subcomponent?.assignee_user_soeid || "").toLowerCase();
+      return assigneeName.includes(ownerToken) || assigneeSoeid.includes(ownerToken);
+    });
+  if (hasSolutionMatch || hasSubcomponentMatch) return false;
+  filterState.owner = "";
+  return true;
+}
+
+function normalizeScopedProjectFilter(filterState) {
+  if (!filterState || typeof filterState !== "object") return false;
+  const validProjectIds = new Set((state.projects || []).map((project) => project.project_id));
+  const currentProjectId = String(filterState.project || "");
+  if (!currentProjectId || validProjectIds.has(currentProjectId)) return false;
+  filterState.project = "";
+  return true;
 }
 
 function renderCalendar() {
@@ -5230,13 +5746,58 @@ function formatMonthInputValue(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function parseMonthInputValue(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(raw)) return null;
+  const [yearText, monthText] = raw.split("-");
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return null;
+  return new Date(year, monthIndex, 1);
+}
+
 function setCalendarMonth(date) {
   if (!date || Number.isNaN(date)) return;
   state.calendarMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   if (els.calendarMonthInput) {
     els.calendarMonthInput.value = formatMonthInputValue(state.calendarMonth);
   }
+  persistCalendarViewState();
   renderCalendar();
+}
+
+function closeCalendarModal() {
+  els.calendarModal?.classList.add("hidden");
+}
+
+function openCalendarSolutionDrilldown(solutionId) {
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = state.solutions.find((row) => row.solution_id === targetId);
+  if (!solution) return;
+  closeCalendarModal();
+  openSolutionModal(solution, "details");
+}
+
+function openCalendarProjectDrilldown(projectId) {
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = state.projects.find((row) => row.project_id === targetId);
+  if (!project) return;
+  closeCalendarModal();
+  openProjectForm(project);
+}
+
+function openCalendarSubcomponentDrilldown(subcomponentId) {
+  const targetId = String(subcomponentId || "").trim();
+  if (!targetId) return;
+  const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === targetId);
+  if (!subcomponent) return;
+  const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+  if (!solution) return;
+  closeCalendarModal();
+  openSolutionModal(solution, "subcomponents");
+  fillSubcomponentForm(subcomponent);
 }
 
 function openCalendarModal(day) {
@@ -5859,38 +6420,68 @@ function bindCalendarControls() {
   els.calendarNext?.addEventListener("click", () => shiftMonth(1));
   if (els.calendarGrid) {
     els.calendarGrid.addEventListener("click", (e) => {
+      const previewActionEl = e.target.closest("[data-calendar-preview-action]");
+      if (previewActionEl) {
+        const action = previewActionEl.getAttribute("data-calendar-preview-action") || "";
+        if (action === "open-solution") {
+          openCalendarSolutionDrilldown(previewActionEl.getAttribute("data-solution-id"));
+        }
+        return;
+      }
       const cell = e.target.closest(".calendar-cell[data-day]");
       if (!cell) return;
       const day = Number(cell.getAttribute("data-day"));
       if (Number.isFinite(day)) openCalendarModal(day);
     });
   }
-  els.calendarModalClose?.addEventListener("click", () => els.calendarModal?.classList.add("hidden"));
+  els.calendarModalClose?.addEventListener("click", closeCalendarModal);
+  els.calendarModalList?.addEventListener("click", (e) => {
+    const actionEl = e.target.closest("[data-calendar-action]");
+    if (!actionEl) return;
+    const action = actionEl.getAttribute("data-calendar-action") || "";
+    if (action === "open-project") {
+      openCalendarProjectDrilldown(actionEl.getAttribute("data-project-id"));
+      return;
+    }
+    if (action === "open-solution") {
+      openCalendarSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
+      return;
+    }
+    if (action === "open-subcomponent") {
+      openCalendarSubcomponentDrilldown(actionEl.getAttribute("data-subcomponent-id"));
+    }
+  });
   els.calendarModal?.addEventListener("click", (e) => {
     if (e.target === els.calendarModal || e.target.classList.contains("modal-backdrop")) {
-      els.calendarModal.classList.add("hidden");
+      closeCalendarModal();
     }
   });
 
   els.kanbanFilterProject?.addEventListener("change", () => {
     state.kanbanFilters.project = els.kanbanFilterProject.value || "";
+    persistKanbanViewState();
     renderKanban();
   });
   bindDebouncedInput(els.kanbanFilterOwner, (value) => {
     state.kanbanFilters.owner = value;
+    persistKanbanViewState();
     renderKanban();
   });
   els.calendarFilterProject?.addEventListener("change", () => {
     state.calendarFilters.project = els.calendarFilterProject.value || "";
+    persistCalendarViewState();
     renderCalendar();
   });
   bindDebouncedInput(els.calendarFilterOwner, (value) => {
     state.calendarFilters.owner = value;
+    persistCalendarViewState();
     renderCalendar();
   });
 
   if (els.planningWindowSelect) {
     els.planningWindowSelect.addEventListener("change", () => {
+      state.planningWindowSelectedId = els.planningWindowSelect.value || "";
+      persistPlanningWindowViewState();
       const win = state.planningWindows.find((w) => w.window_id === els.planningWindowSelect.value);
       if (win) {
         if (els.planningFrom) els.planningFrom.value = win.start_date;
@@ -5980,14 +6571,18 @@ function bindCalendarControls() {
         }
         const allocId = btn.getAttribute("data-alloc-id");
         if (!allocId) return;
-        const confirmDelete = confirm("Delete this allocation?");
-        if (!confirmDelete) return;
+        const confirmed = await showConfirmModal({
+          title: "Delete Allocation?",
+          message: "Delete this allocation?",
+          confirmLabel: "Delete Allocation",
+        });
+        if (!confirmed) return;
         try {
           await api(`/resource-allocations/${allocId}`, { method: "DELETE" });
           state.allocations = state.allocations.filter((a) => a.allocation_id !== allocId);
           renderPlanning();
         } catch (err) {
-          alert(`Delete failed: ${err.message}`);
+          if (els.allocationStatus) els.allocationStatus.textContent = `Delete failed: ${err.message}`;
         }
         return;
       }
@@ -6012,20 +6607,28 @@ function bindCalendarControls() {
             ${win ? `<div class="modal-item-meta">Window: ${win.name} (${win.start_date} → ${win.end_date})</div>` : ""}
           </div>
         `;
-        if (els.planningModalTitle) els.planningModalTitle.textContent = "Allocation Details";
-        if (els.planningModalBody) els.planningModalBody.innerHTML = details;
-        els.planningModal?.classList.remove("hidden");
+        openPlanningModal("Allocation Details", details);
       }
     });
   }
   if (els.planningModal) {
     els.planningModal.addEventListener("click", (e) => {
+      if (!(e.target instanceof Element)) return;
+      const actionEl = e.target.closest("[data-planning-modal-action]");
+      if (actionEl) {
+        const action = actionEl.getAttribute("data-planning-modal-action") || "";
+        if (action === "open-allocation-work-item") {
+          const allocationId = actionEl.getAttribute("data-allocation-id") || "";
+          openAllocationWorkItemDrilldown(allocationId);
+        }
+        return;
+      }
       if (e.target === els.planningModal || e.target.classList.contains("modal-backdrop")) {
-        els.planningModal.classList.add("hidden");
+        closePlanningModal();
       }
     });
   }
-  els.planningModalClose?.addEventListener("click", () => els.planningModal?.classList.add("hidden"));
+  els.planningModalClose?.addEventListener("click", () => closePlanningModal());
 
   if (els.planningWindowForm) {
     els.planningWindowForm.addEventListener("submit", async (e) => {
@@ -6036,7 +6639,7 @@ function bindCalendarControls() {
       const start = data.get("window_start");
       const end = data.get("window_end");
       if (!name || !start || !end) {
-        alert("Name, start, and end are required to create a planning window.");
+        setStatus("Name, start, and end are required to create a planning window.", "danger");
         return;
       }
       try {
@@ -6060,6 +6663,8 @@ function bindCalendarControls() {
         if (els.planningWindowSelect) {
           els.planningWindowSelect.value = savedWin.window_id;
         }
+        state.planningWindowSelectedId = savedWin.window_id;
+        persistPlanningWindowViewState();
         if (els.planningFrom) els.planningFrom.value = savedWin.start_date;
         if (els.planningTo) els.planningTo.value = savedWin.end_date;
         const monthStartInput = els.allocationForm?.querySelector('[name="month_start"]');
@@ -6073,7 +6678,7 @@ function bindCalendarControls() {
         if (els.saveWindowBtn) els.saveWindowBtn.textContent = "Create Window";
         closePlanningDrawer();
       } catch (err) {
-        alert(`Window create failed: ${err.message}`);
+        setStatus(`Window create failed: ${err.message}`, "danger");
       }
     });
 
@@ -6126,7 +6731,7 @@ function bindCalendarControls() {
         renderPlanningRoster();
         renderPlanning();
       } catch (err) {
-        alert(`Save failed: ${err.message || err}`);
+        if (els.allocationStatus) els.allocationStatus.textContent = `Save failed: ${err.message || err}`;
       }
     });
 
@@ -6161,8 +6766,10 @@ function selectCapacityUser(user, options = {}) {
   const form = els.capacityUserForm;
   if (!form) return;
   const preserveName = !!options.preserveName;
+  const preserveStatus = !!options.preserveStatus;
   const shouldRender = options.render !== false;
   const next = user || null;
+  if (!preserveStatus) clearCapacityUserFormStatus();
   state.capacitySelectedSoeid = next?.soeid || "";
   form.querySelector('[name="soeid"]').value = next?.soeid || "";
   if (!preserveName) {
@@ -6170,6 +6777,7 @@ function selectCapacityUser(user, options = {}) {
   }
   form.querySelector('[name="team_tag"]').value = next?.team_tag || "";
   form.querySelector('[name="capacity_fte_month"]').value = formatFte(next ? userCapacityFteMonth(next) : 1);
+  persistTeamCapacityViewState();
   if (shouldRender && state.currentView === "team-capacity") {
     renderTeamCapacity();
   }
@@ -6177,12 +6785,15 @@ function selectCapacityUser(user, options = {}) {
 
 function clearCapacityUserForm(options = {}) {
   if (!els.capacityUserForm) return;
+  const preserveStatus = !!options.preserveStatus;
   const shouldRender = options.render !== false;
+  if (!preserveStatus) clearCapacityUserFormStatus();
   els.capacityUserForm.reset();
   state.capacitySelectedSoeid = "";
   els.capacityUserForm.querySelector('[name="soeid"]').value = "";
   const fteField = els.capacityUserForm.querySelector('[name="capacity_fte_month"]');
   if (fteField) fteField.value = "1.00";
+  persistTeamCapacityViewState();
   if (shouldRender && state.currentView === "team-capacity") {
     renderTeamCapacity();
   }
@@ -6247,6 +6858,7 @@ async function loadTeamCapacityData(options = {}) {
       if (selected) selectCapacityUser(selected, { render: false });
       else clearCapacityUserForm({ render: false });
     }
+    persistTeamCapacityViewState();
   } catch (err) {
     if (state.teamCapacity.requestId !== requestId) return;
     if (handleAuthError(err)) return;
@@ -6264,15 +6876,18 @@ function bindCapacityUsers() {
     const nameInput = els.capacityUserForm.querySelector('[name="display_name"]');
     if (nameInput) {
       nameInput.addEventListener("input", () => {
+        clearCapacityUserFormStatus();
         const match = findCapacityUserByValue(nameInput.value || "");
         els.capacityUserForm.querySelector('[name="soeid"]').value = match?.soeid || "";
         if (match) {
           state.capacitySelectedSoeid = match.soeid || "";
           els.capacityUserForm.querySelector('[name="team_tag"]').value = match.team_tag || "";
           els.capacityUserForm.querySelector('[name="capacity_fte_month"]').value = formatFte(userCapacityFteMonth(match));
+          persistTeamCapacityViewState();
           if (state.currentView === "team-capacity") renderTeamCapacity();
         } else if (state.capacitySelectedSoeid) {
           state.capacitySelectedSoeid = "";
+          persistTeamCapacityViewState();
           renderTeamCapacity();
         }
       });
@@ -6288,7 +6903,7 @@ function bindCapacityUsers() {
       const data = new FormData(els.capacityUserForm);
       const soeid = normalizeCapacityLookup(data.get("soeid")) || normalizeCapacityLookup(findCapacityUserByValue(data.get("display_name"))?.soeid);
       if (!soeid) {
-        alert("Select a member from the roster (or type an exact SOEID/name match) first.");
+        setCapacityUserFormStatus("Select a member from the roster (or type an exact SOEID/name match) first.", "error");
         return;
       }
       const payload = {
@@ -6299,10 +6914,11 @@ function bindCapacityUsers() {
         await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, { method: "PATCH", body: JSON.stringify(payload) });
         await loadTeamCapacityData({ force: true, preserveSelection: false });
         const refreshed = findCapacityUserBySoeid(soeid);
-        if (refreshed) selectCapacityUser(refreshed);
-        else clearCapacityUserForm();
+        if (refreshed) selectCapacityUser(refreshed, { preserveStatus: true });
+        else clearCapacityUserForm({ preserveStatus: true });
+        setCapacityUserFormStatus(`Saved member at ${timestampLabel()}.`, "success", 3200);
       } catch (err) {
-        alert(`Save failed: ${err.message}`);
+        setCapacityUserFormStatus(`Save failed: ${err.message}`, "error");
       }
     });
     els.capacityUserForm.addEventListener("reset", () => {
@@ -6313,16 +6929,22 @@ function bindCapacityUsers() {
     els.capacityUserDelete.addEventListener("click", async () => {
       const soeid = els.capacityUserForm?.querySelector('[name="soeid"]')?.value;
       if (!soeid) {
-        alert("Select a member first.");
+        setCapacityUserFormStatus("Select a member first.", "error");
         return;
       }
-      if (!confirm("Deactivate this member? They will be hidden from the roster.")) return;
+      const confirmed = await showConfirmModal({
+        title: "Deactivate Member?",
+        message: "Deactivate this member? They will be hidden from the roster.",
+        confirmLabel: "Deactivate Member",
+      });
+      if (!confirmed) return;
       try {
         await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, { method: "PATCH", body: JSON.stringify({ is_active: false }) });
-        clearCapacityUserForm({ render: false });
+        clearCapacityUserForm({ render: false, preserveStatus: true });
         await loadTeamCapacityData({ force: true, preserveSelection: false });
+        setCapacityUserFormStatus(`Member deactivated at ${timestampLabel()}.`, "success", 3200);
       } catch (err) {
-        alert(`Delete failed: ${err.message}`);
+        setCapacityUserFormStatus(`Delete failed: ${err.message}`, "error");
       }
     });
   }
@@ -6336,8 +6958,14 @@ function bindCapacityUsers() {
       selectCapacityUser(user);
     });
   }
-  bindDebouncedInput(els.capacityTeamFilter, () => renderTeamCapacity());
-  bindDebouncedInput(els.capacityNameFilter, () => renderTeamCapacity());
+  bindDebouncedInput(els.capacityTeamFilter, () => {
+    persistTeamCapacityViewState();
+    renderTeamCapacity();
+  });
+  bindDebouncedInput(els.capacityNameFilter, () => {
+    persistTeamCapacityViewState();
+    renderTeamCapacity();
+  });
   if (els.capacityReload) {
     els.capacityReload.addEventListener("click", async () => {
       await loadTeamCapacityData({ force: true });
@@ -6347,6 +6975,7 @@ function bindCapacityUsers() {
     els.capacityClearFilters.addEventListener("click", () => {
       if (els.capacityTeamFilter) els.capacityTeamFilter.value = "";
       if (els.capacityNameFilter) els.capacityNameFilter.value = "";
+      persistTeamCapacityViewState();
       renderTeamCapacity();
     });
   }
@@ -6366,14 +6995,22 @@ function activeSpaceScopedStorageKey(prefix, spaceId = activeSpaceId()) {
 }
 
 function readStoredJson(key, fallback) {
+  return readStoredJsonState(key, fallback).value;
+}
+
+function readStoredJsonState(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
+    if (!raw) return { value: fallback, recovered: false };
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : fallback;
+    if (parsed && typeof parsed === "object") {
+      return { value: parsed, recovered: false };
+    }
+    console.warn(`Stored state for ${key} was not an object and will be reset.`);
+    return { value: fallback, recovered: true };
   } catch (err) {
     console.warn(`Unable to read stored state for ${key}`, err);
-    return fallback;
+    return { value: fallback, recovered: true };
   }
 }
 
@@ -6453,9 +7090,100 @@ function restoreWorkspaceViewPreferences() {
 }
 
 function restoreMasterViewState() {
-  const stored = readStoredJson(activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX), {});
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX), {});
   state.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
   state.deliverablesPreset = String(stored.deliverablesPreset || "");
+  let changed = recovered;
+  if (!VALID_DELIVERABLE_TYPES.has(String(state.filters?.type || ""))) {
+    state.filters.type = "";
+    changed = true;
+  }
+  if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {
+    state.deliverablesPreset = "";
+    changed = true;
+  }
+  if (changed) persistMasterViewState();
+}
+
+function persistCalendarViewState() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX),
+    {
+      month: formatMonthInputValue(state.calendarMonth || new Date()),
+      filters: {
+        project: state.calendarFilters?.project || "",
+        owner: state.calendarFilters?.owner || "",
+      },
+    }
+  );
+}
+
+function restoreCalendarViewState() {
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX), {});
+  const parsedMonth = parseMonthInputValue(stored.month || "");
+  if (parsedMonth) {
+    state.calendarMonth = parsedMonth;
+  }
+  state.calendarFilters = {
+    project: String(stored.filters?.project || ""),
+    owner: String(stored.filters?.owner || ""),
+  };
+  if (recovered) persistCalendarViewState();
+}
+
+function persistKanbanViewState() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX),
+    {
+      filters: {
+        project: state.kanbanFilters?.project || "",
+        owner: state.kanbanFilters?.owner || "",
+      },
+    }
+  );
+}
+
+function restoreKanbanViewState() {
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX), {});
+  state.kanbanFilters = {
+    project: String(stored.filters?.project || ""),
+    owner: String(stored.filters?.owner || ""),
+  };
+  if (recovered) persistKanbanViewState();
+}
+
+function persistTeamCapacityViewState() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX),
+    {
+      team_filter: String(els.capacityTeamFilter?.value || ""),
+      name_filter: String(els.capacityNameFilter?.value || ""),
+      selected_soeid: String(state.capacitySelectedSoeid || ""),
+    }
+  );
+}
+
+function restoreTeamCapacityViewState() {
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX), {});
+  if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");
+  if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");
+  state.capacitySelectedSoeid = String(stored.selected_soeid || "");
+  if (recovered) persistTeamCapacityViewState();
+}
+
+function persistPlanningWindowViewState() {
+  writeStoredJson(
+    activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX),
+    {
+      selected_window_id: String(state.planningWindowSelectedId || ""),
+    }
+  );
+}
+
+function restorePlanningWindowViewState() {
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX), {});
+  state.planningWindowSelectedId = String(stored.selected_window_id || "");
+  if (recovered) persistPlanningWindowViewState();
 }
 
 function persistSubcomponentsWorkbenchUiState() {
@@ -6474,6 +7202,7 @@ function persistSubcomponentsWorkbenchUiState() {
         priority_max: wb.filters?.priority_max || "",
       },
       activeSubcomponentId: wb.activeSubcomponentId || "",
+      selectedSavedViewId: wb.selectedSavedViewId || "",
       drawerOpen: wb.drawerOpen !== false,
     }
   );
@@ -6494,15 +7223,9 @@ function restoreSubcomponentsWorkbenchUiState() {
   };
   wb.selected.clear();
   wb.activeSubcomponentId = String(stored.activeSubcomponentId || "");
+  wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
   wb.drawerOpen = stored.drawerOpen !== false;
-
-  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = wb.filters.search;
-  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = wb.filters.project_id;
-  updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
-  if (els.subcomponentsWorkbenchSolution) els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id;
-  if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = wb.filters.assignee;
-  if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = wb.filters.status;
-  if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max;
+  normalizeSubcomponentsWorkbenchUiState();
 }
 
 function canManageSpaceMembership(spaceId) {

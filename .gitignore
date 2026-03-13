@@ -49,3 +49,7 @@ build/
 **/.env.*
 !.env.example
 !env.example
+
+# Local enhancement artifacts
+docs/enhancements/
+docs/specs/

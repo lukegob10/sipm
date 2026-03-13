@@ -29,15 +29,22 @@ function sortByName(items, fieldName) {
   return [...(items || [])].sort((a, b) => String(a?.[fieldName] || "").localeCompare(String(b?.[fieldName] || "")));
 }
 
+function renderCalendarPreviewTitle(item, type, titleField) {
+  const title = item?.[titleField] || "Untitled";
+  if (type === "solution" && item?.solution_id) {
+    return `<button type="button" class="calendar-preview-link" data-calendar-preview-action="open-solution" data-solution-id="${esc(item.solution_id)}">${esc(title)}</button>`;
+  }
+  return esc(title);
+}
+
 function renderPreviewItems(items, type, titleField, formatStatus) {
   if (!items.length) return "";
   const maxVisible = 2;
   const visible = items.slice(0, maxVisible);
   const rows = visible
     .map((item) => {
-      const title = item?.[titleField] || "Untitled";
       return `<div class="calendar-item ${type}">
-        <div class="calendar-item-title">${esc(title)}</div>
+        <div class="calendar-item-title">${renderCalendarPreviewTitle(item, type, titleField)}</div>
         <div class="calendar-item-meta">${esc(formatStatus(item?.status))}</div>
       </div>`;
     })
@@ -46,6 +53,13 @@ function renderPreviewItems(items, type, titleField, formatStatus) {
     ? `<div class="calendar-more">+${items.length - maxVisible} more</div>`
     : "";
   return `${rows}${more}`;
+}
+
+function actionButtonMarkup(action, attrName, attrValue, label) {
+  if (!attrValue) return "";
+  return `<div class="modal-item-actions">
+    <button type="button" class="calendar-modal-action-link modal-item-action" data-calendar-action="${action}" ${attrName}="${esc(attrValue)}">${esc(label)}</button>
+  </div>`;
 }
 
 function itemsForDay(items, date) {
@@ -177,11 +191,18 @@ export function openCalendarModal(day, ctx) {
           ${solutions
             .map((item) => {
               const projectName = projectsById.get(item.project_id)?.project_name || "—";
+              const action = [
+                actionButtonMarkup("open-project", "data-project-id", item.project_id, "Open Project"),
+                actionButtonMarkup("open-solution", "data-solution-id", item.solution_id, "Open Solution"),
+              ]
+                .filter(Boolean)
+                .join("");
               return `<div class="modal-item solution">
                 <div class="modal-item-title">${esc(item.solution_name)}</div>
                 <div class="modal-item-meta">
                   Project ${esc(projectName)} • ${esc(formatStatus(item.status))} • Owner ${esc(item.owner || "—")} • Assignee ${esc(item.assignee || "—")} • Due ${esc(item.due_date || "—")}
                 </div>
+                ${action}
               </div>`;
             })
             .join("")}
@@ -194,11 +215,18 @@ export function openCalendarModal(day, ctx) {
             .map((item) => {
               const projectName = projectsById.get(item.project_id)?.project_name || "—";
               const solutionName = solutionsById.get(item.solution_id)?.solution_name || "—";
+              const action = [
+                actionButtonMarkup("open-project", "data-project-id", item.project_id, "Open Project"),
+                actionButtonMarkup("open-subcomponent", "data-subcomponent-id", item.subcomponent_id, "Open Work Item"),
+              ]
+                .filter(Boolean)
+                .join("");
               return `<div class="modal-item subcomponent">
                 <div class="modal-item-title">${esc(item.subcomponent_name)}</div>
                 <div class="modal-item-meta">
                   Project ${esc(projectName)} • Solution ${esc(solutionName)} • ${esc(formatStatus(item.status))} • Assignee ${esc(item.assignee || "—")} • Due ${esc(item.due_date || "—")}
                 </div>
+                ${action}
               </div>`;
             })
             .join("")}

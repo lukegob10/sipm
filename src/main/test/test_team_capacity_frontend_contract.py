@@ -58,3 +58,42 @@ def test_team_capacity_has_clear_filters_control():
     text = APP_JS.read_text(encoding="utf-8")
     assert 'capacityClearFilters: document.getElementById("capacity-clear-filters")' in text
     assert "if (els.capacityClearFilters)" in text
+
+
+def test_team_capacity_team_filter_is_persisted_per_space():
+    text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";' in text
+    assert "function persistTeamCapacityViewState() {" in text
+    assert "activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX)" in text
+    assert 'team_filter: String(els.capacityTeamFilter?.value || ""),' in text
+    assert "restoreTeamCapacityViewState();" in text
+
+
+def test_team_capacity_name_filter_is_persisted_per_space():
+    text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'name_filter: String(els.capacityNameFilter?.value || ""),' in text
+    assert 'if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");' in text
+    assert "bindDebouncedInput(els.capacityNameFilter, () => {" in text
+    assert "persistTeamCapacityViewState();" in text
+
+
+def test_team_capacity_selected_user_is_persisted_per_space():
+    text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'selected_soeid: String(state.capacitySelectedSoeid || ""),' in text
+    assert 'state.capacitySelectedSoeid = String(stored.selected_soeid || "");' in text
+    assert "function selectCapacityUser(user, options = {}) {" in text
+    assert "function clearCapacityUserForm(options = {}) {" in text
+    assert "persistTeamCapacityViewState();" in text
+
+
+def test_team_capacity_corrupt_scoped_view_state_is_rewritten_to_defaults():
+    text = APP_JS.read_text(encoding="utf-8")
+
+    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX), {});" in text
+    assert 'if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");' in text
+    assert 'if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");' in text
+    assert 'state.capacitySelectedSoeid = String(stored.selected_soeid || "");' in text
+    assert "if (recovered) persistTeamCapacityViewState();" in text

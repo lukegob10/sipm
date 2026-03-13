@@ -15,6 +15,20 @@ function urgencyPill(score) {
   return "positive";
 }
 
+function renderSubcomponentsWorkbenchProjectLink(label, projectId) {
+  const text = String(label || "").trim() || "—";
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return esc(text);
+  return `<button type="button" class="sub-workbench-context-link" data-scwb-action="open-project" data-project-id="${esc(targetId)}">${esc(text)}</button>`;
+}
+
+function renderSubcomponentsWorkbenchSolutionLink(label, solutionId) {
+  const text = String(label || "").trim() || "—";
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return esc(text);
+  return `<button type="button" class="sub-workbench-context-link" data-scwb-action="open-solution" data-solution-id="${esc(targetId)}">${esc(text)}</button>`;
+}
+
 export function renderSubcomponentsWorkbench(ctx) {
   const {
     els,
@@ -65,7 +79,7 @@ export function renderSubcomponentsWorkbench(ctx) {
           <td><input type="checkbox" class="scwb-select-row" data-id="${row.subcomponent_id}" ${isSelected ? "checked" : ""} /></td>
           <td>
             <strong>${esc(row.subcomponent_name || "—")}</strong>
-            <span class="sub-workbench-context">${esc(row.project_name || "—")} / ${esc(row.solution_name || "—")}</span>
+            <span class="sub-workbench-context">${renderSubcomponentsWorkbenchProjectLink(row.project_name, row.project_id)} / ${renderSubcomponentsWorkbenchSolutionLink(row.solution_name, row.solution_id)}</span>
           </td>
           <td class="sub-workbench-status-cell">${statusLabel} ${blocker}</td>
           <td>${esc(row.assignee || "Unassigned")}</td>

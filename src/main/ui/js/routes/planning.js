@@ -4,10 +4,19 @@ const DRAG_KIND_PERSON = "person";
 const UNASSIGNED_TEAM_ID = "__unassigned__";
 const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";
 const FLASH_DURATION_MS = 2200;
+const VALID_EFFORT_FILTERS = new Set(["all", "small", "medium", "large"]);
+const VALID_TOP_PANELS = new Set(["", "filters", "create", "guide", "tools"]);
 
 function currentMonthToken() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function isValidMonthToken(value) {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}$/.test(raw)) return false;
+  const month = Number(raw.slice(5, 7));
+  return Number.isInteger(month) && month >= 1 && month <= 12;
 }
 
 function defaultBoardData() {
@@ -148,7 +157,9 @@ function persistViewState() {
         teamFilter: boardState.teamFilter || "all",
         effortFilter: boardState.effortFilter || "all",
         search: boardState.search || "",
+        personSearch: boardState.personSearch || "",
         selectedTaskId: boardState.selectedTaskId || "",
+        topPanel: boardState.topPanel || "",
       })
     );
   } catch {
@@ -158,11 +169,38 @@ function persistViewState() {
 
 function restoreViewState(spaceId) {
   const stored = readStoredState(spaceId);
-  boardState.month = /^\d{4}-\d{2}$/.test(String(stored.month || "")) ? String(stored.month) : currentMonthToken();
+  boardState.month = isValidMonthToken(stored.month) ? String(stored.month) : currentMonthToken();
   boardState.teamFilter = String(stored.teamFilter || "all");
   boardState.effortFilter = String(stored.effortFilter || "all");
   boardState.search = String(stored.search || "");
+  boardState.personSearch = String(stored.personSearch || "");
   boardState.selectedTaskId = String(stored.selectedTaskId || "");
+  boardState.topPanel = String(stored.topPanel || "");
+}
+
+function normalizePersistedBoardFilters() {
+  let changed = false;
+  if (!isValidMonthToken(boardState.month)) {
+    boardState.month = currentMonthToken();
+    changed = true;
+  }
+  const validTeamIds = new Set((boardState.data.teams || []).map((team) => String(team?.id || "")).filter(Boolean));
+  if (
+    boardState.teamFilter === UNASSIGNED_TEAM_ID
+    || (boardState.teamFilter !== "all" && !validTeamIds.has(String(boardState.teamFilter || "")))
+  ) {
+    boardState.teamFilter = "all";
+    changed = true;
+  }
+  if (!VALID_EFFORT_FILTERS.has(String(boardState.effortFilter || "all"))) {
+    boardState.effortFilter = "all";
+    changed = true;
+  }
+  if (!VALID_TOP_PANELS.has(String(boardState.topPanel || ""))) {
+    boardState.topPanel = "";
+    changed = true;
+  }
+  if (changed) persistViewState();
 }
 
 function clearFlashItems() {
@@ -373,6 +411,7 @@ async function loadBoard(ctx, { allocationsOnly = false } = {}) {
       boardState.data.allocations = Array.isArray(allocations) ? allocations : [];
     }
     boardState.loaded = true;
+    normalizePersistedBoardFilters();
     const nextSelectedTask = selectedTask();
     if (!nextSelectedTask) {
       boardState.selectedTaskId = "";
@@ -407,6 +446,14 @@ function allocationToCreatePayload(allocation) {
     assignee_type: allocation.assignee_type,
     assignee_id: allocation.assignee_id,
     month: allocation.month,
+    fte_months_allocated: allocation.fte_months_allocated,
+  };
+}
+
+function allocationToUpdatePayload(allocation) {
+  return {
+    assignee_type: allocation.assignee_type,
+    assignee_id: allocation.assignee_id,
     fte_months_allocated: allocation.fte_months_allocated,
   };
 }
@@ -503,15 +550,7 @@ function taskChip(task, allocation) {
 }
 
 function buildDetailPanelHtml(task, allocations, teams, people) {
-  if (!task) {
-    return `<aside class="wab-detail-panel">
-      <div class="wab-detail-placeholder">
-        <h3>Task Detail</h3>
-        <p class="muted">Select a task to review assignment, capacity impact, and save changes.</p>
-        <p class="muted wab-keyboard-hint">Keyboard: focus a task and press Enter or Space. Press Escape to close the detail panel.</p>
-      </div>
-    </aside>`;
-  }
+  if (!task) return "";
 
   const assignmentOptions = assignmentOptionsHtml(teams, people, boardState.detailDraft.assignmentTarget || "");
   const assigneeSummary = allocations.length
@@ -534,14 +573,15 @@ function buildDetailPanelHtml(task, allocations, teams, people) {
         .join("")
     : '<p class="muted wab-empty-note">No assignees yet. Use the selector below or drag this task onto a team or person.</p>';
 
-  return `<button type="button" class="wab-detail-backdrop" data-wab-action="close-task-detail" aria-label="Close task detail"></button>
-    <aside class="wab-detail-panel wab-detail-panel-open" role="dialog" aria-modal="true" aria-label="Task detail">
+  return `<div class="wab-modal-shell wab-task-modal-shell">
+    <button type="button" class="wab-modal-backdrop wab-task-modal-backdrop" data-wab-action="close-task-modal" aria-label="Close task detail"></button>
+    <aside class="wab-modal-card wab-detail-panel wab-detail-panel-open" role="dialog" aria-modal="true" aria-labelledby="wab-task-modal-title">
       <div class="wab-detail-head">
         <div>
-          <h3>Task Detail</h3>
+          <h3 id="wab-task-modal-title">Task Detail</h3>
           <p class="muted wab-detail-sub">Month ${esc(boardState.month)} | ${formatFte(task.fte_months)} FTE-mo</p>
         </div>
-        <button type="button" class="secondary" data-wab-action="close-task-detail">Close</button>
+        <button type="button" class="secondary" data-wab-action="close-task-modal">Close</button>
       </div>
       <label class="wide">Title
         <input type="text" id="wab-detail-title" value="${esc(boardState.detailDraft.title || task.title)}" />
@@ -553,10 +593,6 @@ function buildDetailPanelHtml(task, allocations, teams, people) {
         <div>
           <span class="wab-detail-label">Current Assignees</span>
           <strong>${esc(assigneeSummary)}</strong>
-        </div>
-        <div>
-          <span class="wab-detail-label">Task ID</span>
-          <strong>${esc(task.id)}</strong>
         </div>
       </div>
       <div class="wab-detail-section">
@@ -577,19 +613,14 @@ function buildDetailPanelHtml(task, allocations, teams, people) {
         <button type="button" data-wab-action="save-task">Save</button>
         <button type="button" class="secondary" data-wab-action="delete-task">Delete</button>
       </div>
-    </aside>`;
+    </aside>
+  </div>`;
 }
 
 function buildBoardMarkup() {
   const showCompleted = showCompletedOperationalWork();
   const teams = sortedTeams();
   const people = sortedPeople();
-  if (
-    boardState.teamFilter === UNASSIGNED_TEAM_ID
-    || (boardState.teamFilter !== "all" && !teams.some((team) => team.id === boardState.teamFilter))
-  ) {
-    boardState.teamFilter = "all";
-  }
   const tasks = sortedTasks();
   const hiddenTaskCount = showCompleted ? 0 : Math.max((boardState.data.tasks || []).length - tasks.length, 0);
   const allocationMap = allocationsByTask();
@@ -893,27 +924,40 @@ function buildBoardMarkup() {
           </div>
           <p class="muted">Create a team, then add people where they should land.</p>
         </div>
-        <div class="wab-inline-forms wab-inline-forms-planning">
-          <label>Team Name
-            <input type="text" id="wab-new-team-name" value="${esc(boardState.drafts.teamName)}" placeholder="Create a team" />
-          </label>
-          <div class="wab-inline-action">
-            <button type="button" data-wab-action="add-team">Add Team</button>
+        <div class="wab-create-stack wab-create-stack-flat">
+          <div class="wab-create-group-head">
+            <span class="wab-create-group-label">Add Team</span>
+            <p class="muted">Create a team lane for routing work.</p>
           </div>
-          <label>Person Name
-            <input type="text" id="wab-new-person-name" value="${esc(boardState.drafts.personName)}" placeholder="Add a person" />
-          </label>
-          <label>Team
-            <select id="wab-new-person-team">
-              <option value="">Unassigned Team</option>
-              ${teams.map((team) => `<option value="${esc(team.id)}" ${boardState.drafts.personTeamId === team.id ? "selected" : ""}>${esc(team.name)}</option>`).join("")}
-            </select>
-          </label>
-          <label>Capacity
-            <input type="number" id="wab-new-person-capacity" min="0.10" step="0.05" value="${esc(boardState.drafts.personCapacity)}" />
-          </label>
-          <div class="wab-inline-action">
-            <button type="button" data-wab-action="add-person">Add Person</button>
+          <div class="wab-create-form wab-create-row wab-create-row-team">
+            <label class="wab-create-field wab-create-field-grow">Team Name
+              <input type="text" id="wab-new-team-name" value="${esc(boardState.drafts.teamName)}" placeholder="e.g. Platform Delivery" />
+            </label>
+            <div class="wab-create-action">
+              <button type="button" class="secondary" data-wab-action="add-team">Add Team</button>
+            </div>
+          </div>
+          <div class="wab-create-divider"></div>
+          <div class="wab-create-group-head">
+            <span class="wab-create-group-label">Add Person</span>
+            <p class="muted">Place someone on a team now or leave them unassigned.</p>
+          </div>
+          <div class="wab-create-form wab-create-row wab-create-row-person">
+            <label class="wab-create-field wab-create-field-grow">Person Name
+              <input type="text" id="wab-new-person-name" value="${esc(boardState.drafts.personName)}" placeholder="e.g. Taylor Reed" />
+            </label>
+            <label class="wab-create-field wab-create-field-team">Team
+              <select id="wab-new-person-team">
+                <option value="">Unassigned Team</option>
+                ${teams.map((team) => `<option value="${esc(team.id)}" ${boardState.drafts.personTeamId === team.id ? "selected" : ""}>${esc(team.name)}</option>`).join("")}
+              </select>
+            </label>
+            <label class="wab-create-field wab-create-field-capacity">Capacity
+              <input type="number" id="wab-new-person-capacity" min="0.10" step="0.05" value="${esc(boardState.drafts.personCapacity)}" />
+            </label>
+            <div class="wab-create-action">
+              <button type="button" class="secondary" data-wab-action="add-person">Add Person</button>
+            </div>
           </div>
         </div>
       </section>
@@ -925,14 +969,14 @@ function buildBoardMarkup() {
           </div>
           <p class="muted">Add a task for the selected month, then assign it from the board.</p>
         </div>
-        <div class="wab-inline-forms wab-inline-forms-planning">
-          <label class="wide">Task Title
+        <div class="wab-create-form wab-create-row wab-create-row-backlog">
+          <label class="wab-create-field wab-create-field-grow">Task Title
             <input type="text" id="wab-new-task-title" value="${esc(boardState.drafts.taskTitle)}" placeholder="Create backlog work for this month" />
           </label>
-          <label>FTE-Months
+          <label class="wab-create-field-capacity">FTE-Months
             <input type="number" id="wab-new-task-fte" min="0.05" step="0.05" value="${esc(boardState.drafts.taskFte)}" />
           </label>
-          <div class="wab-inline-action">
+          <div class="wab-create-action">
             <button type="button" data-wab-action="add-task">Add Task</button>
           </div>
         </div>
@@ -1016,7 +1060,7 @@ function buildBoardMarkup() {
       </div>
       ${toolbarPanels.join("")}
     </div>
-    <div class="wab-layout${selected ? " has-detail" : ""}">
+    <div class="wab-layout">
       <div class="wab-shell">
         <aside class="wab-side-rail wab-backlog" data-dropzone="backlog" data-assign-target="backlog" tabindex="0" role="button" aria-label="Move selected task back to backlog">
           <div class="wab-panel-head">
@@ -1044,8 +1088,8 @@ function buildBoardMarkup() {
           <div class="wab-unassigned-list">${unassignedPeopleHtml || unassignedEmptyState}</div>
         </aside>
       </div>
-      ${buildDetailPanelHtml(selected, selectedAllocations, teams, people)}
-    </div>`;
+    </div>
+    ${buildDetailPanelHtml(selected, selectedAllocations, teams, people)}`;
 }
 
 async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = true } = {}) {
@@ -1090,6 +1134,47 @@ async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = t
   }
   setNotice("Assignee added to task", "success");
   flashTargets([{ kind: "task", id: taskId }, { kind: assigneeType, id: assigneeId }], "success");
+  await refreshGlobal(ctx, "allocations");
+  rerender();
+}
+
+async function moveAssignment(allocationId, assigneeType, assigneeId, { pushUndo = true } = {}) {
+  const ctx = boardState.ctx;
+  const existing = (boardState.data.allocations || []).find((row) => row.id === allocationId);
+  if (!existing) return;
+  if (existing.assignee_type === assigneeType && existing.assignee_id === assigneeId) {
+    setNotice("Task is already assigned there", "warn");
+    rerender();
+    return;
+  }
+
+  const updated = await callApi(ctx, `/planning/work-allocation/allocations/${encodeURIComponent(existing.id)}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      assignee_type: assigneeType,
+      assignee_id: assigneeId,
+      fte_months_allocated: existing.fte_months_allocated,
+    }),
+  });
+  boardState.data.allocations = (boardState.data.allocations || [])
+    .filter((row) => row.id !== existing.id && row.id !== updated.id);
+  boardState.data.allocations.push(updated);
+  if (pushUndo) {
+    boardState.undoStack.push({
+      kind: "move-assignment",
+      allocationId: updated.id,
+      payload: allocationToUpdatePayload(existing),
+    });
+  }
+  setNotice("Task moved to new assignee", "success");
+  flashTargets(
+    [
+      { kind: "task", id: existing.task_id },
+      { kind: existing.assignee_type, id: existing.assignee_id },
+      { kind: assigneeType, id: assigneeId },
+    ],
+    "success"
+  );
   await refreshGlobal(ctx, "allocations");
   rerender();
 }
@@ -1175,6 +1260,11 @@ async function performUndo() {
     } else if (next.kind === "assign") {
       await callApi(ctx, "/planning/work-allocation/allocations", {
         method: "POST",
+        body: JSON.stringify(next.payload),
+      });
+    } else if (next.kind === "move-assignment") {
+      await callApi(ctx, `/planning/work-allocation/allocations/${encodeURIComponent(next.allocationId)}`, {
+        method: "PATCH",
         body: JSON.stringify(next.payload),
       });
     } else if (next.kind === "delete-task") {
@@ -1598,6 +1688,7 @@ function bindBoardEvents() {
     }
     if (target.id === "wab-person-search") {
       boardState.personSearch = target.value || "";
+      persistViewState();
       rerender();
       return;
     }
@@ -1799,7 +1890,12 @@ function bindBoardEvents() {
         return;
       }
       if (zone.type === "person" && zone.personId) {
-        await createAssignment(taskId, "person", zone.personId, { pushUndo: true });
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        if (allocationId) {
+          await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });
+        } else {
+          await createAssignment(taskId, "person", zone.personId, { pushUndo: true });
+        }
         return;
       }
       if (zone.type === "team" && zone.teamId) {
@@ -1812,7 +1908,12 @@ function bindBoardEvents() {
           }
           return;
         }
-        await createAssignment(taskId, "team", zone.teamId, { pushUndo: true });
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        if (allocationId) {
+          await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });
+        } else {
+          await createAssignment(taskId, "team", zone.teamId, { pushUndo: true });
+        }
       }
     } catch (err) {
       setNotice(err?.message || "Drop failed", "error");

@@ -3,6 +3,7 @@ const CLOSED_SOLUTION_STATUSES = new Set(["complete", "abandoned"]);
 const CLOSED_SUBCOMPONENT_STATUSES = new Set(["complete", "abandoned"]);
 const SOLUTION_STATUS_ORDER = ["not_started", "active", "on_hold", "complete", "abandoned"];
 const SUBCOMPONENT_STATUS_ORDER = ["to_do", "in_progress", "on_hold", "complete", "abandoned"];
+const PM_DASHBOARD_STORAGE_KEY_PREFIX = "sipm-pm-dashboard-ui-v1";
 
 function esc(value) {
   return String(value || "")
@@ -88,34 +89,232 @@ function monthKey(date) {
   return `${date.getFullYear()}-${month}`;
 }
 
-function pickPlanningWindow(planningWindows, today) {
-  const parsed = (planningWindows || [])
-    .map((window) => {
-      const start = parseDate(window?.start_date);
-      const end = parseDate(window?.end_date);
-      if (!start || !end) return null;
-      return { window, start, end };
-    })
-    .filter(Boolean);
-  if (!parsed.length) return null;
+function currentMonthToken() {
+  return monthKey(startOfDay(new Date()));
+}
 
-  const active = parsed
-    .filter((entry) => today >= entry.start && today <= entry.end)
-    .sort((a, b) => a.end.getTime() - b.end.getTime());
-  if (active.length) return active[0];
+function normalizeMonthToken(value) {
+  const token = String(value || "").trim();
+  return /^\d{4}-\d{2}$/.test(token) ? token : "";
+}
 
-  const upcoming = parsed
-    .filter((entry) => entry.start > today)
-    .sort((a, b) => a.start.getTime() - b.start.getTime());
-  if (upcoming.length) return upcoming[0];
+function pmDashboardStorageKey(spaceId) {
+  const scope = String(spaceId || "no-space").trim().toLowerCase() || "no-space";
+  return `${PM_DASHBOARD_STORAGE_KEY_PREFIX}:${scope}`;
+}
 
-  const mostRecent = parsed.sort((a, b) => b.end.getTime() - a.end.getTime());
-  return mostRecent[0] || null;
+function readStoredCapacityMonth(spaceId) {
+  if (typeof window === "undefined" || !window.localStorage) return "";
+  try {
+    return normalizeMonthToken(window.localStorage.getItem(pmDashboardStorageKey(spaceId)) || "");
+  } catch {
+    return "";
+  }
+}
+
+function persistCapacityMonth(spaceId, monthToken) {
+  const normalized = normalizeMonthToken(monthToken);
+  if (!normalized || typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(pmDashboardStorageKey(spaceId), normalized);
+  } catch {
+    // Ignore persistence failures.
+  }
 }
 
 function formatFteValue(value, formatFte) {
   if (typeof formatFte === "function") return formatFte(value);
   return num(value).toFixed(2);
+}
+
+const pmDashboardState = {
+  ctx: null,
+  bound: false,
+  capacityDrilldowns: new Map(),
+  capacityScopeLabel: "",
+  capacityMonth: "",
+  capacitySpaceId: "",
+};
+
+function ensureCapacityMonth(spaceId) {
+  const normalizedSpaceId = String(spaceId || "").trim();
+  if (pmDashboardState.capacitySpaceId !== normalizedSpaceId) {
+    pmDashboardState.capacitySpaceId = normalizedSpaceId;
+    pmDashboardState.capacityMonth = readStoredCapacityMonth(normalizedSpaceId) || currentMonthToken();
+  }
+  const normalizedMonth = normalizeMonthToken(pmDashboardState.capacityMonth) || currentMonthToken();
+  pmDashboardState.capacityMonth = normalizedMonth;
+  return normalizedMonth;
+}
+
+function renderPMDashboardRowLink(label, action, attrs = {}) {
+  const extraAttrs = Object.entries(attrs)
+    .filter(([, value]) => String(value || "").trim())
+    .map(([name, value]) => ` ${name}="${esc(value)}"`)
+    .join("");
+  return `<button type="button" class="pm-row-link" data-pm-dashboard-action="${esc(action)}"${extraAttrs}>${esc(label)}</button>`;
+}
+
+function renderPMDashboardProjectLink(label, projectId) {
+  if (!String(projectId || "").trim()) return `<strong>${esc(label)}</strong>`;
+  return renderPMDashboardRowLink(label, "open-project", {
+    "data-project-id": projectId,
+    "aria-label": `Open project ${label}`,
+  });
+}
+
+function renderPMDashboardSolutionLink(label, solutionId) {
+  if (!String(solutionId || "").trim()) return `<strong>${esc(label)}</strong>`;
+  return renderPMDashboardRowLink(label, "open-solution", {
+    "data-solution-id": solutionId,
+    "aria-label": `Open solution ${label}`,
+  });
+}
+
+function normalizePMDashboardIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildPMDashboardOwnerDirectory(users) {
+  const activeUsers = Array.isArray(users) ? users.filter((user) => user && user.is_active !== false) : [];
+  const soeidToKey = new Map();
+  const displayNameCounts = new Map();
+
+  activeUsers.forEach((user) => {
+    const soeid = String(user?.soeid || "").trim();
+    const displayName = String(user?.display_name || "").trim();
+    const soeidToken = normalizePMDashboardIdentity(soeid);
+    const displayNameToken = normalizePMDashboardIdentity(displayName);
+    if (soeidToken) soeidToKey.set(soeidToken, soeid);
+    if (displayNameToken && soeid) {
+      displayNameCounts.set(displayNameToken, (displayNameCounts.get(displayNameToken) || 0) + 1);
+    }
+  });
+
+  const uniqueDisplayNameToKey = new Map();
+  activeUsers.forEach((user) => {
+    const soeid = String(user?.soeid || "").trim();
+    const displayNameToken = normalizePMDashboardIdentity(user?.display_name);
+    if (!soeid || !displayNameToken) return;
+    if ((displayNameCounts.get(displayNameToken) || 0) !== 1) return;
+    uniqueDisplayNameToKey.set(displayNameToken, soeid);
+  });
+
+  return { soeidToKey, uniqueDisplayNameToKey };
+}
+
+function resolvePMDashboardOwnerAssigneeKey(soeidValue, labelValue, ownerDirectory) {
+  const soeidToken = normalizePMDashboardIdentity(soeidValue);
+  if (soeidToken && ownerDirectory?.soeidToKey?.has(soeidToken)) {
+    return ownerDirectory.soeidToKey.get(soeidToken) || "";
+  }
+  const labelToken = normalizePMDashboardIdentity(labelValue);
+  if (!labelToken || labelToken === "unassigned") return "";
+  if (ownerDirectory?.soeidToKey?.has(labelToken)) {
+    return ownerDirectory.soeidToKey.get(labelToken) || "";
+  }
+  return ownerDirectory?.uniqueDisplayNameToKey?.get(labelToken) || "";
+}
+
+function renderPMDashboardOwnerLink(label, assigneeKey) {
+  const ownerLabel = String(label || "Unassigned").trim() || "Unassigned";
+  const resolvedKey = String(assigneeKey || "").trim();
+  if (!resolvedKey || resolvedKey === "unassigned") return esc(ownerLabel);
+  return renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations", {
+    "data-assignee-key": resolvedKey,
+    "aria-label": `Open workload for ${ownerLabel}`,
+  });
+}
+
+function renderPMDashboardTimelineLink(row) {
+  if (row.itemKind === "solution") {
+    return renderPMDashboardSolutionLink(row.name, row.solutionId);
+  }
+  if (!String(row.subcomponentId || "").trim()) return `<strong>${esc(row.name)}</strong>`;
+  return renderPMDashboardRowLink(row.name, "open-subcomponent", {
+    "data-subcomponent-id": row.subcomponentId,
+    "aria-label": `Open task ${row.name}`,
+  });
+}
+
+function renderPMDashboardCapacityLink(row) {
+  const assigneeKey = String(row?.key || "").trim();
+  const label = String(row?.label || "Unassigned").trim() || "Unassigned";
+  if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;
+  return renderPMDashboardRowLink(row.label, "open-capacity-allocations", {
+    "data-assignee-key": row.key,
+    "aria-label": `Open workload for ${row.label}`,
+  });
+}
+
+function bindPMDashboardEvents() {
+  const viewRoot = typeof document !== "undefined" ? document.getElementById("view-pm-dashboard") : null;
+  if (!viewRoot || pmDashboardState.bound) return;
+  pmDashboardState.bound = true;
+
+  viewRoot.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const actionEl = event.target.closest("[data-pm-dashboard-action]");
+    if (!actionEl) return;
+    const action = actionEl.getAttribute("data-pm-dashboard-action") || "";
+
+    if (action === "open-project") {
+      event.preventDefault();
+      const projectId = String(actionEl.getAttribute("data-project-id") || "");
+      if (typeof pmDashboardState.ctx?.openPMDashboardProjectDrilldown === "function") {
+        pmDashboardState.ctx.openPMDashboardProjectDrilldown(projectId);
+      }
+      return;
+    }
+
+    if (action === "open-solution") {
+      event.preventDefault();
+      const solutionId = String(actionEl.getAttribute("data-solution-id") || "");
+      if (typeof pmDashboardState.ctx?.openPMDashboardSolutionDrilldown === "function") {
+        pmDashboardState.ctx.openPMDashboardSolutionDrilldown(solutionId);
+      }
+      return;
+    }
+
+    if (action === "open-capacity-allocations") {
+      event.preventDefault();
+      const assigneeKey = String(actionEl.getAttribute("data-assignee-key") || "");
+      const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);
+      if (!detail) return;
+      if (typeof pmDashboardState.ctx?.openPMDashboardCapacityDrilldown === "function") {
+        pmDashboardState.ctx.openPMDashboardCapacityDrilldown({
+          key: detail.key,
+          label: detail.label,
+          allocated: detail.allocated,
+          capacity: detail.capacity,
+          utilization: detail.utilization,
+          scopeLabel: pmDashboardState.capacityScopeLabel,
+          allocations: detail.allocations,
+        });
+      }
+      return;
+    }
+
+    if (action === "open-subcomponent") {
+      event.preventDefault();
+      const subcomponentId = String(actionEl.getAttribute("data-subcomponent-id") || "");
+      if (typeof pmDashboardState.ctx?.openPMDashboardSubcomponentDrilldown === "function") {
+        pmDashboardState.ctx.openPMDashboardSubcomponentDrilldown(subcomponentId);
+      }
+    }
+  });
+
+  viewRoot.addEventListener("change", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const actionEl = event.target.closest("[data-pm-dashboard-action]");
+    if (!actionEl) return;
+    const action = actionEl.getAttribute("data-pm-dashboard-action") || "";
+    if (action !== "set-capacity-month") return;
+    const nextMonth = normalizeMonthToken(event.target.value) || currentMonthToken();
+    pmDashboardState.capacityMonth = nextMonth;
+    persistCapacityMonth(pmDashboardState.capacitySpaceId, nextMonth);
+    renderPMDashboard(pmDashboardState.ctx);
+  });
 }
 
 export function renderPMDashboard(ctx) {
@@ -130,6 +329,8 @@ export function renderPMDashboard(ctx) {
     userCapacityFteMonth,
     formatFte,
   } = ctx;
+  pmDashboardState.ctx = ctx;
+  bindPMDashboardEvents();
   const hrefFor = (view) => {
     const normalized = String(view || "master").trim();
     if (typeof viewHref === "function") return viewHref(normalized);
@@ -145,7 +346,6 @@ export function renderPMDashboard(ctx) {
   const rawSubcomponents = Array.isArray(state.subcomponents) ? state.subcomponents : [];
   const rawUsers = Array.isArray(state.users) ? state.users : [];
   const rawAllocations = Array.isArray(state.allocations) ? state.allocations : [];
-  const planningWindows = Array.isArray(state.planningWindows) ? state.planningWindows : [];
 
   const projectIds = new Set(rawProjects.map((project) => String(project?.project_id || "").trim()).filter(Boolean));
   const projects = rawProjects.filter((project) => projectIds.has(String(project?.project_id || "").trim()));
@@ -177,6 +377,8 @@ export function renderPMDashboard(ctx) {
   });
   const today = startOfDay(new Date());
   const todayMonthKey = monthKey(today);
+  const selectedCapacityMonth = ensureCapacityMonth(activeSpaceId);
+  const ownerDirectory = buildPMDashboardOwnerDirectory(users);
 
   const projectNameById = new Map(
     projects.map((project) => [project.project_id, project.project_name || "Unmapped Project"])
@@ -355,6 +557,7 @@ export function renderPMDashboard(ctx) {
         solutionName: solution.solution_name || "Unnamed Solution",
         projectName: projectNameById.get(solution.project_id) || "Unmapped Project",
         owner: solution.owner || solution.owner_user_soeid || "Unassigned",
+        ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory),
         dueDate: solution.due_date,
         riskScore,
         signals,
@@ -369,11 +572,15 @@ export function renderPMDashboard(ctx) {
         const dueDate = parseDate(solution.due_date);
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
+          itemKind: "solution",
           kind: "Solution",
+          solutionId: solution.solution_id,
+          subcomponentId: "",
           name: solution.solution_name || "Unnamed Solution",
           projectName: projectNameById.get(solution.project_id) || "Unmapped Project",
           solutionName: "",
           owner: solution.owner || solution.owner_user_soeid || "Unassigned",
+          ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory),
           dueDate: solution.due_date,
           days,
         };
@@ -384,11 +591,19 @@ export function renderPMDashboard(ctx) {
         const dueDate = parseDate(subcomponent.due_date);
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
+          itemKind: "subcomponent",
           kind: "Task",
+          solutionId: subcomponent.solution_id,
+          subcomponentId: subcomponent.subcomponent_id,
           name: subcomponent.subcomponent_name || "Unnamed Task",
           projectName: projectNameById.get(subcomponent.project_id) || "Unmapped Project",
           solutionName: solutionNameById.get(subcomponent.solution_id) || "Unmapped Solution",
           owner: subcomponent.assignee || subcomponent.assignee_user_soeid || "Unassigned",
+          ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(
+            subcomponent.assignee_user_soeid,
+            subcomponent.assignee,
+            ownerDirectory
+          ),
           dueDate: subcomponent.due_date,
           days,
         };
@@ -401,30 +616,22 @@ export function renderPMDashboard(ctx) {
   const overdueTotal = overdueSolutions.length + overdueSubcomponents.length;
   const dueSoonTotal = dueSoonSolutions.length + dueSoonSubcomponents.length;
 
-  const selectedWindow = pickPlanningWindow(planningWindows, today);
   const allocDate = (allocation) => parseDate(allocation?.month_start || allocation?.week_start);
-  let scopedAllocations = [];
-  let allocationScopeLabel = "No allocations";
-  if (selectedWindow) {
-    scopedAllocations = allocations.filter((allocation) => {
-      const date = allocDate(allocation);
-      if (!date) return false;
-      if (allocation.window_id) return allocation.window_id === selectedWindow.window.window_id;
-      return date >= selectedWindow.start && date <= selectedWindow.end;
-    });
-    allocationScopeLabel = `${selectedWindow.window.name} (${isoDateLabel(selectedWindow.window.start_date)} to ${isoDateLabel(selectedWindow.window.end_date)})`;
-  } else {
-    scopedAllocations = allocations.filter((allocation) => {
-      const date = allocDate(allocation);
-      return !!date && monthKey(date) === todayMonthKey;
-    });
-    if (!scopedAllocations.length) {
-      scopedAllocations = [...allocations];
-      allocationScopeLabel = scopedAllocations.length ? "All allocations" : "No allocations";
-    } else {
-      allocationScopeLabel = `Current month (${todayMonthKey})`;
-    }
-  }
+  const scopedAllocations = allocations.filter((allocation) => {
+    const date = allocDate(allocation);
+    return !!date && monthKey(date) === selectedCapacityMonth;
+  });
+  const allocationScopeLabel = selectedCapacityMonth === todayMonthKey
+    ? `Current month (${selectedCapacityMonth})`
+    : `Selected month (${selectedCapacityMonth})`;
+  const planningTaskAllocations = scopedAllocations.filter(
+    (allocation) => String(allocation?.work_item_type || "").trim().toLowerCase() === "subcomponent"
+  );
+  const capacityScopeLabel = planningTaskAllocations.length
+    ? allocationScopeLabel
+    : scopedAllocations.length
+      ? `${allocationScopeLabel} | No planning task assignments`
+      : "No planning task assignments";
 
   const allocKey = typeof assigneeKeyFromAlloc === "function"
     ? assigneeKeyFromAlloc
@@ -461,14 +668,19 @@ export function renderPMDashboard(ctx) {
       capacityByKey.set(key, Math.max(0, userCapacity(user)));
     });
   const allocatedByKey = new Map();
-  scopedAllocations.forEach((allocation) => {
+  const allocationsByKey = new Map();
+  planningTaskAllocations.forEach((allocation) => {
     const key = String(allocKey(allocation) || "unassigned");
     allocatedByKey.set(key, (allocatedByKey.get(key) || 0) + Math.max(0, allocFte(allocation)));
+    const bucket = allocationsByKey.get(key) || [];
+    bucket.push(allocation);
+    allocationsByKey.set(key, bucket);
   });
 
   const allCapacityKeys = new Set([...capacityByKey.keys(), ...allocatedByKey.keys()]);
   const capacityRows = Array.from(allCapacityKeys)
     .map((key) => {
+      const rowAllocations = allocationsByKey.get(key) || [];
       const capacity = capacityByKey.get(key) || 0;
       const allocated = allocatedByKey.get(key) || 0;
       const utilization = capacity > 0 ? (allocated / capacity) * 100 : allocated > 0 ? 999 : 0;
@@ -479,6 +691,7 @@ export function renderPMDashboard(ctx) {
         allocated,
         gap: capacity - allocated,
         utilization,
+        allocations: rowAllocations,
       };
     })
     .sort((a, b) => {
@@ -486,6 +699,8 @@ export function renderPMDashboard(ctx) {
       if (a.allocated !== b.allocated) return b.allocated - a.allocated;
       return a.label.localeCompare(b.label);
     });
+  pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));
+  pmDashboardState.capacityScopeLabel = `${capacityScopeLabel} | Planning task assignments only`;
   const overloadedRows = capacityRows.filter((row) => row.capacity > 0 && row.allocated > row.capacity * 1.05);
   const totalCapacity = Array.from(capacityByKey.values()).reduce((sum, value) => sum + value, 0);
   const totalAllocated = Array.from(allocatedByKey.values()).reduce((sum, value) => sum + value, 0);
@@ -647,7 +862,7 @@ export function renderPMDashboard(ctx) {
             summary.blockedCount ? `<span class="pill warn">Blocked ${summary.blockedCount}</span>` : "",
           ].filter(Boolean).join(" ");
           return `<tr>
-            <td><strong>${esc(summary.projectName)}</strong><div class="muted">Next due: ${summary.nearestDue ? summary.nearestDue.toISOString().slice(0, 10) : "—"}</div></td>
+            <td>${renderPMDashboardProjectLink(summary.projectName, summary.projectId)}<div class="muted">Next due: ${summary.nearestDue ? summary.nearestDue.toISOString().slice(0, 10) : "—"}</div></td>
             <td><span class="pill ${healthTone(summary.healthScore)}">${summary.healthScore}</span></td>
             <td>${summary.openSolutions}</td>
             <td>${summary.openSubcomponents}</td>
@@ -677,9 +892,9 @@ export function renderPMDashboard(ctx) {
       .slice(0, 12)
       .filter((row) => row.riskScore > 0)
       .map((row) => `<tr>
-        <td><strong>${esc(row.solutionName)}</strong><div class="muted">${esc(row.projectName)}</div></td>
+        <td>${renderPMDashboardSolutionLink(row.solutionName, row.solutionId)}<div class="muted">${esc(row.projectName)}</div></td>
         <td><span class="pill ${scoreTone(row.riskScore)}">${row.riskScore}</span></td>
-        <td>${esc(row.owner || "Unassigned")}</td>
+        <td>${renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)}</td>
         <td>${isoDateLabel(row.dueDate)}</td>
         <td>${row.signals.map((signal) => `<span class="pm-signal">${esc(signal)}</span>`).join("") || "<span class='muted'>No strong signals</span>"}</td>
       </tr>`)
@@ -702,8 +917,8 @@ export function renderPMDashboard(ctx) {
         const dueClass = row.days < 0 ? "danger" : row.days <= 7 ? "warn" : "muted";
         return `<tr>
           <td><span class="pm-item-kind">${esc(row.kind)}</span></td>
-          <td><strong>${esc(row.name)}</strong><div class="muted">${esc(row.projectName)}${row.solutionName ? ` / ${esc(row.solutionName)}` : ""}</div></td>
-          <td>${esc(row.owner)}</td>
+          <td>${renderPMDashboardTimelineLink(row)}<div class="muted">${esc(row.projectName)}${row.solutionName ? ` / ${esc(row.solutionName)}` : ""}</div></td>
+          <td>${renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)}</td>
           <td>${isoDateLabel(row.dueDate)}</td>
           <td><span class="pill ${dueClass}">${esc(dueDeltaLabel(row.days))}</span></td>
         </tr>`;
@@ -734,7 +949,7 @@ export function renderPMDashboard(ctx) {
         );
         const utilLabel = row.capacity > 0 ? `${Math.round(row.utilization)}%` : row.allocated > 0 ? "n/a" : "0%";
         return `<tr>
-          <td>${esc(row.label)}</td>
+          <td>${renderPMDashboardCapacityLink(row)}</td>
           <td>${formatFteValue(row.capacity, formatFte)}</td>
           <td>${formatFteValue(row.allocated, formatFte)}</td>
           <td class="${row.gap < 0 ? "danger" : "positive"}">${row.gap >= 0 ? "+" : "-"}${formatFteValue(Math.abs(row.gap), formatFte)}</td>
@@ -749,9 +964,16 @@ export function renderPMDashboard(ctx) {
     els.pmDashboardCapacity.innerHTML = `
       <div class="pm-card-header">
         <h3>Capacity and Allocation</h3>
-        <a href="${esc(hrefFor("planning"))}" class="pm-card-link">Planning</a>
+        <div class="pm-card-controls">
+          <label class="pm-scope-control">
+            <span>Month</span>
+            <input type="month" value="${esc(selectedCapacityMonth)}" data-pm-dashboard-action="set-capacity-month" aria-label="Select capacity month" />
+          </label>
+          <a href="${esc(hrefFor("planning"))}" class="pm-card-link">Planning</a>
+        </div>
       </div>
-      <p class="muted">${esc(allocationScopeLabel)}</p>
+      <p class="muted">${esc(capacityScopeLabel)}</p>
+      <p class="muted">Source: Planning task assignments only.</p>
       <div class="pm-capacity-summary">
         <div><span>Total Capacity</span><strong>${formatFteValue(totalCapacity, formatFte)} FTE-mo</strong></div>
         <div><span>Allocated</span><strong>${formatFteValue(totalAllocated, formatFte)} FTE-mo</strong></div>

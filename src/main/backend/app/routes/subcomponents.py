@@ -34,6 +34,7 @@ from ..utils import (
 )
 from ..services.realtime import schedule_broadcast
 from ..services.audit_log import log_changes
+from ..services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 
@@ -97,8 +98,18 @@ def _subcomponent_actionability(subcomponent: Subcomponent) -> dict:
     }
 
 
-def _subcomponent_payload(subcomponent: Subcomponent) -> dict:
+def _subcomponent_payload(
+    subcomponent: Subcomponent,
+    *,
+    solution_repo_url: Optional[str] = None,
+) -> dict:
     payload = SubcomponentRead.model_validate(subcomponent).model_dump(mode="json")
+    effective_repo_url, repo_source = resolve_effective_github_repo_url(
+        solution_repo_url=solution_repo_url,
+        subcomponent_repo_url=subcomponent.github_repo_url,
+    )
+    payload["effective_github_repo_url"] = effective_repo_url
+    payload["repo_source"] = repo_source
     payload.update(_subcomponent_actionability(subcomponent))
     return payload
 
@@ -125,6 +136,18 @@ def _subcomponent_query(session: Session, space_ctx: SpaceContext):
         .filter(Subcomponent.deleted_at.is_(None))
         .filter(Subcomponent.space_id == space_ctx.space_id)
     )
+
+
+def _solution_repo_map(session: Session, space_ctx: SpaceContext, solution_ids: list[str]) -> dict[str, Optional[str]]:
+    valid_ids = [solution_id for solution_id in solution_ids if solution_id]
+    if not valid_ids:
+        return {}
+    rows = (
+        _solution_query(session, space_ctx)
+        .filter(Solution.solution_id.in_(valid_ids))
+        .all()
+    )
+    return {row.solution_id: row.github_repo_url for row in rows}
 
 
 def _ensure_solution(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
@@ -194,7 +217,11 @@ def list_subcomponents(
         if assignee_user_soeid:
             query = query.filter(Subcomponent.assignee_user_soeid == assignee_user_soeid)
         rows = query.order_by(Subcomponent.priority.asc(), Subcomponent.created_at.asc()).all()
-        return [_subcomponent_payload(row) for row in rows]
+        solution_repo_map = _solution_repo_map(session, space_ctx, [solution_id])
+        return [
+            _subcomponent_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
+            for row in rows
+        ]
 
     return cached_call(
         endpoint="subcomponents:list_by_solution",
@@ -255,7 +282,13 @@ def list_all_subcomponents(
         if assignee_user_soeid:
             query = query.filter(Subcomponent.assignee_user_soeid == assignee_user_soeid)
         rows = query.order_by(Subcomponent.priority.asc(), Subcomponent.created_at.asc()).all()
-        return [_subcomponent_payload(row) for row in rows]
+        solution_repo_map = _solution_repo_map(
+            session, space_ctx, [row.solution_id for row in rows]
+        )
+        return [
+            _subcomponent_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
+            for row in rows
+        ]
 
     return cached_call(
         endpoint="subcomponents:list_all",
@@ -284,6 +317,10 @@ def create_subcomponent(
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     solution = _ensure_solution(session, solution_id, space_ctx)
+    try:
+        github_repo_url = normalize_github_repo_url(payload.github_repo_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     conflict = (
         _subcomponent_query(session, space_ctx)
@@ -317,6 +354,7 @@ def create_subcomponent(
         completed_at=completed_at,
         assignee=assignee,
         assignee_user_soeid=assignee_user_soeid,
+        github_repo_url=github_repo_url,
         estimate_hours=payload.estimate_hours,
         blocked=payload.blocked or False,
         blocker_note=payload.blocker_note,
@@ -341,6 +379,7 @@ def create_subcomponent(
             "due_date": (None, subcomponent.due_date),
             "assignee": (None, subcomponent.assignee),
             "assignee_user_soeid": (None, subcomponent.assignee_user_soeid),
+            "github_repo_url": (None, subcomponent.github_repo_url),
             "estimate_hours": (None, subcomponent.estimate_hours),
             "blocked": (None, subcomponent.blocked),
             "blocker_note": (None, subcomponent.blocker_note),
@@ -352,7 +391,7 @@ def create_subcomponent(
     session.refresh(subcomponent)
     invalidate_space(space_ctx.space_id, ["subcomponents"])
     schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
-    return subcomponent
+    return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
 
 
 @router.post("/subcomponents/import")
@@ -394,6 +433,11 @@ def import_subcomponents(
         assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
         blocker_note = normalize_str(row.get("blocker_note")) or None
         done_criteria = normalize_str(row.get("done_criteria")) or None
+        try:
+            github_repo_url = normalize_github_repo_url(row.get("github_repo_url"))
+        except ValueError as exc:
+            errors.append(f"Row {idx}: {exc}")
+            continue
         blocked_raw = normalize_str(row.get("blocked"))
         blocked_val = blocked_raw.lower() in {"true", "1", "yes", "y"} if blocked_raw else False
         if not project_name or not solution_name or not sub_name or not assignee_val:
@@ -525,6 +569,7 @@ def import_subcomponents(
                     "due_date": existing.due_date,
                     "assignee": existing.assignee,
                     "assignee_user_soeid": existing.assignee_user_soeid,
+                    "github_repo_url": existing.github_repo_url,
                     "estimate_hours": existing.estimate_hours,
                     "blocked": existing.blocked,
                     "blocker_note": existing.blocker_note,
@@ -536,6 +581,7 @@ def import_subcomponents(
                 existing.due_date = due_val
                 existing.assignee = assignee_val
                 existing.assignee_user_soeid = assignee_user_soeid
+                existing.github_repo_url = github_repo_url
                 existing.estimate_hours = estimate_hours
                 existing.blocked = blocked_val
                 existing.blocker_note = blocker_note
@@ -559,6 +605,7 @@ def import_subcomponents(
                         "due_date": (before["due_date"], existing.due_date),
                         "assignee": (before["assignee"], existing.assignee),
                         "assignee_user_soeid": (before["assignee_user_soeid"], existing.assignee_user_soeid),
+                        "github_repo_url": (before["github_repo_url"], existing.github_repo_url),
                         "estimate_hours": (before["estimate_hours"], existing.estimate_hours),
                         "blocked": (before["blocked"], existing.blocked),
                         "blocker_note": (before["blocker_note"], existing.blocker_note),
@@ -581,6 +628,7 @@ def import_subcomponents(
                     due_date=due_val,
                     assignee=assignee_val,
                     assignee_user_soeid=assignee_user_soeid,
+                    github_repo_url=github_repo_url,
                     estimate_hours=estimate_hours,
                     blocked=blocked_val,
                     blocker_note=blocker_note,
@@ -603,6 +651,7 @@ def import_subcomponents(
                         "due_date": (None, subcomponent.due_date),
                         "assignee": (None, subcomponent.assignee),
                         "assignee_user_soeid": (None, subcomponent.assignee_user_soeid),
+                        "github_repo_url": (None, subcomponent.github_repo_url),
                         "estimate_hours": (None, subcomponent.estimate_hours),
                         "blocked": (None, subcomponent.blocked),
                         "blocker_note": (None, subcomponent.blocker_note),
@@ -654,6 +703,7 @@ def export_subcomponents(
         "due_date",
         "assignee",
         "assignee_user_soeid",
+        "github_repo_url",
         "estimate_hours",
         "blocked",
         "blocker_note",
@@ -675,6 +725,7 @@ def export_subcomponents(
                 "due_date": sc.due_date.isoformat() if sc.due_date else "",
                 "assignee": sc.assignee or "",
                 "assignee_user_soeid": sc.assignee_user_soeid or "",
+                "github_repo_url": sc.github_repo_url or "",
                 "estimate_hours": sc.estimate_hours if sc.estimate_hours is not None else "",
                 "blocked": sc.blocked,
                 "blocker_note": sc.blocker_note or "",
@@ -697,7 +748,9 @@ def get_subcomponent(
     scope_token = make_scope_token("subcomponents", space_ctx.space_id)
 
     def _load():
-        return _subcomponent_payload(_get_subcomponent(session, subcomponent_id, space_ctx))
+        subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
+        solution = _ensure_solution(session, subcomponent.solution_id, space_ctx)
+        return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
 
     return cached_call(
         endpoint="subcomponents:detail",
@@ -748,6 +801,11 @@ def update_subcomponent(
         update_data["capacity_hours"] = 0
     if "blocked" in update_data and update_data["blocked"] is None:
         update_data["blocked"] = False
+    if "github_repo_url" in update_data:
+        try:
+            update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     before = {field: getattr(subcomponent, field) for field in update_data.keys()}
     for field, value in update_data.items():
         setattr(subcomponent, field, value)
@@ -786,7 +844,8 @@ def update_subcomponent(
     session.refresh(subcomponent)
     invalidate_space(space_ctx.space_id, ["subcomponents"])
     schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
-    return subcomponent
+    solution = _ensure_solution(session, subcomponent.solution_id, space_ctx)
+    return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
 
 
 @router.patch("/subcomponents/actions/batch", response_model=List[SubcomponentRead])

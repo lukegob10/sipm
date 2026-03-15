@@ -8,10 +8,18 @@ STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 def test_modal_shell_constrains_layout_and_scroll():
     text = STYLES_CSS.read_text(encoding="utf-8")
     assert ".modal-content {" in text
+    assert "--modal-shell-padding: 16px;" in text
     assert "max-width: calc(100vw - 32px);" in text
     assert "max-height: min(88dvh, 980px);" in text
     assert "min-width: 0;" in text
     assert ".modal-body {" in text
+    assert ".modal-header-sticky {" in text
+    assert ".modal-sticky-chrome {" in text
+    assert "top: calc(var(--modal-shell-padding) * -1);" in text
+    assert ".modal-tabs {" in text
+    assert "margin: 0;" in text
+    assert "padding: 0 var(--modal-shell-padding) 8px;" in text
+    assert "border-bottom: 1px solid var(--border);" in text
 
 
 def test_form_controls_are_box_sized_and_textareas_resize_vertically_only():

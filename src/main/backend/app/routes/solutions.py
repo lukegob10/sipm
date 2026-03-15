@@ -33,6 +33,7 @@ from ..utils import (
 )
 from ..services.realtime import schedule_broadcast
 from ..services.audit_log import log_changes
+from ..services.github_repo_urls import normalize_github_repo_url
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 
@@ -322,6 +323,10 @@ def create_solution(
             )
 
     version = normalize_str(payload.version) or "0.1.0"
+    try:
+        github_repo_url = normalize_github_repo_url(payload.github_repo_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     owner = normalize_str(payload.owner) or current_user.display_name or current_user.soeid or ""
     owner_user_soeid = normalize_str(payload.owner_user_soeid) or None
     if owner_user_soeid is None and current_user.soeid:
@@ -369,6 +374,7 @@ def create_solution(
         description=payload.description,
         success_criteria=payload.success_criteria,
         problem_statement=payload.problem_statement,
+        github_repo_url=github_repo_url,
         impact_confidence=payload.impact_confidence,
         owner=owner,
         owner_user_soeid=owner_user_soeid,
@@ -406,6 +412,7 @@ def create_solution(
             "description": (None, solution.description),
             "success_criteria": (None, solution.success_criteria),
             "problem_statement": (None, solution.problem_statement),
+            "github_repo_url": (None, solution.github_repo_url),
             "impact_confidence": (None, solution.impact_confidence),
             "owner": (None, solution.owner),
             "owner_user_soeid": (None, solution.owner_user_soeid),
@@ -494,6 +501,11 @@ def import_solutions(
         description = normalize_str(row.get("description")) or None
         success_criteria = normalize_str(row.get("success_criteria")) or None
         problem_statement = normalize_str(row.get("problem_statement")) or None
+        try:
+            github_repo_url = normalize_github_repo_url(row.get("github_repo_url"))
+        except ValueError as exc:
+            errors.append(f"Row {idx}: {exc}")
+            continue
         rag_reason_val = normalize_str(row.get("rag_reason")) or None
         current_phase = normalize_str(row.get("current_phase")) or None
         if current_phase:
@@ -567,6 +579,7 @@ def import_solutions(
                     "description": existing.description,
                     "success_criteria": existing.success_criteria,
                     "problem_statement": existing.problem_statement,
+                    "github_repo_url": existing.github_repo_url,
                     "impact_confidence": existing.impact_confidence,
                     "owner": existing.owner,
                     "owner_user_soeid": existing.owner_user_soeid,
@@ -591,6 +604,7 @@ def import_solutions(
                 existing.description = description
                 existing.success_criteria = success_criteria
                 existing.problem_statement = problem_statement
+                existing.github_repo_url = github_repo_url
                 existing.impact_confidence = impact_confidence
                 existing.owner = owner
                 existing.owner_user_soeid = owner_user_soeid
@@ -628,6 +642,7 @@ def import_solutions(
                         "description": (before["description"], existing.description),
                         "success_criteria": (before["success_criteria"], existing.success_criteria),
                         "problem_statement": (before["problem_statement"], existing.problem_statement),
+                        "github_repo_url": (before["github_repo_url"], existing.github_repo_url),
                         "impact_confidence": (before["impact_confidence"], existing.impact_confidence),
                         "owner": (before["owner"], existing.owner),
                         "owner_user_soeid": (before["owner_user_soeid"], existing.owner_user_soeid),
@@ -664,6 +679,7 @@ def import_solutions(
                     description=description,
                     success_criteria=success_criteria,
                     problem_statement=problem_statement,
+                    github_repo_url=github_repo_url,
                     impact_confidence=impact_confidence,
                     owner=owner,
                     owner_user_soeid=owner_user_soeid,
@@ -699,6 +715,7 @@ def import_solutions(
                         "description": (None, solution.description),
                         "success_criteria": (None, solution.success_criteria),
                         "problem_statement": (None, solution.problem_statement),
+                        "github_repo_url": (None, solution.github_repo_url),
                         "impact_confidence": (None, solution.impact_confidence),
                         "owner": (None, solution.owner),
                         "owner_user_soeid": (None, solution.owner_user_soeid),
@@ -760,6 +777,7 @@ def export_solutions(
         "description",
         "problem_statement",
         "success_criteria",
+        "github_repo_url",
         "impact_confidence",
         "owner",
         "owner_user_soeid",
@@ -791,6 +809,7 @@ def export_solutions(
                 "description": s.description or "",
                 "problem_statement": s.problem_statement or "",
                 "success_criteria": s.success_criteria or "",
+                "github_repo_url": s.github_repo_url or "",
                 "impact_confidence": s.impact_confidence.value if hasattr(s.impact_confidence, "value") else (s.impact_confidence or ""),
                 "owner": s.owner or "",
                 "owner_user_soeid": s.owner_user_soeid or "",
@@ -851,6 +870,11 @@ def update_solution(
         update_data["priority"] = parse_priority(update_data["priority"], default=3)
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
+    if "github_repo_url" in update_data:
+        try:
+            update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if "current_phase" in update_data:
         update_data["current_phase"] = normalize_str(update_data["current_phase"]) or None
         if update_data["current_phase"]:

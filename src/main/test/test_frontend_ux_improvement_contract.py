@@ -36,6 +36,34 @@ def test_route_hint_copy_removed_from_main_html_views():
         assert route_hint not in text
 
 
+def test_topbar_create_menu_exists_in_authenticated_shell():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'id="app-shell"' in html_text
+    assert 'id="topbar-create-shell"' in html_text
+    assert 'id="topbar-create-toggle"' in html_text
+    assert 'class="primary"' in html_text[html_text.index('id="topbar-create-toggle"') - 80:html_text.index('id="topbar-create-toggle"') + 120]
+    assert 'aria-haspopup="menu"' in html_text
+    assert 'id="topbar-create-panel"' in html_text
+    assert 'id="topbar-create-project"' in html_text
+    assert 'id="topbar-create-solution"' in html_text
+    assert 'id="topbar-create-subcomponent"' in html_text
+    assert 'id="create-project"' not in html_text
+    assert 'id="create-solution"' not in html_text
+
+
+def test_subcomponent_create_picker_modal_exists_in_shell():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'id="subcomponent-create-picker-modal"' in html_text
+    assert 'id="subcomponent-create-picker-title"' in html_text
+    assert 'id="subcomponent-create-picker-form"' in html_text
+    assert 'id="subcomponent-create-picker-select"' in html_text
+    assert 'id="subcomponent-create-picker-close"' in html_text
+    assert 'id="subcomponent-create-picker-cancel"' in html_text
+    assert 'id="subcomponent-create-picker-status"' in html_text
+
+
 def test_index_includes_shared_planning_modal_shell():
     text = INDEX_HTML.read_text(encoding="utf-8")
 
@@ -43,6 +71,23 @@ def test_index_includes_shared_planning_modal_shell():
     assert 'id="planning-modal-title"' in text
     assert 'id="planning-modal-body"' in text
     assert 'id="planning-modal-close"' in text
+
+
+def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = (REPO_ROOT / "src" / "main" / "ui" / "styles.css").read_text(encoding="utf-8")
+
+    assert 'class="modal-sticky-chrome"' in html_text
+    assert 'id="solution-submit-btn"' in html_text
+    assert 'id="subcomponent-submit-btn"' in html_text
+    assert 'class="modal-form-footer full-span"' in html_text
+    assert ".modal-form-footer {" in styles_text
+    assert "position: sticky;" in styles_text
+    assert "bottom: 0;" in styles_text
+    assert ".modal-sticky-chrome {" in styles_text
+    assert ".modal-sticky-chrome .modal-header-sticky {" in styles_text
+    assert "#solution-form .modal-form-footer," in styles_text
+    assert "#subcomponent-form .modal-form-footer {" in styles_text
 
 
 def test_frontend_ux_state_is_persisted_per_space():
@@ -59,13 +104,78 @@ def test_frontend_ux_state_is_persisted_per_space():
     assert "persistMasterViewState" in master_text
 
 
+def test_topbar_create_menu_reuses_existing_create_modals_and_keyboard_menu_pattern():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'topbarCreateToggle: document.getElementById("topbar-create-toggle")' in app_text
+    assert 'topbarCreatePanel: document.getElementById("topbar-create-panel")' in app_text
+    assert 'topbarCreateProject: document.getElementById("topbar-create-project")' in app_text
+    assert 'topbarCreateSolution: document.getElementById("topbar-create-solution")' in app_text
+    assert 'topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent")' in app_text
+    assert 'createProjectBtn: document.getElementById("create-project")' not in app_text
+    assert 'createSolutionBtn: document.getElementById("create-solution")' not in app_text
+    assert "function bindTopbarCreateMenu() {" in app_text
+    assert 'const topbarCreateMenuItems = () => Array.from(els.topbarCreatePanel?.querySelectorAll("[role=\'menuitem\']") || []);' in app_text
+    assert 'if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;' in app_text
+    assert "document._topbarCreateMenuCloseBound" in app_text
+    assert 'closeTopbarCreateMenu({ restoreFocus: false });' in app_text
+    assert "openProjectForm(null);" in app_text
+    assert 'openSolutionModal(null, "details");' in app_text
+    assert "handleTopbarSubcomponentCreate" in app_text
+    assert "bindTopbarCreateMenu();" in app_text
+    assert "closeTopbarCreateMenu({ restoreFocus: false });" in app_text[app_text.index("function bindCsvControls() {"):app_text.index("if (els.projectsDownload && !els.projectsDownload._bound) {")]
+
+
+def test_topbar_subcomponent_create_uses_solution_context_or_picker():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function subcomponentCreateCandidateSolutions() {" in app_text
+    assert "function subcomponentCreateSolutionLabel(solution) {" in app_text
+    assert "function openSubcomponentCreatePicker(selectedSolutionId = \"\") {" in app_text
+    assert "function handleTopbarSubcomponentCreate() {" in app_text
+    assert 'openSolutionModal(null, "details");' in app_text
+    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");' in app_text
+    assert "if (solutions.length === 1) {" in app_text
+    assert "continueSubcomponentCreateForSolution(solutions[0]);" in app_text
+    assert "openSubcomponentCreatePicker(currentOpenSolutionId);" in app_text
+    assert "showSubcomponentForm(solution);" in app_text
+
+
+def test_subcomponent_create_picker_modal_is_bound_for_submit_close_and_escape():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal")' in app_text
+    assert "function bindSubcomponentCreatePicker() {" in app_text
+    assert 'els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
+    assert 'els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
+    assert 'els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
+    assert 'setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");' in app_text
+    assert 'if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal.classList.contains("hidden")) {' in app_text
+    assert "closeSubcomponentCreatePicker();" in app_text
+    assert "bindSubcomponentCreatePicker();" in app_text
+
+
+def test_topbar_create_menu_uses_compact_topbar_menu_styling():
+    styles_text = (REPO_ROOT / "src" / "main" / "ui" / "styles.css").read_text(encoding="utf-8")
+
+    assert ".topbar-create-menu {" in styles_text
+    assert ".topbar-create-panel {" in styles_text
+    assert ".topbar-create-panel.hidden {" in styles_text
+    assert '.topbar-create-menu > #topbar-create-toggle {' in styles_text
+    assert "#topbar-create-toggle::after {" in styles_text
+    assert "color: currentColor;" in styles_text
+    assert ".topbar-create-item {" in styles_text
+
+
 def test_master_invalid_preset_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
 
-    assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);' in app_text
+    assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in app_text
     assert 'state.deliverablesPreset = String(stored.deliverablesPreset || "");' in app_text
     assert "if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {" in app_text
     assert 'state.deliverablesPreset = "";' in app_text
+    assert 'const normalized = normalizeMasterFilters(rawFilters, state.deliverablesPreset);' in app_text
+    assert "if (normalized.changed) changed = true;" in app_text
     assert "if (changed) persistMasterViewState();" in app_text
 
 
@@ -73,10 +183,66 @@ def test_master_invalid_type_filter_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
 
     assert 'const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);' in app_text
-    assert 'state.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};' in app_text
-    assert 'if (!VALID_DELIVERABLE_TYPES.has(String(state.filters?.type || ""))) {' in app_text
-    assert 'state.filters.type = "";' in app_text
+    assert 'const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};' in app_text
+    assert "function normalizeMasterFilters(filters = {}, preset = \"\") {" in app_text
+    assert "next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : \"\";" in app_text
+    assert 'state.filters = normalized.filters;' in app_text
     assert "if (changed) persistMasterViewState();" in app_text
+
+
+def test_master_text_filters_self_heal_to_plain_strings():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in app_text
+    assert "MASTER_TEXT_FILTER_KEYS.forEach((key) => {" in app_text
+    assert 'if (typeof value === "string") {' in app_text
+    assert 'next[key] = "";' in app_text
+    assert 'if (value !== null && value !== undefined && value !== "") changed = true;' in app_text
+
+
+def test_master_priority_and_progress_filters_self_heal_to_valid_ranges():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function normalizeMasterPriorityFilter(value) {" in app_text
+    assert "return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : \"\";" in app_text
+    assert "function normalizeMasterProgressFilter(value) {" in app_text
+    assert "return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : \"\";" in app_text
+    assert "const priority = normalizeMasterPriorityFilter(source.priority);" in app_text
+    assert "const progress = normalizeMasterProgressFilter(source.progress);" in app_text
+
+
+def test_master_engineering_hidden_filters_self_heal_on_restore_and_preset_switch():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];' in app_text
+    assert 'if (preset === "engineering") {' in app_text
+    assert "MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {" in app_text
+    assert 'if (next.type === "project") {' in app_text
+    assert 'next.type = "";' in app_text
+    assert "const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);" in app_text
+    assert 'state.filters = normalized.filters;' in app_text
+
+
+def test_master_repo_presence_filter_self_heals_when_engineering_preset_is_not_active():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in app_text
+    assert 'next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";' in app_text
+    assert "} else if (next.repo_presence) {" in app_text
+    assert 'next.repo_presence = "";' in app_text
+    assert "changed = true;" in app_text
+
+
+def test_solution_and_subcomponent_forms_include_github_repo_fields():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'Primary GitHub Repo' in html_text
+    assert 'name="github_repo_url"' in html_text
+    assert 'GitHub Repo Override' in html_text
+    assert 'id="subcomponent-repo-preview"' in html_text
+    assert 'github_repo_url: data.get("github_repo_url") || null,' in app_text
+    assert "function updateSubcomponentRepoPreview(solutionId, overrideUrl) {" in app_text
 
 
 def test_master_corrupt_scoped_view_state_is_rewritten_to_defaults():
@@ -145,6 +311,17 @@ def test_planning_invalid_top_panel_is_auto_cleared_and_persisted():
     assert "if (changed) persistViewState();" in planning_text
 
 
+def test_planning_corrupt_scoped_view_state_is_rewritten_to_defaults():
+    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+
+    assert "function readStoredState(spaceId) {" in planning_text
+    assert 'if (!raw) return { value: {}, recovered: false };' in planning_text
+    assert 'if (parsed && typeof parsed === "object") return { value: parsed, recovered: false };' in planning_text
+    assert 'return { value: {}, recovered: true };' in planning_text
+    assert "const { value: stored, recovered } = readStoredState(spaceId);" in planning_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistViewState();" in planning_text
+
+
 def test_planning_window_selection_is_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
 
@@ -162,7 +339,7 @@ def test_planning_window_corrupt_scoped_view_state_is_rewritten_to_defaults():
 
     assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX), {});" in app_text
     assert 'state.planningWindowSelectedId = String(stored.selected_window_id || "");' in app_text
-    assert "if (recovered) persistPlanningWindowViewState();" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();" in app_text
 
 
 def test_planning_window_stale_selection_self_heals_to_live_option_set():
@@ -403,3 +580,25 @@ def test_operational_views_can_hide_completed_work_across_space():
     assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_text
     assert "completed or abandoned task" in planning_text
     assert "summary?.hiddenClosed" in workbench_text
+
+
+def test_workspace_prefs_corrupt_or_empty_state_is_rewritten_to_defaults():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function restoreWorkspaceViewPreferences() {" in app_text
+    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});" in app_text
+    assert "const nextShowCompleted = stored.showCompleted === true;" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length || stored.showCompleted !== nextShowCompleted) {" in app_text
+    assert "persistWorkspaceViewPreferences();" in app_text
+
+
+def test_calendar_kanban_and_team_capacity_seed_default_scoped_state():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function restoreCalendarViewState() {" in app_text
+    assert "state.calendarMonth = parsedMonth || state.calendarMonth || new Date();" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();" in app_text
+    assert "function restoreKanbanViewState() {" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();" in app_text
+    assert "function restoreTeamCapacityViewState() {" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();" in app_text

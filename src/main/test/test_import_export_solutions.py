@@ -67,6 +67,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
         "current_phase",
         "description",
         "success_criteria",
+        "github_repo_url",
         "impact_confidence",
         "owner",
         "assignee",
@@ -87,6 +88,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
             "priority": "2",
             "current_phase": "requirements",
             "description": "Desc",
+            "github_repo_url": "https://github.com/example-org/platform-api.git/",
             "owner": "Owner",
             "assignee": "Assignee",
         }
@@ -174,6 +176,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     updated_phase = (await client.get(f"/project-manager/api/solutions/{sol_phase['solution_id']}")).json()
     assert updated_phase["current_phase"] == "requirements"
     assert updated_phase["priority"] == 2
+    assert updated_phase["github_repo_url"] == "https://github.com/example-org/platform-api"
 
     updated_complete = (await client.get(f"/project-manager/api/solutions/{sol_complete['solution_id']}")).json()
     assert updated_complete["status"] == "complete"
@@ -186,6 +189,11 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     rows = list(csv.DictReader(StringIO(exported.text)))
     assert any(r["solution_name"] == "Manual RAG" for r in rows)
     assert any(r["project_name"] == "Auto Project" for r in rows)
+    assert any(
+        r["solution_name"] == "Update Phase"
+        and r["github_repo_url"] == "https://github.com/example-org/platform-api"
+        for r in rows
+    )
 
     list_complete = await client.get("/project-manager/api/solutions", params={"status": "complete"})
     assert list_complete.status_code == 200

@@ -46,6 +46,60 @@ async def test_create_solution_defaults_owner_and_version(client):
 
 
 @pytest.mark.anyio
+async def test_solution_github_repo_url_is_normalized_and_can_be_cleared(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Repo Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    create_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Repo Solution",
+            "github_repo_url": "https://github.com/ExampleOrg/example-repo.git/",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["github_repo_url"] == "https://github.com/ExampleOrg/example-repo"
+
+    update_resp = await client.patch(
+        f"/project-manager/api/solutions/{created['solution_id']}",
+        json={"github_repo_url": ""},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    assert update_resp.json()["github_repo_url"] is None
+
+    audit_resp = await client.get(
+        "/project-manager/api/audit",
+        params={
+            "entity_type": "solution",
+            "entity_id": created["solution_id"],
+            "field": "github_repo_url",
+        },
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    rows = audit_resp.json()
+    assert len(rows) >= 2
+
+
+@pytest.mark.anyio
+async def test_solution_rejects_invalid_github_repo_url(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Invalid Repo Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    bad_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Bad Repo",
+            "github_repo_url": "https://github.com/example-org/example-repo/issues/1",
+        },
+    )
+    assert bad_resp.status_code == 400, bad_resp.text
+    assert "github_repo_url" in bad_resp.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_create_and_list_solutions(client):
     project = await create_project(client)
 

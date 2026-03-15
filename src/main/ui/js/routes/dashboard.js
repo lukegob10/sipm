@@ -275,8 +275,9 @@ function normalizeSectionPrefs(sectionId, input) {
 }
 
 function loadPrefs(spaceId = currentDashboardSpaceId()) {
+  const defaultPrefs = normalizePrefs(DEFAULT_PREFS);
   try {
-    if (typeof localStorage === "undefined") return normalizePrefs(DEFAULT_PREFS);
+    if (typeof localStorage === "undefined") return defaultPrefs;
     const scopedKey = dashboardPrefsStorageKey(spaceId);
     const persistLoadedPrefs = (prefs) => {
       localStorage.setItem(scopedKey, JSON.stringify(prefs));
@@ -286,10 +287,10 @@ function loadPrefs(spaceId = currentDashboardSpaceId()) {
     if (!raw) {
       const legacyRaw = localStorage.getItem(DASHBOARD_PREFS_LEGACY_KEY);
       if (!legacyRaw) {
-        const defaultPrefs = normalizePrefs(DEFAULT_PREFS);
         return persistLoadedPrefs(defaultPrefs);
       }
       const legacyParsed = normalizePrefs(JSON.parse(legacyRaw));
+      localStorage.removeItem(DASHBOARD_PREFS_LEGACY_KEY);
       return persistLoadedPrefs(legacyParsed);
     }
     const parsed = JSON.parse(raw);
@@ -299,7 +300,14 @@ function loadPrefs(spaceId = currentDashboardSpaceId()) {
     }
     return normalized;
   } catch {
-    return normalizePrefs(DEFAULT_PREFS);
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(dashboardPrefsStorageKey(spaceId), JSON.stringify(defaultPrefs));
+      }
+    } catch {
+      // Ignore persistence issues.
+    }
+    return defaultPrefs;
   }
 }
 

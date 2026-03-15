@@ -190,6 +190,7 @@ class ProjectRead(BaseModel):
 class SolutionBase(BaseModel):
     solution_name: Optional[str] = None
     version: Optional[str] = None
+    github_repo_url: Optional[str] = None
     status: Optional[SolutionStatus] = None
     rag_status: Optional[RagStatus] = None
     rag_reason: Optional[str] = None
@@ -234,6 +235,7 @@ class SolutionRead(BaseModel):
     project_id: str
     solution_name: str
     version: str
+    github_repo_url: Optional[str] = None
     status: SolutionStatus
     rag_status: RagStatus
     rag_reason: Optional[str] = None
@@ -292,6 +294,7 @@ class SolutionPhaseRead(BaseModel):
 
 class SubcomponentBase(BaseModel):
     subcomponent_name: Optional[str] = None
+    github_repo_url: Optional[str] = None
     status: Optional[SubcomponentStatus] = None
     priority: Optional[int] = None
     due_date: Optional[date] = None
@@ -334,6 +337,9 @@ class SubcomponentRead(BaseModel):
     project_id: str
     solution_id: str
     subcomponent_name: str
+    github_repo_url: Optional[str] = None
+    effective_github_repo_url: Optional[str] = None
+    repo_source: str = "none"
     status: SubcomponentStatus
     priority: int
     due_date: Optional[date] = None

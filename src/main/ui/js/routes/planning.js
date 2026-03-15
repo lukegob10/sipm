@@ -140,11 +140,12 @@ function storageKey(spaceId) {
 function readStoredState(spaceId) {
   try {
     const raw = window.localStorage.getItem(storageKey(spaceId));
-    if (!raw) return {};
+    if (!raw) return { value: {}, recovered: false };
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
+    if (parsed && typeof parsed === "object") return { value: parsed, recovered: false };
+    return { value: {}, recovered: true };
   } catch {
-    return {};
+    return { value: {}, recovered: true };
   }
 }
 
@@ -168,7 +169,7 @@ function persistViewState() {
 }
 
 function restoreViewState(spaceId) {
-  const stored = readStoredState(spaceId);
+  const { value: stored, recovered } = readStoredState(spaceId);
   boardState.month = isValidMonthToken(stored.month) ? String(stored.month) : currentMonthToken();
   boardState.teamFilter = String(stored.teamFilter || "all");
   boardState.effortFilter = String(stored.effortFilter || "all");
@@ -176,6 +177,7 @@ function restoreViewState(spaceId) {
   boardState.personSearch = String(stored.personSearch || "");
   boardState.selectedTaskId = String(stored.selectedTaskId || "");
   boardState.topPanel = String(stored.topPanel || "");
+  if (recovered || !Object.keys(stored || {}).length) persistViewState();
 }
 
 function normalizePersistedBoardFilters() {

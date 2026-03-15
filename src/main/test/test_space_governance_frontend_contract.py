@@ -35,6 +35,9 @@ def test_space_governance_hub_and_modals_exist_in_html():
 def test_space_governance_app_logic_tracks_recents_and_access_alias():
     text = APP_JS.read_text(encoding="utf-8")
     assert 'const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";' in text
+    assert "const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });" in text
+    assert "const normalizedRecent = recent" in text
+    assert "if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {" in text
     assert "function viewDomIdForRoute(view)" in text
     assert 'return normalized === "access" ? "spaces" : normalized;' in text
     assert 'if (normalized === "access") return userCanAccessAdminViews();' in text

@@ -39,6 +39,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         "priority",
         "due_date",
         "assignee",
+        "github_repo_url",
         "solution_owner",
     ]
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
@@ -53,6 +54,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
             "priority": "1",
             "due_date": date.today().isoformat(),
             "assignee": "Engineer Updated",
+            "github_repo_url": "https://github.com/example-org/platform-worker.git/",
             "solution_owner": "Owner",
         }
     )
@@ -129,12 +131,20 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert updated_json["status"] == "complete"
     assert updated_json["completed_at"] is not None
     assert updated_json["assignee"] == "Engineer Updated"
+    assert updated_json["github_repo_url"] == "https://github.com/example-org/platform-worker"
+    assert updated_json["effective_github_repo_url"] == "https://github.com/example-org/platform-worker"
+    assert updated_json["repo_source"] == "override"
 
     exported = await client.get("/project-manager/api/subcomponents/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
     rows = list(csv.DictReader(StringIO(exported.text)))
-    assert any(r["subcomponent_name"] == "Task A" and r["assignee"] == "Engineer Updated" for r in rows)
+    assert any(
+        r["subcomponent_name"] == "Task A"
+        and r["assignee"] == "Engineer Updated"
+        and r["github_repo_url"] == "https://github.com/example-org/platform-worker"
+        for r in rows
+    )
     assert any(r["project_name"] == "Auto Project" and r["subcomponent_name"] == "Auto Task" for r in rows)
 
 

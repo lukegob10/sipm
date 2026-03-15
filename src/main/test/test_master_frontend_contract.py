@@ -3,6 +3,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
@@ -59,3 +60,23 @@ def test_master_type_chip_uses_colored_chip_styling():
     assert "background: var(--project-pill-bg);" in text
     assert ".pill-solution {" in text
     assert "background: var(--solution-pill-bg);" in text
+
+
+def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    route_text = MASTER_ROUTE.read_text(encoding="utf-8")
+    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+
+    assert 'id="preset-engineering"' in html_text
+    assert 'presetEngineering: document.getElementById("preset-engineering")' in app_text
+    assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in app_text
+    assert 'const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in app_text
+    assert 'els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset("engineering"));' in app_text
+    assert "const isEngineeringPreset = (state.deliverablesPreset || \"\") === \"engineering\";" in route_text
+    assert 'id="filter-repo-presence"' in route_text
+    assert 'Missing Repo' in route_text
+    assert 'class="deliverables-repo-link"' in route_text
+    assert 'deliverables-table-engineering' in route_text
+    assert ".deliverables-repo-link," in styles_text
+    assert ".deliverables-repo-missing {" in styles_text

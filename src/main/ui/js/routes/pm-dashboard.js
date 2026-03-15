@@ -140,9 +140,14 @@ function ensureCapacityMonth(spaceId) {
   const normalizedSpaceId = String(spaceId || "").trim();
   if (pmDashboardState.capacitySpaceId !== normalizedSpaceId) {
     pmDashboardState.capacitySpaceId = normalizedSpaceId;
-    pmDashboardState.capacityMonth = readStoredCapacityMonth(normalizedSpaceId) || currentMonthToken();
+    const restoredMonth = readStoredCapacityMonth(normalizedSpaceId);
+    pmDashboardState.capacityMonth = restoredMonth || currentMonthToken();
+    if (!restoredMonth) persistCapacityMonth(normalizedSpaceId, pmDashboardState.capacityMonth);
   }
   const normalizedMonth = normalizeMonthToken(pmDashboardState.capacityMonth) || currentMonthToken();
+  if (pmDashboardState.capacityMonth !== normalizedMonth) {
+    persistCapacityMonth(normalizedSpaceId, normalizedMonth);
+  }
   pmDashboardState.capacityMonth = normalizedMonth;
   return normalizedMonth;
 }

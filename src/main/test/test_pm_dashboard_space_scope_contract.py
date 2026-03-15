@@ -32,7 +32,11 @@ def test_pm_dashboard_capacity_card_defaults_to_current_month_and_exposes_month_
     assert 'const PM_DASHBOARD_STORAGE_KEY_PREFIX = "sipm-pm-dashboard-ui-v1";' in text
     assert "function currentMonthToken() {" in text
     assert "function ensureCapacityMonth(spaceId) {" in text
-    assert "pmDashboardState.capacityMonth = readStoredCapacityMonth(normalizedSpaceId) || currentMonthToken();" in text
+    assert "const restoredMonth = readStoredCapacityMonth(normalizedSpaceId);" in text
+    assert "pmDashboardState.capacityMonth = restoredMonth || currentMonthToken();" in text
+    assert "if (!restoredMonth) persistCapacityMonth(normalizedSpaceId, pmDashboardState.capacityMonth);" in text
+    assert "if (pmDashboardState.capacityMonth !== normalizedMonth) {" in text
+    assert "persistCapacityMonth(normalizedSpaceId, normalizedMonth);" in text
     assert 'const allocationScopeLabel = selectedCapacityMonth === todayMonthKey' in text
     assert 'Current month (${selectedCapacityMonth})' in text
     assert 'Selected month (${selectedCapacityMonth})' in text

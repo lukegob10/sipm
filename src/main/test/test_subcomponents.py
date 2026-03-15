@@ -109,6 +109,69 @@ async def test_create_subcomponent_defaults_assignee_and_priority(client, db_ses
 
 
 @pytest.mark.anyio
+async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    project, _ = await create_project_solution(client)
+    solution_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Repo Anchored Solution",
+            "version": "1.0.0",
+            "owner": "Solution Owner",
+            "github_repo_url": "https://github.com/example-org/platform-service.git/",
+        },
+    )
+    assert solution_resp.status_code == 201, solution_resp.text
+    solution = solution_resp.json()
+
+    create_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={"subcomponent_name": "Inherited Task"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["github_repo_url"] is None
+    assert created["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert created["repo_source"] == "inherited"
+
+    update_resp = await client.patch(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}",
+        json={"github_repo_url": "https://github.com/example-org/frontend-app"},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    updated = update_resp.json()
+    assert updated["github_repo_url"] == "https://github.com/example-org/frontend-app"
+    assert updated["effective_github_repo_url"] == "https://github.com/example-org/frontend-app"
+    assert updated["repo_source"] == "override"
+
+    clear_resp = await client.patch(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}",
+        json={"github_repo_url": ""},
+    )
+    assert clear_resp.status_code == 200, clear_resp.text
+    cleared = clear_resp.json()
+    assert cleared["github_repo_url"] is None
+    assert cleared["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert cleared["repo_source"] == "inherited"
+
+
+@pytest.mark.anyio
+async def test_subcomponent_rejects_invalid_github_repo_override(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+
+    resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={
+            "subcomponent_name": "Bad Repo Task",
+            "github_repo_url": "https://github.com/example-org/platform-service/pull/1",
+        },
+    )
+    assert resp.status_code == 400, resp.text
+    assert "github_repo_url" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_list_all_subcomponents_filter_by_assignee(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)

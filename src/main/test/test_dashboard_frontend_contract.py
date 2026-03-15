@@ -81,6 +81,7 @@ def test_dashboard_scoped_prefs_fall_back_to_legacy_global_storage_once():
     assert "const persistLoadedPrefs = (prefs) => {" in text
     assert "const legacyRaw = localStorage.getItem(DASHBOARD_PREFS_LEGACY_KEY);" in text
     assert "const legacyParsed = normalizePrefs(JSON.parse(legacyRaw));" in text
+    assert "localStorage.removeItem(DASHBOARD_PREFS_LEGACY_KEY);" in text
     assert "return persistLoadedPrefs(legacyParsed);" in text
 
 
@@ -100,6 +101,14 @@ def test_dashboard_invalid_scoped_prefs_are_rewritten_after_normalization():
     assert "const normalized = normalizePrefs(parsed);" in text
     assert "if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {" in text
     assert "localStorage.setItem(scopedKey, JSON.stringify(normalized));" in text
+
+
+def test_dashboard_malformed_scoped_prefs_fall_back_to_rewritten_defaults():
+    text = DASHBOARD_ROUTE.read_text(encoding="utf-8")
+
+    assert "const defaultPrefs = normalizePrefs(DEFAULT_PREFS);" in text
+    assert "localStorage.setItem(dashboardPrefsStorageKey(spaceId), JSON.stringify(defaultPrefs));" in text
+    assert "return defaultPrefs;" in text
 
 
 def test_dashboard_config_last_section_is_persisted_per_space():

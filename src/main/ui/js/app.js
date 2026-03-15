@@ -89,6 +89,12 @@ const els = {
   navAdminSection: document.getElementById("nav-admin-section"),
   views: document.querySelectorAll(".view"),
   status: document.getElementById("connection-status"),
+  topbarCreateShell: document.getElementById("topbar-create-shell"),
+  topbarCreateToggle: document.getElementById("topbar-create-toggle"),
+  topbarCreatePanel: document.getElementById("topbar-create-panel"),
+  topbarCreateProject: document.getElementById("topbar-create-project"),
+  topbarCreateSolution: document.getElementById("topbar-create-solution"),
+  topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent"),
   spaceSwitcherShell: document.getElementById("space-switcher-shell"),
   spaceSwitcherTrigger: document.getElementById("space-switcher-trigger"),
   spaceSwitcherCurrent: document.getElementById("space-switcher-current"),
@@ -154,14 +160,18 @@ const els = {
   subcomponentsWorkbenchActivity: document.getElementById("subcomponents-workbench-activity"),
   subcomponentsWorkbenchLayout: document.getElementById("subcomponents-workbench-layout"),
   subcomponentsWorkbenchDrawer: document.getElementById("subcomponents-workbench-drawer"),
-  createProjectBtn: document.getElementById("create-project"),
-  createSolutionBtn: document.getElementById("create-solution"),
   projectModal: document.getElementById("project-modal"),
   projectModalClose: document.getElementById("project-modal-close"),
   projectModalTitle: document.getElementById("project-modal-title"),
   solutionModal: document.getElementById("solution-modal"),
   solutionModalClose: document.getElementById("solution-modal-close"),
   solutionModalTitle: document.getElementById("solution-modal-title"),
+  subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal"),
+  subcomponentCreatePickerClose: document.getElementById("subcomponent-create-picker-close"),
+  subcomponentCreatePickerCancel: document.getElementById("subcomponent-create-picker-cancel"),
+  subcomponentCreatePickerForm: document.getElementById("subcomponent-create-picker-form"),
+  subcomponentCreatePickerSelect: document.getElementById("subcomponent-create-picker-select"),
+  subcomponentCreatePickerStatus: document.getElementById("subcomponent-create-picker-status"),
   confirmModal: document.getElementById("confirm-modal"),
   confirmModalTitle: document.getElementById("confirm-modal-title"),
   confirmModalMessage: document.getElementById("confirm-modal-message"),
@@ -174,6 +184,7 @@ const els = {
   presetMy: document.getElementById("preset-my"),
   presetOverdue: document.getElementById("preset-overdue"),
   presetBlocked: document.getElementById("preset-blocked"),
+  presetEngineering: document.getElementById("preset-engineering"),
   presetClear: document.getElementById("preset-clear"),
   bulkSelectedCount: document.getElementById("bulk-selected-count"),
   bulkAction: document.getElementById("bulk-action"),
@@ -257,6 +268,7 @@ const els = {
   subcomponentForm: document.getElementById("subcomponent-form"),
   subcomponentSubmitBtn: document.getElementById("subcomponent-submit-btn"),
   subcomponentFormStatus: document.getElementById("subcomponent-form-status"),
+  subcomponentRepoPreview: document.getElementById("subcomponent-repo-preview"),
   showSubcomponentFormBtn: document.getElementById("show-subcomponent-form"),
   kanbanBoard: document.getElementById("kanban-board"),
   calendarGrid: document.getElementById("calendar-grid"),
@@ -319,6 +331,41 @@ function escapeHtml(value) {
 }
 
 const esc = escapeHtml;
+
+function repoDisplayUrl(value) {
+  return String(value || "").trim();
+}
+
+function effectiveSubcomponentRepoInfo(solutionId, overrideUrl) {
+  const override = repoDisplayUrl(overrideUrl);
+  if (override) {
+    return { url: override, source: "override" };
+  }
+  const solution = (state.solutions || []).find((row) => row.solution_id === solutionId);
+  const inherited = repoDisplayUrl(solution?.github_repo_url);
+  if (inherited) {
+    return { url: inherited, source: "inherited" };
+  }
+  return { url: "", source: "none" };
+}
+
+function renderExternalRepoLink(url, { label = "Open Repo", className = "" } = {}) {
+  const targetUrl = repoDisplayUrl(url);
+  if (!targetUrl) return "";
+  const classes = ["repo-external-link", className].filter(Boolean).join(" ");
+  return `<a class="${classes}" href="${escapeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
+}
+
+function updateSubcomponentRepoPreview(solutionId, overrideUrl) {
+  if (!els.subcomponentRepoPreview) return;
+  const { url, source } = effectiveSubcomponentRepoInfo(solutionId, overrideUrl);
+  if (!url) {
+    els.subcomponentRepoPreview.textContent = "No solution repo set.";
+    return;
+  }
+  const sourceLabel = source === "override" ? "Override repo" : "Inherited repo";
+  els.subcomponentRepoPreview.innerHTML = `${escapeHtml(sourceLabel)}: ${renderExternalRepoLink(url, { label: url, className: "repo-external-link-inline" })}`;
+}
 
 function numberOr(value, fallback = 0) {
   const n = Number(value);
@@ -492,8 +539,11 @@ const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
-const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);
+const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);
 const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);
+const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);
+const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];
+const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];
 const VALID_SUBCOMPONENTS_WORKBENCH_PRESETS = new Set([
   "all",
   "my",
@@ -2397,11 +2447,71 @@ function deliverableKey(type, id) {
 
 function updatePresetButtons() {
   const preset = state.deliverablesPreset || "";
-  [els.presetMy, els.presetOverdue, els.presetBlocked].forEach((btn) => {
+  [els.presetMy, els.presetOverdue, els.presetBlocked, els.presetEngineering].forEach((btn) => {
     if (!btn) return;
     const match = btn.id === `preset-${preset}`;
     btn.classList.toggle("active", match);
   });
+}
+
+function normalizeMasterPriorityFilter(value) {
+  if (value === null || value === undefined) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : "";
+}
+
+function normalizeMasterProgressFilter(value) {
+  if (value === null || value === undefined) return "";
+  const raw = String(value).trim();
+  if (!raw) return "";
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : "";
+}
+
+function normalizeMasterFilters(filters = {}, preset = "") {
+  const source = filters && typeof filters === "object" ? filters : {};
+  const next = {};
+  let changed = filters !== source;
+  MASTER_TEXT_FILTER_KEYS.forEach((key) => {
+    const value = source[key];
+    if (typeof value === "string") {
+      next[key] = value;
+      return;
+    }
+    next[key] = "";
+    if (value !== null && value !== undefined && value !== "") changed = true;
+  });
+  const type = String(source.type || "");
+  next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : "";
+  if (next.type !== type) changed = true;
+  const repoPresence = String(source.repo_presence || "");
+  next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";
+  if (next.repo_presence !== repoPresence) changed = true;
+  const priority = normalizeMasterPriorityFilter(source.priority);
+  const progress = normalizeMasterProgressFilter(source.progress);
+  if (priority !== String(source.priority || "")) changed = true;
+  if (progress !== String(source.progress || "")) changed = true;
+  next.priority = priority;
+  next.progress = progress;
+
+  if (preset === "engineering") {
+    MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {
+      if (!next[key]) return;
+      next[key] = "";
+      changed = true;
+    });
+    if (next.type === "project") {
+      next.type = "";
+      changed = true;
+    }
+  } else if (next.repo_presence) {
+    next.repo_presence = "";
+    changed = true;
+  }
+
+  return { filters: next, changed };
 }
 
 function clearDeliverablesFilters() {
@@ -2418,6 +2528,8 @@ function clearDeliverablesFilters() {
 
 function setDeliverablesPreset(preset) {
   state.deliverablesPreset = preset || "";
+  const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);
+  state.filters = normalized.filters;
   persistMasterViewState();
   updatePresetButtons();
   renderMasterTable();
@@ -2796,16 +2908,28 @@ function loadSubcomponentsWorkbenchSavedViews() {
   wb.savedViews = [];
   wb.selectedSavedViewId = "";
   if (!state.authed) return;
+  let recovered = false;
+  let parsed = [];
   try {
     const raw = localStorage.getItem(subcomponentsWorkbenchStorageKey()) || "[]";
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return;
-    wb.savedViews = parsed
+    const candidate = JSON.parse(raw);
+    if (Array.isArray(candidate)) {
+      parsed = candidate;
+    } else {
+      recovered = true;
+    }
+  } catch (err) {
+    recovered = true;
+    console.warn("Unable to load subcomponent workbench saved views", err);
+  }
+  const normalizedViews = parsed
       .filter((row) => row && typeof row === "object" && typeof row.name === "string")
       .map((row) => ({
         view_id: String(row.view_id || `sv_${Math.random().toString(36).slice(2, 10)}`),
         name: String(row.name || "").trim(),
-        preset: String(row.preset || "all"),
+        preset: VALID_SUBCOMPONENTS_WORKBENCH_PRESETS.has(String(row.preset || "all"))
+          ? String(row.preset || "all")
+          : "all",
         filters: {
           search: String(row.filters?.search || ""),
           project_id: String(row.filters?.project_id || ""),
@@ -2818,8 +2942,9 @@ function loadSubcomponentsWorkbenchSavedViews() {
         updated_at: String(row.updated_at || ""),
       }))
       .filter((row) => row.name);
-  } catch (err) {
-    console.warn("Unable to load subcomponent workbench saved views", err);
+  wb.savedViews = normalizedViews;
+  if (recovered || JSON.stringify(parsed) !== JSON.stringify(normalizedViews)) {
+    persistSubcomponentsWorkbenchSavedViews();
   }
 }
 
@@ -3025,7 +3150,10 @@ function fillSubcomponentsWorkbenchForm(subcomponent) {
   if (els.subcomponentsWorkbenchContext) {
     const project = state.projects.find((p) => p.project_id === subcomponent.project_id)?.project_name || "Unknown project";
     const solution = state.solutions.find((s) => s.solution_id === subcomponent.solution_id)?.solution_name || "Unknown solution";
-    els.subcomponentsWorkbenchContext.innerHTML = `${renderSubcomponentsWorkbenchDrawerProjectLink(project, subcomponent.project_id)} / ${renderSubcomponentsWorkbenchDrawerSolutionLink(solution, subcomponent.solution_id)}`;
+    els.subcomponentsWorkbenchContext.innerHTML = `
+      <span class="sub-workbench-context-primary">${renderSubcomponentsWorkbenchDrawerProjectLink(project, subcomponent.project_id)} / ${renderSubcomponentsWorkbenchDrawerSolutionLink(solution, subcomponent.solution_id)}</span>
+      ${renderSubcomponentsWorkbenchDrawerRepoContext(subcomponent)}
+    `;
   }
   renderSubcomponentsWorkbenchActivity(subcomponent.subcomponent_id);
 }
@@ -3102,6 +3230,11 @@ function filteredSolutions() {
     if (f.rag && !(s.rag_status || "").toLowerCase().includes(f.rag.toLowerCase())) return false;
     if (f.status && !(s.status || "").toLowerCase().includes(f.status.toLowerCase())) return false;
     if (f.progress && solutionProgress(s) > Number(f.progress)) return false;
+    if (preset === "engineering") {
+      const hasRepo = !!repoDisplayUrl(s.github_repo_url);
+      if (f.repo_presence === "has_repo" && !hasRepo) return false;
+      if (f.repo_presence === "missing_repo" && hasRepo) return false;
+    }
     if (preset === "my") {
       const ownerMatch = (s.owner || "").toLowerCase().includes(userName);
       const assigneeMatch = (s.assignee || "").toLowerCase().includes(userName);
@@ -3140,7 +3273,7 @@ function filteredDeliverables() {
   const f = state.filters || {};
   const preset = state.deliverablesPreset || "";
   const rows = [];
-  const includeProjectRows = f.type !== "solution";
+  const includeProjectRows = preset !== "engineering" && f.type !== "solution";
   const includeSolutionRows = f.type !== "project";
   const hasSolutionColumnFilters = Boolean(
     f.solution || f.version || f.owner || f.current_phase || f.due || f.rag || f.progress
@@ -3589,12 +3722,208 @@ function bindDebouncedInput(element, onChange, delayMs = 180) {
   });
 }
 
+function closeTopbarCreateMenu({ restoreFocus = true } = {}) {
+  if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
+  els.topbarCreatePanel.classList.add("hidden");
+  els.topbarCreateToggle.setAttribute("aria-expanded", "false");
+  if (restoreFocus) els.topbarCreateToggle.focus();
+}
+
+function subcomponentCreateCandidateSolutions() {
+  return [...(state.solutions || [])].sort((a, b) => {
+    const projectA = state.projects.find((project) => project.project_id === a.project_id)?.project_name || "";
+    const projectB = state.projects.find((project) => project.project_id === b.project_id)?.project_name || "";
+    const projectDiff = projectA.localeCompare(projectB);
+    if (projectDiff !== 0) return projectDiff;
+    return String(a.solution_name || "").localeCompare(String(b.solution_name || ""));
+  });
+}
+
+function subcomponentCreateSolutionLabel(solution) {
+  const projectName = state.projects.find((project) => project.project_id === solution?.project_id)?.project_name || "";
+  const solutionName = String(solution?.solution_name || "").trim() || "Untitled Solution";
+  return projectName ? `${projectName} / ${solutionName}` : solutionName;
+}
+
+function closeSubcomponentCreatePicker() {
+  if (!els.subcomponentCreatePickerModal) return;
+  els.subcomponentCreatePickerModal.classList.add("hidden");
+  clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
+}
+
+function continueSubcomponentCreateForSolution(solution) {
+  if (!solution?.solution_id) return;
+  closeSubcomponentCreatePicker();
+  openSolutionModal(solution, "subcomponents");
+  showSubcomponentForm(solution);
+}
+
+function populateSubcomponentCreatePickerOptions(selectedSolutionId = "") {
+  if (!els.subcomponentCreatePickerSelect) return;
+  const solutions = subcomponentCreateCandidateSolutions();
+  const options = solutions
+    .map((solution) => {
+      const selected = solution.solution_id === selectedSolutionId ? "selected" : "";
+      return `<option value="${escapeHtml(solution.solution_id)}" ${selected}>${escapeHtml(subcomponentCreateSolutionLabel(solution))}</option>`;
+    })
+    .join("");
+  els.subcomponentCreatePickerSelect.innerHTML = options;
+  if (selectedSolutionId) {
+    els.subcomponentCreatePickerSelect.value = selectedSolutionId;
+  }
+}
+
+function openSubcomponentCreatePicker(selectedSolutionId = "") {
+  if (!els.subcomponentCreatePickerModal) return;
+  populateSubcomponentCreatePickerOptions(selectedSolutionId);
+  clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
+  els.subcomponentCreatePickerModal.classList.remove("hidden");
+  window.setTimeout(() => {
+    els.subcomponentCreatePickerSelect?.focus();
+  }, 0);
+}
+
+function handleTopbarSubcomponentCreate() {
+  closeTopbarCreateMenu({ restoreFocus: false });
+  const currentOpenSolutionId = !els.solutionModal?.classList.contains("hidden")
+    ? (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "")
+    : "";
+  const currentOpenSolution = currentOpenSolutionId
+    ? state.solutions.find((solution) => solution.solution_id === currentOpenSolutionId)
+    : null;
+  if (currentOpenSolution?.solution_id) {
+    continueSubcomponentCreateForSolution(currentOpenSolution);
+    return;
+  }
+  const solutions = subcomponentCreateCandidateSolutions();
+  if (!solutions.length) {
+    openSolutionModal(null, "details");
+    setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");
+    return;
+  }
+  if (solutions.length === 1) {
+    continueSubcomponentCreateForSolution(solutions[0]);
+    return;
+  }
+  openSubcomponentCreatePicker(currentOpenSolutionId);
+}
+
+function openTopbarCreateMenu() {
+  if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
+  if (els.csvActionsMenu && !els.csvActionsMenu.classList.contains("hidden")) {
+    els.csvActionsMenu.classList.add("hidden");
+    els.csvActionsToggle?.setAttribute("aria-expanded", "false");
+  }
+  els.topbarCreatePanel.classList.remove("hidden");
+  els.topbarCreateToggle.setAttribute("aria-expanded", "true");
+  const items = Array.from(els.topbarCreatePanel.querySelectorAll("[role='menuitem']"));
+  items[0]?.focus();
+}
+
+function bindTopbarCreateMenu() {
+  const topbarCreateMenuItems = () => Array.from(els.topbarCreatePanel?.querySelectorAll("[role='menuitem']") || []);
+  const toggleTopbarCreateMenu = () => {
+    if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
+    const isHidden = els.topbarCreatePanel.classList.contains("hidden");
+    if (isHidden) {
+      openTopbarCreateMenu();
+    } else {
+      closeTopbarCreateMenu();
+    }
+  };
+
+  if (els.topbarCreateToggle && !els.topbarCreateToggle._bound) {
+    els.topbarCreateToggle.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
+      event.preventDefault();
+      openTopbarCreateMenu();
+    });
+    els.topbarCreateToggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleTopbarCreateMenu();
+    });
+    els.topbarCreateToggle._bound = true;
+  }
+
+  if (els.topbarCreatePanel && !els.topbarCreatePanel._bound) {
+    els.topbarCreatePanel.addEventListener("keydown", (event) => {
+      const items = topbarCreateMenuItems();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const activeIndex = items.indexOf(document.activeElement);
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeTopbarCreateMenu();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        items[(activeIndex + 1) % items.length]?.focus();
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        items[(activeIndex - 1 + items.length) % items.length]?.focus();
+        return;
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        first.focus();
+        return;
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+    });
+    els.topbarCreatePanel.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    els.topbarCreatePanel._bound = true;
+  }
+
+  if (!document._topbarCreateMenuCloseBound) {
+    document.addEventListener("click", (event) => {
+      const menu = els.topbarCreatePanel;
+      const toggle = els.topbarCreateToggle;
+      if (!menu || !toggle) return;
+      if (menu.classList.contains("hidden")) return;
+      if (menu.contains(event.target) || toggle.contains(event.target)) return;
+      closeTopbarCreateMenu({ restoreFocus: false });
+    });
+    document._topbarCreateMenuCloseBound = true;
+  }
+
+  if (els.topbarCreateProject && !els.topbarCreateProject._bound) {
+    els.topbarCreateProject.addEventListener("click", () => {
+      closeTopbarCreateMenu({ restoreFocus: false });
+      openProjectForm(null);
+    });
+    els.topbarCreateProject._bound = true;
+  }
+
+  if (els.topbarCreateSolution && !els.topbarCreateSolution._bound) {
+    els.topbarCreateSolution.addEventListener("click", () => {
+      closeTopbarCreateMenu({ restoreFocus: false });
+      openSolutionModal(null, "details");
+    });
+    els.topbarCreateSolution._bound = true;
+  }
+
+  if (els.topbarCreateSubcomponent && !els.topbarCreateSubcomponent._bound) {
+    els.topbarCreateSubcomponent.addEventListener("click", handleTopbarSubcomponentCreate);
+    els.topbarCreateSubcomponent._bound = true;
+  }
+}
+
 function bindDeliverablesControls() {
-  els.createProjectBtn?.addEventListener("click", () => openProjectForm(null));
-  els.createSolutionBtn?.addEventListener("click", () => openSolutionModal(null, "details"));
   els.presetMy?.addEventListener("click", () => setDeliverablesPreset("my"));
   els.presetOverdue?.addEventListener("click", () => setDeliverablesPreset("overdue"));
   els.presetBlocked?.addEventListener("click", () => setDeliverablesPreset("blocked"));
+  els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset("engineering"));
   els.presetClear?.addEventListener("click", clearDeliverablesFilters);
   els.bulkAction?.addEventListener("change", syncBulkInputs);
   els.bulkApply?.addEventListener("click", applyBulkAction);
@@ -4433,6 +4762,21 @@ function renderSubcomponentsWorkbenchDrawerSolutionLink(label, solutionId) {
   return `<button type="button" class="sub-workbench-context-link" data-scwb-context-action="open-solution" data-solution-id="${escapeHtml(targetId)}">${escapeHtml(text)}</button>`;
 }
 
+function renderSubcomponentsWorkbenchDrawerRepoContext(subcomponent) {
+  const { url, source } = effectiveSubcomponentRepoInfo(
+    subcomponent?.solution_id,
+    subcomponent?.github_repo_url
+  );
+  if (!url) {
+    return `<span class="sub-workbench-context-secondary">Repo: <span class="muted">Not set</span></span>`;
+  }
+  const sourceLabel = source === "override" ? "override" : "inherited";
+  return `<span class="sub-workbench-context-secondary">Repo: ${renderExternalRepoLink(url, {
+    label: url,
+    className: "repo-external-link-inline",
+  })} <span class="sub-workbench-context-source">(${escapeHtml(sourceLabel)})</span></span>`;
+}
+
 function openKanbanSolutionDrilldown(solutionId) {
   const targetId = String(solutionId || "").trim();
   if (!targetId) return;
@@ -4679,6 +5023,10 @@ function bindSolutionForm() {
       upsertById(state.solutions, saved, "solution_id");
       populateSelects();
       fillSolutionForm(saved);
+      if (els.subcomponentForm && !els.subcomponentForm.classList.contains("hidden")) {
+        const activeOverride = els.subcomponentForm.querySelector('[name="github_repo_url"]')?.value || "";
+        updateSubcomponentRepoPreview(saved.solution_id, activeOverride);
+      }
       setSolutionActionButtonLabel(true);
       renderActiveView();
       renderSolutionPhases(saved.solution_id);
@@ -4752,6 +5100,7 @@ function bindSolutionForm() {
 function buildSolutionPayload(data) {
   const payload = {
     solution_name: data.get("solution_name"),
+    github_repo_url: data.get("github_repo_url") || null,
     version: data.get("version"),
     status: data.get("status"),
     priority: Number(data.get("priority") || 3),
@@ -4785,6 +5134,7 @@ function buildSubcomponentPayload(data) {
   const assigneeUser = findUserBySoeid(assigneeUserId);
   return {
     subcomponent_name: data.get("subcomponent_name"),
+    github_repo_url: data.get("github_repo_url") || null,
     status: data.get("status"),
     priority: Number(data.get("priority") || 3),
     due_date: data.get("due_date") || null,
@@ -4807,6 +5157,7 @@ function fillSolutionForm(solution = null) {
   els.solutionForm.querySelector('[name="solution_id"]').value = solution?.solution_id || "";
   els.solutionForm.querySelector('[name="project_id"]').value = solution?.project_id || "";
   els.solutionForm.querySelector('[name="solution_name"]').value = solution?.solution_name || "";
+  els.solutionForm.querySelector('[name="github_repo_url"]').value = solution?.github_repo_url || "";
   els.solutionForm.querySelector('[name="version"]').value = solution?.version || "0.1.0";
   els.solutionForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(solution?.capacity_hours, 0);
   els.solutionForm.querySelector('[name="status"]').value = solution?.status || "not_started";
@@ -4940,9 +5291,11 @@ function prepareSubcomponentCreateForm(solution, options = {}) {
   els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
   els.subcomponentForm.querySelector('[name="project_id"]').value = sol.project_id;
   els.subcomponentForm.querySelector('[name="solution_id"]').value = sol.solution_id;
+  els.subcomponentForm.querySelector('[name="github_repo_url"]').value = "";
   els.subcomponentForm.querySelector('[name="priority"]').value = 3;
   els.subcomponentForm.querySelector('[name="status"]').value = "to_do";
   els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(0, 0);
+  updateSubcomponentRepoPreview(sol.solution_id, "");
   if (els.deleteSubcomponentBtn) {
     els.deleteSubcomponentBtn.disabled = true;
   }
@@ -4962,6 +5315,7 @@ function fillSubcomponentForm(sub) {
   els.subcomponentForm.querySelector('[name="project_id"]').value = sub.project_id;
   els.subcomponentForm.querySelector('[name="solution_id"]').value = sub.solution_id;
   els.subcomponentForm.querySelector('[name="subcomponent_name"]').value = sub.subcomponent_name || "";
+  els.subcomponentForm.querySelector('[name="github_repo_url"]').value = sub.github_repo_url || "";
   els.subcomponentForm.querySelector('[name="priority"]').value = sub.priority ?? "";
   els.subcomponentForm.querySelector('[name="due_date"]').value = sub.due_date || "";
   els.subcomponentForm.querySelector('[name="status"]').value = sub.status || "to_do";
@@ -4973,6 +5327,7 @@ function fillSubcomponentForm(sub) {
   els.subcomponentForm.querySelector('[name="blocker_note"]').value = sub.blocker_note || "";
   els.subcomponentForm.querySelector('[name="done_criteria"]').value = sub.done_criteria || "";
   els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(sub.capacity_hours, 0);
+  updateSubcomponentRepoPreview(sub.solution_id, sub.github_repo_url || "");
   if (els.deleteSubcomponentBtn) {
     els.deleteSubcomponentBtn.disabled = !sub.subcomponent_id;
   }
@@ -5088,6 +5443,10 @@ function bindModalShortcuts() {
       closeConfirmModal(false);
       return;
     }
+    if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal.classList.contains("hidden")) {
+      closeSubcomponentCreatePicker();
+      return;
+    }
     if (els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
       closeSolutionModal();
       return;
@@ -5097,6 +5456,34 @@ function bindModalShortcuts() {
     }
   });
   document._jiraLiteModalBound = true;
+}
+
+function bindSubcomponentCreatePicker() {
+  if (els.subcomponentCreatePickerClose && !els.subcomponentCreatePickerClose._bound) {
+    els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);
+    els.subcomponentCreatePickerClose._bound = true;
+  }
+  if (els.subcomponentCreatePickerCancel && !els.subcomponentCreatePickerCancel._bound) {
+    els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);
+    els.subcomponentCreatePickerCancel._bound = true;
+  }
+  if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal._bound) {
+    els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);
+    els.subcomponentCreatePickerModal._bound = true;
+  }
+  if (els.subcomponentCreatePickerForm && !els.subcomponentCreatePickerForm._bound) {
+    els.subcomponentCreatePickerForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const solutionId = (new FormData(els.subcomponentCreatePickerForm).get("solution_id") || "").toString().trim();
+      const solution = state.solutions.find((row) => row.solution_id === solutionId);
+      if (!solution?.solution_id) {
+        setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");
+        return;
+      }
+      continueSubcomponentCreateForSolution(solution);
+    });
+    els.subcomponentCreatePickerForm._bound = true;
+  }
 }
 
 async function renderSolutionActivity(solutionId) {
@@ -5218,6 +5605,17 @@ async function renderSolutionPhases(selectedId) {
 
 function bindSubcomponentForm() {
   if (!els.subcomponentForm) return;
+  if (!els.subcomponentForm._repoPreviewBound) {
+    els.subcomponentForm.addEventListener("input", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const repoInput = target.closest('[name="github_repo_url"]');
+      if (!repoInput) return;
+      const solutionId = els.subcomponentForm?.querySelector('[name="solution_id"]')?.value || "";
+      updateSubcomponentRepoPreview(solutionId, repoInput.value || "");
+    });
+    els.subcomponentForm._repoPreviewBound = true;
+  }
   if (els.showSubcomponentFormBtn) {
     els.showSubcomponentFormBtn.onclick = () => {
       if (els.subcomponentForm.classList.contains("hidden")) {
@@ -5871,8 +6269,8 @@ function csvTemplateConfig(kind) {
     return {
       filename: "solutions-template.csv",
       content: [
-        "project_name,solution_name,version,status,owner,assignee,priority,due_date,current_phase",
-        "Example Project,Example Solution,0.1.0,not_started,Example Owner,Example Owner,3,,",
+        "project_name,solution_name,version,status,owner,assignee,priority,due_date,current_phase,github_repo_url",
+        "Example Project,Example Solution,0.1.0,not_started,Example Owner,Example Owner,3,,,https://github.com/example-org/example-repo",
       ].join("\n"),
     };
   }
@@ -6033,6 +6431,7 @@ function bindCsvControls() {
   const csvMenuItems = () => Array.from(els.csvActionsMenu?.querySelectorAll("[role='menuitem']") || []);
   const openCsvMenu = () => {
     if (!els.csvActionsMenu || !els.csvActionsToggle) return;
+    closeTopbarCreateMenu({ restoreFocus: false });
     els.csvActionsMenu.classList.remove("hidden");
     els.csvActionsToggle.setAttribute("aria-expanded", "true");
     csvMenuItems()[0]?.focus();
@@ -7040,13 +7439,18 @@ function renderCompletedVisibilityToggle() {
 }
 
 function readRecentSpaceIds() {
-  const stored = readStoredJson(userScopedStorageKey(SPACE_RECENTS_KEY_PREFIX), { recent: [] });
+  const storageKey = userScopedStorageKey(SPACE_RECENTS_KEY_PREFIX);
+  const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });
   const recent = Array.isArray(stored.recent) ? stored.recent : [];
-  return recent
+  const normalizedRecent = recent
     .map((spaceId) => String(spaceId || "").trim())
     .filter(Boolean)
     .filter((spaceId, index, list) => list.indexOf(spaceId) === index)
     .slice(0, RECENT_SPACES_LIMIT);
+  if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {
+    writeStoredJson(storageKey, { recent: normalizedRecent });
+  }
+  return normalizedRecent;
 }
 
 function persistRecentSpaceIds() {
@@ -7082,26 +7486,29 @@ function persistWorkspaceViewPreferences() {
 }
 
 function restoreWorkspaceViewPreferences() {
-  const stored = readStoredJson(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});
+  const nextShowCompleted = stored.showCompleted === true;
   state.workspacePrefs = {
-    showCompleted: stored.showCompleted === true,
+    showCompleted: nextShowCompleted,
   };
+  if (recovered || !Object.keys(stored || {}).length || stored.showCompleted !== nextShowCompleted) {
+    persistWorkspaceViewPreferences();
+  }
   renderCompletedVisibilityToggle();
 }
 
 function restoreMasterViewState() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX), {});
-  state.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
+  const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
   state.deliverablesPreset = String(stored.deliverablesPreset || "");
   let changed = recovered;
-  if (!VALID_DELIVERABLE_TYPES.has(String(state.filters?.type || ""))) {
-    state.filters.type = "";
-    changed = true;
-  }
   if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {
     state.deliverablesPreset = "";
     changed = true;
   }
+  const normalized = normalizeMasterFilters(rawFilters, state.deliverablesPreset);
+  state.filters = normalized.filters;
+  if (normalized.changed) changed = true;
   if (changed) persistMasterViewState();
 }
 
@@ -7121,14 +7528,12 @@ function persistCalendarViewState() {
 function restoreCalendarViewState() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX), {});
   const parsedMonth = parseMonthInputValue(stored.month || "");
-  if (parsedMonth) {
-    state.calendarMonth = parsedMonth;
-  }
+  state.calendarMonth = parsedMonth || state.calendarMonth || new Date();
   state.calendarFilters = {
     project: String(stored.filters?.project || ""),
     owner: String(stored.filters?.owner || ""),
   };
-  if (recovered) persistCalendarViewState();
+  if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();
 }
 
 function persistKanbanViewState() {
@@ -7149,7 +7554,7 @@ function restoreKanbanViewState() {
     project: String(stored.filters?.project || ""),
     owner: String(stored.filters?.owner || ""),
   };
-  if (recovered) persistKanbanViewState();
+  if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();
 }
 
 function persistTeamCapacityViewState() {
@@ -7168,7 +7573,7 @@ function restoreTeamCapacityViewState() {
   if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");
   if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");
   state.capacitySelectedSoeid = String(stored.selected_soeid || "");
-  if (recovered) persistTeamCapacityViewState();
+  if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();
 }
 
 function persistPlanningWindowViewState() {
@@ -7183,7 +7588,7 @@ function persistPlanningWindowViewState() {
 function restorePlanningWindowViewState() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX), {});
   state.planningWindowSelectedId = String(stored.selected_window_id || "");
-  if (recovered) persistPlanningWindowViewState();
+  if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();
 }
 
 function persistSubcomponentsWorkbenchUiState() {
@@ -7210,7 +7615,7 @@ function persistSubcomponentsWorkbenchUiState() {
 
 function restoreSubcomponentsWorkbenchUiState() {
   const wb = state.subcomponentsWorkbench;
-  const stored = readStoredJson(activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
   wb.preset = String(stored.preset || "all");
   wb.filters = {
     search: String(stored.filters?.search || ""),
@@ -7226,6 +7631,7 @@ function restoreSubcomponentsWorkbenchUiState() {
   wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
   wb.drawerOpen = stored.drawerOpen !== false;
   normalizeSubcomponentsWorkbenchUiState();
+  if (recovered || !Object.keys(stored || {}).length) persistSubcomponentsWorkbenchUiState();
 }
 
 function canManageSpaceMembership(spaceId) {
@@ -8548,6 +8954,8 @@ function init() {
   initTheme();
   bindWorkspaceViewPreferences();
   bindAuthUI();
+  bindTopbarCreateMenu();
+  bindSubcomponentCreatePicker();
   bindCsvControls();
   bindSpaceSwitcher();
   bindNav();

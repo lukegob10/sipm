@@ -1,9 +1,34 @@
 import os
+from threading import Lock
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from ..runtime import get_ta_connection_env
+
+
+_SESSION_LOCAL_LOCK = Lock()
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean value.")
 
 
 def _build_engine():
@@ -17,11 +42,11 @@ def _build_engine():
     return create_engine(
         "oracle+oracledb://",
         creator=_ta_creator,
-        pool_size=int(os.getenv("SIPM_DB_POOL_SIZE", "5")),
-        max_overflow=int(os.getenv("SIPM_DB_MAX_OVERFLOW", "10")),
-        pool_timeout=int(os.getenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "30")),
-        pool_recycle=int(os.getenv("SIPM_DB_POOL_RECYCLE_SECONDS", "1800")),
-        pool_pre_ping=(os.getenv("SIPM_DB_POOL_PRE_PING", "true").strip().lower() != "false"),
+        pool_size=_env_int("SIPM_DB_POOL_SIZE", 5),
+        max_overflow=_env_int("SIPM_DB_MAX_OVERFLOW", 10),
+        pool_timeout=_env_int("SIPM_DB_POOL_TIMEOUT_SECONDS", 30),
+        pool_recycle=_env_int("SIPM_DB_POOL_RECYCLE_SECONDS", 1800),
+        pool_pre_ping=_env_bool("SIPM_DB_POOL_PRE_PING", True),
     )
 
 
@@ -32,8 +57,11 @@ SessionLocal = None
 def _ensure_session_local():
     global engine, SessionLocal
     if SessionLocal is None:
-        engine = _build_engine()
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+        with _SESSION_LOCAL_LOCK:
+            if SessionLocal is None:
+                created_engine = _build_engine()
+                engine = created_engine
+                SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=created_engine)
     return SessionLocal
 
 

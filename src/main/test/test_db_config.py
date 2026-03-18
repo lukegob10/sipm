@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import concurrent.futures
 import importlib
 import os
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -132,6 +134,65 @@ def test_db_engine_creator_uses_taconnection(monkeypatch):
     assert captured["env"] == "prod"
     assert captured["connect_called"] is True
     assert captured["creator_connection"] is fake_connection
+
+
+def test_db_engine_rejects_non_integer_pool_env(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_SIZE", "five")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be an integer."):
+        module._build_engine()
+
+
+def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_PRE_PING", "sometimes")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_PRE_PING must be a boolean value."):
+        module._build_engine()
+
+
+def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
+    module = _reload_db_module()
+    module.engine = None
+    module.SessionLocal = None
+
+    captured = {"build_calls": 0, "sessionmaker_calls": 0}
+    sentinel_engine = object()
+    sentinel_session_local = object()
+
+    def fake_build_engine():
+        captured["build_calls"] += 1
+        time.sleep(0.05)
+        return sentinel_engine
+
+    def fake_sessionmaker(*, autocommit, autoflush, bind):
+        captured["sessionmaker_calls"] += 1
+        assert autocommit is False
+        assert autoflush is False
+        assert bind is sentinel_engine
+        return sentinel_session_local
+
+    monkeypatch.setattr(module, "_build_engine", fake_build_engine)
+    monkeypatch.setattr(module, "sessionmaker", fake_sessionmaker)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(lambda _: module._ensure_session_local(), range(8)))
+
+    assert results == [sentinel_session_local] * 8
+    assert captured == {"build_calls": 1, "sessionmaker_calls": 1}
 
 
 def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):

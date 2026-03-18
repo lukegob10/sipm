@@ -32,11 +32,11 @@ from ..utils import (
     read_csv,
     read_text_value,
 )
-from ..services.realtime import schedule_broadcast
 from ..services.audit_log import safe_log_changes
 from ..services.github_repo_urls import normalize_github_repo_url
 from ..services.spaces import SpaceContext
-from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
+from ..services.smart_cache import cached_call, make_scope_token
+from ._mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
 
 router = APIRouter()
 _SOLUTIONS_LIST_TTL_SECONDS = 20
@@ -52,6 +52,14 @@ def _role_scope(space_ctx: SpaceContext) -> str:
 
 def _solution_payload(solution: Solution) -> dict:
     return SolutionRead.model_validate(solution).model_dump(mode="json")
+
+
+def _publish_solution_mutation(space_id: str) -> None:
+    publish_space_mutation(
+        space_id,
+        ["solutions"],
+        broadcast_channel="solutions",
+    )
 
 
 def _parse_rag_status(raw: Optional[str]) -> Optional[RagStatus]:
@@ -428,12 +436,11 @@ def create_solution(
             "completed_at": (None, solution.completed_at),
         },
     )
-    session.commit()
+    commit_session(session)
     session.refresh(solution)
     enable_all_phases(session, solution.solution_id)
     session.refresh(solution)
-    invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    _publish_solution_mutation(space_ctx.space_id)
     return _solution_payload(solution)
 
 
@@ -660,7 +667,7 @@ def import_solutions(
                     request_id=request_id,
                 )
                 updated += 1
-                session.commit()
+                commit_session(session)
             else:
                 now = datetime.now(timezone.utc)
                 completed_at = now if status_enum == SolutionStatus.complete else None
@@ -731,14 +738,13 @@ def import_solutions(
                     },
                     request_id=request_id,
                 )
-                session.commit()
+                commit_session(session)
                 enable_all_phases(session, solution.solution_id)
                 created += 1
         except Exception as exc:
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
-    invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    _publish_solution_mutation(space_ctx.space_id)
     return {
         "created": created,
         "updated": updated,
@@ -923,10 +929,13 @@ def update_solution(
             space_id=space_ctx.space_id,
             changes=changes,
         )
-    session.commit()
-    session.refresh(solution)
-    invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    commit_refresh_and_publish(
+        session,
+        solution,
+        space_id=space_ctx.space_id,
+        cache_keys=["solutions"],
+        broadcast_channel="solutions",
+    )
     return _solution_payload(solution)
 
 
@@ -953,8 +962,7 @@ def delete_solution(
         space_id=space_ctx.space_id,
         changes={"deleted_at": (None, now)},
     )
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["solutions"])
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    commit_session(session)
+    _publish_solution_mutation(space_ctx.space_id)
     return None
 

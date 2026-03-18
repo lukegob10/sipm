@@ -117,8 +117,8 @@ def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) ->
         .order_by(TeamMember.created_at.asc())
         .all()
     )
-    data = TeamRead.from_orm(team)
-    data.members = [TeamMemberRead.from_orm(m) for m in members]
+    data = TeamRead.model_validate(team)
+    data.members = [TeamMemberRead.model_validate(member) for member in members]
     return data
 
 
@@ -342,7 +342,7 @@ def list_team_members(
             .order_by(TeamMember.created_at.asc())
             .all()
         )
-        return [TeamMemberRead.from_orm(m).model_dump(mode="json") for m in members]
+        return [TeamMemberRead.model_validate(member).model_dump(mode="json") for member in members]
 
     return cached_call(
         endpoint="teams:members",
@@ -383,7 +383,7 @@ def create_team_member(
     session.refresh(member)
     _recompute_team_capacity(session, team_id, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.from_orm(member)
+    return TeamMemberRead.model_validate(member)
 
 
 @router.patch("/teams/{team_id}/members/{member_id}", response_model=TeamMemberRead)
@@ -417,7 +417,7 @@ def update_team_member(
     session.refresh(member)
     _recompute_team_capacity(session, team_id, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.from_orm(member)
+    return TeamMemberRead.model_validate(member)
 
 
 @router.delete("/teams/{team_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)

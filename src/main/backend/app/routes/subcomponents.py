@@ -32,11 +32,11 @@ from ..utils import (
     parse_priority,
     read_csv,
 )
-from ..services.realtime import schedule_broadcast
 from ..services.audit_log import log_changes
 from ..services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
 from ..services.spaces import SpaceContext
-from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
+from ..services.smart_cache import cached_call, make_scope_token
+from ._mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
 
 router = APIRouter()
 _SUBCOMPONENTS_LIST_TTL_SECONDS = 20
@@ -112,6 +112,14 @@ def _subcomponent_payload(
     payload["repo_source"] = repo_source
     payload.update(_subcomponent_actionability(subcomponent))
     return payload
+
+
+def _publish_subcomponent_mutation(space_id: str) -> None:
+    publish_space_mutation(
+        space_id,
+        ["subcomponents"],
+        broadcast_channel="subcomponents",
+    )
 
 
 def _solution_query(session: Session, space_ctx: SpaceContext):
@@ -387,10 +395,13 @@ def create_subcomponent(
             "completed_at": (None, subcomponent.completed_at),
         },
     )
-    session.commit()
-    session.refresh(subcomponent)
-    invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
+    commit_refresh_and_publish(
+        session,
+        subcomponent,
+        space_id=space_ctx.space_id,
+        cache_keys=["subcomponents"],
+        broadcast_channel="subcomponents",
+    )
     return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
 
 
@@ -545,7 +556,7 @@ def import_subcomponents(
                     },
                     request_id=request_id,
                 )
-                session.commit()
+                commit_session(session)
                 enable_all_phases(session, solution.solution_id)
                 solutions_by_key[solution_key] = solution
                 solutions_created += 1
@@ -614,7 +625,7 @@ def import_subcomponents(
                     },
                     request_id=request_id,
                 )
-                session.commit()
+                commit_session(session)
                 updated += 1
             else:
                 completed_at = now if status_enum == SubcomponentStatus.complete else None
@@ -660,7 +671,7 @@ def import_subcomponents(
                     },
                     request_id=request_id,
                 )
-                session.commit()
+                commit_session(session)
                 created += 1
         except ValueError as exc:
             session.rollback()
@@ -669,8 +680,7 @@ def import_subcomponents(
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
 
-    invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
+    _publish_subcomponent_mutation(space_ctx.space_id)
     return {
         "created": created,
         "updated": updated,
@@ -840,10 +850,13 @@ def update_subcomponent(
             space_id=space_ctx.space_id,
             changes={field: (before.get(field), getattr(subcomponent, field)) for field in update_data.keys()},
         )
-    session.commit()
-    session.refresh(subcomponent)
-    invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
+    commit_refresh_and_publish(
+        session,
+        subcomponent,
+        space_id=space_ctx.space_id,
+        cache_keys=["subcomponents"],
+        broadcast_channel="subcomponents",
+    )
     solution = _ensure_solution(session, subcomponent.solution_id, space_ctx)
     return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
 
@@ -941,11 +954,10 @@ def batch_update_subcomponents(
         )
         updated_rows.append(row)
 
-    session.commit()
+    commit_session(session)
     for row in updated_rows:
         session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
+    _publish_subcomponent_mutation(space_ctx.space_id)
     return [_subcomponent_payload(row) for row in updated_rows]
 
 
@@ -971,8 +983,7 @@ def delete_subcomponent(
         space_id=space_ctx.space_id,
         changes={"deleted_at": (None, now)},
     )
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["subcomponents"])
-    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
+    commit_session(session)
+    _publish_subcomponent_mutation(space_ctx.space_id)
     return None
 

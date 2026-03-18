@@ -1,7 +1,5 @@
 from datetime import date, datetime, timezone
 from io import BytesIO
-import os
-import re
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -20,9 +18,7 @@ from ..deps import (
 )
 from ..models import (
     PlanningWindow,
-    Project,
     ResourceAllocation,
-    Solution,
     SpaceMembership,
     Subcomponent,
     Team,
@@ -36,19 +32,31 @@ from ..schemas import (
     PlanningWindowRead,
     PlanningWindowUpdate,
 )
+from ..services.planning_report_pdf import build_work_allocation_report_pdf
+from ..services.planning_work_allocation import (
+    WORK_ALLOCATION_DEFAULT_ASSIGNEE,
+    WORK_ALLOCATION_DOMAIN,
+    active_person_by_soeid,
+    active_space_user_query,
+    board_solution,
+    ensure_membership,
+    month_from_token,
+    month_token,
+    next_available_soeid,
+    planning_task_query,
+    task_fte_months,
+    team_display_name,
+    team_name_to_id_map,
+)
 from ..services.spaces import SpaceContext
-from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
-from ..utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
+from ..services.smart_cache import cached_call, make_scope_token
+from ..utils.enums import SubcomponentStatus
+from ._mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
 
 router = APIRouter()
 _PLANNING_LIST_TTL_SECONDS = 20
 _PLANNING_DETAIL_TTL_SECONDS = 30
 _HOURS_PER_FTE_MONTH = 160.0
-_WORK_ALLOCATION_DOMAIN = os.getenv("DOMAIN_NAME", "local.invalid")
-_WORK_ALLOCATION_PROJECT_PREFIX = "Work Allocation Board"
-_WORK_ALLOCATION_SOLUTION_NAME = "Backlog"
-_WORK_ALLOCATION_SOLUTION_VERSION = "1.0.0"
-_WORK_ALLOCATION_DEFAULT_ASSIGNEE = "Unassigned"
 
 _WORK_ALLOCATION_UNIQUE_CONSTRAINT = "UIX_ALLOC_UNIQUE_ASSIGNMENT"
 
@@ -132,6 +140,27 @@ def _role_scope(space_ctx: SpaceContext) -> str:
     if space_ctx.is_global_admin:
         return "global_admin"
     return space_ctx.space_role or "member"
+
+
+def _commit_planning_mutation(
+    session: Session,
+    space_ctx: SpaceContext,
+    *,
+    cache_keys: tuple[str, ...] = ("planning",),
+    refresh: object | None = None,
+    on_integrity_error=None,
+) -> None:
+    if refresh is None:
+        commit_session(session, on_integrity_error=on_integrity_error)
+        publish_space_mutation(space_ctx.space_id, cache_keys)
+        return
+    commit_refresh_and_publish(
+        session,
+        refresh,
+        space_id=space_ctx.space_id,
+        cache_keys=cache_keys,
+        on_integrity_error=on_integrity_error,
+    )
 
 
 def _allocation_query(session: Session, space_ctx: SpaceContext):
@@ -250,157 +279,6 @@ def _allocation_to_payload(alloc: ResourceAllocation) -> dict:
     }
 
 
-def _active_space_user_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(User)
-        .join(SpaceMembership, SpaceMembership.user_id == User.user_id)
-        .filter(SpaceMembership.space_id == space_ctx.space_id)
-        .filter(SpaceMembership.deleted_at.is_(None))
-        .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
-    )
-
-
-def _work_allocation_project_name(space_ctx: SpaceContext) -> str:
-    token = (space_ctx.space_id or "default").strip()[:8] or "default"
-    return f"{_WORK_ALLOCATION_PROJECT_PREFIX} [{token}]"
-
-
-def _project_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(Project)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Project.space_id == space_ctx.space_id)
-    )
-
-
-def _solution_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(Solution)
-        .filter(Solution.deleted_at.is_(None))
-        .filter(Solution.space_id == space_ctx.space_id)
-    )
-
-
-def _board_solution(session: Session, space_ctx: SpaceContext) -> Solution:
-    project_name = _work_allocation_project_name(space_ctx)
-    now = datetime.now(timezone.utc)
-    changed = False
-
-    project = (
-        session.query(Project)
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.project_name == project_name)
-        .first()
-    )
-    if not project:
-        project = Project(
-            space_id=space_ctx.space_id,
-            project_name=project_name,
-            status=ProjectStatus.not_started,
-            sponsor="Planning Board",
-            priority=3,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(project)
-        session.flush()
-        changed = True
-    elif project.deleted_at is not None:
-        project.deleted_at = None
-        project.updated_at = now
-        session.add(project)
-        session.flush()
-        changed = True
-
-    solution = (
-        session.query(Solution)
-        .filter(Solution.space_id == space_ctx.space_id)
-        .filter(Solution.project_id == project.project_id)
-        .filter(Solution.solution_name == _WORK_ALLOCATION_SOLUTION_NAME)
-        .filter(Solution.version == _WORK_ALLOCATION_SOLUTION_VERSION)
-        .first()
-    )
-    if not solution:
-        solution = Solution(
-            space_id=space_ctx.space_id,
-            project_id=project.project_id,
-            solution_name=_WORK_ALLOCATION_SOLUTION_NAME,
-            version=_WORK_ALLOCATION_SOLUTION_VERSION,
-            status=SolutionStatus.not_started,
-            priority=3,
-            owner="Planning Board",
-            assignee=_WORK_ALLOCATION_DEFAULT_ASSIGNEE,
-            created_at=now,
-            updated_at=now,
-        )
-        session.add(solution)
-        session.flush()
-        changed = True
-    elif solution.deleted_at is not None:
-        solution.deleted_at = None
-        solution.updated_at = now
-        session.add(solution)
-        session.flush()
-        changed = True
-
-    if changed:
-        session.commit()
-        session.refresh(solution)
-    return solution
-
-
-def _planning_task_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(Subcomponent)
-        .filter(Subcomponent.deleted_at.is_(None))
-        .filter(Subcomponent.space_id == space_ctx.space_id)
-    )
-
-
-def _task_fte_months(subcomponent: Subcomponent) -> float:
-    hours = int(subcomponent.capacity_hours or subcomponent.estimate_hours or 0)
-    if hours <= 0:
-        return 0.25
-    return round(max(float(hours), 0.0) / _HOURS_PER_FTE_MONTH, 3)
-
-
-def _month_from_token(month_token: str) -> date:
-    token = str(month_token or "").strip()
-    if not re.fullmatch(r"\d{4}-\d{2}", token):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM")
-    return date.fromisoformat(f"{token}-01")
-
-
-def _month_token(value: Optional[date]) -> str:
-    if value is None:
-        today = datetime.now(timezone.utc).date()
-        return f"{today.year:04d}-{today.month:02d}"
-    return f"{value.year:04d}-{value.month:02d}"
-
-
-def _active_person_by_soeid(session: Session, soeid: str, space_ctx: SpaceContext) -> User:
-    norm = str(soeid or "").strip().lower()
-    if not norm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
-    user = _active_space_user_query(session, space_ctx).filter(func.lower(User.soeid) == norm).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
-    return user
-
-
-def _team_name_to_id_map(session: Session, space_ctx: SpaceContext) -> dict[str, str]:
-    rows = _team_query(session, space_ctx).all()
-    return {str(row.name or "").strip().lower(): row.team_id for row in rows if row.name}
-
-
-def _team_display_name(session: Session, team_id: Optional[str], space_ctx: SpaceContext) -> Optional[str]:
-    if not team_id:
-        return None
-    team = _team_query(session, space_ctx).filter(Team.team_id == team_id).first()
-    return team.name if team else None
-
-
 def _person_payload(user: User, team_map: dict[str, str]) -> WorkAllocationPersonRead:
     team_key = str(user.team_tag or "").strip().lower()
     team_id = team_map.get(team_key) if team_key else None
@@ -420,7 +298,10 @@ def _task_payload(subcomponent: Subcomponent, assigned_ids: set[str]) -> WorkAll
     return WorkAllocationTaskRead(
         id=subcomponent.subcomponent_id,
         title=subcomponent.subcomponent_name,
-        fte_months=_task_fte_months(subcomponent),
+        fte_months=task_fte_months(
+            subcomponent,
+            hours_per_fte_month=_HOURS_PER_FTE_MONTH,
+        ),
         status="assigned" if subcomponent.subcomponent_id in assigned_ids else "backlog",
     )
 
@@ -434,14 +315,14 @@ def _allocation_for_board_payload(alloc: ResourceAllocation, space_ctx: SpaceCon
     assignee_id = alloc.team_id if alloc.team_id else (alloc.assignee_user_soeid or "")
     assignee_name = alloc.assignee
     if assignee_type == "team" and not assignee_name:
-        assignee_name = _team_display_name(session, alloc.team_id, space_ctx)
+        assignee_name = team_display_name(session, alloc.team_id, space_ctx)
     return WorkAllocationAssignmentRead(
         id=alloc.allocation_id,
         task_id=alloc.work_item_id,
         assignee_type=assignee_type,
         assignee_id=assignee_id,
         assignee_name=assignee_name,
-        month=_month_token(month_value),
+        month=month_token(month_value),
         fte_months_allocated=round(max(fte, 0.0), 3),
     )
 
@@ -456,7 +337,7 @@ def _resolve_work_allocation_assignee(
     assignee_name: Optional[str] = None
     team_id: Optional[str] = None
     if assignee_type == "person":
-        user = _active_person_by_soeid(session, assignee_id, space_ctx)
+        user = active_person_by_soeid(session, assignee_id, space_ctx)
         assignee_user_soeid = user.soeid
         assignee_name = user.display_name
     else:
@@ -552,6 +433,14 @@ def _raise_on_unique_allocation_conflict(err: IntegrityError) -> None:
     raise err
 
 
+def _raise_window_name_conflict(err: IntegrityError) -> None:
+    if _is_window_name_conflict_integrity_error(err):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Planning window name already exists",
+        ) from err
+
+
 def _is_window_name_conflict_integrity_error(err: IntegrityError) -> bool:
     text = " ".join(
         [
@@ -600,602 +489,20 @@ def _is_team_name_conflict_integrity_error(err: IntegrityError) -> bool:
     return "tb_ta_pm_teams" in text or "team" in text
 
 
-def _pdf_escape(value: str) -> str:
-    safe = str(value or "").encode("latin-1", errors="replace").decode("latin-1")
-    return safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+def _raise_team_name_conflict(err: IntegrityError) -> None:
+    if _is_team_name_conflict_integrity_error(err):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Team already exists",
+        ) from err
 
 
-def _pdf_number(value: float) -> str:
-    text = f"{float(value):.2f}"
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text or "0"
-
-
-def _pdf_rgb(color: tuple[int, int, int]) -> str:
-    red, green, blue = color
-    return f"{red / 255.0:.3f} {green / 255.0:.3f} {blue / 255.0:.3f}"
-
-
-class _SimplePdfDoc:
-    def __init__(self, width: float = 842.0, height: float = 595.0) -> None:
-        self.width = float(width)
-        self.height = float(height)
-        self._pages: list[list[str]] = []
-        self._active_page: Optional[list[str]] = None
-
-    def new_page(self) -> None:
-        page: list[str] = []
-        self._pages.append(page)
-        self._active_page = page
-
-    def _cmd(self, value: str) -> None:
-        if self._active_page is None:
-            self.new_page()
-        assert self._active_page is not None
-        self._active_page.append(value)
-
-    def rect(
-        self,
-        x: float,
-        y: float,
-        width: float,
-        height: float,
-        fill: Optional[tuple[int, int, int]] = None,
-        stroke: Optional[tuple[int, int, int]] = None,
-        line_width: float = 1.0,
-    ) -> None:
-        commands: list[str] = []
-        if fill:
-            commands.append(f"{_pdf_rgb(fill)} rg")
-        if stroke:
-            commands.append(f"{_pdf_rgb(stroke)} RG {_pdf_number(line_width)} w")
-        commands.append(
-            f"{_pdf_number(x)} {_pdf_number(y)} {_pdf_number(width)} {_pdf_number(height)} re"
-        )
-        if fill and stroke:
-            commands.append("B")
-        elif fill:
-            commands.append("f")
-        else:
-            commands.append("S")
-        self._cmd(" ".join(commands))
-
-    def line(
-        self,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        stroke: tuple[int, int, int] = (180, 186, 199),
-        line_width: float = 1.0,
-    ) -> None:
-        self._cmd(
-            f"{_pdf_rgb(stroke)} RG {_pdf_number(line_width)} w "
-            f"{_pdf_number(x1)} {_pdf_number(y1)} m {_pdf_number(x2)} {_pdf_number(y2)} l S"
-        )
-
-    def text(
-        self,
-        x: float,
-        y: float,
-        value: str,
-        size: float = 10.0,
-        bold: bool = False,
-        color: tuple[int, int, int] = (17, 24, 39),
-    ) -> None:
-        font_ref = "/F2" if bold else "/F1"
-        text = _pdf_escape(value)
-        self._cmd(
-            f"BT {_pdf_rgb(color)} rg {font_ref} {_pdf_number(size)} Tf "
-            f"1 0 0 1 {_pdf_number(x)} {_pdf_number(y)} Tm ({text}) Tj ET"
-        )
-
-    def build(self) -> bytes:
-        if not self._pages:
-            self.new_page()
-        page_count = len(self._pages)
-        font_regular_id = 3
-        font_bold_id = 4
-        object_map: dict[int, str] = {
-            1: "<< /Type /Catalog /Pages 2 0 R >>",
-            font_regular_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            font_bold_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-        }
-
-        next_id = 5
-        page_ids: list[int] = []
-        content_ids: list[int] = []
-        for _ in self._pages:
-            page_ids.append(next_id)
-            content_ids.append(next_id + 1)
-            next_id += 2
-
-        kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
-        object_map[2] = f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>"
-
-        for idx, commands in enumerate(self._pages):
-            content_text = "\n".join(commands) + "\n"
-            content_length = len(content_text.encode("latin-1", errors="replace"))
-            content_id = content_ids[idx]
-            page_id = page_ids[idx]
-            object_map[content_id] = (
-                f"<< /Length {content_length} >>\nstream\n{content_text}endstream"
-            )
-            object_map[page_id] = (
-                "<< /Type /Page /Parent 2 0 R "
-                f"/MediaBox [0 0 {_pdf_number(self.width)} {_pdf_number(self.height)}] "
-                f"/Resources << /Font << /F1 {font_regular_id} 0 R /F2 {font_bold_id} 0 R >> >> "
-                f"/Contents {content_id} 0 R >>"
-            )
-
-        max_id = max(object_map.keys())
-        out = bytearray()
-        out.extend(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-        offsets: list[int] = [0] * (max_id + 1)
-        for object_id in range(1, max_id + 1):
-            body = object_map.get(object_id, "<<>>")
-            offsets[object_id] = len(out)
-            out.extend(f"{object_id} 0 obj\n".encode("latin-1"))
-            out.extend(body.encode("latin-1", errors="replace"))
-            out.extend(b"\nendobj\n")
-
-        xref_offset = len(out)
-        out.extend(f"xref\n0 {max_id + 1}\n".encode("latin-1"))
-        out.extend(b"0000000000 65535 f \n")
-        for object_id in range(1, max_id + 1):
-            out.extend(f"{offsets[object_id]:010d} 00000 n \n".encode("latin-1"))
-        out.extend(
-            (
-                f"trailer\n<< /Size {max_id + 1} /Root 1 0 R >>\n"
-                f"startxref\n{xref_offset}\n%%EOF\n"
-            ).encode("latin-1")
-        )
-        return bytes(out)
-
-
-class _TopPdfPainter:
-    def __init__(self, document: _SimplePdfDoc) -> None:
-        self.document = document
-
-    def _to_bottom_y(self, top_y: float, height: float = 0.0) -> float:
-        return self.document.height - top_y - height
-
-    def rect(
-        self,
-        x: float,
-        y: float,
-        width: float,
-        height: float,
-        fill: Optional[tuple[int, int, int]] = None,
-        stroke: Optional[tuple[int, int, int]] = None,
-        line_width: float = 1.0,
-    ) -> None:
-        self.document.rect(
-            x=x,
-            y=self._to_bottom_y(y, height),
-            width=width,
-            height=height,
-            fill=fill,
-            stroke=stroke,
-            line_width=line_width,
-        )
-
-    def line(
-        self,
-        x1: float,
-        y1: float,
-        x2: float,
-        y2: float,
-        stroke: tuple[int, int, int] = (180, 186, 199),
-        line_width: float = 1.0,
-    ) -> None:
-        self.document.line(
-            x1=x1,
-            y1=self._to_bottom_y(y1),
-            x2=x2,
-            y2=self._to_bottom_y(y2),
-            stroke=stroke,
-            line_width=line_width,
-        )
-
-    def text(
-        self,
-        x: float,
-        y: float,
-        value: str,
-        size: float = 10.0,
-        bold: bool = False,
-        color: tuple[int, int, int] = (17, 24, 39),
-    ) -> None:
-        self.document.text(
-            x=x,
-            y=self._to_bottom_y(y, size),
-            value=value,
-            size=size,
-            bold=bold,
-            color=color,
-        )
-
-
-def _float_or(value: object, fallback: float = 0.0) -> float:
-    try:
-        parsed = float(value)  # type: ignore[arg-type]
-        if parsed != parsed:  # NaN
-            return fallback
-        return parsed
-    except (TypeError, ValueError):
-        return fallback
-
-
-def _estimate_pdf_text_width(text: str, font_size: float) -> float:
-    return max(len(str(text or "")), 1) * font_size * 0.52
-
-
-def _wrap_pdf_text(
-    text: str,
-    max_width: float,
-    font_size: float,
-    max_lines: Optional[int] = None,
-) -> list[str]:
-    normalized = " ".join(str(text or "").split())
-    if not normalized:
-        return [""]
-    words = normalized.split(" ")
-    lines: list[str] = []
-    current = ""
-    for word in words:
-        candidate = word if not current else f"{current} {word}"
-        if _estimate_pdf_text_width(candidate, font_size) <= max_width:
-            current = candidate
-            continue
-        if current:
-            lines.append(current)
-            current = word
-        else:
-            chunk = word
-            while _estimate_pdf_text_width(chunk, font_size) > max_width and len(chunk) > 4:
-                slice_size = max(int(max_width / (font_size * 0.52)), 1)
-                lines.append(chunk[:slice_size])
-                chunk = chunk[slice_size:]
-            current = chunk
-        if max_lines and len(lines) >= max_lines:
-            break
-    if current and (not max_lines or len(lines) < max_lines):
-        lines.append(current)
-    if max_lines and len(lines) > max_lines:
-        lines = lines[:max_lines]
-    if max_lines and len(lines) == max_lines and words:
-        last = lines[-1]
-        if not last.endswith("...") and len(last) > 3:
-            lines[-1] = f"{last[:-3]}..."
-    return lines
-
-
-def _draw_report_card(
-    painter: _TopPdfPainter,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    accent: tuple[int, int, int],
-    title: str,
-    value: str,
-    subtitle: str,
-) -> None:
-    painter.rect(x, y, width, height, fill=(248, 250, 255), stroke=(218, 225, 236))
-    painter.rect(x, y, 6, height, fill=accent)
-    painter.text(x + 14, y + 10, title, size=9, color=(96, 107, 129))
-    painter.text(x + 14, y + 30, value, size=18, bold=True, color=(20, 35, 72))
-    painter.text(x + 14, y + 56, subtitle, size=9, color=(96, 107, 129))
-
-
-def _build_work_allocation_report_pdf(
-    *,
-    month_token: str,
-    space_name: str,
-    teams: list[dict[str, object]],
-    people: list[dict[str, object]],
-    tasks: list[dict[str, object]],
-    allocations: list[dict[str, object]],
-) -> bytes:
-    document = _SimplePdfDoc(width=842.0, height=595.0)
-    painter = _TopPdfPainter(document)
-    page_number = 0
-    cursor_y = 0.0
-    left = 28.0
-    right = document.width - 28.0
-    content_width = right - left
-    bottom_limit = document.height - 36.0
-
-    task_by_id = {str(row.get("id") or ""): row for row in tasks}
-    team_by_id = {str(row.get("id") or ""): row for row in teams}
-    people_by_team: dict[str, list[dict[str, object]]] = {}
-    for person in people:
-        key = str(person.get("team_id") or "")
-        people_by_team.setdefault(key, []).append(person)
-
-    allocations_by_person: dict[str, list[dict[str, object]]] = {}
-    allocations_by_team: dict[str, list[dict[str, object]]] = {}
-    allocations_by_task: dict[str, list[dict[str, object]]] = {}
-    for allocation in allocations:
-        task_id = str(allocation.get("task_id") or "")
-        allocations_by_task.setdefault(task_id, []).append(allocation)
-        if str(allocation.get("assignee_type") or "") == "person":
-            person_id = str(allocation.get("assignee_id") or "")
-            allocations_by_person.setdefault(person_id, []).append(allocation)
-        elif str(allocation.get("assignee_type") or "") == "team":
-            team_id = str(allocation.get("assignee_id") or "")
-            allocations_by_team.setdefault(team_id, []).append(allocation)
-
-    total_capacity = sum(max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0) for person in people)
-    total_allocated = sum(max(_float_or(alloc.get("fte_months_allocated"), 0.0), 0.0) for alloc in allocations)
-    assigned_task_ids = {task_id for task_id, values in allocations_by_task.items() if values}
-    backlog_count = max(len(tasks) - len(assigned_task_ids), 0)
-    utilization = (total_allocated / total_capacity) if total_capacity > 0 else 0.0
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-    def utilization_color(ratio: float) -> tuple[int, int, int]:
-        if ratio > 1.0:
-            return (190, 46, 77)
-        if ratio >= 0.85:
-            return (225, 146, 36)
-        return (48, 138, 101)
-
-    def start_page() -> None:
-        nonlocal page_number, cursor_y
-        page_number += 1
-        document.new_page()
-        painter.rect(0, 0, document.width, document.height, fill=(245, 247, 252))
-        painter.rect(0, 0, document.width, 74, fill=(21, 41, 86))
-        painter.text(left, 18, "Planning Report: Work Allocation Board", size=20, bold=True, color=(255, 255, 255))
-        painter.text(
-            left,
-            46,
-            f"Space: {space_name}   Month: {month_token}   Generated: {timestamp}",
-            size=9,
-            color=(209, 220, 241),
-        )
-        painter.text(document.width - 88, 20, f"Page {page_number}", size=9, color=(209, 220, 241))
-        painter.line(left, 78, right, 78, stroke=(211, 219, 232), line_width=1.2)
-        painter.text(left, document.height - 18, "SIPM planning snapshot", size=8, color=(129, 139, 158))
-        cursor_y = 92.0
-
-    def ensure_space(height: float) -> None:
-        nonlocal cursor_y
-        if cursor_y + height > bottom_limit:
-            start_page()
-
-    def section_title(value: str) -> None:
-        nonlocal cursor_y
-        ensure_space(28)
-        painter.text(left, cursor_y, value, size=13, bold=True, color=(23, 35, 72))
-        cursor_y += 20
-        painter.line(left, cursor_y, right, cursor_y, stroke=(218, 224, 235), line_width=1)
-        cursor_y += 8
-
-    start_page()
-
-    card_gap = 12.0
-    card_width = (content_width - (card_gap * 3.0)) / 4.0
-    card_height = 82.0
-    _draw_report_card(
-        painter,
-        x=left,
-        y=cursor_y,
-        width=card_width,
-        height=card_height,
-        accent=(40, 111, 232),
-        title="Tasks in scope",
-        value=f"{len(tasks)}",
-        subtitle=f"{len(assigned_task_ids)} assigned, {backlog_count} backlog",
-    )
-    _draw_report_card(
-        painter,
-        x=left + card_width + card_gap,
-        y=cursor_y,
-        width=card_width,
-        height=card_height,
-        accent=(22, 163, 74),
-        title="People on board",
-        value=f"{len(people)}",
-        subtitle=f"{len(teams)} named teams",
-    )
-    _draw_report_card(
-        painter,
-        x=left + ((card_width + card_gap) * 2.0),
-        y=cursor_y,
-        width=card_width,
-        height=card_height,
-        accent=(217, 119, 6),
-        title="Allocated effort",
-        value=f"{total_allocated:.2f} FTE-mo",
-        subtitle=f"of {total_capacity:.2f} total capacity",
-    )
-    _draw_report_card(
-        painter,
-        x=left + ((card_width + card_gap) * 3.0),
-        y=cursor_y,
-        width=card_width,
-        height=card_height,
-        accent=utilization_color(utilization),
-        title="Utilization",
-        value=f"{min(max(utilization * 100.0, 0.0), 999.0):.0f}%",
-        subtitle="team + person assignments",
-    )
-    cursor_y += card_height + 18
-
-    section_title("Team Capacity and Current Load")
-    header_h = 22.0
-    painter.rect(left, cursor_y, content_width, header_h, fill=(230, 235, 245), stroke=(212, 219, 232))
-    painter.text(left + 8, cursor_y + 6, "Team", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 286, cursor_y + 6, "People", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 352, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 430, cursor_y + 6, "Capacity Bar", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 690, cursor_y + 6, "Direct", size=9, bold=True, color=(44, 55, 80))
-    cursor_y += header_h
-
-    team_rows: list[tuple[str, str]] = []
-    for team in sorted(teams, key=lambda row: str(row.get("name") or "").lower()):
-        team_rows.append((str(team.get("id") or ""), str(team.get("name") or "")))
-    if people_by_team.get("") or allocations_by_team.get(""):
-        team_rows.append(("", "Unassigned"))
-
-    if not team_rows:
-        painter.rect(left, cursor_y, content_width, 28, fill=(248, 250, 255), stroke=(220, 226, 237))
-        painter.text(left + 8, cursor_y + 9, "No team structure has been created yet.", size=9, color=(104, 112, 133))
-        cursor_y += 36
-    else:
-        for idx, (team_id, team_name) in enumerate(team_rows):
-            row_h = 28.0
-            ensure_space(row_h + 4)
-            fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
-            team_people = people_by_team.get(team_id, [])
-            team_people_count = len(team_people)
-            team_capacity = sum(max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0) for person in team_people)
-            person_load = 0.0
-            for person in team_people:
-                person_allocs = allocations_by_person.get(str(person.get("id") or ""), [])
-                person_load += sum(max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0) for a in person_allocs)
-            team_direct_allocs = allocations_by_team.get(team_id, [])
-            direct_load = sum(max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0) for a in team_direct_allocs)
-            team_load = person_load + direct_load
-            ratio = (team_load / team_capacity) if team_capacity > 0 else (1.0 if team_load > 0 else 0.0)
-            ratio_clamped = max(0.0, min(ratio, 1.0))
-            bar_color = utilization_color(ratio)
-
-            painter.text(left + 8, cursor_y + 9, team_name or "Unnamed Team", size=9, bold=True, color=(27, 38, 66))
-            painter.text(left + 302, cursor_y + 9, f"{team_people_count}", size=9, color=(39, 47, 63))
-            painter.text(left + 352, cursor_y + 9, f"{team_load:.2f} / {team_capacity:.2f}", size=9, color=(39, 47, 63))
-            painter.rect(left + 430, cursor_y + 9, 220, 10, fill=(224, 230, 241), stroke=(211, 219, 232))
-            painter.rect(left + 430, cursor_y + 9, 220 * ratio_clamped, 10, fill=bar_color)
-            painter.text(left + 690, cursor_y + 9, f"{len(team_direct_allocs)}", size=9, color=(39, 47, 63))
-            cursor_y += row_h
-        cursor_y += 10
-
-    section_title("Who Is Working On What")
-    table_h = 22.0
-    painter.rect(left, cursor_y, content_width, table_h, fill=(230, 235, 245), stroke=(212, 219, 232))
-    painter.text(left + 8, cursor_y + 6, "Person", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 170, cursor_y + 6, "Team", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 300, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 370, cursor_y + 6, "Assigned Tasks", size=9, bold=True, color=(44, 55, 80))
-    cursor_y += table_h
-
-    sorted_people = sorted(
-        people,
-        key=lambda person: (
-            -sum(
-                max(_float_or(alloc.get("fte_months_allocated"), 0.0), 0.0)
-                for alloc in allocations_by_person.get(str(person.get("id") or ""), [])
-            ),
-            str(person.get("name") or "").lower(),
-        ),
-    )
-    if not sorted_people:
-        painter.rect(left, cursor_y, content_width, 28, fill=(248, 250, 255), stroke=(220, 226, 237))
-        painter.text(left + 8, cursor_y + 9, "No active people found in this space.", size=9, color=(104, 112, 133))
-        cursor_y += 36
-    else:
-        for idx, person in enumerate(sorted_people):
-            assignee_id = str(person.get("id") or "")
-            person_allocs = allocations_by_person.get(assignee_id, [])
-            team_name = "Unassigned"
-            team_id = str(person.get("team_id") or "")
-            if team_id:
-                team_name = str(team_by_id.get(team_id, {}).get("name") or "Unassigned")
-            person_capacity = max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0)
-            person_load = sum(max(_float_or(row.get("fte_months_allocated"), 0.0), 0.0) for row in person_allocs)
-            if person_allocs:
-                task_text = "; ".join(
-                    f"{str(task_by_id.get(str(row.get('task_id') or ''), {}).get('title') or row.get('task_id') or 'Task')} ({_float_or(row.get('fte_months_allocated'), 0.0):.2f})"
-                    for row in person_allocs
-                )
-            else:
-                task_text = "No assignments this month."
-            wrapped = _wrap_pdf_text(task_text, max_width=430.0, font_size=8.8, max_lines=4)
-            row_h = max(24.0, 8.0 + (len(wrapped) * 11.0))
-            ensure_space(row_h + 4)
-            fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
-            painter.text(left + 8, cursor_y + 8, str(person.get("name") or assignee_id), size=9, bold=True, color=(27, 38, 66))
-            painter.text(left + 170, cursor_y + 8, team_name, size=9, color=(44, 55, 80))
-            painter.text(left + 300, cursor_y + 8, f"{person_load:.2f}/{person_capacity:.2f}", size=9, color=(44, 55, 80))
-            line_y = cursor_y + 8
-            for line in wrapped:
-                painter.text(left + 370, line_y, line, size=8.8, color=(44, 55, 80))
-                line_y += 11
-            cursor_y += row_h
-        cursor_y += 10
-
-    section_title("Backlog Tasks")
-    backlog_tasks = [
-        task for task in tasks if str(task.get("id") or "") not in assigned_task_ids
-    ]
-    backlog_tasks = sorted(
-        backlog_tasks,
-        key=lambda task: (-_float_or(task.get("fte_months"), 0.0), str(task.get("title") or "").lower()),
-    )
-    if not backlog_tasks:
-        painter.rect(left, cursor_y, content_width, 28, fill=(237, 252, 243), stroke=(189, 225, 201))
-        painter.text(left + 8, cursor_y + 9, "All tasks have at least one assignment for this month.", size=9, color=(29, 110, 62))
-        cursor_y += 36
-    else:
-        painter.rect(left, cursor_y, content_width, 22, fill=(230, 235, 245), stroke=(212, 219, 232))
-        painter.text(left + 8, cursor_y + 6, "Task", size=9, bold=True, color=(44, 55, 80))
-        painter.text(right - 90, cursor_y + 6, "FTE-mo", size=9, bold=True, color=(44, 55, 80))
-        cursor_y += 22
-        for idx, task in enumerate(backlog_tasks):
-            row_h = 20.0
-            ensure_space(row_h + 2)
-            fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
-            title = str(task.get("title") or task.get("id") or "Task")
-            wrapped = _wrap_pdf_text(title, max_width=content_width - 128, font_size=9, max_lines=1)
-            painter.text(left + 8, cursor_y + 6, wrapped[0], size=9, color=(44, 55, 80))
-            painter.text(right - 84, cursor_y + 6, f"{_float_or(task.get('fte_months'), 0.0):.2f}", size=9, color=(44, 55, 80))
-            cursor_y += row_h
-
-    return document.build()
-
-
-def _normalize_soeid_base(name: str) -> str:
-    raw = re.sub(r"[^a-z0-9]+", "", str(name or "").strip().lower())
-    return raw[:14] or "person"
-
-
-def _next_available_soeid(session: Session, name: str) -> str:
-    base = _normalize_soeid_base(name)
-    candidate = base
-    counter = 1
-    while session.query(User).filter(func.lower(User.soeid) == candidate).first():
-        counter += 1
-        candidate = f"{base[:10]}{counter:02d}"
-    return candidate
-
-
-def _ensure_membership(session: Session, user_id: str, space_id: str) -> None:
-    membership = (
-        session.query(SpaceMembership)
-        .filter(SpaceMembership.space_id == space_id)
-        .filter(SpaceMembership.user_id == user_id)
-        .first()
-    )
-    if not membership:
-        membership = SpaceMembership(
-            space_id=space_id,
-            user_id=user_id,
-            role="member",
-            status="active",
-        )
-        session.add(membership)
-        return
-    membership.deleted_at = None
-    membership.status = "active"
-    if not (membership.role or "").strip():
-        membership.role = "member"
-    session.add(membership)
+def _raise_team_rename_conflict(err: IntegrityError) -> None:
+    if _is_team_name_conflict_integrity_error(err):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Team name already exists",
+        ) from err
 
 
 @router.get("/resource-allocations", response_model=List[ResourceAllocationRead])
@@ -1278,9 +585,7 @@ def create_allocation(
         window_id=payload.window_id,
     )
     session.add(alloc)
-    session.commit()
-    session.refresh(alloc)
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(session, space_ctx, refresh=alloc)
     return ResourceAllocationRead.model_validate(_allocation_to_payload(alloc))
 
 
@@ -1327,9 +632,7 @@ def update_allocation(
 
     alloc.updated_at = datetime.now(timezone.utc)
     session.add(alloc)
-    session.commit()
-    session.refresh(alloc)
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(session, space_ctx, refresh=alloc)
     return ResourceAllocationRead.model_validate(_allocation_to_payload(alloc))
 
 
@@ -1343,8 +646,7 @@ def delete_allocation(
     alloc = _get_allocation(session, allocation_id, space_ctx)
     alloc.deleted_at = datetime.now(timezone.utc)
     session.add(alloc)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(session, space_ctx)
     return None
 
 
@@ -1452,19 +754,13 @@ def create_window(
         start_date=payload.start_date,
         end_date=payload.end_date,
     )
-    try:
-        session.add(win)
-        session.commit()
-        session.refresh(win)
-    except IntegrityError as err:
-        session.rollback()
-        if _is_window_name_conflict_integrity_error(err):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Planning window name already exists",
-            ) from err
-        raise
-    invalidate_space(space_ctx.space_id, ["planning"])
+    session.add(win)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        refresh=win,
+        on_integrity_error=_raise_window_name_conflict,
+    )
     return PlanningWindowRead.model_validate(win)
 
 
@@ -1482,19 +778,13 @@ def update_window(
         if val is not None:
             setattr(win, field, val)
     win.updated_at = datetime.now(timezone.utc)
-    try:
-        session.add(win)
-        session.commit()
-        session.refresh(win)
-    except IntegrityError as err:
-        session.rollback()
-        if _is_window_name_conflict_integrity_error(err):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Planning window name already exists",
-            ) from err
-        raise
-    invalidate_space(space_ctx.space_id, ["planning"])
+    session.add(win)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        refresh=win,
+        on_integrity_error=_raise_window_name_conflict,
+    )
     return PlanningWindowRead.model_validate(win)
 
 
@@ -1508,8 +798,7 @@ def delete_window(
     win = _get_window(session, window_id, space_ctx)
     win.deleted_at = datetime.now(timezone.utc)
     session.add(win)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(session, space_ctx)
     return None
 
 
@@ -1553,8 +842,11 @@ def create_work_allocation_team(
         existing.updated_at = now
         existing.name = name
         session.add(existing)
-        session.commit()
-        invalidate_space(space_ctx.space_id, ["teams", "planning"])
+        _commit_planning_mutation(
+            session,
+            space_ctx,
+            cache_keys=("teams", "planning"),
+        )
         return WorkAllocationTeamRead(id=existing.team_id, name=existing.name)
 
     row = Team(
@@ -1566,16 +858,14 @@ def create_work_allocation_team(
         created_at=now,
         updated_at=now,
     )
-    try:
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-    except IntegrityError as err:
-        session.rollback()
-        if _is_team_name_conflict_integrity_error(err):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team already exists") from err
-        raise
-    invalidate_space(space_ctx.space_id, ["teams", "planning"])
+    session.add(row)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("teams", "planning"),
+        refresh=row,
+        on_integrity_error=_raise_team_name_conflict,
+    )
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
 
@@ -1602,23 +892,18 @@ def update_work_allocation_team(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team name already exists")
         old_name = row.name
         row.name = next_name
-        for user in _active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+        for user in active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
             user.team_tag = next_name
             session.add(user)
     row.updated_at = datetime.now(timezone.utc)
-    try:
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-    except IntegrityError as err:
-        session.rollback()
-        if _is_team_name_conflict_integrity_error(err):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Team name already exists",
-            ) from err
-        raise
-    invalidate_space(space_ctx.space_id, ["teams", "users", "planning"])
+    session.add(row)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("teams", "users", "planning"),
+        refresh=row,
+        on_integrity_error=_raise_team_rename_conflict,
+    )
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
 
@@ -1634,12 +919,15 @@ def delete_work_allocation_team(
     old_name = row.name
     row.deleted_at = now
     session.add(row)
-    for user in _active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+    for user in active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
         user.team_tag = None
         user.updated_at = now
         session.add(user)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["teams", "users", "planning"])
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("teams", "users", "planning"),
+    )
     return None
 
 
@@ -1649,8 +937,8 @@ def list_work_allocation_people(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationPersonRead]:
-    team_map = _team_name_to_id_map(session, space_ctx)
-    rows = _active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    team_map = team_name_to_id_map(session, space_ctx)
+    rows = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
     return [_person_payload(row, team_map) for row in rows]
 
 
@@ -1669,13 +957,13 @@ def create_work_allocation_person(
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Person name is required")
     team = _active_team(session, payload.team_id, space_ctx) if payload.team_id else None
-    soeid = _next_available_soeid(session, name)
+    soeid = next_available_soeid(session, name)
     now = datetime.now(timezone.utc)
     raw_capacity = payload.capacity_fte_months if payload.capacity_fte_months is not None else 1.0
     cap = max(float(raw_capacity), 0.0)
     row = User(
         soeid=soeid,
-        email=f"{soeid}@{_WORK_ALLOCATION_DOMAIN}",
+        email=f"{soeid}@{WORK_ALLOCATION_DOMAIN}",
         display_name=name,
         password_hash=hash_bootstrap_password(),
         role="user",
@@ -1688,11 +976,14 @@ def create_work_allocation_person(
     )
     session.add(row)
     session.flush()
-    _ensure_membership(session, row.user_id, space_ctx.space_id)
-    session.commit()
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["users", "planning"])
-    team_map = _team_name_to_id_map(session, space_ctx)
+    ensure_membership(session, row.user_id, space_ctx.space_id)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("users", "planning"),
+        refresh=row,
+    )
+    team_map = team_name_to_id_map(session, space_ctx)
     return _person_payload(row, team_map)
 
 
@@ -1704,7 +995,7 @@ def update_work_allocation_person(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationPersonRead:
-    row = _active_person_by_soeid(session, person_id, space_ctx)
+    row = active_person_by_soeid(session, person_id, space_ctx)
     updates = payload.model_dump(exclude_unset=True)
 
     if "name" in updates:
@@ -1725,10 +1016,13 @@ def update_work_allocation_person(
 
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
-    session.commit()
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["users", "planning"])
-    team_map = _team_name_to_id_map(session, space_ctx)
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("users", "planning"),
+        refresh=row,
+    )
+    team_map = team_name_to_id_map(session, space_ctx)
     return _person_payload(row, team_map)
 
 
@@ -1739,7 +1033,7 @@ def delete_work_allocation_person(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
-    row = _active_person_by_soeid(session, person_id, space_ctx)
+    row = active_person_by_soeid(session, person_id, space_ctx)
     now = datetime.now(timezone.utc)
     row.is_active = False
     row.updated_at = now
@@ -1754,8 +1048,11 @@ def delete_work_allocation_person(
         membership.status = "inactive"
         membership.updated_at = now
         session.add(membership)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["users", "planning"])
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("users", "planning"),
+    )
     return None
 
 
@@ -1767,8 +1064,8 @@ def list_work_allocation_tasks(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationTaskRead]:
-    month_start = _month_from_token(month or _month_token(None))
-    query = _planning_task_query(session, space_ctx)
+    month_start = month_from_token(month or month_token(None))
+    query = planning_task_query(session, space_ctx)
     if search:
         term = f"%{search.strip().lower()}%"
         query = query.filter(func.lower(Subcomponent.subcomponent_name).like(term))
@@ -1799,8 +1096,8 @@ def create_work_allocation_task(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTaskRead:
-    solution = _board_solution(session, space_ctx)
-    query = _planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
+    solution = board_solution(session, space_ctx)
+    query = planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
     title = (payload.title or "").strip()
     if not title:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title is required")
@@ -1818,7 +1115,7 @@ def create_work_allocation_task(
         subcomponent_name=title,
         status=SubcomponentStatus.to_do,
         priority=3,
-        assignee=_WORK_ALLOCATION_DEFAULT_ASSIGNEE,
+        assignee=WORK_ALLOCATION_DEFAULT_ASSIGNEE,
         estimate_hours=hours,
         capacity_hours=hours,
         blocked=False,
@@ -1826,10 +1123,13 @@ def create_work_allocation_task(
         updated_at=now,
     )
     session.add(row)
-    session.commit()
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["subcomponents", "planning"])
-    month_start = _month_from_token(month or _month_token(None))
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("subcomponents", "planning"),
+        refresh=row,
+    )
+    month_start = month_from_token(month or month_token(None))
     assigned_ids: set[str] = set()
     if (
         _allocation_query(session, space_ctx)
@@ -1851,7 +1151,7 @@ def update_work_allocation_task(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationTaskRead:
-    query = _planning_task_query(session, space_ctx)
+    query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
@@ -1875,10 +1175,13 @@ def update_work_allocation_task(
         row.capacity_hours = hours
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
-    session.commit()
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["subcomponents", "planning"])
-    month_start = _month_from_token(month or _month_token(None))
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("subcomponents", "planning"),
+        refresh=row,
+    )
+    month_start = month_from_token(month or month_token(None))
     assigned_ids: set[str] = set()
     if (
         _allocation_query(session, space_ctx)
@@ -1898,7 +1201,7 @@ def delete_work_allocation_task(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
-    query = _planning_task_query(session, space_ctx)
+    query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
@@ -1915,8 +1218,11 @@ def delete_work_allocation_task(
         alloc.deleted_at = now
         alloc.updated_at = now
         session.add(alloc)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["subcomponents", "planning"])
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        cache_keys=("subcomponents", "planning"),
+    )
     return None
 
 
@@ -1927,8 +1233,8 @@ def list_work_allocation_allocations(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationAssignmentRead]:
-    month_start = _month_from_token(month or _month_token(None))
-    query = _planning_task_query(session, space_ctx)
+    month_start = month_from_token(month or month_token(None))
+    query = planning_task_query(session, space_ctx)
     task_ids = [row.subcomponent_id for row in query.all()]
     if not task_ids:
         return []
@@ -1950,21 +1256,21 @@ def download_work_allocation_report_pdf(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> StreamingResponse:
-    month_start = _month_from_token(month or _month_token(None))
-    month_token = _month_token(month_start)
+    month_start = month_from_token(month or month_token(None))
+    month_token_value = month_token(month_start)
 
     team_rows = _team_query(session, space_ctx).order_by(Team.name.asc()).all()
-    team_map = _team_name_to_id_map(session, space_ctx)
-    people_rows = _active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    team_map = team_name_to_id_map(session, space_ctx)
+    people_rows = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
     people_payload = [_person_payload(row, team_map).model_dump() for row in people_rows]
 
-    task_query = _planning_task_query(session, space_ctx)
+    task_query = planning_task_query(session, space_ctx)
     task_rows = task_query.order_by(Subcomponent.subcomponent_name.asc()).all()
     task_payload = [
         {
             "id": row.subcomponent_id,
             "title": row.subcomponent_name,
-            "fte_months": _task_fte_months(row),
+            "fte_months": task_fte_months(row, hours_per_fte_month=_HOURS_PER_FTE_MONTH),
         }
         for row in task_rows
     ]
@@ -1984,15 +1290,15 @@ def download_work_allocation_report_pdf(
         _allocation_for_board_payload(row, space_ctx, session).model_dump()
         for row in allocation_rows
     ]
-    pdf_bytes = _build_work_allocation_report_pdf(
-        month_token=month_token,
+    pdf_bytes = build_work_allocation_report_pdf(
+        month_token=month_token_value,
         space_name=space_ctx.space_name,
         teams=[{"id": row.team_id, "name": row.name} for row in team_rows],
         people=people_payload,
         tasks=task_payload,
         allocations=allocation_payload,
     )
-    filename = f"work-allocation-report-{month_token}.pdf"
+    filename = f"work-allocation-report-{month_token_value}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
 
@@ -2008,8 +1314,8 @@ def create_work_allocation_allocation(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationAssignmentRead:
-    month_start = _month_from_token(payload.month)
-    task_query = _planning_task_query(session, space_ctx)
+    month_start = month_from_token(payload.month)
+    task_query = planning_task_query(session, space_ctx)
     task = task_query.filter(Subcomponent.subcomponent_id == payload.task_id).first()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
@@ -2028,7 +1334,7 @@ def create_work_allocation_allocation(
 
     fte = payload.fte_months_allocated
     if fte is None:
-        fte = _task_fte_months(task)
+        fte = task_fte_months(task, hours_per_fte_month=_HOURS_PER_FTE_MONTH)
     fte = round(max(float(fte), 0.05), 3)
     hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
     now = datetime.now(timezone.utc)
@@ -2055,13 +1361,12 @@ def create_work_allocation_allocation(
         revive_row.deleted_at = None
         revive_row.updated_at = now
         session.add(revive_row)
-        try:
-            session.commit()
-        except IntegrityError as err:
-            session.rollback()
-            _raise_on_unique_allocation_conflict(err)
-        session.refresh(revive_row)
-        invalidate_space(space_ctx.space_id, ["planning"])
+        _commit_planning_mutation(
+            session,
+            space_ctx,
+            refresh=revive_row,
+            on_integrity_error=_raise_on_unique_allocation_conflict,
+        )
         return _allocation_for_board_payload(revive_row, space_ctx, session)
 
     row = ResourceAllocation(
@@ -2080,13 +1385,12 @@ def create_work_allocation_allocation(
         updated_at=now,
     )
     session.add(row)
-    try:
-        session.commit()
-    except IntegrityError as err:
-        session.rollback()
-        _raise_on_unique_allocation_conflict(err)
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        refresh=row,
+        on_integrity_error=_raise_on_unique_allocation_conflict,
+    )
     return _allocation_for_board_payload(row, space_ctx, session)
 
 
@@ -2110,7 +1414,7 @@ def update_work_allocation_allocation(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation month is missing")
 
     task = (
-        _planning_task_query(session, space_ctx)
+        planning_task_query(session, space_ctx)
         .filter(Subcomponent.subcomponent_id == row.work_item_id)
         .first()
     )
@@ -2134,7 +1438,7 @@ def update_work_allocation_allocation(
     if fte is None:
         fte = float(row.fte_months or 0.0)
         if fte <= 0:
-            fte = _task_fte_months(task)
+            fte = task_fte_months(task, hours_per_fte_month=_HOURS_PER_FTE_MONTH)
     fte = round(max(float(fte), 0.05), 3)
     hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
     now = datetime.now(timezone.utc)
@@ -2162,13 +1466,12 @@ def update_work_allocation_allocation(
         row.updated_at = now
         session.add(revive_row)
         session.add(row)
-        try:
-            session.commit()
-        except IntegrityError as err:
-            session.rollback()
-            _raise_on_unique_allocation_conflict(err)
-        session.refresh(revive_row)
-        invalidate_space(space_ctx.space_id, ["planning"])
+        _commit_planning_mutation(
+            session,
+            space_ctx,
+            refresh=revive_row,
+            on_integrity_error=_raise_on_unique_allocation_conflict,
+        )
         return _allocation_for_board_payload(revive_row, space_ctx, session)
 
     row.assignee_user_soeid = assignee_user_soeid
@@ -2181,13 +1484,12 @@ def update_work_allocation_allocation(
     row.window_id = None
     row.updated_at = now
     session.add(row)
-    try:
-        session.commit()
-    except IntegrityError as err:
-        session.rollback()
-        _raise_on_unique_allocation_conflict(err)
-    session.refresh(row)
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(
+        session,
+        space_ctx,
+        refresh=row,
+        on_integrity_error=_raise_on_unique_allocation_conflict,
+    )
     return _allocation_for_board_payload(row, space_ctx, session)
 
 
@@ -2203,6 +1505,5 @@ def delete_work_allocation_allocation(
     row.deleted_at = now
     row.updated_at = now
     session.add(row)
-    session.commit()
-    invalidate_space(space_ctx.space_id, ["planning"])
+    _commit_planning_mutation(session, space_ctx)
     return None

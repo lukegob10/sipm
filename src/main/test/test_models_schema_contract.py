@@ -1,13 +1,43 @@
 from datetime import datetime
 from types import SimpleNamespace
 
+import backend.app.models as models
 from sqlalchemy import create_engine
 from sqlalchemy import Text
 from sqlalchemy.orm import sessionmaker
 
-from backend.app.models import Base, ChangeLog, ChecklistItem, Project, SOWDocument, Solution, Team
+from backend.app.db.table_names import physical_table_name
+from backend.app.models import Base, ChangeLog, Project, Solution, Team
 from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead
 from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus
+
+
+STALE_MODEL_NAMES = (
+    "SOWDocument",
+    "ChecklistItem",
+    "ProjectCardDigest",
+    "SolutionCardDigest",
+    "TaskCardDigest",
+    "ProjectCharter",
+    "ProjectPlan",
+    "ProjectDecisionLog",
+    "ExternalDocument",
+)
+
+STALE_TABLE_NAMES = tuple(
+    physical_table_name(table_name)
+    for table_name in (
+        "sow_documents",
+        "checklist_items",
+        "project_card_digests",
+        "solution_card_digests",
+        "task_card_digests",
+        "project_charters",
+        "project_plans",
+        "project_decision_logs",
+        "external_documents",
+    )
+)
 
 
 class FakeLob:
@@ -16,14 +46,6 @@ class FakeLob:
 
     def read(self) -> str:
         return self.value
-
-
-def test_sow_document_content_uses_text_type():
-    assert isinstance(SOWDocument.__table__.c.content.type, Text)
-
-
-def test_checklist_item_title_uses_text_type():
-    assert isinstance(ChecklistItem.__table__.c.title.type, Text)
 
 
 def test_project_long_text_fields_use_text_type():
@@ -40,6 +62,17 @@ def test_solution_long_text_fields_use_text_type():
 def test_change_log_value_fields_use_text_type():
     assert isinstance(ChangeLog.__table__.c.old_value.type, Text)
     assert isinstance(ChangeLog.__table__.c.new_value.type, Text)
+
+
+def test_models_package_reexports_and_registers_metadata():
+    assert models.User is not None
+    assert models.Project is not None
+    assert Project.__table__.name in Base.metadata.tables
+    assert Solution.__table__.name in Base.metadata.tables
+    for model_name in STALE_MODEL_NAMES:
+        assert not hasattr(models, model_name)
+    for table_name in STALE_TABLE_NAMES:
+        assert table_name not in Base.metadata.tables
 
 
 def test_timestamp_mixin_updates_updated_at_on_row_change():

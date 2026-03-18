@@ -20,9 +20,9 @@ from ..deps import (
 from ..utils.enums import ProjectStatus
 from ..models import Project, User
 from ..schemas import ProjectCreate, ProjectRead, ProjectUpdate
-from ..utils import normalize_status, normalize_str, parse_priority, read_csv
+from ..utils import normalize_status, normalize_str, parse_priority, read_csv, read_text_value
 from ..services.realtime import schedule_broadcast
-from ..services.audit_log import log_changes
+from ..services.audit_log import safe_log_changes
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 
@@ -214,7 +214,7 @@ def create_project(
             session.flush()
         session.add(project)
         session.flush()
-        log_changes(
+        safe_log_changes(
             session,
             entity_type="project",
             entity_id=project.project_id,
@@ -253,7 +253,7 @@ def create_project(
         ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
     schedule_broadcast("projects", space_id=space_ctx.space_id)
-    return project
+    return _project_payload(project)
 
 
 @router.post("/import")
@@ -326,7 +326,7 @@ def import_projects(
                     existing.space_id = space_ctx.space_id
                 existing.updated_at = datetime.now(timezone.utc)
                 session.add(existing)
-                log_changes(
+                safe_log_changes(
                     session,
                     entity_type="project",
                     entity_id=existing.project_id,
@@ -365,7 +365,7 @@ def import_projects(
                 )
                 session.add(project)
                 session.flush()
-                log_changes(
+                safe_log_changes(
                     session,
                     entity_type="project",
                     entity_id=project.project_id,
@@ -418,8 +418,8 @@ def export_projects(
             {
                 "project_name": p.project_name,
                 "status": p.status.value if hasattr(p.status, "value") else p.status,
-                "description": p.description or "",
-                "success_criteria": p.success_criteria or "",
+                "description": read_text_value(p.description) or "",
+                "success_criteria": read_text_value(p.success_criteria) or "",
                 "sponsor": p.sponsor or "",
                 "sponsor_user_soeid": p.sponsor_user_soeid or "",
                 "strategic_objective": p.strategic_objective or "",
@@ -488,7 +488,7 @@ def update_project(
     try:
         session.add(project)
         if update_data:
-            log_changes(
+            safe_log_changes(
                 session,
                 entity_type="project",
                 entity_id=project.project_id,
@@ -518,7 +518,7 @@ def update_project(
         ) from exc
     invalidate_space(space_ctx.space_id, ["projects"])
     schedule_broadcast("projects", space_id=space_ctx.space_id)
-    return project
+    return _project_payload(project)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -537,7 +537,7 @@ def delete_project(
     project.updated_at = now
     project.project_name = _deleted_project_name(project.project_name, project.project_id, now)
     session.add(project)
-    log_changes(
+    safe_log_changes(
         session,
         entity_type="project",
         entity_id=project.project_id,

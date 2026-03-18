@@ -4,6 +4,7 @@ import pytest
 
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
+from backend.app.services import audit_log as audit_log_module
 from backend.app.services.spaces import SpaceContext
 
 
@@ -43,6 +44,31 @@ async def test_create_solution_defaults_owner_and_version(client):
     assert data["owner"] == "Test User"
     assert data["owner_user_soeid"] == "tu12345"
     assert data["assignee"] == "Test User"
+
+
+@pytest.mark.anyio
+async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Audit Fallback Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    description = "\n".join(f"Solution description line {idx}" for idx in range(1, 60))
+
+    def _broken_log_changes(*args, **kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr(audit_log_module, "log_changes", _broken_log_changes)
+
+    resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Long Text Audit Fallback Solution",
+            "description": description,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created["description"] == description
 
 
 @pytest.mark.anyio

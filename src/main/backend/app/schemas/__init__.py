@@ -1,9 +1,25 @@
 from datetime import datetime, date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, constr
+from pydantic import BaseModel, ConfigDict, constr, field_validator
 
+from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+
+
+class TextLikeReadModel(BaseModel):
+    @field_validator(
+        "old_value",
+        "new_value",
+        "description",
+        "success_criteria",
+        "problem_statement",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def _coerce_text_like_values(cls, value):
+        return read_text_value(value)
 
 
 class UserBase(BaseModel):
@@ -135,7 +151,7 @@ class ActiveSpaceResponse(BaseModel):
     is_global_admin: bool
 
 
-class ChangeLogRead(BaseModel):
+class ChangeLogRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     change_id: str
@@ -171,7 +187,7 @@ class ProjectUpdate(ProjectBase):
     pass
 
 
-class ProjectRead(BaseModel):
+class ProjectRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: str
@@ -228,7 +244,7 @@ class SolutionUpdate(SolutionBase):
     pass
 
 
-class SolutionRead(BaseModel):
+class SolutionRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     solution_id: str

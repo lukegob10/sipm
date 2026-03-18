@@ -76,6 +76,8 @@ CREATE TABLE "TB_TA_PM_USERS" (
 
 -- Table: TB_TA_PM_CHANGE_LOG
 
+-- Audit values must remain CLOB because project/solution descriptions and
+-- success criteria can exceed VARCHAR2 limits.
 CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
 	change_id VARCHAR2(255 CHAR) NOT NULL, 
 	entity_type VARCHAR2(255 CHAR) NOT NULL, 

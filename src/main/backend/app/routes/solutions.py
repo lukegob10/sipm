@@ -30,9 +30,10 @@ from ..utils import (
     parse_date,
     parse_priority,
     read_csv,
+    read_text_value,
 )
 from ..services.realtime import schedule_broadcast
-from ..services.audit_log import log_changes
+from ..services.audit_log import safe_log_changes
 from ..services.github_repo_urls import normalize_github_repo_url
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
@@ -393,7 +394,7 @@ def create_solution(
     )
     session.add(solution)
     session.flush()
-    log_changes(
+    safe_log_changes(
         session,
         entity_type="solution",
         entity_id=solution.solution_id,
@@ -433,7 +434,7 @@ def create_solution(
     session.refresh(solution)
     invalidate_space(space_ctx.space_id, ["solutions"])
     schedule_broadcast("solutions", space_id=space_ctx.space_id)
-    return solution
+    return _solution_payload(solution)
 
 
 @router.post("/solutions/import")
@@ -540,7 +541,7 @@ def import_solutions(
             session.flush()  # ensure project_id is available
             projects_by_name[project_name.lower()] = project
             projects_created += 1
-            log_changes(
+            safe_log_changes(
                 session,
                 entity_type="project",
                 entity_id=project.project_id,
@@ -624,7 +625,7 @@ def import_solutions(
                         existing.current_phase = _last_enabled_phase_id(session, existing.solution_id)
                 existing.updated_at = now
                 session.add(existing)
-                log_changes(
+                safe_log_changes(
                     session,
                     entity_type="solution",
                     entity_id=existing.solution_id,
@@ -694,7 +695,7 @@ def import_solutions(
                 )
                 session.add(solution)
                 session.flush()
-                log_changes(
+                safe_log_changes(
                     session,
                     entity_type="solution",
                     entity_id=solution.solution_id,
@@ -806,9 +807,9 @@ def export_solutions(
                 "due_date": s.due_date.isoformat() if s.due_date else "",
                 "planned_start_date": s.planned_start_date.isoformat() if s.planned_start_date else "",
                 "current_phase": s.current_phase or "",
-                "description": s.description or "",
-                "problem_statement": s.problem_statement or "",
-                "success_criteria": s.success_criteria or "",
+                "description": read_text_value(s.description) or "",
+                "problem_statement": read_text_value(s.problem_statement) or "",
+                "success_criteria": read_text_value(s.success_criteria) or "",
                 "github_repo_url": s.github_repo_url or "",
                 "impact_confidence": s.impact_confidence.value if hasattr(s.impact_confidence, "value") else (s.impact_confidence or ""),
                 "owner": s.owner or "",
@@ -913,7 +914,7 @@ def update_solution(
     session.add(solution)
     changes = {field: (before.get(field), getattr(solution, field)) for field in fields_to_compare}
     if changes:
-        log_changes(
+        safe_log_changes(
             session,
             entity_type="solution",
             entity_id=solution.solution_id,
@@ -926,7 +927,7 @@ def update_solution(
     session.refresh(solution)
     invalidate_space(space_ctx.space_id, ["solutions"])
     schedule_broadcast("solutions", space_id=space_ctx.space_id)
-    return solution
+    return _solution_payload(solution)
 
 
 @router.delete("/solutions/{solution_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -943,7 +944,7 @@ def delete_solution(
     solution.deleted_at = now
     solution.updated_at = now
     session.add(solution)
-    log_changes(
+    safe_log_changes(
         session,
         entity_type="solution",
         entity_id=solution.solution_id,

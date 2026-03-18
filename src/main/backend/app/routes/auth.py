@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ..auth.auth import (
-    ALLOW_SELF_REGISTER,
+    ACTIVE_SPACE_COOKIE,
+    allow_self_register,
     clear_auth_cookies,
     create_token,
     decode_token,
@@ -50,25 +51,26 @@ def _is_user_locked(user: User, now: datetime) -> bool:
     return locked_until > now
 
 
-def _normalize_identifier(identifier: str) -> str:
-    return identifier.strip().lower()
-
-
-def _soeid_from_identifier(identifier: str) -> str:
-    ident = _normalize_identifier(identifier)
-    if "@" in ident:
-        return ident.split("@", 1)[0]
-    return ident
-
-
 def _email_from_soeid(soeid: str) -> str:
     domain = os.getenv("DOMAIN_NAME", "citi.com")
     return f"{soeid}@{domain}"
 
 
+def _requested_space_id(request: Request) -> str | None:
+    return request.headers.get("X-Space-Id") or request.cookies.get(ACTIVE_SPACE_COOKIE)
+
+
+def _issue_session(response: Response, session: Session, user: User, requested_space_id: str | None) -> None:
+    access_token = create_token(user.user_id, user.role, "access")
+    refresh_token = create_token(user.user_id, user.role, "refresh")
+    set_auth_cookies(response, access_token, refresh_token)
+    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    set_active_space_cookie(response, active_ctx.space_id)
+
+
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, response: Response, session: Session = Depends(get_db)):
-    if not ALLOW_SELF_REGISTER:
+    if not allow_self_register():
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="SELF_REGISTRATION_DISABLED",
@@ -104,11 +106,7 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
     session.commit()
     session.refresh(user)
 
-    access_token = create_token(user.user_id, user.role, "access")
-    refresh_token = create_token(user.user_id, user.role, "refresh")
-    set_auth_cookies(response, access_token, refresh_token)
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=None)
-    set_active_space_cookie(response, active_ctx.space_id)
+    _issue_session(response, session, user, requested_space_id=None)
     return user
 
 
@@ -164,12 +162,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
     session.commit()
     session.refresh(user)
 
-    access_token = create_token(user.user_id, user.role, "access")
-    refresh_token = create_token(user.user_id, user.role, "refresh")
-    set_auth_cookies(response, access_token, refresh_token)
-    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
-    set_active_space_cookie(response, active_ctx.space_id)
+    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
     return user
 
 
@@ -211,12 +204,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             message="Account locked",
         )
 
-    access_token = create_token(user.user_id, user.role, "access")
-    refresh_token = create_token(user.user_id, user.role, "refresh")
-    set_auth_cookies(response, access_token, refresh_token)
-    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
-    set_active_space_cookie(response, active_ctx.space_id)
+    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
     return user
 
 
@@ -298,9 +286,9 @@ def get_active_space(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
-    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
+    requested_space_id = _requested_space_id(request)
     ctx = resolve_active_space_context(session, current_user, requested_space_id=requested_space_id)
-    cookie_space_id = request.cookies.get("active_space_id")
+    cookie_space_id = request.cookies.get(ACTIVE_SPACE_COOKIE)
     if cookie_space_id != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)
     return ActiveSpaceResponse(

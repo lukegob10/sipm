@@ -10,9 +10,8 @@ from fastapi import HTTPException, Response
 from starlette.requests import Request
 
 from backend.app import deps as deps_module
+from backend.app.auth import auth as auth_module
 from backend.app.auth.auth import (
-    ALGORITHM,
-    SECRET_KEY,
     clear_auth_cookies,
     create_token,
     decode_token,
@@ -23,6 +22,10 @@ from backend.app.auth.auth import (
 from backend.app.models import User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
+
+
+def _encode_test_token(payload: dict[str, object]) -> str:
+    return jwt.encode(payload, auth_module.SECRET_KEY, algorithm=auth_module.ALGORITHM)
 
 
 @pytest.fixture
@@ -68,8 +71,8 @@ def test_decode_token_errors_and_type_check():
             "type": "access",
             "exp": datetime.now(timezone.utc) - timedelta(seconds=1),
         },
-        SECRET_KEY,
-        algorithm=ALGORITHM,
+        auth_module.SECRET_KEY,
+        algorithm=auth_module.ALGORITHM,
     )
     with pytest.raises(HTTPException) as exc:
         decode_token(expired, expected_type="access")
@@ -81,15 +84,13 @@ def test_decode_token_errors_and_type_check():
     assert exc.value.status_code == 401
     assert exc.value.detail == "Invalid token"
 
-    wrong_type = jwt.encode(
+    wrong_type = _encode_test_token(
         {
             "sub": "user-1",
             "role": "user",
             "type": "refresh",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-        },
-        SECRET_KEY,
-        algorithm=ALGORITHM,
+        }
     )
     with pytest.raises(HTTPException) as exc:
         decode_token(wrong_type, expected_type="access")
@@ -259,6 +260,27 @@ async def test_register_refresh_logout_and_me(auth_client):
     dup = await auth_client.post("/project-manager/api/auth/register", json=payload)
     assert dup.status_code == 400
     assert dup.json()["detail"] == "SOEID already registered"
+
+
+@pytest.mark.anyio
+async def test_register_uses_reloaded_self_registration_setting(monkeypatch, override_db_only):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
+            importlib.reload(auth_module)
+            async with fastapi_app.router.lifespan_context(fastapi_app):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=fastapi_app),
+                    base_url="http://test",
+                ) as client:
+                    resp = await client.post(
+                        "/project-manager/api/auth/register",
+                        json={"soeid": "blocked1", "display_name": "Blocked", "password": "Password123"},
+                    )
+            assert resp.status_code == 403
+            assert resp.json()["detail"] == "Self-registration is disabled"
+    finally:
+        importlib.reload(auth_module)
 
 
 @pytest.mark.anyio
@@ -463,15 +485,13 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {
                 "sub": "missing-user",
                 "role": "user",
                 "type": "access",
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-            },
-            SECRET_KEY,
-            algorithm=ALGORITHM,
+            }
         ),
     )
     missing_user = await auth_client.get("/project-manager/api/auth/me")
@@ -481,10 +501,8 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {"role": "user", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
-            SECRET_KEY,
-            algorithm=ALGORITHM,
         ),
     )
     no_subject = await auth_client.get("/project-manager/api/auth/me")
@@ -502,15 +520,13 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {
                 "sub": user_id,
                 "role": "user",
                 "type": "access",
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-            },
-            SECRET_KEY,
-            algorithm=ALGORITHM,
+            }
         ),
     )
     locked = await auth_client.get("/project-manager/api/auth/me")

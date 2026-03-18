@@ -69,6 +69,10 @@ ALLOW_SELF_REGISTER = os.getenv(
 ).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def allow_self_register() -> bool:
+    return ALLOW_SELF_REGISTER
+
+
 def validate_auth_configuration() -> None:
     if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")

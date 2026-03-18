@@ -50,7 +50,9 @@ def _utcnow_naive() -> datetime:
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow_naive
+        DateTime,
+        default=_utcnow_naive,
+        onupdate=_utcnow_naive,
     )
 
 

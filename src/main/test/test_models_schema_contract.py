@@ -1,9 +1,11 @@
 from datetime import datetime
 from types import SimpleNamespace
 
+from sqlalchemy import create_engine
 from sqlalchemy import Text
+from sqlalchemy.orm import sessionmaker
 
-from backend.app.models import ChangeLog, ChecklistItem, Project, SOWDocument, Solution
+from backend.app.models import Base, ChangeLog, ChecklistItem, Project, SOWDocument, Solution, Team
 from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead
 from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus
 
@@ -38,6 +40,26 @@ def test_solution_long_text_fields_use_text_type():
 def test_change_log_value_fields_use_text_type():
     assert isinstance(ChangeLog.__table__.c.old_value.type, Text)
     assert isinstance(ChangeLog.__table__.c.new_value.type, Text)
+
+
+def test_timestamp_mixin_updates_updated_at_on_row_change():
+    engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=engine)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    original = datetime(2000, 1, 1, 0, 0, 0)
+
+    with SessionLocal() as session:
+        team = Team(name="Platform", created_at=original, updated_at=original)
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+
+        team.description = "Updated description"
+        session.add(team)
+        session.commit()
+        session.refresh(team)
+
+        assert team.updated_at > original
 
 
 def test_long_text_read_schemas_coerce_lob_values():

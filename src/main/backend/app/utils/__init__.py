@@ -144,4 +144,3 @@ def enable_all_phases(session, solution_id: str) -> None:
             )
     for row in now_phases:
         session.add(row)
-    session.commit()

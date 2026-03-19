@@ -413,6 +413,21 @@ def test_app_shell_planning_allocation_delete_uses_shared_confirm_modal():
     assert 'const confirmDelete = confirm("Delete this allocation?");' not in text
 
 
+def test_app_shell_confirm_modal_is_required_and_never_falls_back_to_browser_confirm():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+
+    assert 'id="confirm-modal"' in html_text
+    assert 'id="confirm-modal-title"' in html_text
+    assert 'id="confirm-modal-message"' in html_text
+    assert 'id="confirm-modal-close"' in html_text
+    assert 'id="confirm-modal-cancel"' in html_text
+    assert 'id="confirm-modal-confirm"' in html_text
+    assert 'console.warn("Confirm modal shell missing; canceling action.");' in app_text
+    assert "return Promise.resolve(false);" in app_text
+    assert "Promise.resolve(confirm(message));" not in app_text
+
+
 def test_subcomponents_workbench_saved_view_delete_uses_shared_confirm_modal():
     text = APP_JS.read_text(encoding="utf-8")
 

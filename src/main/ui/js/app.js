@@ -4817,7 +4817,8 @@ function showConfirmModal(options = {}) {
   const confirmLabel = String(options.confirmLabel || "Confirm");
   const cancelLabel = String(options.cancelLabel || "Cancel");
   if (!els.confirmModal || !els.confirmModalTitle || !els.confirmModalMessage || !els.confirmModalConfirm || !els.confirmModalCancel) {
-    return Promise.resolve(confirm(message));
+    console.warn("Confirm modal shell missing; canceling action.");
+    return Promise.resolve(false);
   }
   if (pendingConfirmResolve) {
     const staleResolver = pendingConfirmResolve;
@@ -7533,6 +7534,8 @@ function restoreCalendarViewState() {
     project: String(stored.filters?.project || ""),
     owner: String(stored.filters?.owner || ""),
   };
+  if (recovered) persistCalendarViewState();
+  if (recovered) return;
   if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();
 }
 
@@ -7554,6 +7557,8 @@ function restoreKanbanViewState() {
     project: String(stored.filters?.project || ""),
     owner: String(stored.filters?.owner || ""),
   };
+  if (recovered) persistKanbanViewState();
+  if (recovered) return;
   if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();
 }
 
@@ -7573,6 +7578,8 @@ function restoreTeamCapacityViewState() {
   if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");
   if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");
   state.capacitySelectedSoeid = String(stored.selected_soeid || "");
+  if (recovered) persistTeamCapacityViewState();
+  if (recovered) return;
   if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();
 }
 

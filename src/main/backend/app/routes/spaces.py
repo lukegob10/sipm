@@ -19,6 +19,7 @@ from ..schemas import (
     SpaceUpdate,
 )
 from ..services.spaces import build_space_slug, list_user_spaces
+from ..services.smart_cache import invalidate_space
 
 router = APIRouter()
 
@@ -155,6 +156,10 @@ def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> lis
 
 def _serialize_membership(session: Session, row: SpaceMembership) -> SpaceMembershipRead:
     return _serialize_memberships(session, [row])[0]
+
+
+def _invalidate_space_membership_views(space_id: str) -> None:
+    invalidate_space(space_id, ["users"])
 
 
 def _create_or_restore_membership(
@@ -294,6 +299,7 @@ def create_space_member(
         role=role,
         status_val=status_val,
     )
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -321,6 +327,7 @@ def create_space_member_by_soeid(
         role=role,
         status_val=status_val,
     )
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -353,6 +360,7 @@ def update_space_member(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -372,4 +380,5 @@ def delete_space_member(
     row.deleted_at = datetime.now(timezone.utc)
     session.add(row)
     session.commit()
+    _invalidate_space_membership_views(space_id)
     return None

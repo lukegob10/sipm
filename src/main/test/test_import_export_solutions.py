@@ -5,9 +5,10 @@ from io import StringIO
 
 import pytest
 
+import backend.app.routes.solutions as solutions_route
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
-from backend.app.models import Phase
+from backend.app.models import Phase, Project, Solution
 from backend.app.services.spaces import SpaceContext
 
 
@@ -369,3 +370,46 @@ async def test_solution_auto_rag_marks_abandoned_as_red(client):
         )
     ).json()
     assert created["rag_status"] == "green"
+
+
+@pytest.mark.anyio
+async def test_solutions_import_rolls_back_auto_created_rows_when_phase_enablement_fails(
+    client,
+    db_sessionmaker,
+    monkeypatch,
+):
+    def _fail_enable_all_phases(*_args, **_kwargs):
+        raise RuntimeError("phase seed failed")
+
+    monkeypatch.setattr(solutions_route, "enable_all_phases", _fail_enable_all_phases)
+
+    buf = StringIO()
+    fieldnames = ["project_name", "solution_name", "version", "status", "owner"]
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerow(
+        {
+            "project_name": "Atomic Import Project",
+            "solution_name": "Atomic Import Solution",
+            "version": "0.1.0",
+            "status": "active",
+            "owner": "Owner",
+        }
+    )
+
+    resp = await client.post(
+        "/project-manager/api/solutions/import",
+        content=buf.getvalue().encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["created"] == 0
+    assert payload["projects_created"] == 0
+    assert payload["total_rows"] == 1
+    assert len(payload["errors"]) == 1
+    assert "phase seed failed" in payload["errors"][0]
+
+    with db_sessionmaker() as session:
+        assert session.query(Project).filter(Project.project_name == "Atomic Import Project").count() == 0
+        assert session.query(Solution).filter(Solution.solution_name == "Atomic Import Solution").count() == 0

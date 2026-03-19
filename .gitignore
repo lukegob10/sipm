@@ -53,3 +53,7 @@ build/
 # Local enhancement artifacts
 docs/enhancements/
 docs/specs/
+
+
+# Skill artifacts
+.auto-research/

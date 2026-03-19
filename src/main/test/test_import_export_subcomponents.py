@@ -6,6 +6,8 @@ from io import StringIO
 
 import pytest
 
+import backend.app.routes.subcomponents as subcomponents_route
+from backend.app.models import Project, Solution, Subcomponent
 
 @pytest.mark.anyio
 async def test_subcomponents_import_updates_creates_and_exports(client):
@@ -185,3 +187,63 @@ async def test_update_subcomponent_sets_completed_at_and_rejects_name_conflict(c
     )
     assert conflict.status_code == 400
     assert conflict.json()["detail"] == "Subcomponent name already exists in this solution"
+
+
+@pytest.mark.anyio
+async def test_subcomponents_import_rolls_back_auto_created_rows_when_phase_enablement_fails(
+    client,
+    db_sessionmaker,
+    monkeypatch,
+):
+    def _fail_enable_all_phases(*_args, **_kwargs):
+        raise RuntimeError("phase seed failed")
+
+    monkeypatch.setattr(subcomponents_route, "enable_all_phases", _fail_enable_all_phases)
+
+    buf = StringIO()
+    fieldnames = [
+        "project_name",
+        "solution_name",
+        "version",
+        "subcomponent_name",
+        "status",
+        "priority",
+        "due_date",
+        "assignee",
+        "solution_owner",
+    ]
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerow(
+        {
+            "project_name": "Atomic Subcomponent Project",
+            "solution_name": "Atomic Subcomponent Solution",
+            "version": "0.1.0",
+            "subcomponent_name": "Atomic Subcomponent Task",
+            "status": "to_do",
+            "priority": "3",
+            "due_date": "",
+            "assignee": "Engineer",
+            "solution_owner": "Owner",
+        }
+    )
+
+    resp = await client.post(
+        "/project-manager/api/subcomponents/import",
+        content=buf.getvalue().encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["created"] == 0
+    assert payload["updated"] == 0
+    assert payload["projects_created"] == 0
+    assert payload["solutions_created"] == 0
+    assert payload["total_rows"] == 1
+    assert len(payload["errors"]) == 1
+    assert "phase seed failed" in payload["errors"][0]
+
+    with db_sessionmaker() as session:
+        assert session.query(Project).filter(Project.project_name == "Atomic Subcomponent Project").count() == 0
+        assert session.query(Solution).filter(Solution.solution_name == "Atomic Subcomponent Solution").count() == 0
+        assert session.query(Subcomponent).filter(Subcomponent.subcomponent_name == "Atomic Subcomponent Task").count() == 0

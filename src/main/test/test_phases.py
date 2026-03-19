@@ -102,3 +102,30 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
     assert disable_resp.status_code == 200
     updated_solution = (await client.get(f"/project-manager/api/solutions/{solution_id}")).json()
     assert updated_solution["current_phase"] is None
+
+
+@pytest.mark.anyio
+async def test_set_solution_phases_is_atomic_when_payload_contains_invalid_phase(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_and_solution(client)
+    solution_id = solution["solution_id"]
+
+    before_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    assert before_resp.status_code == 200, before_resp.text
+    before_rows = before_resp.json()
+
+    failed = await client.post(
+        f"/project-manager/api/solutions/{solution_id}/phases",
+        json={
+            "phases": [
+                {"phase_id": "backlog", "is_enabled": False},
+                {"phase_id": "missing-phase", "is_enabled": True},
+            ]
+        },
+    )
+    assert failed.status_code == 400, failed.text
+    assert failed.json()["detail"] == "Phase missing-phase does not exist"
+
+    after_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    assert after_resp.status_code == 200, after_resp.text
+    assert after_resp.json() == before_rows

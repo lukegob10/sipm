@@ -2,8 +2,10 @@ from datetime import date, timedelta
 
 import pytest
 
+import backend.app.routes.solutions as solutions_route
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
+from backend.app.models import Solution
 from backend.app.services import audit_log as audit_log_module
 from backend.app.services.spaces import SpaceContext
 
@@ -69,6 +71,30 @@ async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fai
     assert resp.status_code == 201, resp.text
     created = resp.json()
     assert created["description"] == description
+
+
+@pytest.mark.anyio
+async def test_create_solution_rolls_back_when_phase_enablement_fails(client, db_sessionmaker, monkeypatch):
+    project = await create_project(client)
+
+    def _fail_enable_all_phases(*_args, **_kwargs):
+        raise RuntimeError("phase seed failed")
+
+    monkeypatch.setattr(solutions_route, "enable_all_phases", _fail_enable_all_phases)
+
+    with pytest.raises(RuntimeError, match="phase seed failed"):
+        await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={"solution_name": "Atomic Failure Solution"},
+        )
+
+    with db_sessionmaker() as session:
+        count = (
+            session.query(Solution)
+            .filter(Solution.project_id == project["project_id"])
+            .count()
+        )
+        assert count == 0
 
 
 @pytest.mark.anyio

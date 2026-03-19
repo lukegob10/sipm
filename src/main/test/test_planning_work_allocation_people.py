@@ -1,6 +1,7 @@
 import pytest
 
 from backend.app import deps as deps_module
+import backend.app.routes._mutations as route_mutations
 from backend.app.models import Space, SpaceMembership, Team, User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
@@ -114,5 +115,29 @@ async def test_space_admin_can_create_work_allocation_person_with_zero_capacity(
         assert payload["name"] == "No Capacity Yet"
         assert payload["team_id"] == team_id
         assert payload["capacity_fte_months"] == pytest.approx(0.0, abs=1e-6)
+    finally:
+        _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_planning_mutations_broadcast_live_refresh(client, db_sessionmaker, monkeypatch):
+    space_id, _team_id, _person_id = _seed_work_allocation_person(db_sessionmaker)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    broadcasts: list[tuple[str, str | None]] = []
+
+    monkeypatch.setattr(
+        route_mutations,
+        "schedule_broadcast",
+        lambda entity="all", *, space_id=None: broadcasts.append((entity, space_id)),
+    )
+    try:
+        _set_current_space_override(space_id, role="space_admin")
+
+        created = await client.post(
+            "/project-manager/api/planning/work-allocation/people",
+            json={"name": "Live Refresh Person", "capacity_fte_months": 1.0},
+        )
+        assert created.status_code == 201, created.text
+        assert broadcasts == [("all", space_id)]
     finally:
         _restore_current_space_override(original_current_space)

@@ -148,17 +148,23 @@ def _commit_planning_mutation(
     *,
     cache_keys: tuple[str, ...] = ("planning",),
     refresh: object | None = None,
+    broadcast_channel: str | None = "all",
     on_integrity_error=None,
 ) -> None:
     if refresh is None:
         commit_session(session, on_integrity_error=on_integrity_error)
-        publish_space_mutation(space_ctx.space_id, cache_keys)
+        publish_space_mutation(
+            space_ctx.space_id,
+            cache_keys,
+            broadcast_channel=broadcast_channel,
+        )
         return
     commit_refresh_and_publish(
         session,
         refresh,
         space_id=space_ctx.space_id,
         cache_keys=cache_keys,
+        broadcast_channel=broadcast_channel,
         on_integrity_error=on_integrity_error,
     )
 

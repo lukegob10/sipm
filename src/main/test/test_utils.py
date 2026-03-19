@@ -132,6 +132,7 @@ def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
         session.commit()
 
         enable_all_phases(session, solution.solution_id)
+        session.commit()
 
         rows = (
             session.query(SolutionPhase)
@@ -144,6 +145,7 @@ def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
         assert all(r.sequence_override is None for r in rows)
 
         enable_all_phases(session, solution.solution_id)
+        session.commit()
         assert (
             session.query(SolutionPhase)
             .filter(SolutionPhase.solution_id == solution.solution_id)

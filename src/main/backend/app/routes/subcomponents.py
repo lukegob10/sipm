@@ -476,6 +476,7 @@ def import_subcomponents(
             continue
 
         project = projects_by_name.get(project_name.lower())
+        project_created_this_row = False
         if not project:
             sponsor_val = solution_owner_val or "Auto-created"
             project = Project(
@@ -487,8 +488,7 @@ def import_subcomponents(
             )
             session.add(project)
             session.flush()  # ensure project_id available
-            projects_by_name[project_name.lower()] = project
-            projects_created += 1
+            project_created_this_row = True
             log_changes(
                 session,
                 entity_type="project",
@@ -507,6 +507,7 @@ def import_subcomponents(
 
         solution_key = (project.project_id, solution_name.lower(), version_raw.lower())
         solution = solutions_by_key.get(solution_key)
+        solution_created_this_row = False
         if not solution:
             try:
                 solution = Solution(
@@ -556,10 +557,8 @@ def import_subcomponents(
                     },
                     request_id=request_id,
                 )
-                commit_session(session)
                 enable_all_phases(session, solution.solution_id)
-                solutions_by_key[solution_key] = solution
-                solutions_created += 1
+                solution_created_this_row = True
             except Exception as exc:
                 session.rollback()
                 errors.append(f"Row {idx}: {exc}")
@@ -673,6 +672,12 @@ def import_subcomponents(
                 )
                 commit_session(session)
                 created += 1
+            if project_created_this_row:
+                projects_by_name[project_name.lower()] = project
+                projects_created += 1
+            if solution_created_this_row:
+                solutions_by_key[solution_key] = solution
+                solutions_created += 1
         except ValueError as exc:
             session.rollback()
             errors.append(f"Row {idx}: {exc}")

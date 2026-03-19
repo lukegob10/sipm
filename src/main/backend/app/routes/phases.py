@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_space_role
 from ..models import Phase, Solution, SolutionPhase, User
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
-from ..services.realtime import schedule_broadcast
 from ..services.audit_log import log_changes
 from ..services.spaces import SpaceContext
+from ._mutations import publish_space_mutation
 
 router = APIRouter()
 
@@ -95,9 +95,9 @@ def set_solution_phases(
             },
         )
         updated_items.append(sp)
-        session.commit()
 
     # If the solution's current_phase is now disabled, clear it to avoid invalid states.
+    session.flush()
     solution = (
         session.query(Solution)
         .filter(Solution.solution_id == solution_id)
@@ -127,8 +127,12 @@ def set_solution_phases(
                 space_id=space_ctx.space_id,
                 changes={"current_phase": (before_phase, solution.current_phase)},
             )
-            session.commit()
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    session.commit()
+    publish_space_mutation(
+        space_ctx.space_id,
+        ["solutions"],
+        broadcast_channel="solutions",
+    )
     return _ordered_solution_phases(session, solution_id, space_ctx)
 
 

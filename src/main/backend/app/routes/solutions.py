@@ -436,11 +436,14 @@ def create_solution(
             "completed_at": (None, solution.completed_at),
         },
     )
-    commit_session(session)
-    session.refresh(solution)
     enable_all_phases(session, solution.solution_id)
-    session.refresh(solution)
-    _publish_solution_mutation(space_ctx.space_id)
+    commit_refresh_and_publish(
+        session,
+        solution,
+        space_id=space_ctx.space_id,
+        cache_keys=["solutions"],
+        broadcast_channel="solutions",
+    )
     return _solution_payload(solution)
 
 
@@ -537,6 +540,7 @@ def import_solutions(
                 continue
 
         project = projects_by_name.get(project_name.lower())
+        project_created_this_row = False
         if not project:
             project = Project(
                 space_id=space_ctx.space_id,
@@ -546,8 +550,7 @@ def import_solutions(
             )
             session.add(project)
             session.flush()  # ensure project_id is available
-            projects_by_name[project_name.lower()] = project
-            projects_created += 1
+            project_created_this_row = True
             safe_log_changes(
                 session,
                 entity_type="project",
@@ -568,8 +571,8 @@ def import_solutions(
             _solution_query(session, space_ctx)
             .filter(Solution.project_id == project.project_id)
             .filter(Solution.solution_name == solution_name)
-            .filter(Solution.version == version_raw)
-            .first()
+                .filter(Solution.version == version_raw)
+                .first()
         )
         try:
             if existing:
@@ -738,9 +741,12 @@ def import_solutions(
                     },
                     request_id=request_id,
                 )
-                commit_session(session)
                 enable_all_phases(session, solution.solution_id)
+                commit_session(session)
                 created += 1
+            if project_created_this_row:
+                projects_by_name[project_name.lower()] = project
+                projects_created += 1
         except Exception as exc:
             session.rollback()
             errors.append(f"Row {idx}: {exc}")

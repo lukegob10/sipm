@@ -1320,9 +1320,17 @@ label.wide {
   align-items: start;
 }
 #project-form.form.compact {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
 }
 
 #solution-form.form.compact {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;
 }
 #subcomponent-form.form.compact {
   column-gap: 24px;
@@ -1369,17 +1377,19 @@ label.wide {
 }
 .modal-form-footer {
   position: sticky;
-  bottom: 0;
-  z-index: 2;
+  bottom: calc(var(--modal-shell-padding, 16px) * -1);
+  z-index: 4;
   display: grid;
   gap: 8px;
-  margin: 4px -12px -12px;
-  padding: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--panel) 18%);
+  margin: 4px calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
+  padding: 12px var(--modal-shell-padding, 16px) calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--panel);
   border-top: 1px solid var(--border);
+  box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.18);
 }
 .theme-light .modal-form-footer {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0), var(--panel) 18%);
+  background: var(--panel);
+  box-shadow: 0 -10px 24px rgba(16, 42, 67, 0.08);
 }
 .modal-form-footer .form-actions {
   margin: 0;
@@ -3459,6 +3469,62 @@ button.primary.danger:hover {
   display: grid;
   gap: 12px;
   min-width: 0;
+}
+#project-modal .modal-content {
+  overflow: hidden;
+}
+#project-modal .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+}
+#project-modal .modal-body > .modal-form-footer {
+  position: relative;
+  bottom: auto;
+  margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
+}
+#solution-modal .modal-content {
+  overflow: hidden;
+}
+#solution-modal .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+#solution-modal .modal-tab.active {
+  min-height: 0;
+  overflow: auto;
+}
+#solution-modal .modal-tab[data-tab-panel="details"].active {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  overflow: hidden;
+}
+#solution-modal .modal-tab[data-tab-panel="details"] > .modal-form-footer {
+  position: relative;
+  bottom: auto;
+  margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
+}
+#solution-modal .modal-tab[data-tab-panel="subcomponents"].active {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0;
+  overflow: hidden;
+}
+#solution-modal .modal-tab[data-tab-panel="subcomponents"] > .subcomponent-tab-scroll {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 12px;
+}
+#solution-modal .modal-tab[data-tab-panel="subcomponents"] > .modal-form-footer {
+  position: relative;
+  bottom: auto;
+  margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
 }
 .modal-content .form.compact,
 .modal-content .form.compact > * {

@@ -266,6 +266,7 @@ const els = {
   csvUploadStatus: document.getElementById("csv-upload-status"),
   phasesTable: document.getElementById("phases-table"),
   subcomponentForm: document.getElementById("subcomponent-form"),
+  subcomponentFormFooter: document.getElementById("subcomponent-form-footer"),
   subcomponentSubmitBtn: document.getElementById("subcomponent-submit-btn"),
   subcomponentFormStatus: document.getElementById("subcomponent-form-status"),
   subcomponentRepoPreview: document.getElementById("subcomponent-repo-preview"),
@@ -5203,6 +5204,15 @@ function setSubcomponentActionButtonLabel(isEditing) {
   }
 }
 
+function setSubcomponentFormVisibility(show) {
+  if (els.subcomponentForm) {
+    els.subcomponentForm.classList.toggle("hidden", !show);
+  }
+  if (els.subcomponentFormFooter) {
+    els.subcomponentFormFooter.classList.toggle("hidden", !show);
+  }
+}
+
 function setSubcomponentCreateAvailability(solutionId) {
   if (!els.showSubcomponentFormBtn) return;
   const hasSolution = !!String(solutionId || "").trim();
@@ -5218,7 +5228,7 @@ function openSolutionModal(solution = null, tab = "details") {
   setSolutionActionButtonLabel(!!solution?.solution_id);
   setSubcomponentCreateAvailability(solution?.solution_id || "");
   if (els.subcomponentForm) {
-    els.subcomponentForm.classList.add("hidden");
+    setSubcomponentFormVisibility(false);
     setSubcomponentActionButtonLabel(false);
   }
   els.solutionModal.classList.remove("hidden");
@@ -5245,7 +5255,7 @@ function closeSolutionModal() {
   els.solutionModal.classList.add("hidden");
   setSolutionTab("details");
   if (els.subcomponentForm) {
-    els.subcomponentForm.classList.add("hidden");
+    setSubcomponentFormVisibility(false);
     setSubcomponentActionButtonLabel(false);
   }
 }
@@ -5286,7 +5296,7 @@ function prepareSubcomponentCreateForm(solution, options = {}) {
   const { resetForm = true } = options;
   const sol = solution || state.solutions.find((s) => s.solution_id === els.solutionForm?.querySelector('[name="solution_id"]')?.value);
   if (!sol) return;
-  els.subcomponentForm.classList.remove("hidden");
+  setSubcomponentFormVisibility(true);
   if (resetForm) els.subcomponentForm.reset();
   clearDeliverableFormNotice(els.subcomponentFormStatus);
   els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
@@ -5309,7 +5319,7 @@ function showSubcomponentForm(solution) {
 
 function fillSubcomponentForm(sub) {
   if (!els.subcomponentForm || !sub) return;
-  els.subcomponentForm.classList.remove("hidden");
+  setSubcomponentFormVisibility(true);
   els.subcomponentForm.reset();
   clearDeliverableFormNotice(els.subcomponentFormStatus);
   els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = sub.subcomponent_id;
@@ -5628,7 +5638,7 @@ function bindSubcomponentForm() {
         const solution = state.solutions.find((s) => s.solution_id === solutionId);
         showSubcomponentForm(solution);
       } else {
-        els.subcomponentForm.classList.add("hidden");
+        setSubcomponentFormVisibility(false);
       }
     };
   }

@@ -38,6 +38,16 @@ def test_deliverables_save_handlers_show_inline_feedback():
     assert "Saved subcomponent at ${timestampLabel()}." in text
 
 
+def test_project_form_footer_is_managed_outside_scroll_flow():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+
+    assert 'id="project-submit-btn" form="project-form"' in html_text
+    assert '#project-form.form.compact {' in styles_text
+    assert '#project-modal .modal-body {' in styles_text
+    assert '#project-modal .modal-body > .modal-form-footer {' in styles_text
+
+
 def test_subcomponent_form_uses_single_create_or_save_action():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     js_text = APP_JS.read_text(encoding="utf-8")
@@ -48,6 +58,20 @@ def test_subcomponent_form_uses_single_create_or_save_action():
     assert 'els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";' in js_text
     assert 'setDeliverableFormNotice(els.subcomponentFormStatus, "Creating subcomponent...")' in js_text
     assert "Created subcomponent at ${timestampLabel()}." in js_text
+
+
+def test_subcomponent_form_footer_is_managed_outside_scroll_flow():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    js_text = APP_JS.read_text(encoding="utf-8")
+    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+
+    assert 'id="subcomponent-form-footer"' in html_text
+    assert 'id="subcomponent-submit-btn" form="subcomponent-form"' in html_text
+    assert 'subcomponentFormFooter: document.getElementById("subcomponent-form-footer")' in js_text
+    assert "function setSubcomponentFormVisibility(show) {" in js_text
+    assert 'els.subcomponentFormFooter.classList.toggle("hidden", !show);' in js_text
+    assert '#solution-modal .modal-tab[data-tab-panel="subcomponents"].active {' in styles_text
+    assert '#solution-modal .modal-tab[data-tab-panel="subcomponents"] > .subcomponent-tab-scroll {' in styles_text
 
 
 def test_new_solution_requires_saved_parent_before_subcomponents_can_be_added():

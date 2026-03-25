@@ -9,15 +9,32 @@ from typing import Dict, Set
 from fastapi import WebSocket
 
 
-MAX_CONNECTIONS_GLOBAL = int(os.getenv("SIPM_WS_MAX_CONNECTIONS_GLOBAL", "400"))
-MAX_CONNECTIONS_PER_USER = int(os.getenv("SIPM_WS_MAX_CONNECTIONS_PER_USER", "8"))
-IDLE_TIMEOUT_SECONDS = int(os.getenv("SIPM_WS_IDLE_TIMEOUT_SECONDS", "600"))
+def _int_env_with_default(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+MAX_CONNECTIONS_GLOBAL = _int_env_with_default("SIPM_WS_MAX_CONNECTIONS_GLOBAL", 400)
+MAX_CONNECTIONS_PER_USER = _int_env_with_default("SIPM_WS_MAX_CONNECTIONS_PER_USER", 8)
+IDLE_TIMEOUT_SECONDS = _int_env_with_default("SIPM_WS_IDLE_TIMEOUT_SECONDS", 600)
+if MAX_CONNECTIONS_GLOBAL < 1:
+    raise RuntimeError("SIPM_WS_MAX_CONNECTIONS_GLOBAL must be greater than or equal to 1.")
+if MAX_CONNECTIONS_PER_USER < 1:
+    raise RuntimeError("SIPM_WS_MAX_CONNECTIONS_PER_USER must be greater than or equal to 1.")
+if IDLE_TIMEOUT_SECONDS < 0:
+    raise RuntimeError("SIPM_WS_IDLE_TIMEOUT_SECONDS must be greater than or equal to 0.")
 DEFAULT_USER_ID = "anonymous"
 DEFAULT_SPACE_ID = "default"
 WS_CLOSE_AUTH_INVALID = 4401
 WS_CLOSE_SPACE_INVALID = 4403
 WS_CLOSE_CONNECTION_LIMIT = 4408
 WS_CLOSE_SERVER_BUSY = 1013
+WS_CLOSE_IDLE_TIMEOUT = 1001
 
 
 class WebSocketRejected(RuntimeError):
@@ -49,13 +66,24 @@ def _touch(ws: WebSocket) -> None:
         meta.last_seen = _utc_now()
 
 
-def _prune_idle_connections() -> None:
+def _stale_idle_connections() -> list[WebSocket]:
     if IDLE_TIMEOUT_SECONDS <= 0:
-        return
+        return []
     cutoff = _utc_now() - timedelta(seconds=IDLE_TIMEOUT_SECONDS)
-    stale = [ws for ws, meta in _connection_meta.items() if meta.last_seen < cutoff]
-    for ws in stale:
-        unregister(ws)
+    return [ws for ws, meta in _connection_meta.items() if meta.last_seen < cutoff]
+
+
+async def _prune_idle_connections() -> None:
+    for ws in _stale_idle_connections():
+        close = getattr(ws, "close", None)
+        try:
+            if close is not None:
+                try:
+                    await close(code=WS_CLOSE_IDLE_TIMEOUT, reason="idle-timeout")
+                except TypeError:
+                    await close(code=WS_CLOSE_IDLE_TIMEOUT)
+        finally:
+            unregister(ws)
 
 
 def _user_connection_count(user_id: str) -> int:
@@ -70,7 +98,7 @@ async def register(
 ) -> None:
     user_id = (user_id or DEFAULT_USER_ID).strip() or DEFAULT_USER_ID
     space_id = (space_id or DEFAULT_SPACE_ID).strip() or DEFAULT_SPACE_ID
-    _prune_idle_connections()
+    await _prune_idle_connections()
     if len(connections) >= MAX_CONNECTIONS_GLOBAL:
         raise WebSocketRejected(WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
     if _user_connection_count(user_id) >= MAX_CONNECTIONS_PER_USER:
@@ -100,7 +128,7 @@ def heartbeat(ws: WebSocket) -> None:
 
 
 async def broadcast_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
-    _prune_idle_connections()
+    await _prune_idle_connections()
     dead = []
     for ws in list(connections):
         meta = _connection_meta.get(ws)

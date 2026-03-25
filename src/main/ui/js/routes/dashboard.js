@@ -1409,3 +1409,7 @@ export function renderDashboard(ctx) {
     `;
   }
 }
+
+export function render(ctx) {
+  renderDashboard(ctx);
+}

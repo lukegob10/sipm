@@ -111,3 +111,7 @@ export function renderKanban(ctx) {
 
   els.kanbanBoard.innerHTML = html || "<p class='muted'>No items</p>";
 }
+
+export function render(ctx) {
+  renderKanban(ctx);
+}

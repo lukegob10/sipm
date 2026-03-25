@@ -4,18 +4,24 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
+PATHS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "paths.js"
+ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
+SESSION_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js"
+LIVE_SYNC_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "live-sync.js"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
+MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
 SUBCOMPONENTS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
 
 
 def test_master_remains_default_view_and_fallback():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert 'currentView: "master"' in text
-    assert "function viewFromLocationPath" in text
-    assert 'if (relative === "/" || relative === "") return "master";' in text
-    assert 'return normalizeView(firstSegment);' in text
+    app_text = APP_JS.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    assert 'currentView: "master"' in app_text
+    assert "function viewFromLocationPath" in router_text
+    assert 'if (relative === "/" || relative === "") return "master";' in router_text
+    assert 'return normalizeView(firstSegment);' in router_text
 
 
 def test_route_hint_copy_removed_from_main_html_views():
@@ -93,7 +99,7 @@ def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
 def test_frontend_ux_state_is_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
-    master_text = MASTER_ROUTE.read_text(encoding="utf-8")
+    master_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
 
     assert 'const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";' in app_text
     assert 'const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";' in app_text
@@ -356,7 +362,7 @@ def test_planning_window_stale_selection_self_heals_to_live_option_set():
 
 
 def test_reset_password_ui_uses_temp_password_flow():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    app_text = SESSION_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
     assert "/auth/reset-password" in app_text
@@ -369,18 +375,22 @@ def test_reset_password_ui_uses_temp_password_flow():
 
 def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes():
     app_text = APP_JS.read_text(encoding="utf-8")
+    paths_text = PATHS_JS.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    session_text = SESSION_JS.read_text(encoding="utf-8")
+    live_sync_text = LIVE_SYNC_JS.read_text(encoding="utf-8")
     planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
     pm_dashboard_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
 
-    assert "const APP_CONTEXT_PATH = (() => {" in app_text
-    assert 'const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";' in app_text
-    assert "function routePathForView(view)" in app_text
-    assert "function syncPathForView(view, replace = false)" in app_text
+    assert "export const APP_CONTEXT_PATH = (() => {" in paths_text
+    assert 'export const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";' in paths_text
+    assert "function routePathForView(view)" in router_text
+    assert "function syncPathForView(view, replace = false)" in router_text
     assert 'window.addEventListener("popstate"' in app_text
-    assert 'buildAppUrl("/reset-password")' in app_text
-    assert 'window.location.href = buildAppUrl("/reset-password");' in app_text
-    assert 'window.location.href = buildAppUrl("/");' in app_text
-    assert 'const url = new URL(buildWsUrl("/ws"));' in app_text
+    assert 'buildAppUrl("/reset-password")' in session_text
+    assert 'window.location.href = buildAppUrl("/reset-password");' in session_text
+    assert 'window.location.href = buildAppUrl("/");' in session_text
+    assert 'const url = new URL(buildWsUrl("/ws"));' in live_sync_text
     assert "resolveApiBase(ctx)" in planning_text
     assert "viewHref," in app_text
     assert "const hrefFor = (view) => {" in pm_dashboard_text

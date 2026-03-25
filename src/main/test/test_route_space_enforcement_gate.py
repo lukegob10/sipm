@@ -15,9 +15,10 @@ HTTP_DECORATORS = {"get", "post", "put", "patch", "delete", "options", "head"}
 
 
 def _iter_route_functions():
-    for path in sorted(ROUTES_DIR.glob("*.py")):
+    for path in sorted(ROUTES_DIR.rglob("*.py")):
         if path.name in SKIP_FILES:
             continue
+        relative_path = path.relative_to(ROUTES_DIR).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in tree.body:
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -34,7 +35,7 @@ def _iter_route_functions():
                     is_route = True
                     break
             if is_route:
-                yield path, node
+                yield relative_path, node
 
 
 def _depends_target(default_expr):
@@ -59,8 +60,8 @@ def _is_space_enforced(dep_targets):
 
 def test_protected_routes_require_space_or_global_admin_dependency():
     missing = []
-    for path, fn in _iter_route_functions():
-        key = (path.name, fn.name)
+    for relative_path, fn in _iter_route_functions():
+        key = (relative_path, fn.name)
         if key in ALLOWED_NO_SPACE_DEP:
             continue
         args = fn.args.args or []
@@ -72,7 +73,7 @@ def test_protected_routes_require_space_or_global_admin_dependency():
                 dep_targets.append(target)
         if not _is_space_enforced(dep_targets):
             missing.append(
-                f"{path.name}:{fn.lineno}:{fn.name} deps={dep_targets}"
+                f"{relative_path}:{fn.lineno}:{fn.name} deps={dep_targets}"
             )
 
     assert not missing, (

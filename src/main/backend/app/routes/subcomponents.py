@@ -114,6 +114,18 @@ def _subcomponent_payload(
     return payload
 
 
+def _apply_subcomponent_completion_state(
+    subcomponent: Subcomponent,
+    *,
+    next_status: SubcomponentStatus,
+    now: datetime,
+) -> None:
+    if next_status == SubcomponentStatus.complete:
+        subcomponent.completed_at = subcomponent.completed_at or now
+        return
+    subcomponent.completed_at = None
+
+
 def _publish_subcomponent_mutation(space_id: str) -> None:
     publish_space_mutation(
         space_id,
@@ -125,8 +137,11 @@ def _publish_subcomponent_mutation(space_id: str) -> None:
 def _solution_query(session: Session, space_ctx: SpaceContext):
     return (
         session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
     )
 
 
@@ -141,8 +156,14 @@ def _project_query(session: Session, space_ctx: SpaceContext):
 def _subcomponent_query(session: Session, space_ctx: SpaceContext):
     return (
         session.query(Subcomponent)
+        .join(Solution, Solution.solution_id == Subcomponent.solution_id)
+        .join(Project, Project.project_id == Solution.project_id)
         .filter(Subcomponent.deleted_at.is_(None))
         .filter(Subcomponent.space_id == space_ctx.space_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
     )
 
 
@@ -599,8 +620,11 @@ def import_subcomponents(
                 existing.updated_at = now
                 if not existing.space_id:
                     existing.space_id = space_ctx.space_id
-                if status_enum == SubcomponentStatus.complete and not existing.completed_at:
-                    existing.completed_at = now
+                _apply_subcomponent_completion_state(
+                    existing,
+                    next_status=status_enum,
+                    now=now,
+                )
                 session.add(existing)
                 log_changes(
                     session,
@@ -825,8 +849,12 @@ def update_subcomponent(
     for field, value in update_data.items():
         setattr(subcomponent, field, value)
 
-    if "status" in update_data and update_data["status"] == SubcomponentStatus.complete:
-        subcomponent.completed_at = subcomponent.completed_at or datetime.now(timezone.utc)
+    if "status" in update_data:
+        _apply_subcomponent_completion_state(
+            subcomponent,
+            next_status=update_data["status"],
+            now=datetime.now(timezone.utc),
+        )
 
     subcomponent.updated_at = datetime.now(timezone.utc)
 
@@ -920,6 +948,10 @@ def batch_update_subcomponents(
 
         if payload.status is not None:
             track("status", payload.status)
+            if payload.status == SubcomponentStatus.complete and not row.completed_at:
+                track("completed_at", now)
+            elif payload.status != SubcomponentStatus.complete and row.completed_at is not None:
+                track("completed_at", None)
         if payload.priority is not None:
             track("priority", payload.priority)
         if payload.blocked is not None:
@@ -938,9 +970,6 @@ def batch_update_subcomponents(
                 track("assignee", payload.assignee)
             if payload.assignee_user_soeid is not None:
                 track("assignee_user_soeid", payload.assignee_user_soeid)
-
-        if changes.get("status", (None, None))[1] == SubcomponentStatus.complete and not row.completed_at:
-            track("completed_at", now)
 
         if not changes:
             updated_rows.append(row)

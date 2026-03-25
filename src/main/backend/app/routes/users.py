@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.auth import hash_bootstrap_password
@@ -19,7 +20,7 @@ from ..models import SpaceMembership, User
 from ..schemas import PasswordResetIssueRequest, PasswordResetIssueResponse, UserRead, UserUpdate
 from ..services.audit_log import log_changes
 from ..services.password_reset import issue_temp_password
-from ..services.spaces import SpaceContext
+from ..services.spaces import SpaceContext, is_global_admin_role
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..utils import read_csv
 
@@ -36,16 +37,73 @@ def _role_scope(space_ctx: SpaceContext) -> str:
 
 
 def _is_global_admin(user: User) -> bool:
-    return (user.role or "").strip().lower() == "global_admin"
+    return is_global_admin_role(user.role)
+
+
+def _normalized_global_role_expr():
+    return func.lower(
+        func.replace(
+            func.replace(func.coalesce(User.role, ""), "-", "_"),
+            " ",
+            "_",
+        )
+    )
+
+
+def _normalized_space_admin_role_expr():
+    return func.lower(
+        func.replace(
+            func.replace(func.coalesce(SpaceMembership.role, ""), "-", "_"),
+            " ",
+            "_",
+        )
+    )
 
 
 def _count_active_global_admins(session: Session) -> int:
     return (
         session.query(User)
         .filter(User.is_active == True)
-        .filter(User.role == "global_admin")
+        .filter(_normalized_global_role_expr() == "global_admin")
         .count()
     )
+
+
+def _count_other_active_space_admins(session: Session, *, space_id: str, exclude_user_id: str) -> int:
+    return (
+        session.query(SpaceMembership)
+        .join(User, User.user_id == SpaceMembership.user_id)
+        .filter(SpaceMembership.space_id == space_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(SpaceMembership.status == "active")
+        .filter(User.is_active == True)
+        .filter(SpaceMembership.user_id != exclude_user_id)
+        .filter(_normalized_space_admin_role_expr() == "space_admin")
+        .count()
+    )
+
+
+def _ensure_user_deactivation_does_not_orphan_admin_spaces(session: Session, user: User) -> None:
+    if not user.is_active:
+        return
+    rows = (
+        session.query(SpaceMembership.space_id)
+        .filter(SpaceMembership.user_id == user.user_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(SpaceMembership.status == "active")
+        .filter(_normalized_space_admin_role_expr() == "space_admin")
+        .distinct()
+        .all()
+    )
+    for row in rows:
+        space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
+        if not space_id:
+            continue
+        if _count_other_active_space_admins(session, space_id=space_id, exclude_user_id=user.user_id) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Space must retain at least one active space_admin",
+            )
 
 
 def _active_space_user_query(session: Session, space_ctx: SpaceContext):
@@ -207,7 +265,7 @@ def list_global_admin_users(
     session: Session = Depends(get_db),
     _admin: User = Depends(require_global_admin),
 ) -> List[UserRead]:
-    query = session.query(User).filter(User.role == "global_admin")
+    query = session.query(User).filter(_normalized_global_role_expr() == "global_admin")
     if active_only:
         query = query.filter(User.is_active == True)
     return query.order_by(User.display_name.asc()).all()
@@ -349,11 +407,13 @@ def update_user(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="At least one active global_admin is required",
                 )
+        if user.is_active and not payload.is_active:
+            _ensure_user_deactivation_does_not_orphan_admin_spaces(session, user)
         user.is_active = bool(payload.is_active)
     session.add(user)
     session.commit()
     session.refresh(user)
-    invalidate_space(space_ctx.space_id, ["users"])
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -390,11 +450,13 @@ def update_user_by_soeid(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="At least one active global_admin is required",
                 )
+        if user.is_active and not payload.is_active:
+            _ensure_user_deactivation_does_not_orphan_admin_spaces(session, user)
         user.is_active = bool(payload.is_active)
     session.add(user)
     session.commit()
     session.refresh(user)
-    invalidate_space(space_ctx.space_id, ["users"])
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -403,6 +465,7 @@ def import_users(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     rows, errors = read_csv(csv_bytes)
@@ -410,6 +473,7 @@ def import_users(
         return {"count": 0, "errors": errors}
     created = 0
     updated = 0
+    affected_user_ids: set[str] = set()
     for idx, row in enumerate(rows, start=2):
         soeid = (row.get("soeid") or "").strip().lower()
         display_name = (row.get("display_name") or "").strip()
@@ -434,6 +498,9 @@ def import_users(
                 continue
         user = session.query(User).filter(User.soeid == soeid).first()
         if user:
+            if _is_global_admin(user) and not _is_global_admin(current_user):
+                errors.append(f"Row {idx}: only global admin can modify global admin accounts")
+                continue
             user.display_name = display_name
             user.team_tag = team_tag or None
             _set_user_capacity_fields(user, capacity_fte_month=capacity_fte)
@@ -457,8 +524,10 @@ def import_users(
             session.flush()
             created += 1
         _ensure_active_membership_for_user(session, user.user_id, space_ctx.space_id)
+        affected_user_ids.add(user.user_id)
     session.commit()
-    invalidate_space(space_ctx.space_id, ["users"])
+    for user_id in affected_user_ids:
+        _invalidate_user_caches_for_user_memberships(session, user_id)
     return {"count": created + updated, "created": created, "updated": updated, "errors": errors}
 
 

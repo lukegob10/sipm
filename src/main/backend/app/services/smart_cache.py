@@ -24,17 +24,36 @@ _SCOPE_VERSIONS: dict[str, int] = {}
 _LOCK = threading.RLock()
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean value.")
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
 def _cache_enabled() -> bool:
-    raw = str(os.getenv("SIPM_SMART_CACHE_ENABLED", "true")).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
+    return _bool_env("SIPM_SMART_CACHE_ENABLED", True)
 
 
 def _cache_max_entries() -> int:
-    raw = str(os.getenv("SIPM_SMART_CACHE_MAX_ENTRIES", "4096")).strip()
-    try:
-        return max(256, int(raw))
-    except Exception:
-        return 4096
+    configured = _int_env("SIPM_SMART_CACHE_MAX_ENTRIES", 4096)
+    if configured <= 0:
+        raise RuntimeError("SIPM_SMART_CACHE_MAX_ENTRIES must be greater than or equal to 1.")
+    return max(256, configured)
 
 
 def _json_default(value: Any) -> Any:
@@ -162,4 +181,3 @@ def clear_cache() -> None:
     with _LOCK:
         _CACHE.clear()
         _SCOPE_VERSIONS.clear()
-

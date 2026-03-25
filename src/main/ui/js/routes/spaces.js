@@ -4,3 +4,7 @@ export function renderSpaces(ctx) {
     renderGovernanceHub("current-space");
   }
 }
+
+export function render(ctx) {
+  renderSpaces(ctx);
+}

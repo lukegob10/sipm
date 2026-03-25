@@ -5,18 +5,27 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
+MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_master_route_renders_project_names_as_drilldown_links():
-    text = MASTER_ROUTE.read_text(encoding="utf-8")
+    text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
 
-    assert "const renderProjectNameLink = (label, projectId) => {" in text
-    assert "const renderSolutionNameLink = (label, solutionId) => {" in text
+    assert "function renderProjectNameLink(label, projectId) {" in text
+    assert "function renderSolutionNameLink(label, solutionId) {" in text
     assert 'class="deliverables-name-link deliverables-name-link-project" data-action="edit" data-type="project"' in text
     assert 'class="deliverables-name-link deliverables-name-link-solution" data-action="edit" data-type="solution"' in text
     assert 'renderProjectNameLink(project?.project_name, project?.project_id)' in text
     assert 'renderSolutionNameLink(solution?.solution_name, solution?.solution_id)' in text
+
+
+def test_master_route_entry_delegates_to_route_local_table_helper():
+    text = MASTER_ROUTE.read_text(encoding="utf-8")
+
+    assert 'import { bindMasterTableInteractions, buildMasterTable } from "./master/table.js";' in text
+    assert "const { html, rowCount } = buildMasterTable(ctx);" in text
+    assert "bindMasterTableInteractions(ctx, {" in text
 
 
 def test_master_project_name_links_reuse_existing_project_modal_path():
@@ -65,7 +74,7 @@ def test_master_type_chip_uses_colored_chip_styling():
 def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
-    route_text = MASTER_ROUTE.read_text(encoding="utf-8")
+    route_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
     styles_text = STYLES_CSS.read_text(encoding="utf-8")
 
     assert 'id="preset-engineering"' in html_text

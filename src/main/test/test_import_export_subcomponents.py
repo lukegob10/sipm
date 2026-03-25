@@ -137,6 +137,36 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert updated_json["effective_github_repo_url"] == "https://github.com/example-org/platform-worker"
     assert updated_json["repo_source"] == "override"
 
+    reopen_buf = StringIO()
+    reopen_writer = csv.DictWriter(reopen_buf, fieldnames=fieldnames)
+    reopen_writer.writeheader()
+    reopen_writer.writerow(
+        {
+            "project_name": "Data Platform",
+            "solution_name": "Access Controls",
+            "version": "0.1.0",
+            "subcomponent_name": "Task A",
+            "status": "in_progress",
+            "priority": "1",
+            "due_date": date.today().isoformat(),
+            "assignee": "Engineer Updated",
+            "github_repo_url": "https://github.com/example-org/platform-worker",
+            "solution_owner": "Owner",
+        }
+    )
+    reopen_resp = await client.post(
+        "/project-manager/api/subcomponents/import",
+        content=reopen_buf.getvalue().encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert reopen_resp.status_code == 200, reopen_resp.text
+
+    reopened = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
+    assert reopened.status_code == 200
+    reopened_json = reopened.json()
+    assert reopened_json["status"] == "in_progress"
+    assert reopened_json["completed_at"] is None
+
     exported = await client.get("/project-manager/api/subcomponents/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
@@ -180,6 +210,13 @@ async def test_update_subcomponent_sets_completed_at_and_rejects_name_conflict(c
     complete = await client.patch(f"/project-manager/api/subcomponents/{b['subcomponent_id']}", json={"status": "complete"})
     assert complete.status_code == 200
     assert complete.json()["completed_at"] is not None
+
+    reopened = await client.patch(
+        f"/project-manager/api/subcomponents/{b['subcomponent_id']}",
+        json={"status": "in_progress"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["completed_at"] is None
 
     conflict = await client.patch(
         f"/project-manager/api/subcomponents/{b['subcomponent_id']}",

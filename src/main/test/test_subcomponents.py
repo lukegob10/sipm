@@ -5,6 +5,7 @@ import pytest
 from backend.app.models import Phase, Subcomponent
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
+from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext
 
 
@@ -318,6 +319,37 @@ async def test_batch_update_subcomponents(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
+async def test_batch_reopening_subcomponents_clears_completed_at(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+
+    created_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={
+            "subcomponent_name": "Batch Reopen Task",
+            "status": "complete",
+            "assignee": "Engineer A",
+        },
+    )
+    assert created_resp.status_code == 201, created_resp.text
+    created = created_resp.json()
+    assert created["completed_at"] is not None
+
+    reopened_resp = await client.patch(
+        "/project-manager/api/subcomponents/actions/batch",
+        json={
+            "subcomponent_ids": [created["subcomponent_id"]],
+            "status": "in_progress",
+        },
+    )
+    assert reopened_resp.status_code == 200, reopened_resp.text
+    reopened = reopened_resp.json()
+    assert len(reopened) == 1
+    assert reopened[0]["status"] == "in_progress"
+    assert reopened[0]["completed_at"] is None
+
+
+@pytest.mark.anyio
 async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
@@ -382,6 +414,114 @@ async def test_subcomponent_uniqueness_and_soft_delete(client, db_sessionmaker):
     list_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")
     assert list_resp.status_code == 200
     assert list_resp.json() == []
+
+
+@pytest.mark.anyio
+async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcomponent_cache(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    clear_cache()
+    try:
+        project, solution = await create_project_solution(client)
+        create_resp = await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+            json={"subcomponent_name": "Hidden Child Task", "assignee": "Engineer A"},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        subcomponent = create_resp.json()
+
+        primed_list = await client.get("/project-manager/api/subcomponents")
+        assert primed_list.status_code == 200, primed_list.text
+        assert [row["subcomponent_id"] for row in primed_list.json()] == [subcomponent["subcomponent_id"]]
+
+        primed_solution_list = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert primed_solution_list.status_code == 200, primed_solution_list.text
+        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [subcomponent["subcomponent_id"]]
+
+        primed_detail = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert primed_detail.status_code == 200, primed_detail.text
+
+        primed_export = await client.get("/project-manager/api/subcomponents/export")
+        assert primed_export.status_code == 200, primed_export.text
+        assert "Hidden Child Task" in primed_export.text
+
+        delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+        assert delete_resp.status_code == 204, delete_resp.text
+
+        list_resp = await client.get("/project-manager/api/subcomponents")
+        assert list_resp.status_code == 200, list_resp.text
+        assert list_resp.json() == []
+
+        solution_list_resp = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert solution_list_resp.status_code == 404, solution_list_resp.text
+        assert solution_list_resp.json()["detail"] == "Solution not found"
+
+        detail_resp = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert detail_resp.status_code == 404, detail_resp.text
+        assert detail_resp.json()["detail"] == "Subcomponent not found"
+
+        export_resp = await client.get("/project-manager/api/subcomponents/export")
+        assert export_resp.status_code == 200, export_resp.text
+        assert "Hidden Child Task" not in export_resp.text
+    finally:
+        clear_cache()
+
+
+@pytest.mark.anyio
+async def test_soft_deleted_solution_hides_subcomponent_reads_and_clears_subcomponent_cache(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    clear_cache()
+    try:
+        _project, solution = await create_project_solution(client)
+        create_resp = await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+            json={"subcomponent_name": "Hidden After Solution Delete", "assignee": "Engineer A"},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        subcomponent = create_resp.json()
+
+        primed_list = await client.get("/project-manager/api/subcomponents")
+        assert primed_list.status_code == 200, primed_list.text
+        assert [row["subcomponent_id"] for row in primed_list.json()] == [subcomponent["subcomponent_id"]]
+
+        primed_solution_list = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert primed_solution_list.status_code == 200, primed_solution_list.text
+        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [subcomponent["subcomponent_id"]]
+
+        primed_detail = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert primed_detail.status_code == 200, primed_detail.text
+
+        delete_resp = await client.delete(f"/project-manager/api/solutions/{solution['solution_id']}")
+        assert delete_resp.status_code == 204, delete_resp.text
+
+        list_resp = await client.get("/project-manager/api/subcomponents")
+        assert list_resp.status_code == 200, list_resp.text
+        assert list_resp.json() == []
+
+        solution_list_resp = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert solution_list_resp.status_code == 404, solution_list_resp.text
+        assert solution_list_resp.json()["detail"] == "Solution not found"
+
+        detail_resp = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert detail_resp.status_code == 404, detail_resp.text
+        assert detail_resp.json()["detail"] == "Subcomponent not found"
+    finally:
+        clear_cache()
 
 
 @pytest.mark.anyio

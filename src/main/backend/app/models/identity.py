@@ -50,32 +50,6 @@ class User(TimestampMixin, Base):
     )
 
 
-class PasswordResetToken(TimestampMixin, Base):
-    __tablename__ = physical_table_name("password_reset_tokens")
-    __table_args__ = (
-        UniqueConstraint("token_hash", name="uix_password_reset_token_hash"),
-        Index("idx_password_reset_user_expires", "user_id", "expires_at"),
-        Index("idx_password_reset_issued_by", "issued_by_user_id", "created_at"),
-    )
-
-    reset_token_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    user_id: Mapped[str] = mapped_column(
-        String,
-        ForeignKey(fk_target("users", "user_id")),
-        nullable=False,
-        index=True,
-    )
-    issued_by_user_id: Mapped[str] = mapped_column(
-        String,
-        ForeignKey(fk_target("users", "user_id")),
-        nullable=False,
-        index=True,
-    )
-    token_hash: Mapped[str] = mapped_column(String, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
-    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
-
-
 class Space(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("spaces")
     __table_args__ = (
@@ -190,7 +164,6 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 __all__ = [
     "ChangeLog",
-    "PasswordResetToken",
     "Space",
     "SpaceMembership",
     "Team",

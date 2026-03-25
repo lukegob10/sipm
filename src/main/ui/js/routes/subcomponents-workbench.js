@@ -108,3 +108,7 @@ export function renderSubcomponentsWorkbench(ctx) {
     </table>
   `;
 }
+
+export function render(ctx) {
+  renderSubcomponentsWorkbench(ctx);
+}

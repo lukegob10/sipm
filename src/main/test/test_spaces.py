@@ -110,6 +110,45 @@ async def test_cannot_remove_last_active_space_admin(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
+async def test_create_space_rejects_duplicate_name_with_clean_client_error(client):
+    first = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Delivery Space", "slug": "delivery-space"},
+    )
+    assert first.status_code == 201, first.text
+
+    duplicate = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Delivery Space", "slug": "delivery-space-2"},
+    )
+    assert duplicate.status_code == 400, duplicate.text
+    assert duplicate.json()["detail"] == "Space name already exists"
+
+
+@pytest.mark.anyio
+async def test_update_space_rejects_duplicate_name_with_clean_client_error(client):
+    first = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Delivery Space", "slug": "delivery-space"},
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Planning Space", "slug": "planning-space"},
+    )
+    assert second.status_code == 201, second.text
+
+    second_space_id = second.json()["space_id"]
+    duplicate = await client.patch(
+        f"/project-manager/api/spaces/{second_space_id}",
+        json={"name": "Delivery Space"},
+    )
+    assert duplicate.status_code == 400, duplicate.text
+    assert duplicate.json()["detail"] == "Space name already exists"
+
+
+@pytest.mark.anyio
 async def test_can_change_admin_membership_when_another_admin_exists(client, db_sessionmaker):
     space_id, admin_memberships, member_membership_id = _seed_space_with_members(
         db_sessionmaker,
@@ -134,6 +173,63 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
         delete_last_admin = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{second_admin}")
         assert delete_last_admin.status_code == 400, delete_last_admin.text
         assert delete_last_admin.json()["detail"] == "Space must retain at least one active space_admin"
+    finally:
+        _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admin(client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        space = Space(
+            space_id="space-inactive-admin-guard",
+            name="Inactive Admin Guard Space",
+            slug="inactive-admin-guard-space",
+            is_active=True,
+        )
+        active_admin = User(
+            user_id="active-admin-guard-user",
+            soeid="activeguard",
+            email="activeguard@example.com",
+            display_name="Active Guard",
+            password_hash="x",
+            role="user",
+            is_active=True,
+        )
+        inactive_admin = User(
+            user_id="inactive-admin-guard-user",
+            soeid="inactiveguard",
+            email="inactiveguard@example.com",
+            display_name="Inactive Guard",
+            password_hash="x",
+            role="user",
+            is_active=False,
+        )
+        active_membership = SpaceMembership(
+            membership_id="active-admin-guard-membership",
+            space_id=space.space_id,
+            user_id=active_admin.user_id,
+            role="space_admin",
+            status="active",
+        )
+        inactive_membership = SpaceMembership(
+            membership_id="inactive-admin-guard-membership",
+            space_id=space.space_id,
+            user_id=inactive_admin.user_id,
+            role="space_admin",
+            status="active",
+        )
+        session.add_all([space, active_admin, inactive_admin, active_membership, inactive_membership])
+        session.commit()
+
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        _set_current_space_override("space-inactive-admin-guard", role="space_admin")
+        demote = await client.patch(
+            "/project-manager/api/spaces/space-inactive-admin-guard/members/active-admin-guard-membership",
+            json={"role": "member"},
+        )
+        assert demote.status_code == 400, demote.text
+        assert demote.json()["detail"] == "Space must retain at least one active space_admin"
     finally:
         _restore_current_space_override(original_current_space)
 

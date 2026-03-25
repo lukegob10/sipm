@@ -1,67 +1,28 @@
-const APP_CONTEXT_PATH = (() => {
-  try {
-    const modulePath = new URL(import.meta.url, window.location.href).pathname || "";
-    const marker = "/js/";
-    const idx = modulePath.lastIndexOf(marker);
-    if (idx <= 0) return "";
-    return modulePath.slice(0, idx).replace(/\/+$/, "");
-  } catch {
-    return "";
-  }
-})();
-const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";
+import {
+  API_BASE,
+  APP_ASSET_VERSION,
+  buildApiUrl,
+  buildAppUrl,
+  buildResetPageUrl,
+  buildWsUrl,
+  formatDateTime,
+  refreshStylesheetVersion,
+} from "./shell/paths.js";
+import { createShellContext } from "./shell/context.js";
+import { createRouterController } from "./shell/router.js";
+import { createDataStoreController } from "./shell/data-store.js";
+import { createSessionController } from "./shell/session.js";
+import {
+  LIVE_SYNC_CLOSE_AUTH,
+  LIVE_SYNC_CLOSE_BUSY,
+  LIVE_SYNC_CLOSE_LIMIT,
+  LIVE_SYNC_CLOSE_SPACE,
+  createLiveSyncController,
+} from "./shell/live-sync.js";
+
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
-const APP_ASSET_VERSION = (() => {
-  try {
-    return new URL(import.meta.url).searchParams.get("v") || Date.now().toString();
-  } catch {
-    return Date.now().toString();
-  }
-})();
-
-// Prevent stale CSS by cache-busting the linked stylesheet on each load.
-(() => {
-  const sheet = document.querySelector('link[rel="stylesheet"][href*="styles.css"]');
-  if (sheet) {
-    const url = new URL(sheet.href, location.origin);
-    url.searchParams.set("v", Date.now().toString());
-    sheet.href = url.toString();
-  }
-})();
-
-function buildAppUrl(path = "/") {
-  let normalized = String(path || "/").trim() || "/";
-  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
-  if (normalized === "/") {
-    return APP_CONTEXT_PATH ? `${APP_CONTEXT_PATH}/` : "/";
-  }
-  return APP_CONTEXT_PATH ? `${APP_CONTEXT_PATH}${normalized}` : normalized;
-}
-
-function buildApiUrl(path = "") {
-  let normalized = String(path || "").trim();
-  if (!normalized) return API_BASE;
-  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
-  return `${API_BASE}${normalized}`;
-}
-
-function buildWsUrl(path = "/ws") {
-  const url = new URL(buildApiUrl(path), window.location.origin);
-  url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
-
-function formatDateTime(value) {
-  if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString();
-}
-
-function buildResetPageUrl() {
-  return new URL(buildAppUrl("/reset-password"), window.location.origin).toString();
-}
+refreshStylesheetVersion();
 
 async function copyText(value) {
   const text = String(value || "");
@@ -523,11 +484,6 @@ const state = {
   loadedEntities: new Set(),
 };
 
-let refreshInFlight = false;
-const pendingRefreshEntities = new Set();
-const ignoreNextRefresh = new Set();
-let suppressRouteChange = false;
-let viewPrefetchTimer = null;
 const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
 const IDLE_WARN_MS = 55 * 60 * 1000;
 const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
@@ -555,355 +511,121 @@ const VALID_SUBCOMPONENTS_WORKBENCH_PRESETS = new Set([
   "stale",
 ]);
 const RECENT_SPACES_LIMIT = 5;
-const LIVE_SYNC_CLOSE_AUTH = 4401;
-const LIVE_SYNC_CLOSE_SPACE = 4403;
-const LIVE_SYNC_CLOSE_LIMIT = 4408;
-const LIVE_SYNC_CLOSE_BUSY = 1013;
-const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
 let idleLastActive = Date.now();
 let idleWarned = false;
 let idleInterval = null;
 let idleListenersBound = false;
-let sessionRefreshPromise = null;
-let lastSessionRefreshAt = 0;
 let pendingConfirmResolve = null;
 let confirmReturnFocusEl = null;
-let liveSyncSocket = null;
-let liveSyncRetryTimer = null;
-let liveSyncRecoveryPromise = null;
-let liveSyncReconnectAttempt = 0;
-let liveSyncAuthRecoveryUsed = false;
-let liveSyncSpaceRecoveryUsed = false;
 const csvUploadState = {
   kind: "",
   file: null,
 };
 
-const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
-const KNOWN_VIEWS = [
-  "master",
-  "subcomponents-workbench",
-  "dashboard",
-  "pm-dashboard",
-  "kanban",
-  "calendar",
-  "planning",
-  "team-capacity",
-  "spaces",
-  "access",
-];
-const ADMIN_VIEWS = new Set(["team-capacity", "spaces", "access"]);
-const VIEW_DATA_REQUIREMENTS = {
-  master: ["phases", "projects", "solutions", "subcomponents", "users"],
-  "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
-  dashboard: ["projects", "solutions", "users"],
-  "pm-dashboard": ["projects", "solutions", "subcomponents", "users", "allocations", "windows"],
-  kanban: ["phases", "projects", "solutions"],
-  calendar: ["projects", "solutions"],
-  planning: ["projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
-  "team-capacity": ["users", "allocations"],
-  spaces: [],
-  access: [],
+let routerController = null;
+let dataStoreController = null;
+let sessionController = null;
+let liveSyncController = null;
+const ignoreNextRefresh = {
+  delete(entity) {
+    return dataStoreController.clearIgnoredRefresh(entity);
+  },
 };
-const VIEW_PREFETCH_TARGET = {
-  master: "dashboard",
-  "subcomponents-workbench": "planning",
-  dashboard: "pm-dashboard",
-  "pm-dashboard": "kanban",
-  kanban: "planning",
-  calendar: "planning",
-  planning: "team-capacity",
-  "team-capacity": "spaces",
-  spaces: "access",
-  access: "planning",
-};
-const ROUTE_MODULE_LOADERS = {
-  master: () => import(`./routes/master.js?v=${APP_ASSET_VERSION}`),
-  "subcomponents-workbench": () => import(`./routes/subcomponents-workbench.js?v=${APP_ASSET_VERSION}`),
-  dashboard: () => import(`./routes/dashboard.js?v=${APP_ASSET_VERSION}`),
-  "pm-dashboard": () => import(`./routes/pm-dashboard.js?v=${APP_ASSET_VERSION}`),
-  kanban: () => import(`./routes/kanban.js?v=${APP_ASSET_VERSION}`),
-  calendar: () => import(`./routes/calendar.js?v=${APP_ASSET_VERSION}`),
-  planning: () => import(`./routes/planning.js?v=${APP_ASSET_VERSION}`),
-  "team-capacity": () => import(`./routes/team-capacity.js?v=${APP_ASSET_VERSION}`),
-  spaces: () => import(`./routes/spaces.js?v=${APP_ASSET_VERSION}`),
-  access: () => import(`./routes/access.js?v=${APP_ASSET_VERSION}`),
-};
-const routeModuleCache = {};
-const routeModuleInFlight = {};
 
 function getRouteModule(view) {
-  return routeModuleCache[normalizeView(view)] || null;
+  return routerController.getRouteModule(view);
 }
 
 async function ensureRouteModule(view) {
-  const key = normalizeView(view);
-  const loader = ROUTE_MODULE_LOADERS[key];
-  if (!loader) return null;
-  if (routeModuleCache[key]) return routeModuleCache[key];
-  if (routeModuleInFlight[key]) return routeModuleInFlight[key];
-  routeModuleInFlight[key] = loader()
-    .then((mod) => {
-      routeModuleCache[key] = mod || {};
-      return routeModuleCache[key];
-    })
-    .catch((err) => {
-      console.warn(`Failed to load route module '${key}'`, err);
-      return null;
-    })
-    .finally(() => {
-      delete routeModuleInFlight[key];
-    });
-  return routeModuleInFlight[key];
+  return routerController.ensureRouteModule(view);
 }
 
 function normalizeView(view) {
-  const candidate = (view || "").toString().trim().toLowerCase();
-  if (candidate === "settings") return "team-capacity";
-  return KNOWN_VIEWS.includes(candidate) ? candidate : "master";
+  return routerController.normalizeView(view);
 }
 
 function isAdminView(view) {
-  return ADMIN_VIEWS.has(normalizeView(view));
+  return routerController.isAdminView(view);
 }
 
 function userCanAccessAdminViews() {
-  if (!state.authed) return false;
-  if (userIsGlobalAdmin()) return true;
-  return isSpaceAdminRole(state.activeSpace?.space_role);
+  return routerController.userCanAccessAdminViews();
 }
 
 function canAccessView(view) {
-  const normalized = normalizeView(view);
-  if (normalized === "access") return userCanAccessAdminViews();
-  if (normalized === "team-capacity" || normalized === "spaces") return userCanAccessAdminViews();
-  if (isAdminView(normalized)) return false;
-  return true;
+  return routerController.canAccessView(view);
 }
 
 function resolveAccessibleView(view) {
-  const normalized = normalizeView(view);
-  if (!canAccessView(normalized)) {
-    return "master";
-  }
-  return normalized;
+  return routerController.resolveAccessibleView(view);
 }
 
 function appRelativePath(pathname = window.location.pathname) {
-  const raw = String(pathname || "/").trim() || "/";
-  if (APP_CONTEXT_PATH && raw.startsWith(APP_CONTEXT_PATH)) {
-    const trimmed = raw.slice(APP_CONTEXT_PATH.length) || "/";
-    return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  }
-  return raw.startsWith("/") ? raw : `/${raw}`;
+  return routerController.appRelativePath(pathname);
 }
 
 function routePathForView(view) {
-  const normalized = normalizeView(view);
-  return normalized === "master" ? "/" : `/${normalized}`;
+  return routerController.routePathForView(view);
 }
 
 function viewHref(view) {
-  return buildAppUrl(routePathForView(view));
+  return routerController.viewHref(view);
 }
 
 function isResetPathname(pathname = window.location.pathname) {
-  const current = appRelativePath(pathname).replace(/\/+$/, "");
-  return current === "/reset-password";
+  return routerController.isResetPathname(pathname);
 }
 
 function viewFromLocationPath(pathname = window.location.pathname) {
-  const relative = appRelativePath(pathname).replace(/\/+$/, "");
-  if (relative === "/" || relative === "") return "master";
-  const firstSegment = relative.replace(/^\/+/, "").split("/")[0].trim().toLowerCase();
-  return normalizeView(firstSegment);
+  return routerController.viewFromLocationPath(pathname);
 }
 
 function syncPathForView(view, replace = false) {
-  const target = viewHref(view);
-  const currentUrl = new URL(window.location.href);
-  const targetUrl = new URL(target, window.location.origin);
-  if (currentUrl.pathname === targetUrl.pathname) return;
-  suppressRouteChange = true;
-  if (replace) {
-    window.history.replaceState(null, "", targetUrl.pathname);
-  } else {
-    window.history.pushState(null, "", targetUrl.pathname);
-  }
-  window.setTimeout(() => {
-    suppressRouteChange = false;
-  }, 0);
+  return routerController.syncPathForView(view, replace);
 }
 
 function viewDomIdForRoute(view) {
-  const normalized = normalizeView(view);
-  return normalized === "access" ? "spaces" : normalized;
+  return routerController.viewDomIdForRoute(view);
 }
 
 function navViewForRoute(view) {
-  const normalized = normalizeView(view);
-  return normalized === "access" ? "spaces" : normalized;
+  return routerController.navViewForRoute(view);
 }
 
 function isSpaceGovernanceView(view) {
-  const normalized = normalizeView(view);
-  return normalized === "spaces" || normalized === "access";
+  return routerController.isSpaceGovernanceView(view);
 }
 
 function entitiesForView(view) {
-  return VIEW_DATA_REQUIREMENTS[normalizeView(view)] || VIEW_DATA_REQUIREMENTS.master;
+  return routerController.entitiesForView(view);
 }
 
 function isKnownEntity(entity) {
-  return DATA_ENTITIES.includes(entity);
+  return routerController.isKnownEntity(entity);
 }
 
 function clearDataState() {
-  state.phases = [];
-  state.projects = [];
-  state.solutions = [];
-  state.solutionPhases = {};
-  state.subcomponents = [];
-  state.teams = [];
-  state.users = [];
-  state.allocations = [];
-  state.planningWindows = [];
-  state.loadedEntities = new Set();
-  state.capacitySelectedSoeid = "";
-  state.teamCapacity = createTeamCapacityState();
-  if (state.subcomponentsWorkbench) {
-    state.subcomponentsWorkbench.selected = new Set();
-    state.subcomponentsWorkbench.activeSubcomponentId = "";
-    state.subcomponentsWorkbench.visibleIds = [];
-    state.subcomponentsWorkbench.activityRequestId = 0;
-    state.subcomponentsWorkbench.drawerOpen = false;
-    state.subcomponentsWorkbench.drawerReturnSubcomponentId = "";
-    state.subcomponentsWorkbench.drawerReturnScrollY = null;
-    state.subcomponentsWorkbench.suppressAutoScrollOnce = false;
-  }
+  return dataStoreController.clearDataState();
 }
 
 function markIgnoreRefresh(entity) {
-  if (entity) ignoreNextRefresh.add(entity);
+  return dataStoreController.markIgnoreRefresh(entity);
 }
 
 async function fetchEntityData(entity) {
-  if (entity === "phases") return api("/phases");
-  if (entity === "projects") return api("/projects");
-  if (entity === "solutions") return api("/solutions");
-  if (entity === "subcomponents") return api("/subcomponents");
-  if (entity === "teams") return api("/teams");
-  if (entity === "users") return api("/users");
-  if (entity === "allocations") return api("/resource-allocations");
-  if (entity === "windows") return api("/planning/windows");
-  throw new Error(`Unknown data entity: ${entity}`);
+  return dataStoreController.fetchEntityData(entity);
 }
 
 function applyEntityData(entity, data) {
-  if (entity === "phases") {
-    state.phases = Array.isArray(data) ? data : [];
-    state.solutionPhases = {};
-  } else if (entity === "projects") {
-    state.projects = Array.isArray(data) ? data : [];
-  } else if (entity === "solutions") {
-    state.solutions = Array.isArray(data) ? data : [];
-  } else if (entity === "subcomponents") {
-    state.subcomponents = Array.isArray(data) ? data : [];
-  } else if (entity === "teams") {
-    state.teams = Array.isArray(data) ? data : [];
-  } else if (entity === "users") {
-    state.users = Array.isArray(data) ? data : [];
-  } else if (entity === "allocations") {
-    state.allocations = Array.isArray(data) ? data : [];
-  } else if (entity === "windows") {
-    state.planningWindows = Array.isArray(data) ? data : [];
-  }
-  state.loadedEntities.add(entity);
+  return dataStoreController.applyEntityData(entity, data);
 }
 
 function scheduleViewPrefetch(view) {
-  const targetView = VIEW_PREFETCH_TARGET[normalizeView(view)];
-  if (!targetView || !state.authed) return;
-  const needed = entitiesForView(targetView).filter((entity) => !state.loadedEntities.has(entity));
-  if (!needed.length) return;
-  if (viewPrefetchTimer) window.clearTimeout(viewPrefetchTimer);
-  viewPrefetchTimer = window.setTimeout(async () => {
-    if (!state.authed || state.loading || refreshInFlight) return;
-    try {
-      const results = await Promise.allSettled(needed.map((entity) => fetchEntityData(entity)));
-      let changed = false;
-      results.forEach((result, idx) => {
-        if (result.status !== "fulfilled") return;
-        applyEntityData(needed[idx], result.value);
-        changed = true;
-      });
-      if (changed) populateSelects();
-    } catch (err) {
-      console.warn("Prefetch skipped", err);
-    }
-  }, 450);
+  return dataStoreController.scheduleViewPrefetch(view);
 }
 
 async function refreshFromServer(entity = "all") {
-  const ent = (entity || "all").toString();
-  if (!state.authed) return;
-
-  if (ignoreNextRefresh.has(ent)) {
-    ignoreNextRefresh.delete(ent);
-    return;
-  }
-
-  if (state.loading || refreshInFlight) {
-    pendingRefreshEntities.add(ent);
-    return;
-  }
-
-  const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
-  const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-  const selectedSubcomponentId = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
-
-  refreshInFlight = true;
-  try {
-    const entities = ent === "all" ? DATA_ENTITIES : (isKnownEntity(ent) ? [ent] : DATA_ENTITIES);
-    const results = await Promise.allSettled(entities.map((key) => fetchEntityData(key)));
-    const errors = [];
-    let changed = false;
-    results.forEach((result, idx) => {
-      if (result.status !== "fulfilled") {
-        errors.push(result.reason);
-        return;
-      }
-      applyEntityData(entities[idx], result.value);
-      changed = true;
-    });
-    if (errors.length) {
-      const authError = errors.find((err) => err && err.status === 401);
-      if (authError) {
-        handleAuthError(authError);
-        return;
-      }
-      console.warn("Refresh failed", errors);
-    }
-    if (changed) populateSelects();
-    renderActiveView();
-    restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
-  } catch (err) {
-    console.warn("Refresh failed", err);
-    if (handleAuthError(err)) {
-      setStatus("Sign in required", "warn");
-    }
-  } finally {
-    refreshInFlight = false;
-    if (pendingRefreshEntities.size) {
-      const pending = Array.from(pendingRefreshEntities);
-      pendingRefreshEntities.clear();
-      if (pending.includes("all") || pending.length > 1) {
-        refreshFromServer("all");
-      } else {
-        refreshFromServer(pending[0]);
-      }
-    }
-  }
+  return dataStoreController.refreshFromServer(entity);
 }
 
 function renderTopbarStatus() {
@@ -922,25 +644,77 @@ function setStatus(text, type = "") {
   renderTopbarStatus();
 }
 
-function setLiveSyncPhase(phase, options = {}) {
-  state.liveSync.phase = phase;
-  if (options.clear) {
-    state.liveSync.statusText = "";
-    state.liveSync.statusTone = "";
-    renderTopbarStatus();
-    return;
-  }
-  const defaultByPhase = {
-    live: { text: "Sync live", tone: "positive" },
-    reconnecting: { text: "Reconnecting…", tone: "warn" },
-    paused: { text: "Sync paused", tone: "muted" },
-    attention: { text: "Space attention", tone: "warn" },
-  };
-  const fallback = defaultByPhase[phase] || { text: "", tone: "" };
-  state.liveSync.statusText = options.text !== undefined ? options.text : fallback.text;
-  state.liveSync.statusTone = options.tone !== undefined ? options.tone : fallback.tone;
-  renderTopbarStatus();
+function initShellControllers() {
+  routerController = createRouterController({
+    state,
+    els,
+    renderActiveView,
+    userIsGlobalAdmin,
+    isSpaceAdminRole,
+    loadData: (...args) => dataStoreController.loadData(...args),
+    loadTeamCapacityData,
+  });
+  dataStoreController = createDataStoreController({
+    state,
+    els,
+    api: (...args) => sessionController.api(...args),
+    setStatus,
+    setAuthVisible,
+    renderActiveView,
+    populateSelects,
+    restoreSelections,
+    handleAuthError: (...args) => sessionController.handleAuthError(...args),
+    loadTeamCapacityData,
+    entitiesForView: (...args) => routerController.entitiesForView(...args),
+    isKnownEntity: (...args) => routerController.isKnownEntity(...args),
+    dataEntities: routerController.DATA_ENTITIES,
+    viewPrefetchTarget: routerController.VIEW_PREFETCH_TARGET,
+  });
+  sessionController = createSessionController({
+    state,
+    els,
+    apiBase: API_BASE,
+    accessRefreshIntervalMs: ACCESS_REFRESH_INTERVAL_MS,
+    buildAppUrl,
+    isResetPathname,
+    setAuthMode,
+    setAuthed,
+    setStatus,
+    setAuthVisible,
+    setResetVisible,
+    showAuthError,
+    showAuthNotice,
+    showResetError,
+    showResetSuccess,
+    resetIdleTimer,
+    hideIdleModal,
+    refreshSpaceContext,
+    reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
+    startLiveSync: (...args) => liveSyncController.startLiveSync(...args),
+    stopLiveSync: (...args) => liveSyncController.stopLiveSync(...args),
+  });
+  liveSyncController = createLiveSyncController({
+    state,
+    buildWsUrl,
+    isResetPath: (...args) => sessionController.isResetPath(...args),
+    refreshSessionTokens: (...args) => sessionController.refreshSessionTokens(...args),
+    refreshSpaceContext,
+    reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
+    refreshFromServer: (...args) => dataStoreController.refreshFromServer(...args),
+    handleAuthError: (...args) => sessionController.handleAuthError(...args),
+    handleSessionExpired: (...args) => sessionController.handleSessionExpired(...args),
+    renderTopbarStatus,
+    setSpaceFeedback,
+    spaceNameForId,
+    clearDataState: (...args) => dataStoreController.clearDataState(...args),
+  });
 }
+
+function setLiveSyncPhase(phase, options = {}) {
+  return liveSyncController.setLiveSyncPhase(phase, options);
+}
+
+initShellControllers();
 
 const importResultTimers = new WeakMap();
 
@@ -1326,11 +1100,8 @@ async function refreshSpaceContext(options = {}) {
 function setAuthed(user) {
   state.user = user;
   state.authed = !!user;
-  lastSessionRefreshAt = user ? Date.now() : 0;
-  if (!user) {
-    sessionRefreshPromise = null;
-    stopLiveSync();
-  }
+  sessionController.onAuthedChange(user);
+  if (!user) stopLiveSync();
   if (els.currentUser) {
     els.currentUser.textContent = user ? user.display_name || user.email : "Not signed in";
     els.currentUser.classList.toggle("muted", !user);
@@ -1465,314 +1236,43 @@ function stopIdleWatch() {
 }
 
 async function refreshSessionTokens(options = {}) {
-  const force = !!options.force;
-  const allowLoggedOut = !!options.allowLoggedOut;
-  const silentFailure = !!options.silentFailure;
-  const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
-
-  if (!force && !state.authed && !allowLoggedOut) {
-    return null;
-  }
-  if (!force && Date.now() - lastSessionRefreshAt < ACCESS_REFRESH_INTERVAL_MS) {
-    return state.user || {};
-  }
-  if (sessionRefreshPromise) {
-    return sessionRefreshPromise;
-  }
-
-  const headers = {};
-  if (state.activeSpace?.space_id) {
-    headers["X-Space-Id"] = state.activeSpace.space_id;
-  }
-
-  sessionRefreshPromise = (async () => {
-    try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
-        method: "POST",
-        credentials: "include",
-        headers,
-      });
-      const text = await res.text();
-      let data = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = text || null;
-      }
-
-      if (!res.ok) {
-        const detail = data && data.detail !== undefined ? data.detail : data;
-        const message = typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : res.statusText;
-        const err = new Error(message || res.statusText);
-        err.status = res.status;
-        throw err;
-      }
-
-      if (data && typeof data === "object") {
-        setAuthed(data);
-      }
-      lastSessionRefreshAt = Date.now();
-
-      try {
-        await refreshSpaceContext({
-          apiOptions: { skipAuthRefresh: true },
-          suppressLiveSyncRestart,
-        });
-      } catch (err) {
-        console.warn("Space context refresh after token refresh failed", err);
-      }
-
-      return data || {};
-    } catch (err) {
-      if (!silentFailure && err && (err.status === 401 || err.status === 423)) {
-        handleSessionExpired();
-      } else if (!silentFailure) {
-        console.warn("Session refresh failed", err);
-      }
-      return null;
-    } finally {
-      sessionRefreshPromise = null;
-    }
-  })();
-
-  return sessionRefreshPromise;
+  return sessionController.refreshSessionTokens(options);
 }
 
 function maybeRefreshSessionOnActivity() {
-  if (!state.authed) return;
-  if (sessionRefreshPromise) return;
-  if (Date.now() - lastSessionRefreshAt < ACCESS_REFRESH_INTERVAL_MS) return;
-  refreshSessionTokens({ force: false }).catch(() => {});
+  return sessionController.maybeRefreshSessionOnActivity();
 }
 
 async function api(path, options = {}) {
-  const {
-    timeoutMs: timeoutOption,
-    skipAuthRefresh = false,
-    _retriedAfterRefresh = false,
-    ...requestOptions
-  } = options;
-  const headers = { ...(requestOptions.headers || {}) };
-  if (state.authed && state.activeSpace?.space_id && !headers["X-Space-Id"]) {
-    headers["X-Space-Id"] = state.activeSpace.space_id;
-  }
-  const isFormData = requestOptions.body instanceof FormData;
-  if (!isFormData && requestOptions.body && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-  const timeoutMs = Number.isFinite(timeoutOption) ? timeoutOption : 15000;
-  let controller = null;
-  let timeoutId = null;
-  if (!requestOptions.signal && timeoutMs > 0) {
-    controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-  }
-  try {
-    const res = await fetch(`${API_BASE}${path}`, {
-      credentials: "include",
-      ...requestOptions,
-      headers,
-      signal: requestOptions.signal || controller?.signal,
-    });
-    const text = await res.text();
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text || null;
-    }
-    if (!res.ok) {
-      if (res.status === 401 && state.authed && !_retriedAfterRefresh && !skipAuthRefresh) {
-        const refreshed = await refreshSessionTokens({ force: true });
-        if (refreshed) {
-          return api(path, {
-            ...options,
-            _retriedAfterRefresh: true,
-            skipAuthRefresh: true,
-          });
-        }
-      }
-      const detail = data && data.detail !== undefined ? data.detail : data;
-      const message = typeof detail === "string" ? detail : detail ? JSON.stringify(detail) : res.statusText;
-      const err = new Error(message || res.statusText);
-      err.status = res.status;
-      err.path = path;
-      throw err;
-    }
-    return data;
-  } catch (err) {
-    if (err && err.name === "AbortError") {
-      const timeoutErr = new Error(`Request timed out: ${path}`);
-      timeoutErr.status = 408;
-      timeoutErr.path = path;
-      throw timeoutErr;
-    }
-    throw err;
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
-  }
+  return sessionController.api(path, options);
 }
 
 function handleAuthError(err) {
-  if (err && err.status === 401) {
-    handleSessionExpired();
-    setAuthVisible(true);
-    return true;
-  }
-  return false;
+  return sessionController.handleAuthError(err);
 }
 
 function handleSessionExpired() {
-  stopLiveSync();
-  sessionRefreshPromise = null;
-  lastSessionRefreshAt = 0;
-  setAuthed(null);
-  setStatus("Session expired", "warn");
-  showAuthNotice("Your session expired due to inactivity. Please sign in again.");
+  return sessionController.handleSessionExpired();
 }
 
 async function fetchCurrentUser() {
-  try {
-    const me = await api("/auth/me");
-    setAuthed(me);
-    return me;
-  } catch (err) {
-    if (err.status === 401) {
-      const refreshed = await refreshSessionTokens({
-        force: true,
-        allowLoggedOut: true,
-        silentFailure: true,
-      });
-      if (refreshed) {
-        return state.user;
-      }
-      setAuthed(null);
-      return null;
-    }
-    throw err;
-  }
+  return sessionController.fetchCurrentUser();
 }
 
 async function performLogin(email, password) {
-  return api("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ soeid: email, password }),
-  });
+  return sessionController.performLogin(email, password);
 }
 
 async function performRegister(display_name, email, password) {
-  return api("/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ display_name, soeid: email, password }),
-  });
+  return sessionController.performRegister(display_name, email, password);
 }
 
 function isResetPath() {
-  return isResetPathname(window.location.pathname);
+  return sessionController.isResetPath();
 }
 
 function bindAuthUI() {
-  setAuthMode("login");
-  els.authTabLogin?.addEventListener("click", () => setAuthMode("login"));
-  els.authTabRegister?.addEventListener("click", () => setAuthMode("register"));
-  els.resetLink?.addEventListener("click", () => {
-    window.location.href = buildAppUrl("/reset-password");
-  });
-
-  els.loginForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    showAuthError("");
-    const form = new FormData(els.loginForm);
-    try {
-      const user = await performLogin(form.get("soeid"), form.get("password"));
-      setAuthed(user);
-      setAuthVisible(false);
-      await refreshSpaceContext();
-      startLiveSync();
-      await reloadCurrentViewData();
-    } catch (err) {
-      if (!handleAuthError(err)) {
-        showAuthError(err.message || "Login failed");
-      }
-    }
-  });
-
-  els.registerForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    showAuthError("");
-    const form = new FormData(els.registerForm);
-    try {
-      const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
-      setAuthed(user);
-      setAuthVisible(false);
-      await refreshSpaceContext();
-      startLiveSync();
-      await reloadCurrentViewData();
-    } catch (err) {
-      if (!handleAuthError(err)) {
-        showAuthError(err.message || "Registration failed");
-      }
-    }
-  });
-
-  els.resetForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    showResetError("");
-    showResetSuccess("");
-    const form = new FormData(els.resetForm);
-    try {
-      await api("/auth/reset-password", {
-        method: "POST",
-        body: JSON.stringify({
-          soeid: form.get("soeid"),
-          temp_password: form.get("temp_password"),
-          new_password: form.get("new_password"),
-          confirm_password: form.get("confirm_password"),
-        }),
-      });
-      showResetSuccess("Password reset complete. Redirecting to login...");
-      setTimeout(() => {
-        window.location.href = buildAppUrl("/");
-      }, 1200);
-    } catch (err) {
-      showResetError(err.message || "Reset failed");
-    }
-  });
-
-
-  els.logoutBtn?.addEventListener("click", async () => {
-    try {
-      await api("/auth/logout", { method: "POST" });
-    } catch (err) {
-      console.warn("Logout error", err);
-    } finally {
-      setAuthed(null);
-      setAuthVisible(true);
-    }
-  });
-
-  els.idleStay?.addEventListener("click", async () => {
-    try {
-      const user = await refreshSessionTokens({ force: true });
-      if (!user) throw new Error("Session refresh failed");
-      startLiveSync({ force: true });
-      resetIdleTimer();
-      hideIdleModal();
-    } catch (err) {
-      handleSessionExpired();
-    }
-  });
-
-  els.idleLogout?.addEventListener("click", async () => {
-    try {
-      await api("/auth/logout", { method: "POST" });
-    } catch (err) {
-      console.warn("Logout error", err);
-    } finally {
-      setAuthed(null);
-      setAuthVisible(true);
-    }
-  });
+  return sessionController.bindAuthUI();
 }
 
 function clearLiveSyncRetry() {
@@ -1803,22 +1303,7 @@ function closeLiveSyncSocket(closeCode = 1000, reason = "") {
 }
 
 function stopLiveSync(options = {}) {
-  clearLiveSyncRetry();
-  liveSyncRecoveryPromise = null;
-  if (!options.preserveRecovery) {
-    resetLiveSyncRecoveryFlags();
-  }
-  closeLiveSyncSocket(options.closeCode || 1000, options.reason || "");
-  state.liveSync.pausedForHidden = !!options.pausedForHidden;
-  if (options.clearStatus) {
-    setLiveSyncPhase("idle", { clear: true });
-    return;
-  }
-  if (options.phase) {
-    setLiveSyncPhase(options.phase, { text: options.text, tone: options.tone });
-  } else {
-    setLiveSyncPhase("idle", { clear: true });
-  }
+  return liveSyncController.stopLiveSync(options);
 }
 
 function liveUrl() {
@@ -1962,83 +1447,11 @@ async function handleLiveSyncClose(event) {
 }
 
 function startLiveSync(options = {}) {
-  const force = !!options.force;
-  const preserveRecovery = !!options.preserveRecovery;
-  if (!state.authed || isResetPath()) {
-    stopLiveSync({ clearStatus: true });
-    return;
-  }
-  if (document.hidden) {
-    stopLiveSync({ phase: "paused", pausedForHidden: true, preserveRecovery });
-    return;
-  }
-  if (!state.activeSpace?.space_id) {
-    stopLiveSync({ phase: "paused", text: "Sync paused", tone: "muted", preserveRecovery });
-    return;
-  }
-  clearLiveSyncRetry();
-  const currentSpaceId = state.activeSpace.space_id;
-  const isOpenForCurrentSpace = !!liveSyncSocket
-    && state.liveSync.socketSpaceId === currentSpaceId
-    && (liveSyncSocket.readyState === WebSocket.CONNECTING || liveSyncSocket.readyState === WebSocket.OPEN);
-  if (!force && isOpenForCurrentSpace) return;
-  if (!preserveRecovery) {
-    resetLiveSyncRecoveryFlags();
-  }
-  closeLiveSyncSocket(1000, "restart");
-  state.liveSync.pausedForHidden = false;
-  setLiveSyncPhase("reconnecting");
-  const socket = new WebSocket(liveUrl());
-  liveSyncSocket = socket;
-  state.liveSync.socketSpaceId = currentSpaceId;
-
-  socket.addEventListener("open", () => {
-    if (socket !== liveSyncSocket) return;
-    resetLiveSyncRecoveryFlags();
-    setLiveSyncPhase("live");
-  });
-
-  socket.addEventListener("message", (event) => {
-    if (socket !== liveSyncSocket) return;
-    try {
-      const msg = JSON.parse(event.data);
-      if (msg.type === "refresh") {
-        refreshFromServer(msg.entity || "all");
-      }
-    } catch (err) {
-      console.warn("Live message parse failed", err);
-    }
-  });
-
-  socket.addEventListener("error", () => {
-    if (socket !== liveSyncSocket) return;
-    setLiveSyncPhase("reconnecting");
-  });
-
-  socket.addEventListener("close", (event) => {
-    if (socket !== liveSyncSocket) return;
-    liveSyncSocket = null;
-    state.liveSync.socketSpaceId = "";
-    void handleLiveSyncClose(event);
-  });
+  return liveSyncController.startLiveSync(options);
 }
 
 async function handleLiveSyncVisibilityChange() {
-  if (document.hidden) {
-    if (state.authed) {
-      stopLiveSync({ phase: "paused", pausedForHidden: true, preserveRecovery: true });
-    }
-    return;
-  }
-  if (!state.authed || !state.liveSync.pausedForHidden) return;
-  state.liveSync.pausedForHidden = false;
-  try {
-    await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
-  } catch (err) {
-    console.warn("Live sync visibility refresh failed", err);
-    if (handleAuthError(err)) return;
-  }
-  startLiveSync({ force: true, preserveRecovery: true });
+  return liveSyncController.handleLiveSyncVisibilityChange();
 }
 
 function initSubcomponentsWorkbench() {
@@ -2046,170 +1459,19 @@ function initSubcomponentsWorkbench() {
 }
 
 async function bootstrapAuth() {
-  if (isResetPath()) {
-    showResetError("");
-    showResetSuccess("");
-    setResetVisible(true);
-    setStatus("Password reset", "warn");
-    return;
-  }
-  setStatus("Checking session...", "warn");
-  setAuthVisible(true);
-  const user = await fetchCurrentUser();
-  if (user) {
-    setAuthVisible(false);
-    await refreshSpaceContext();
-    startLiveSync();
-    await reloadCurrentViewData();
-  } else {
-    setStatus("Sign in required", "warn");
-  }
+  return sessionController.bootstrapAuth();
 }
 
 async function loadData(options = {}) {
-  const force = !!options.force;
-  const silent = !!options.silent;
-  const requestedEntities = Array.isArray(options.entities) ? options.entities.filter(isKnownEntity) : null;
-  if (!state.authed) {
-    setStatus("Sign in required", "warn");
-    setAuthVisible(true);
-    return;
-  }
-  const targetEntities = requestedEntities && requestedEntities.length
-    ? [...new Set(requestedEntities)]
-    : entitiesForView(state.currentView);
-  const entitiesToFetch = force
-    ? targetEntities
-    : targetEntities.filter((entity) => !state.loadedEntities.has(entity));
-  if (!entitiesToFetch.length) {
-    renderActiveView();
-    scheduleViewPrefetch(state.currentView);
-    return;
-  }
-  const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
-  const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-  const selectedSubcomponentId = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
-  if (state.loading) {
-    state.pendingRefresh = true;
-    return;
-  }
-  state.loading = true;
-  try {
-    if (!silent) setStatus("Loading...", "warn");
-    if (!silent) renderActiveView();
-    const results = await Promise.allSettled(entitiesToFetch.map((entity) => fetchEntityData(entity)));
-    const errors = [];
-    results.forEach((result, idx) => {
-      if (result.status === "fulfilled") {
-        applyEntityData(entitiesToFetch[idx], result.value);
-      } else {
-        errors.push({ key: entitiesToFetch[idx], error: result.reason });
-      }
-    });
-
-    if (errors.length) {
-      const authError = errors.find((e) => e.error && e.error.status === 401);
-      if (authError) {
-        handleAuthError(authError.error);
-        return;
-      }
-      const labels = errors.map((e) => e.key).join(", ");
-      console.error("Load failed", errors);
-      setStatus(`Load failed: ${labels}`, "danger");
-      return;
-    }
-
-    populateSelects();
-
-    if ((requestedEntities == null || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
-      && !state.projects.length && !state.solutions.length) {
-      setStatus("No data loaded", "warn");
-    } else if (!silent) {
-      setStatus("Online", "positive");
-    }
-    renderActiveView();
-    restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
-    scheduleViewPrefetch(state.currentView);
-  } catch (err) {
-    console.error(err);
-    if (handleAuthError(err)) {
-      setStatus("Sign in required", "warn");
-    } else {
-      setStatus(err?.message ? `Error: ${err.message}` : "Error", "danger");
-    }
-  } finally {
-    state.loading = false;
-    if (state.pendingRefresh) {
-      state.pendingRefresh = false;
-      loadData();
-    }
-    if (pendingRefreshEntities.size) {
-      const pending = Array.from(pendingRefreshEntities);
-      pendingRefreshEntities.clear();
-      if (pending.includes("all") || pending.length > 1) {
-        refreshFromServer("all");
-      } else {
-        refreshFromServer(pending[0]);
-      }
-    }
-  }
+  return dataStoreController.loadData(options);
 }
 
 async function reloadCurrentViewData(options = {}) {
-  const force = !!options.force;
-  const silent = !!options.silent;
-  const preserveCapacitySelection = options.preserveCapacitySelection !== false;
-  if (state.currentView === "team-capacity") {
-    await loadTeamCapacityData({ force, preserveSelection: preserveCapacitySelection });
-    return;
-  }
-  await loadData({ force, silent, entities: options.entities });
+  return dataStoreController.reloadCurrentViewData(options);
 }
 
 function setView(view, options = {}) {
-  const previousView = state.currentView;
-  const requestedView = normalizeView(view);
-  const nextView = resolveAccessibleView(requestedView);
-  const fromHistory = !!options.fromHistory;
-  const replacePath = !!options.replacePath;
-  const redirected = requestedView !== nextView;
-  const nextDomView = viewDomIdForRoute(nextView);
-  const nextNavView = navViewForRoute(nextView);
-  state.currentView = nextView;
-  if (nextView === "subcomponents-workbench" && previousView !== nextView && state.subcomponentsWorkbench) {
-    state.subcomponentsWorkbench.drawerOpen = false;
-    state.subcomponentsWorkbench.drawerReturnSubcomponentId = "";
-    state.subcomponentsWorkbench.drawerReturnScrollY = null;
-    state.subcomponentsWorkbench.suppressAutoScrollOnce = false;
-  }
-  els.views.forEach((v) => v.classList.toggle("active", v.id === `view-${nextDomView}`));
-  els.navButtons.forEach((b) => b.classList.toggle("active", b.dataset.view === nextNavView));
-  if (!fromHistory || redirected) {
-    syncPathForView(nextView, redirected ? true : replacePath);
-  }
-  const hasLazyModule = !!ROUTE_MODULE_LOADERS[nextView];
-  if (hasLazyModule) {
-    ensureRouteModule(nextView).then((loaded) => {
-      if (state.currentView !== nextView) return;
-      if (loaded) {
-        renderActiveView();
-      }
-    });
-  }
-  if (state.authed) {
-    if (nextView === "team-capacity") {
-      loadTeamCapacityData({ force: true }).catch((err) => {
-        console.warn("Team capacity load failed", err);
-      });
-    } else {
-      loadData({ entities: entitiesForView(nextView) }).catch((err) => {
-        console.warn("View load failed", err);
-      });
-    }
-    renderActiveView();
-    return;
-  }
-  renderActiveView();
+  return routerController.setView(view, options);
 }
 
 function applyTheme(theme) {
@@ -2322,42 +1584,23 @@ function closePlanningDrawer() {
 }
 
 function renderActiveView() {
-  switch (state.currentView) {
-    case "master":
+  const routeDispatch = {
+    master: () => {
       renderMasterFilters();
       renderMasterTable();
-      break;
-    case "subcomponents-workbench":
-      renderSubcomponentsWorkbench();
-      break;
-    case "dashboard":
-      renderDashboard();
-      break;
-    case "pm-dashboard":
-      renderPMDashboard();
-      break;
-    case "kanban":
-      renderKanban();
-      break;
-    case "calendar":
-      renderCalendar();
-      break;
-    case "planning":
-      renderPlanning();
-      break;
-    case "team-capacity":
-      renderTeamCapacity();
-      break;
-    case "spaces":
-      renderSpaces();
-      break;
-    case "access":
-      renderAccess();
-      break;
-    default:
-      renderMasterFilters();
-      renderMasterTable();
-  }
+    },
+    "subcomponents-workbench": () => renderSubcomponentsWorkbench(),
+    dashboard: () => renderDashboard(),
+    "pm-dashboard": () => renderPMDashboard(),
+    kanban: () => renderKanban(),
+    calendar: () => renderCalendar(),
+    planning: () => renderPlanning(),
+    "team-capacity": () => renderTeamCapacity(),
+    spaces: () => renderSpaces(),
+    access: () => renderAccess(),
+  };
+  const renderRoute = routeDispatch[state.currentView] || routeDispatch.master;
+  renderRoute();
   const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
   if (openSolutionId && els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
     renderSolutionSubcomponents(openSolutionId);
@@ -2544,7 +1787,7 @@ function renderMasterFilters() {
     });
     return;
   }
-  mod.renderMasterFilters({
+  mod.renderMasterFilters(createShellContext({
     state,
     els,
     escapeAttr,
@@ -2554,7 +1797,7 @@ function renderMasterFilters() {
     renderKanban,
     renderCalendar,
     clearDeliverablesFilters,
-  });
+  }, { view: "master" }));
 }
 
 function isClosedLifecycleStatus(statusValue) {
@@ -6777,7 +6020,7 @@ function bindNav() {
     })
   );
   window.addEventListener("popstate", () => {
-    if (suppressRouteChange) return;
+    if (routerController.isRouteChangeSuppressed()) return;
     setView(viewFromLocationPath(), { fromHistory: true });
   });
   if (!document._appRouteClickBound) {
@@ -8752,7 +7995,7 @@ function renderPlanning() {
     });
     return;
   }
-  mod.renderPlanning({
+  mod.renderPlanning(createShellContext({
     state,
     els,
     api,
@@ -8770,7 +8013,7 @@ function renderPlanning() {
     formatFte,
     renderPlanningWindowSummary,
     renderPlanningRoster,
-  });
+  }, { view: "planning" }));
 }
 
 function renderTeamCapacity() {

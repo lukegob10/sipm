@@ -184,6 +184,32 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     assert updated_complete["completed_at"] is not None
     assert updated_complete["current_phase"] == "requirements"
 
+    reopen_buf = StringIO()
+    reopen_writer = csv.DictWriter(reopen_buf, fieldnames=fieldnames)
+    reopen_writer.writeheader()
+    reopen_writer.writerow(
+        {
+            "project_name": "Data Platform",
+            "solution_name": "Mark Complete",
+            "version": "0.1.0",
+            "status": "active",
+            "priority": "3",
+            "current_phase": "requirements",
+            "owner": "Owner",
+        }
+    )
+    reopen_resp = await client.post(
+        "/project-manager/api/solutions/import",
+        content=reopen_buf.getvalue().encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert reopen_resp.status_code == 200, reopen_resp.text
+
+    reopened = (await client.get(f"/project-manager/api/solutions/{sol_complete['solution_id']}")).json()
+    assert reopened["status"] == "active"
+    assert reopened["completed_at"] is None
+    assert reopened["current_phase"] == "requirements"
+
     exported = await client.get("/project-manager/api/solutions/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
@@ -198,7 +224,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
 
     list_complete = await client.get("/project-manager/api/solutions", params={"status": "complete"})
     assert list_complete.status_code == 200
-    assert [s["solution_name"] for s in list_complete.json()] == ["Mark Complete"]
+    assert list_complete.json() == []
 
 
 @pytest.mark.anyio

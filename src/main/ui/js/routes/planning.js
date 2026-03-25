@@ -1954,3 +1954,7 @@ export function renderPlanning(ctx) {
 
   root.innerHTML = buildBoardMarkup();
 }
+
+export function render(ctx) {
+  renderPlanning(ctx);
+}

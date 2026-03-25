@@ -1,7 +1,6 @@
 from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
 from .identity import (
     ChangeLog,
-    PasswordResetToken,
     Space,
     SpaceMembership,
     Team,
@@ -24,7 +23,6 @@ __all__ = [
     "Base",
     "ChangeLog",
     "ExternalRef",
-    "PasswordResetToken",
     "Phase",
     "PlanningWindow",
     "Project",

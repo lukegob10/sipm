@@ -13,10 +13,9 @@ class Base(DeclarativeBase):
 
 @compiles(SQLAlchemyString, "oracle")
 def _compile_oracle_string_with_default_length(type_, compiler, **kw):
-    # Oracle table DDL requires VARCHAR2 length; default to 255 when unspecified.
-    if type_.length is None:
-        return "VARCHAR2(255 CHAR)"
-    return compiler.visit_VARCHAR(type_, **kw)
+    # Keep Oracle DDL aligned on VARCHAR2 and give unspecified strings the repo default width.
+    length = type_.length or 255
+    return f"VARCHAR2({length} CHAR)"
 
 
 def _utcnow_naive() -> datetime:

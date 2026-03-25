@@ -8,6 +8,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
+import anyio.to_thread
 
 from backend import main as main_module
 from backend.app.db import db as db_module
@@ -34,6 +35,31 @@ def test_get_ta_connection_env_uses_profile_alias(monkeypatch):
 
     module = _reload_runtime_module()
     assert module.get_ta_connection_env() == "prod"
+
+
+def test_get_ta_connection_env_treats_local_as_dev(monkeypatch):
+    monkeypatch.setenv("ENV", "local")
+
+    module = _reload_runtime_module()
+    assert module.get_ta_connection_env() == "dev"
+
+
+def test_get_ta_connection_env_treats_test_as_dev(monkeypatch):
+    monkeypatch.setenv("ENV", "test")
+
+    module = _reload_runtime_module()
+    assert module.get_ta_connection_env() == "dev"
+
+
+def test_get_ta_connection_env_rejects_unknown_profile(monkeypatch):
+    monkeypatch.setenv("ENV", "stage")
+
+    module = _reload_runtime_module()
+    with pytest.raises(
+        RuntimeError,
+        match="ENV must resolve to dev/local/test, uat, or prod for TAConnection\\(env=...\\).",
+    ):
+        module.get_ta_connection_env()
 
 
 def test_get_ta_connection_env_requires_env(monkeypatch):
@@ -102,6 +128,30 @@ def test_db_engine_uses_pooling_env_overrides(monkeypatch):
     assert kwargs["pool_pre_ping"] is False
 
 
+def test_db_engine_allows_documented_zero_or_disabled_pool_values(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_SIZE", "0")
+    monkeypatch.setenv("SIPM_DB_MAX_OVERFLOW", "-1")
+    monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "0")
+    monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "-1")
+
+    module = _reload_db_module()
+    captured = {}
+
+    def fake_create_engine(url: str, **kwargs):
+        captured["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(module, "create_engine", fake_create_engine)
+
+    module._build_engine()
+
+    kwargs = captured["kwargs"]
+    assert kwargs["pool_size"] == 0
+    assert kwargs["max_overflow"] == -1
+    assert kwargs["pool_timeout"] == 0
+    assert kwargs["pool_recycle"] == -1
+
+
 def test_db_engine_creator_uses_taconnection(monkeypatch):
     monkeypatch.setenv("ENV", "production")
 
@@ -164,6 +214,62 @@ def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
         module._build_engine()
 
 
+def test_db_engine_rejects_negative_pool_size(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_SIZE", "-2")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be >= 0."):
+        module._build_engine()
+
+
+def test_db_engine_rejects_invalid_negative_max_overflow(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_MAX_OVERFLOW", "-2")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_MAX_OVERFLOW must be -1 or >= 0."):
+        module._build_engine()
+
+
+def test_db_engine_rejects_negative_pool_timeout(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "-1")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_TIMEOUT_SECONDS must be >= 0."):
+        module._build_engine()
+
+
+def test_db_engine_rejects_invalid_negative_pool_recycle(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "-2")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_RECYCLE_SECONDS must be -1 or >= 0."):
+        module._build_engine()
+
+
 def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
     module = _reload_db_module()
     module.engine = None
@@ -221,6 +327,28 @@ def test_load_env_file_can_override_when_enabled(monkeypatch, tmp_path):
     assert os.environ["SIPM_SECRET_KEY"] == "from-file"
 
 
+def test_load_env_file_accepts_truthy_env_override_values(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SIPM_SECRET_KEY=from-file\n", encoding="utf-8")
+
+    monkeypatch.setenv("SIPM_ENV_OVERRIDE", "yes")
+    monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
+
+    main_module._load_env_file(env_file)
+
+    assert os.environ["SIPM_SECRET_KEY"] == "from-file"
+
+
+def test_load_env_file_rejects_invalid_env_override_boolean(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SIPM_SECRET_KEY=from-file\n", encoding="utf-8")
+
+    monkeypatch.setenv("SIPM_ENV_OVERRIDE", "sometimes")
+
+    with pytest.raises(RuntimeError, match="SIPM_ENV_OVERRIDE must be a boolean value."):
+        main_module._load_env_file(env_file)
+
+
 @pytest.mark.anyio
 async def test_app_lifespan_validates_auth_configuration(monkeypatch):
     calls = {"count": 0}
@@ -234,3 +362,54 @@ async def test_app_lifespan_validates_auth_configuration(monkeypatch):
         pass
 
     assert calls["count"] == 1
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_restores_anyio_threadpool_patch(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    original_run_sync = anyio.to_thread.run_sync
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        patched_run_sync = anyio.to_thread.run_sync
+        assert patched_run_sync is not original_run_sync
+        assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
+
+    assert anyio.to_thread.run_sync is original_run_sync
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_accepts_truthy_disable_startup_value(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "1")
+
+    calls = {"init_db": 0}
+
+    def fake_init_db() -> None:
+        calls["init_db"] += 1
+
+    monkeypatch.setattr(main_module, "init_db", fake_init_db)
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        pass
+
+    assert calls["init_db"] == 0
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_accepts_truthy_disable_threadpool_value(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("SIPM_DISABLE_THREADPOOL", "on")
+
+    original_run_sync = anyio.to_thread.run_sync
+    monkeypatch.setattr(main_module, "init_db", lambda: None)
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        patched_run_sync = anyio.to_thread.run_sync
+        assert patched_run_sync is not original_run_sync
+        assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
+
+    assert anyio.to_thread.run_sync is original_run_sync

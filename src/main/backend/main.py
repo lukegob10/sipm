@@ -2,20 +2,35 @@ from contextlib import asynccontextmanager
 import os
 import sys
 import asyncio
+import logging
+import re
+import time
 from contextlib import suppress
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean value.")
 
 
 def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
     if not path.exists():
         return
     if override_existing is None:
-        override_existing = str(os.getenv("SIPM_ENV_OVERRIDE", "false")).strip().lower() in {"1", "true", "yes", "on"}
+        override_existing = _bool_env("SIPM_ENV_OVERRIDE", False)
     for line in path.read_text().splitlines():
         raw = line.strip()
         if not raw or raw.startswith("#"):
@@ -53,7 +68,7 @@ except Exception:
 
 
 from backend.app.auth.auth import validate_auth_configuration
-from backend.app.db.db import init_db
+from backend.app.db.db import check_db_connection, init_db
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -67,17 +82,73 @@ from backend.app.paths import (
 from backend.app.routes import api_router
 
 
+logger = logging.getLogger(__name__)
+REQUEST_ID_HEADER = "X-Request-ID"
+_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _running_tests() -> bool:
+    return "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
+
+
+def _startup_db_disabled() -> bool:
+    return _bool_env("SIPM_DISABLE_STARTUP", False) or _running_tests()
+
+
+def _request_id_for(request: Request) -> str:
+    candidate = str(request.headers.get(REQUEST_ID_HEADER, "")).strip()
+    if _REQUEST_ID_PATTERN.fullmatch(candidate):
+        return candidate
+    return str(uuid4())
+
+
+def _request_log_line(request: Request, *, request_id: str, status_code: int, duration_ms: int) -> str:
+    client_ip = request.client.host if request.client else "-"
+    active_space_id = str(request.headers.get("X-Space-Id", "")).strip() or "-"
+    return (
+        f"request_id={request_id} method={request.method} path={request.url.path} "
+        f"status={status_code} duration_ms={duration_ms} client_ip={client_ip} "
+        f"space_id={active_space_id}"
+    )
+
+
+def _readiness_payload() -> tuple[int, dict]:
+    checks: dict[str, dict[str, str]] = {}
+    ready = True
+
+    try:
+        validate_auth_configuration()
+        checks["auth"] = {"status": "ok"}
+    except Exception as exc:
+        ready = False
+        checks["auth"] = {"status": "error", "detail": str(exc)}
+
+    if _startup_db_disabled():
+        checks["db"] = {"status": "skipped", "detail": "startup disabled or test mode active"}
+    else:
+        try:
+            check_db_connection()
+            checks["db"] = {"status": "ok"}
+        except Exception as exc:
+            ready = False
+            checks["db"] = {"status": "error", "detail": str(exc)}
+
+    return (200 if ready else 503), {"status": "ok" if ready else "not_ready", "checks": checks}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_auth_configuration()
     # Avoid touching the on-disk DB during unit tests. Tests create their own in-memory DB
     # and override `get_db`/auth dependencies.
-    disable_startup = os.getenv("SIPM_DISABLE_STARTUP", "").lower() == "true"
-    running_tests = "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    disable_startup = _startup_db_disabled()
+    running_tests = _running_tests()
+    patched_run_sync = None
+    original_run_sync = None
 
     # Starlette/FastAPI run sync endpoints and sync generator dependencies in a threadpool via AnyIO.
     # In some sandboxed/test environments, the AnyIO threadpool can deadlock. We patch it out for tests.
-    disable_threadpool = running_tests or os.getenv("SIPM_DISABLE_THREADPOOL", "").lower() == "true"
+    disable_threadpool = running_tests or _bool_env("SIPM_DISABLE_THREADPOOL", False)
     if disable_threadpool:
         import anyio.to_thread
 
@@ -90,22 +161,30 @@ async def lifespan(app: FastAPI):
             run_sync_no_threadpool._jira_lite_patched = True  # type: ignore[attr-defined]
             run_sync_no_threadpool._jira_lite_original = original_run_sync  # type: ignore[attr-defined]
             anyio.to_thread.run_sync = run_sync_no_threadpool  # type: ignore[assignment]
+            patched_run_sync = run_sync_no_threadpool
 
     keepalive_task = None
-    if running_tests or os.getenv("SIPM_KEEPALIVE_TASK", "").lower() == "true":
-        async def _keepalive() -> None:
-            while True:
-                await asyncio.sleep(3600)
+    try:
+        if running_tests or _bool_env("SIPM_KEEPALIVE_TASK", False):
+            async def _keepalive() -> None:
+                while True:
+                    await asyncio.sleep(3600)
 
-        keepalive_task = asyncio.create_task(_keepalive())
+            keepalive_task = asyncio.create_task(_keepalive())
 
-    if not disable_startup and not running_tests:
-        init_db()
-    yield
-    if keepalive_task:
-        keepalive_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await keepalive_task
+        if not disable_startup and not running_tests:
+            init_db()
+        yield
+    finally:
+        if keepalive_task:
+            keepalive_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await keepalive_task
+        if patched_run_sync is not None and original_run_sync is not None:
+            import anyio.to_thread
+
+            if anyio.to_thread.run_sync is patched_run_sync:
+                anyio.to_thread.run_sync = original_run_sync  # type: ignore[assignment]
 
 
 app = FastAPI(
@@ -120,9 +199,48 @@ app = FastAPI(
 # API under the app context path so the full product is self-contained.
 app.include_router(api_router, prefix=API_PREFIX)
 
+
+@app.middleware("http")
+async def request_observability_middleware(request: Request, call_next):
+    request_id = _request_id_for(request)
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.exception(
+            _request_log_line(
+                request,
+                request_id=request_id,
+                status_code=500,
+                duration_ms=duration_ms,
+            )
+        )
+        raise
+
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    response.headers[REQUEST_ID_HEADER] = request_id
+    logger.info(
+        _request_log_line(
+            request,
+            request_id=request_id,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+    )
+    return response
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+def readiness():
+    status_code, payload = _readiness_payload()
+    return JSONResponse(payload, status_code=status_code)
 
 
 # Serve frontend from src/main/ui

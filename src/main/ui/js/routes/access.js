@@ -4,3 +4,7 @@ export function renderAccess(ctx) {
     renderGovernanceHub("platform-access");
   }
 }
+
+export function render(ctx) {
+  renderAccess(ctx);
+}

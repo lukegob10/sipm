@@ -17,6 +17,8 @@ from ..security import security_http_exception
 from .audit_log import log_changes
 
 _TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+_MIN_TEMP_PASSWORD_RESET_MINUTES = 5
+_MAX_TEMP_PASSWORD_RESET_MINUTES = 24 * 60
 
 
 def _generate_temp_password(length: int = 14) -> str:
@@ -33,7 +35,12 @@ def issue_temp_password(
     now = datetime.now(timezone.utc)
     ttl = ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES
     if expires_minutes is not None:
-        ttl = max(5, min(int(expires_minutes), 24 * 60))
+        ttl = int(expires_minutes)
+        if ttl < _MIN_TEMP_PASSWORD_RESET_MINUTES or ttl > _MAX_TEMP_PASSWORD_RESET_MINUTES:
+            raise ValueError(
+                "expires_minutes must be between "
+                f"{_MIN_TEMP_PASSWORD_RESET_MINUTES} and {_MAX_TEMP_PASSWORD_RESET_MINUTES}."
+            )
     expires_at = now + timedelta(minutes=ttl)
     temp_password = _generate_temp_password()
 

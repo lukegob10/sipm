@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from ..deps import authenticate_access_token, get_db
 from ..services.realtime import (
     WS_CLOSE_AUTH_INVALID,
+    WS_CLOSE_SERVER_BUSY,
     WS_CLOSE_SPACE_INVALID,
     WebSocketRejected,
     heartbeat,
@@ -79,6 +80,7 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
         await _reject_websocket(ws, code=exc.code, reason=exc.reason)
         return
     except Exception:
+        await _reject_websocket(ws, code=WS_CLOSE_SERVER_BUSY, reason="server-error")
         return
 
     await _run_websocket_session(ws)

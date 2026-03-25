@@ -1066,3 +1066,7 @@ export function renderPMDashboard(ctx) {
     `;
   }
 }
+
+export function render(ctx) {
+  renderPMDashboard(ctx);
+}

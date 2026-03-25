@@ -46,6 +46,35 @@ async def test_audit_endpoint_supports_filters(client):
     assert all(row["user_id"] == "test-user" for row in rows)
 
 
+@pytest.mark.anyio
+async def test_audit_all_spaces_rows_include_space_id(client):
+    project = (
+        await client.post(
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Cross Space Audit Project",
+                "status": "active",
+                "sponsor": "Architecture",
+            },
+        )
+    ).json()
+
+    rows = (
+        await client.get(
+            "/project-manager/api/audit",
+            params={
+                "entity_type": "project",
+                "entity_id": project["project_id"],
+                "all_spaces": "true",
+            },
+        )
+    ).json()
+
+    assert rows
+    assert all("space_id" in row for row in rows)
+    assert all(row["space_id"] for row in rows)
+
+
 def test_log_changes_stringifies_and_ignores_invalid_or_noop_pairs(db_sessionmaker):
     class BadIso:
         def isoformat(self):

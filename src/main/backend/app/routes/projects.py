@@ -550,8 +550,10 @@ def delete_project(
         },
     )
     session.commit()
-    invalidate_space(space_ctx.space_id, ["projects"])
+    invalidate_space(space_ctx.space_id, ["projects", "solutions", "subcomponents"])
     schedule_broadcast("projects", space_id=space_ctx.space_id)
+    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    schedule_broadcast("subcomponents", space_id=space_ctx.space_id)
     return None
 
 

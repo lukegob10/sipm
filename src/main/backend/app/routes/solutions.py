@@ -62,6 +62,19 @@ def _publish_solution_mutation(space_id: str) -> None:
     )
 
 
+def _publish_solution_deletion(space_id: str) -> None:
+    publish_space_mutation(
+        space_id,
+        ["solutions", "subcomponents"],
+        broadcast_channel="solutions",
+    )
+    publish_space_mutation(
+        space_id,
+        ["subcomponents"],
+        broadcast_channel="subcomponents",
+    )
+
+
 def _parse_rag_status(raw: Optional[str]) -> Optional[RagStatus]:
     value = normalize_str(raw).lower()
     if not value:
@@ -87,8 +100,11 @@ def _ensure_project_exists(session: Session, project_id: str, space_ctx: SpaceCo
 def _solution_query(session: Session, space_ctx: SpaceContext):
     return (
         session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
     )
 
 
@@ -159,6 +175,21 @@ def _validate_current_phase(session: Session, solution_id: str, current_phase: O
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="current_phase must be one of the enabled phases for this solution",
         )
+
+
+def _apply_solution_completion_state(
+    session: Session,
+    solution: Solution,
+    *,
+    next_status: SolutionStatus,
+    now: datetime,
+) -> None:
+    if next_status == SolutionStatus.complete:
+        solution.completed_at = solution.completed_at or now
+        if not solution.current_phase:
+            solution.current_phase = _last_enabled_phase_id(session, solution.solution_id)
+        return
+    solution.completed_at = None
 
 
 @router.get(
@@ -629,10 +660,12 @@ def import_solutions(
                 existing.rag_confidence = rag_confidence
                 if not existing.space_id:
                     existing.space_id = space_ctx.space_id
-                if status_enum == SolutionStatus.complete and not existing.completed_at:
-                    existing.completed_at = now
-                    if not existing.current_phase:
-                        existing.current_phase = _last_enabled_phase_id(session, existing.solution_id)
+                _apply_solution_completion_state(
+                    session,
+                    existing,
+                    next_status=status_enum,
+                    now=now,
+                )
                 existing.updated_at = now
                 session.add(existing)
                 safe_log_changes(
@@ -900,9 +933,19 @@ def update_solution(
     solution.updated_at = datetime.now(timezone.utc)
 
     if "status" in update_data and update_data["status"] == SolutionStatus.complete:
-        solution.completed_at = solution.completed_at or datetime.now(timezone.utc)
-        if not solution.current_phase:
-            solution.current_phase = _last_enabled_phase_id(session, solution.solution_id)
+        _apply_solution_completion_state(
+            session,
+            solution,
+            next_status=update_data["status"],
+            now=solution.updated_at,
+        )
+    elif "status" in update_data:
+        _apply_solution_completion_state(
+            session,
+            solution,
+            next_status=update_data["status"],
+            now=solution.updated_at,
+        )
     if "rag_status" in rag_updates and rag_updates.get("rag_status") is not None:
         solution.rag_status = rag_updates["rag_status"]
     if "rag_reason" in rag_updates:
@@ -969,6 +1012,6 @@ def delete_solution(
         changes={"deleted_at": (None, now)},
     )
     commit_session(session)
-    _publish_solution_mutation(space_ctx.space_id)
+    _publish_solution_deletion(space_ctx.space_id)
     return None
 

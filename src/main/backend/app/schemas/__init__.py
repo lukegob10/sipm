@@ -1,10 +1,24 @@
 from datetime import datetime, date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, constr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
 
 from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from .planning import (
+    WorkAllocationAssignmentCreate,
+    WorkAllocationAssignmentRead,
+    WorkAllocationAssignmentUpdate,
+    WorkAllocationPersonCreate,
+    WorkAllocationPersonRead,
+    WorkAllocationPersonUpdate,
+    WorkAllocationTaskCreate,
+    WorkAllocationTaskRead,
+    WorkAllocationTaskUpdate,
+    WorkAllocationTeamCreate,
+    WorkAllocationTeamRead,
+    WorkAllocationTeamUpdate,
+)
 
 
 class TextLikeReadModel(BaseModel):
@@ -48,12 +62,12 @@ class VerifyTempPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     soeid: str
     temp_password: str
-    new_password: str
-    confirm_password: str
+    new_password: constr(min_length=8)  # type: ignore[type-arg]
+    confirm_password: constr(min_length=8)  # type: ignore[type-arg]
 
 
 class PasswordResetIssueRequest(BaseModel):
-    expires_minutes: Optional[int] = None
+    expires_minutes: Optional[int] = Field(default=None, ge=5, le=24 * 60)
 
 
 class PasswordResetIssueResponse(BaseModel):
@@ -162,6 +176,7 @@ class ChangeLogRead(TextLikeReadModel):
     old_value: Optional[str] = None
     new_value: Optional[str] = None
     user_id: str
+    space_id: Optional[str] = None
     request_id: Optional[str] = None
     created_at: datetime
 

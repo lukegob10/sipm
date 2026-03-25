@@ -129,3 +129,27 @@ async def test_set_solution_phases_is_atomic_when_payload_contains_invalid_phase
     after_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
     assert after_resp.status_code == 200, after_resp.text
     assert after_resp.json() == before_rows
+
+
+@pytest.mark.anyio
+async def test_soft_deleted_project_hides_solution_phase_routes(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    project, solution = await create_project_and_solution(client)
+    solution_id = solution["solution_id"]
+
+    list_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    assert list_resp.status_code == 200, list_resp.text
+
+    delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    hidden_list = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    assert hidden_list.status_code == 404, hidden_list.text
+    assert hidden_list.json()["detail"] == "Solution not found"
+
+    hidden_set = await client.post(
+        f"/project-manager/api/solutions/{solution_id}/phases",
+        json={"phases": [{"phase_id": "backlog", "is_enabled": True}]},
+    )
+    assert hidden_set.status_code == 404, hidden_set.text
+    assert hidden_set.json()["detail"] == "Solution not found"

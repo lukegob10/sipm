@@ -214,3 +214,7 @@ export function renderTeamCapacity(ctx) {
     </div>
   `;
 }
+
+export function render(ctx) {
+  renderTeamCapacity(ctx);
+}

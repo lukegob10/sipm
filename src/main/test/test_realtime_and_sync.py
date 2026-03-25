@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
+from datetime import timedelta
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -91,6 +93,24 @@ async def test_register_broadcast_unregister_prunes_dead_connections():
 
     realtime.unregister(ws_ok)
     assert ws_ok not in realtime.connections
+
+
+@pytest.mark.anyio
+async def test_broadcast_prunes_idle_connections_with_reconnectable_close_code():
+    ws_idle = StubWebSocket()
+    ws_active = StubWebSocket()
+
+    await realtime.register(ws_idle)
+    await realtime.register(ws_active)
+    realtime._connection_meta[ws_idle].last_seen = realtime._utc_now() - timedelta(
+        seconds=realtime.IDLE_TIMEOUT_SECONDS + 1
+    )
+
+    await realtime.broadcast_refresh("teams")
+
+    assert ws_idle.close_calls == [(realtime.WS_CLOSE_IDLE_TIMEOUT, "idle-timeout")]
+    assert ws_idle not in realtime.connections
+    assert ws_active.sent == [{"type": "refresh", "entity": "teams"}]
 
 
 @pytest.mark.anyio
@@ -212,3 +232,49 @@ async def test_websocket_endpoint_closes_with_server_busy_code(monkeypatch):
         (realtime.WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
     ]
     assert ws not in realtime.connections
+
+
+@pytest.mark.anyio
+async def test_websocket_endpoint_closes_with_server_busy_code_on_unexpected_register_error(monkeypatch):
+    ws = StubWebSocket(cookies={"access_token": "good-token"})
+
+    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    async def broken_register(_ws, **_kwargs):
+        raise RuntimeError("register failed")
+
+    monkeypatch.setattr(sync_route, "register", broken_register)
+
+    await websocket_endpoint(ws, session=SessionStub())
+
+    assert ws.accepted is True
+    assert ws.close_calls == [(realtime.WS_CLOSE_SERVER_BUSY, "server-error")]
+    assert ws not in realtime.connections
+
+
+def test_realtime_module_rejects_invalid_global_connection_limit(monkeypatch):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_WS_MAX_CONNECTIONS_GLOBAL", "many")
+            with pytest.raises(RuntimeError, match="SIPM_WS_MAX_CONNECTIONS_GLOBAL must be an integer."):
+                importlib.reload(realtime)
+    finally:
+        importlib.reload(realtime)
+
+
+def test_realtime_module_rejects_non_positive_per_user_limit(monkeypatch):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_WS_MAX_CONNECTIONS_PER_USER", "0")
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_WS_MAX_CONNECTIONS_PER_USER must be greater than or equal to 1.",
+            ):
+                importlib.reload(realtime)
+    finally:
+        importlib.reload(realtime)

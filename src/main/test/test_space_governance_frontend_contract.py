@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
@@ -64,7 +66,7 @@ def test_spaces_and_access_routes_share_the_same_governance_hub():
 
 
 def test_space_governance_styles_cover_compact_switcher_and_hub():
-    css = STYLES_CSS.read_text(encoding="utf-8")
+    css = read_ui_styles(STYLES_CSS)
     for selector in [
         ".space-switcher-trigger",
         ".space-switcher-trigger-main",

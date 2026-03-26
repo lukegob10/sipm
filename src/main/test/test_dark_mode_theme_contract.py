@@ -1,12 +1,14 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_dark_mode_tokens_exist_and_light_theme_values_remain_pinned():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     dark_snippets = [
         "--surface-0: #0f141b;",
@@ -36,7 +38,7 @@ def test_dark_mode_tokens_exist_and_light_theme_values_remain_pinned():
 
 
 def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hacks():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert "body:not(.theme-light)" not in text
 
@@ -61,7 +63,7 @@ def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hack
 
 
 def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved_look():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     fidelity_snippets = [
         ".theme-light .pill.positive {",

@@ -3,6 +3,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 PATHS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "paths.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 TEAM_CAPACITY_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "team-capacity.js"
@@ -58,9 +59,10 @@ def test_csv_download_upload_are_space_scoped():
 
 
 def test_team_capacity_has_clear_filters_control():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert 'capacityClearFilters: document.getElementById("capacity-clear-filters")' in text
-    assert "if (els.capacityClearFilters)" in text
+    app_text = APP_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
+    assert 'capacityClearFilters: document.getElementById("capacity-clear-filters")' in dom_text
+    assert "if (els.capacityClearFilters)" in app_text
 
 
 def test_team_capacity_team_filter_is_persisted_per_space():

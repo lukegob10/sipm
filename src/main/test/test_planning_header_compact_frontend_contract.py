@@ -1,15 +1,20 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
+PLANNING_STATE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "state.js"
+PLANNING_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "render.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_planning_header_uses_compact_toggle_panels_instead_of_always_open_stacks():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    text = PLANNING_RENDER.read_text(encoding="utf-8")
 
-    assert 'topPanel: ""' in text
+    assert 'topPanel: ""' in state_text
     assert 'data-wab-action="toggle-filters"' in text
     assert 'data-wab-action="toggle-create"' in text
     assert 'data-wab-action="toggle-guide"' in text
@@ -25,7 +30,7 @@ def test_planning_header_uses_compact_toggle_panels_instead_of_always_open_stack
 
 
 def test_planning_board_uses_unassigned_right_rail_instead_of_virtual_center_column():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    text = PLANNING_RENDER.read_text(encoding="utf-8")
 
     assert 'class="wab-side-rail wab-backlog"' in text
     assert 'class="wab-side-rail wab-unassigned-rail"' in text
@@ -39,7 +44,7 @@ def test_planning_board_uses_unassigned_right_rail_instead_of_virtual_center_col
 
 
 def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     snippets = [
         ".wab-toolbar-main {",
@@ -79,7 +84,7 @@ def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
 
 
 def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_person_rows():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    text = PLANNING_RENDER.read_text(encoding="utf-8")
 
     assert 'class="wab-create-stack wab-create-stack-flat"' in text
     assert 'class="wab-create-group-label">Add Team</span>' in text
@@ -93,7 +98,7 @@ def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_per
 
 
 def test_planning_task_detail_uses_modal_shell_instead_of_side_column():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    text = PLANNING_RENDER.read_text(encoding="utf-8")
 
     assert 'class="wab-modal-shell wab-task-modal-shell"' in text
     assert 'class="wab-modal-backdrop wab-task-modal-backdrop"' in text

@@ -1,8 +1,11 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
 
@@ -44,7 +47,7 @@ def test_workbench_project_context_link_reuses_existing_project_modal():
 
 
 def test_workbench_context_links_use_compact_local_styling():
-    text = STYLES.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES)
 
     assert ".sub-workbench-context-link {" in text
     assert "display: inline;" in text
@@ -60,10 +63,11 @@ def test_workbench_context_links_use_compact_local_styling():
 
 def test_workbench_drawer_context_surfaces_effective_repo_link():
     app_text = APP_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
     html_text = (REPO_ROOT / "src" / "main" / "ui" / "index.html").read_text(encoding="utf-8")
 
     assert 'id="subcomponent-repo-preview"' in html_text
-    assert 'subcomponentRepoPreview: document.getElementById("subcomponent-repo-preview")' in app_text
+    assert 'subcomponentRepoPreview: document.getElementById("subcomponent-repo-preview")' in dom_text
     assert "function effectiveSubcomponentRepoInfo(solutionId, overrideUrl) {" in app_text
     assert 'return { url: override, source: "override" };' in app_text
     assert 'return { url: inherited, source: "inherited" };' in app_text
@@ -73,7 +77,7 @@ def test_workbench_drawer_context_surfaces_effective_repo_link():
 
 
 def test_workbench_team_meta_uses_quieter_styling():
-    text = STYLES.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES)
 
     assert ".wab-team-meta span {" in text
     assert "padding: 0;" in text
@@ -83,7 +87,7 @@ def test_workbench_team_meta_uses_quieter_styling():
 
 
 def test_workbench_section_counts_use_quieter_styling():
-    text = STYLES.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES)
 
     assert ".wab-section-count {" in text
     assert "padding: 0;" in text

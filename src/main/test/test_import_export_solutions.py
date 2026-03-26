@@ -9,6 +9,7 @@ import backend.app.routes.solutions as solutions_route
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
 from backend.app.models import Phase, Project, Solution
+from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext
 
 
@@ -34,6 +35,113 @@ def seed_minimal_phases(db_sessionmaker):
             ]
         )
         session.commit()
+
+
+@pytest.mark.anyio
+async def test_solution_import_auto_created_projects_refresh_project_and_solution_lists(client):
+    clear_cache()
+    try:
+        primed_projects = await client.get("/project-manager/api/projects/")
+        assert primed_projects.status_code == 200, primed_projects.text
+        assert primed_projects.json() == []
+
+        primed_solutions = await client.get("/project-manager/api/solutions")
+        assert primed_solutions.status_code == 200, primed_solutions.text
+        assert primed_solutions.json() == []
+
+        csv_text = "\n".join(
+            [
+                "project_name,solution_name,version,status,owner",
+                "Imported Project,Imported Solution,0.1.0,not_started,Owner",
+            ]
+        )
+        imported = await client.post(
+            "/project-manager/api/solutions/import",
+            content=csv_text.encode("utf-8"),
+            headers={"Content-Type": "text/csv"},
+        )
+        assert imported.status_code == 200, imported.text
+        payload = imported.json()
+        assert payload["projects_created"] == 1
+        assert payload["created"] == 1
+
+        projects = await client.get("/project-manager/api/projects/")
+        assert projects.status_code == 200, projects.text
+        assert [row["project_name"] for row in projects.json()] == ["Imported Project"]
+
+        solutions = await client.get("/project-manager/api/solutions")
+        assert solutions.status_code == 200, solutions.text
+        assert [row["solution_name"] for row in solutions.json()] == ["Imported Solution"]
+    finally:
+        clear_cache()
+
+
+@pytest.mark.anyio
+async def test_solution_import_repo_update_refreshes_cached_subcomponent_repo_inheritance(
+    client,
+    db_sessionmaker,
+):
+    seed_minimal_phases(db_sessionmaker)
+    clear_cache()
+    try:
+        project = await create_project(client, name="Repo Import Project")
+        solution_resp = await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={
+                "solution_name": "Repo Import Solution",
+                "version": "1.0.0",
+                "owner": "Owner",
+                "github_repo_url": "https://github.com/example-org/platform-service",
+            },
+        )
+        assert solution_resp.status_code == 201, solution_resp.text
+        solution = solution_resp.json()
+
+        subcomponent_resp = await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+            json={"subcomponent_name": "Inherited Task", "assignee": "Engineer A"},
+        )
+        assert subcomponent_resp.status_code == 201, subcomponent_resp.text
+        subcomponent = subcomponent_resp.json()
+
+        primed_list = await client.get("/project-manager/api/subcomponents")
+        assert primed_list.status_code == 200, primed_list.text
+        assert primed_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+
+        primed_detail = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert primed_detail.status_code == 200, primed_detail.text
+        assert primed_detail.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+
+        csv_text = "\n".join(
+            [
+                "project_name,solution_name,version,status,owner,github_repo_url",
+                "Repo Import Project,Repo Import Solution,1.0.0,active,Owner,https://github.com/example-org/platform-service-v2",
+            ]
+        )
+        imported = await client.post(
+            "/project-manager/api/solutions/import",
+            content=csv_text.encode("utf-8"),
+            headers={"Content-Type": "text/csv"},
+        )
+        assert imported.status_code == 200, imported.text
+        payload = imported.json()
+        assert payload["updated"] == 1
+        assert payload["projects_created"] == 0
+
+        list_resp = await client.get("/project-manager/api/subcomponents")
+        assert list_resp.status_code == 200, list_resp.text
+        assert list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+
+        detail_resp = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert detail_resp.status_code == 200, detail_resp.text
+        assert detail_resp.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+        assert detail_resp.json()["repo_source"] == "inherited"
+    finally:
+        clear_cache()
 
 
 @pytest.mark.anyio

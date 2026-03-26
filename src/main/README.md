@@ -11,7 +11,7 @@ pip install -r src/main/requirements.txt
 uvicorn backend.main:app --reload --app-dir src/main
 ```
 
-Then open `http://127.0.0.1:8000/#/planning`.
+Then open `http://127.0.0.1:8000/project-manager/`.
 
 ## Planning MVP Features
 
@@ -50,3 +50,18 @@ Validation highlights:
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
 - Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
+- Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
+- `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
+
+## Frontend Validation
+
+```bash
+npm install
+npm run lint:ui
+npm run test:ui
+npm run test:ui:smoke
+```
+
+- `lint:ui` runs the repo ESLint gate over `src/main/ui/js` and the browser test files.
+- `test:ui` runs the Vitest/jsdom unit suite for router and live-sync behavior.
+- `test:ui:smoke` runs Playwright against `scripts/run_ui_smoke_app.py`, which boots the app on a temporary SQLite database instead of the Oracle runtime.

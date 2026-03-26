@@ -11,6 +11,10 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Callable, Iterable, Optional
 
+from .coordination import clear_state as clear_coordination_state
+from .coordination import invalidate_scope_tokens as coordinated_invalidate_scope_tokens
+from .coordination import scope_versions as coordinated_scope_versions
+
 
 @dataclass
 class _CacheEntry:
@@ -20,7 +24,6 @@ class _CacheEntry:
 
 
 _CACHE: dict[str, _CacheEntry] = {}
-_SCOPE_VERSIONS: dict[str, int] = {}
 _LOCK = threading.RLock()
 
 
@@ -86,7 +89,7 @@ def _evict_if_needed_locked(now: float) -> None:
 
 
 def _scope_version_snapshot(scope_tokens: Iterable[str]) -> dict[str, int]:
-    return {token: _SCOPE_VERSIONS.get(token, 0) for token in scope_tokens}
+    return coordinated_scope_versions(scope_tokens)
 
 
 def build_scoped_cache_key(
@@ -167,9 +170,7 @@ def cached_call(
 
 
 def invalidate_scope_tokens(scope_tokens: Iterable[str]) -> None:
-    with _LOCK:
-        for token in scope_tokens:
-            _SCOPE_VERSIONS[token] = _SCOPE_VERSIONS.get(token, 0) + 1
+    coordinated_invalidate_scope_tokens(scope_tokens)
 
 
 def invalidate_space(space_id: str, namespaces: Iterable[str]) -> None:
@@ -180,4 +181,4 @@ def invalidate_space(space_id: str, namespaces: Iterable[str]) -> None:
 def clear_cache() -> None:
     with _LOCK:
         _CACHE.clear()
-        _SCOPE_VERSIONS.clear()
+    clear_coordination_state()

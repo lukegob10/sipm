@@ -79,7 +79,11 @@ from backend.app.paths import (
     app_path,
     app_root_path,
 )
+from backend.app.request_context import reset_request_id, set_request_id
 from backend.app.routes import api_router
+from backend.app.services import coordination
+from backend.app.services.realtime import start_runtime as start_realtime_runtime
+from backend.app.services.realtime import stop_runtime as stop_realtime_runtime
 
 
 logger = logging.getLogger(__name__)
@@ -139,6 +143,7 @@ def _readiness_payload() -> tuple[int, dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_auth_configuration()
+    coordination.validate_configuration()
     # Avoid touching the on-disk DB during unit tests. Tests create their own in-memory DB
     # and override `get_db`/auth dependencies.
     disable_startup = _startup_db_disabled()
@@ -165,6 +170,7 @@ async def lifespan(app: FastAPI):
 
     keepalive_task = None
     try:
+        await start_realtime_runtime()
         if running_tests or _bool_env("SIPM_KEEPALIVE_TASK", False):
             async def _keepalive() -> None:
                 while True:
@@ -176,6 +182,7 @@ async def lifespan(app: FastAPI):
             init_db()
         yield
     finally:
+        await stop_realtime_runtime()
         if keepalive_task:
             keepalive_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -204,6 +211,7 @@ app.include_router(api_router, prefix=API_PREFIX)
 async def request_observability_middleware(request: Request, call_next):
     request_id = _request_id_for(request)
     request.state.request_id = request_id
+    request_token = set_request_id(request_id)
     started_at = time.perf_counter()
     try:
         response = await call_next(request)
@@ -218,6 +226,8 @@ async def request_observability_middleware(request: Request, call_next):
             )
         )
         raise
+    finally:
+        reset_request_id(request_token)
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     response.headers[REQUEST_ID_HEADER] = request_id

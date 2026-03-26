@@ -1,8 +1,11 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
@@ -16,7 +19,7 @@ def test_deliverables_forms_have_status_placeholders():
 
 def test_deliverables_forms_mark_required_fields():
     text = INDEX_HTML.read_text(encoding="utf-8")
-    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
     assert text.count('Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.') == 3
     assert '<span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required />' in text
     assert '<span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required />' in text
@@ -40,7 +43,7 @@ def test_deliverables_save_handlers_show_inline_feedback():
 
 def test_project_form_footer_is_managed_outside_scroll_flow():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
-    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
 
     assert 'id="project-submit-btn" form="project-form"' in html_text
     assert '#project-form.form.compact {' in styles_text
@@ -63,11 +66,12 @@ def test_subcomponent_form_uses_single_create_or_save_action():
 def test_subcomponent_form_footer_is_managed_outside_scroll_flow():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     js_text = APP_JS.read_text(encoding="utf-8")
-    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
 
     assert 'id="subcomponent-form-footer"' in html_text
     assert 'id="subcomponent-submit-btn" form="subcomponent-form"' in html_text
-    assert 'subcomponentFormFooter: document.getElementById("subcomponent-form-footer")' in js_text
+    assert 'subcomponentFormFooter: document.getElementById("subcomponent-form-footer")' in dom_text
     assert "function setSubcomponentFormVisibility(show) {" in js_text
     assert 'els.subcomponentFormFooter.classList.toggle("hidden", !show);' in js_text
     assert '#solution-modal .modal-tab[data-tab-panel="subcomponents"].active {' in styles_text

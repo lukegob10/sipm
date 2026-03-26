@@ -4,6 +4,7 @@ from typing import Dict, Optional, Any
 from uuid import uuid4
 
 from ..models import ChangeLog
+from ..request_context import get_request_id
 from ..utils import read_text_value
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ def log_changes(
     """
     rows = []
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    effective_request_id = request_id if request_id is not None else get_request_id()
     if changes:
         for field, pair in changes.items():
             if not isinstance(pair, tuple) or len(pair) != 2:
@@ -60,7 +62,7 @@ def log_changes(
                     new_value=new_value,
                     user_id=user_id,
                     space_id=space_id,
-                    request_id=request_id,
+                    request_id=effective_request_id,
                     created_at=now,
                 )
             )
@@ -76,7 +78,7 @@ def log_changes(
                 new_value=None,
                 user_id=user_id,
                 space_id=space_id,
-                request_id=request_id,
+                request_id=effective_request_id,
                 created_at=now,
             )
         )

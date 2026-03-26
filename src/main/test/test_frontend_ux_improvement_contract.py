@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
@@ -8,10 +10,21 @@ PATHS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "paths.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 SESSION_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js"
 LIVE_SYNC_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "live-sync.js"
+DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
+MODAL_SHELL_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "modal-shell.js"
+TOPBAR_CREATE_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "topbar-create.js"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
+PLANNING_STATE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "state.js"
+PLANNING_COMMON = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "common.js"
+PLANNING_STORAGE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "storage.js"
+PLANNING_SELECTION = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "selection.js"
+PLANNING_API = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "api.js"
+PLANNING_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "interactions.js"
+PLANNING_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "render.js"
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
+PM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "render.js"
 SUBCOMPONENTS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
 
 
@@ -81,7 +94,7 @@ def test_index_includes_shared_planning_modal_shell():
 
 def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
-    styles_text = (REPO_ROOT / "src" / "main" / "ui" / "styles.css").read_text(encoding="utf-8")
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
 
     assert 'class="modal-sticky-chrome"' in html_text
     assert 'id="solution-submit-btn"' in html_text
@@ -98,71 +111,76 @@ def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
 
 def test_frontend_ux_state_is_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    planning_state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    planning_storage_text = PLANNING_STORAGE.read_text(encoding="utf-8")
     master_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
 
     assert 'const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";' in app_text
     assert 'const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";' in app_text
-    assert 'const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";' in planning_text
+    assert 'const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";' in planning_state_text
     assert "persistMasterViewState" in app_text
     assert "persistSubcomponentsWorkbenchUiState" in app_text
-    assert "persistViewState()" in planning_text
+    assert "persistViewState()" in planning_storage_text
     assert "persistMasterViewState" in master_text
 
 
 def test_topbar_create_menu_reuses_existing_create_modals_and_keyboard_menu_pattern():
     app_text = APP_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
+    topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
-    assert 'topbarCreateToggle: document.getElementById("topbar-create-toggle")' in app_text
-    assert 'topbarCreatePanel: document.getElementById("topbar-create-panel")' in app_text
-    assert 'topbarCreateProject: document.getElementById("topbar-create-project")' in app_text
-    assert 'topbarCreateSolution: document.getElementById("topbar-create-solution")' in app_text
-    assert 'topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent")' in app_text
-    assert 'createProjectBtn: document.getElementById("create-project")' not in app_text
-    assert 'createSolutionBtn: document.getElementById("create-solution")' not in app_text
-    assert "function bindTopbarCreateMenu() {" in app_text
-    assert 'const topbarCreateMenuItems = () => Array.from(els.topbarCreatePanel?.querySelectorAll("[role=\'menuitem\']") || []);' in app_text
-    assert 'if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;' in app_text
-    assert "document._topbarCreateMenuCloseBound" in app_text
-    assert 'closeTopbarCreateMenu({ restoreFocus: false });' in app_text
-    assert "openProjectForm(null);" in app_text
-    assert 'openSolutionModal(null, "details");' in app_text
-    assert "handleTopbarSubcomponentCreate" in app_text
+    assert 'topbarCreateToggle: document.getElementById("topbar-create-toggle")' in dom_text
+    assert 'topbarCreatePanel: document.getElementById("topbar-create-panel")' in dom_text
+    assert 'topbarCreateProject: document.getElementById("topbar-create-project")' in dom_text
+    assert 'topbarCreateSolution: document.getElementById("topbar-create-solution")' in dom_text
+    assert 'topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent")' in dom_text
+    assert 'createProjectBtn: document.getElementById("create-project")' not in dom_text
+    assert 'createSolutionBtn: document.getElementById("create-solution")' not in dom_text
+    assert "function bindTopbarCreateMenu() {" in topbar_text
+    assert 'const topbarCreateMenuItems = () => Array.from(els.topbarCreatePanel?.querySelectorAll("[role=\'menuitem\']") || []);' in topbar_text
+    assert 'if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;' in topbar_text
+    assert "document._topbarCreateMenuCloseBound" in topbar_text
+    assert 'closeTopbarCreateMenu({ restoreFocus: false });' in topbar_text
+    assert "openProjectForm(null);" in topbar_text
+    assert 'openSolutionModal(null, "details");' in topbar_text
+    assert "handleTopbarSubcomponentCreate" in topbar_text
     assert "bindTopbarCreateMenu();" in app_text
-    assert "closeTopbarCreateMenu({ restoreFocus: false });" in app_text[app_text.index("function bindCsvControls() {"):app_text.index("if (els.projectsDownload && !els.projectsDownload._bound) {")]
+    assert "closeTopbarCreateMenu({ restoreFocus: false });" in topbar_text
 
 
 def test_topbar_subcomponent_create_uses_solution_context_or_picker():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
-    assert "function subcomponentCreateCandidateSolutions() {" in app_text
-    assert "function subcomponentCreateSolutionLabel(solution) {" in app_text
-    assert "function openSubcomponentCreatePicker(selectedSolutionId = \"\") {" in app_text
-    assert "function handleTopbarSubcomponentCreate() {" in app_text
-    assert 'openSolutionModal(null, "details");' in app_text
-    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");' in app_text
-    assert "if (solutions.length === 1) {" in app_text
-    assert "continueSubcomponentCreateForSolution(solutions[0]);" in app_text
-    assert "openSubcomponentCreatePicker(currentOpenSolutionId);" in app_text
-    assert "showSubcomponentForm(solution);" in app_text
+    assert "function subcomponentCreateCandidateSolutions() {" in topbar_text
+    assert "function subcomponentCreateSolutionLabel(solution) {" in topbar_text
+    assert "function openSubcomponentCreatePicker(selectedSolutionId = \"\") {" in topbar_text
+    assert "function handleTopbarSubcomponentCreate() {" in topbar_text
+    assert 'openSolutionModal(null, "details");' in topbar_text
+    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");' in topbar_text
+    assert "if (solutions.length === 1) {" in topbar_text
+    assert "continueSubcomponentCreateForSolution(solutions[0]);" in topbar_text
+    assert "openSubcomponentCreatePicker(currentOpenSolutionId);" in topbar_text
+    assert "showSubcomponentForm(solution);" in topbar_text
 
 
 def test_subcomponent_create_picker_modal_is_bound_for_submit_close_and_escape():
     app_text = APP_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
+    topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
-    assert 'subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal")' in app_text
-    assert "function bindSubcomponentCreatePicker() {" in app_text
-    assert 'els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
-    assert 'els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
-    assert 'els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);' in app_text
-    assert 'setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");' in app_text
+    assert 'subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal")' in dom_text
+    assert "function bindSubcomponentCreatePicker() {" in topbar_text
+    assert 'els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
+    assert 'els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
+    assert 'els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
+    assert 'setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");' in topbar_text
     assert 'if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal.classList.contains("hidden")) {' in app_text
     assert "closeSubcomponentCreatePicker();" in app_text
     assert "bindSubcomponentCreatePicker();" in app_text
 
 
 def test_topbar_create_menu_uses_compact_topbar_menu_styling():
-    styles_text = (REPO_ROOT / "src" / "main" / "ui" / "styles.css").read_text(encoding="utf-8")
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
 
     assert ".topbar-create-menu {" in styles_text
     assert ".topbar-create-panel {" in styles_text
@@ -263,62 +281,69 @@ def test_master_corrupt_scoped_view_state_is_rewritten_to_defaults():
 
 
 def test_planning_person_search_is_persisted_per_space():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    storage_text = PLANNING_STORAGE.read_text(encoding="utf-8")
+    interactions_text = PLANNING_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'personSearch: boardState.personSearch || "",' in planning_text
-    assert 'boardState.personSearch = String(stored.personSearch || "");' in planning_text
-    assert 'if (target.id === "wab-person-search") {' in planning_text
-    assert "persistViewState();" in planning_text[planning_text.index('if (target.id === "wab-person-search") {'):planning_text.index('if (target.id === "wab-new-team-name") {')]
+    assert 'personSearch: boardState.personSearch || "",' in storage_text
+    assert 'boardState.personSearch = String(stored.personSearch || "");' in storage_text
+    assert 'if (target.id === "wab-person-search") {' in interactions_text
+    assert "persistViewState();" in interactions_text[interactions_text.index('if (target.id === "wab-person-search") {'):interactions_text.index('if (target.id === "wab-new-team-name") {')]
 
 
 def test_planning_top_panel_is_persisted_per_space():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    storage_text = PLANNING_STORAGE.read_text(encoding="utf-8")
 
-    assert 'topPanel: boardState.topPanel || "",' in planning_text
-    assert 'boardState.topPanel = String(stored.topPanel || "");' in planning_text
+    assert 'topPanel: ""' in state_text
+    assert 'topPanel: boardState.topPanel || "",' in storage_text
+    assert 'boardState.topPanel = String(stored.topPanel || "");' in storage_text
 
 
 def test_planning_invalid_team_filter_is_auto_cleared_and_persisted():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    planning_text = PLANNING_STORAGE.read_text(encoding="utf-8")
+    api_text = PLANNING_API.read_text(encoding="utf-8")
 
     assert "function normalizePersistedBoardFilters() {" in planning_text
     assert "const validTeamIds = new Set((boardState.data.teams || []).map((team) => String(team?.id || \"\")).filter(Boolean));" in planning_text
     assert "boardState.teamFilter === UNASSIGNED_TEAM_ID" in planning_text
     assert 'boardState.teamFilter = "all";' in planning_text
-    assert "normalizePersistedBoardFilters();" in planning_text
+    assert "normalizePersistedBoardFilters();" in api_text
 
 
 def test_planning_invalid_effort_filter_is_auto_cleared_and_persisted():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    planning_text = PLANNING_STORAGE.read_text(encoding="utf-8")
 
-    assert 'const VALID_EFFORT_FILTERS = new Set(["all", "small", "medium", "large"]);' in planning_text
+    assert 'const VALID_EFFORT_FILTERS = new Set(["all", "small", "medium", "large"]);' in state_text
     assert 'if (!VALID_EFFORT_FILTERS.has(String(boardState.effortFilter || "all"))) {' in planning_text
     assert 'boardState.effortFilter = "all";' in planning_text
     assert "if (changed) persistViewState();" in planning_text
 
 
 def test_planning_invalid_month_token_is_auto_cleared_and_persisted():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    planning_text = PLANNING_STORAGE.read_text(encoding="utf-8")
 
-    assert "function isValidMonthToken(value) {" in planning_text
-    assert "const month = Number(raw.slice(5, 7));" in planning_text
-    assert "return Number.isInteger(month) && month >= 1 && month <= 12;" in planning_text
+    assert "function isValidMonthToken(value) {" in state_text
+    assert "const month = Number(raw.slice(5, 7));" in state_text
+    assert "return Number.isInteger(month) && month >= 1 && month <= 12;" in state_text
     assert "if (!isValidMonthToken(boardState.month)) {" in planning_text
     assert "boardState.month = currentMonthToken();" in planning_text
     assert "if (changed) persistViewState();" in planning_text
 
 
 def test_planning_invalid_top_panel_is_auto_cleared_and_persisted():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    state_text = PLANNING_STATE.read_text(encoding="utf-8")
+    planning_text = PLANNING_STORAGE.read_text(encoding="utf-8")
 
-    assert 'const VALID_TOP_PANELS = new Set(["", "filters", "create", "guide", "tools"]);' in planning_text
+    assert 'const VALID_TOP_PANELS = new Set(["", "filters", "create", "guide", "tools"]);' in state_text
     assert 'if (!VALID_TOP_PANELS.has(String(boardState.topPanel || ""))) {' in planning_text
     assert 'boardState.topPanel = "";' in planning_text
     assert "if (changed) persistViewState();" in planning_text
 
 
 def test_planning_corrupt_scoped_view_state_is_rewritten_to_defaults():
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    planning_text = PLANNING_STORAGE.read_text(encoding="utf-8")
 
     assert "function readStoredState(spaceId) {" in planning_text
     assert 'if (!raw) return { value: {}, recovered: false };' in planning_text
@@ -379,8 +404,8 @@ def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes(
     router_text = ROUTER_JS.read_text(encoding="utf-8")
     session_text = SESSION_JS.read_text(encoding="utf-8")
     live_sync_text = LIVE_SYNC_JS.read_text(encoding="utf-8")
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
-    pm_dashboard_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
+    planning_text = PLANNING_API.read_text(encoding="utf-8")
+    pm_dashboard_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
 
     assert "export const APP_CONTEXT_PATH = (() => {" in paths_text
     assert 'export const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";' in paths_text
@@ -399,19 +424,22 @@ def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes(
 
 
 def test_planning_route_uses_inline_forms_confirm_modal_and_keyboard_detail_controls():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    render_text = PLANNING_RENDER.read_text(encoding="utf-8")
+    api_text = PLANNING_API.read_text(encoding="utf-8")
+    interactions_text = PLANNING_INTERACTIONS.read_text(encoding="utf-8")
+    selection_text = PLANNING_SELECTION.read_text(encoding="utf-8")
 
-    assert "wab-create-form" in text
-    assert "ctx?.showConfirmModal" in text
-    assert "data-assign-target" in text
-    assert "wab-modal-shell" in text
-    assert 'action === "close-task-detail" || action === "close-task-modal"' in text
-    assert 'if (key === "Escape" && boardState.selectedTaskId)' in text
-    assert 'closest(".wab-task-chip")' in text
-    assert "closeTaskDetail" in text
-    assert "wab-person-search" in text
-    assert "window.prompt" not in text
-    assert "window.confirm" not in text
+    assert "wab-create-form" in render_text
+    assert "ctx?.showConfirmModal" in api_text
+    assert "data-assign-target" in render_text
+    assert "wab-modal-shell" in render_text
+    assert 'action === "close-task-detail" || action === "close-task-modal"' in api_text
+    assert 'if (key === "Escape" && boardState.selectedTaskId)' in interactions_text
+    assert 'closest(".wab-task-chip")' in interactions_text
+    assert "closeTaskDetail" in selection_text
+    assert "wab-person-search" in render_text
+    assert "window.prompt" not in api_text
+    assert "window.confirm" not in api_text
 
 
 def test_app_shell_planning_allocation_delete_uses_shared_confirm_modal():
@@ -424,7 +452,7 @@ def test_app_shell_planning_allocation_delete_uses_shared_confirm_modal():
 
 
 def test_app_shell_confirm_modal_is_required_and_never_falls_back_to_browser_confirm():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    modal_text = MODAL_SHELL_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'id="confirm-modal"' in html_text
@@ -433,9 +461,9 @@ def test_app_shell_confirm_modal_is_required_and_never_falls_back_to_browser_con
     assert 'id="confirm-modal-close"' in html_text
     assert 'id="confirm-modal-cancel"' in html_text
     assert 'id="confirm-modal-confirm"' in html_text
-    assert 'console.warn("Confirm modal shell missing; canceling action.");' in app_text
-    assert "return Promise.resolve(false);" in app_text
-    assert "Promise.resolve(confirm(message));" not in app_text
+    assert 'console.warn("Confirm modal shell missing; canceling action.");' in modal_text
+    assert "return Promise.resolve(false);" in modal_text
+    assert "Promise.resolve(confirm(message));" not in modal_text
 
 
 def test_subcomponents_workbench_saved_view_delete_uses_shared_confirm_modal():
@@ -577,20 +605,22 @@ def test_planning_window_save_failure_uses_in_app_feedback():
 
 
 def test_planning_dragging_assigned_task_moves_existing_allocation_instead_of_creating_duplicate():
-    text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    api_text = PLANNING_API.read_text(encoding="utf-8")
+    interactions_text = PLANNING_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "async function moveAssignment(allocationId, assigneeType, assigneeId" in text
-    assert '`/planning/work-allocation/allocations/${encodeURIComponent(existing.id)}`' in text
-    assert 'method: "PATCH"' in text
-    assert 'kind: "move-assignment"' in text
-    assert 'await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });' in text
-    assert 'await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });' in text
+    assert "async function moveAssignment(allocationId, assigneeType, assigneeId" in api_text
+    assert '`/planning/work-allocation/allocations/${encodeURIComponent(existing.id)}`' in api_text
+    assert 'method: "PATCH"' in api_text
+    assert 'kind: "move-assignment"' in api_text
+    assert 'await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });' in interactions_text
+    assert 'await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });' in interactions_text
 
 
 def test_operational_views_can_hide_completed_work_across_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
-    planning_text = PLANNING_ROUTE.read_text(encoding="utf-8")
+    planning_common_text = PLANNING_COMMON.read_text(encoding="utf-8")
+    planning_render_text = PLANNING_RENDER.read_text(encoding="utf-8")
     workbench_text = SUBCOMPONENTS_WORKBENCH_ROUTE.read_text(encoding="utf-8")
 
     assert 'id="completed-visibility-toggle"' in html_text
@@ -602,8 +632,8 @@ def test_operational_views_can_hide_completed_work_across_space():
     assert "if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;" in app_text
     assert "if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;" in app_text
     assert "Completed items are hidden here. Use Show Completed in the top bar" in app_text
-    assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_text
-    assert "completed or abandoned task" in planning_text
+    assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_common_text
+    assert "completed or abandoned task" in planning_render_text
     assert "summary?.hiddenClosed" in workbench_text
 
 

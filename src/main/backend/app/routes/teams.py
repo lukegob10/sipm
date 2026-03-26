@@ -45,14 +45,29 @@ def _member_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _active_space_user_query(session: Session, space_ctx: SpaceContext):
+def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
     return (
         session.query(User)
         .join(SpaceMembership, SpaceMembership.user_id == User.user_id)
         .filter(SpaceMembership.space_id == space_ctx.space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
-        .filter(SpaceMembership.status == "active")
     )
+
+
+def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set[str]) -> None:
+    if not user_ids:
+        return
+    rows = (
+        session.query(SpaceMembership.space_id)
+        .filter(SpaceMembership.user_id.in_(sorted(user_ids)))
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .distinct()
+        .all()
+    )
+    for row in rows:
+        space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
+        if space_id:
+            invalidate_space(space_id, ["users"])
 
 
 def _active_team(session: Session, team_id: str, space_ctx: SpaceContext) -> Team:
@@ -296,6 +311,7 @@ def update_team(
 ) -> TeamRead:
     team = _active_team(session, team_id, space_ctx)
     old_name = team.name
+    affected_user_ids: set[str] = set()
     for field in ["name", "description", "lead"]:
         val = getattr(payload, field)
         if val is not None:
@@ -309,10 +325,11 @@ def update_team(
     if payload.capacity_unit is not None:
         team.capacity_unit = payload.capacity_unit
     if team.name != old_name:
-        for user in _active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+        for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
             user.team_tag = team.name
             user.updated_at = datetime.now(timezone.utc)
             session.add(user)
+            affected_user_ids.add(user.user_id)
     team.updated_at = datetime.now(timezone.utc)
     try:
         session.add(team)
@@ -326,7 +343,8 @@ def update_team(
                 detail="Team name already exists",
             ) from exc
         raise
-    invalidate_space(space_ctx.space_id, ["teams", "users"])
+    invalidate_space(space_ctx.space_id, ["teams"])
+    _invalidate_user_caches_for_user_memberships(session, affected_user_ids)
     return _team_with_members(session, team, space_ctx)
 
 
@@ -340,15 +358,18 @@ def delete_team(
     team = _active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
     old_name = team.name
+    affected_user_ids: set[str] = set()
     team.deleted_at = now
     _member_query(session, space_ctx).filter(TeamMember.team_id == team_id).update({"deleted_at": now})
-    for user in _active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+    for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
         user.team_tag = None
         user.updated_at = now
         session.add(user)
+        affected_user_ids.add(user.user_id)
     session.add(team)
     session.commit()
-    invalidate_space(space_ctx.space_id, ["teams", "users"])
+    invalidate_space(space_ctx.space_id, ["teams"])
+    _invalidate_user_caches_for_user_memberships(session, affected_user_ids)
     return None
 
 

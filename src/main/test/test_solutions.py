@@ -272,6 +272,18 @@ async def test_update_solution_status_and_description(client):
     assert updated["success_criteria"] == "100% traffic migrated; no Sev1 incidents for 30 days"
     assert updated["completed_at"] is not None
 
+    audit_resp = await client.get(
+        "/project-manager/api/audit",
+        params={
+            "entity_type": "solution",
+            "entity_id": solution_id,
+            "field": "completed_at",
+        },
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    rows = audit_resp.json()
+    assert any(row["new_value"] for row in rows)
+
 
 @pytest.mark.anyio
 async def test_reopening_solution_clears_completed_at(client):

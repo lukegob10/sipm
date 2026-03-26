@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
@@ -117,7 +119,7 @@ def test_calendar_modal_actions_reuse_existing_detail_surfaces():
 
 
 def test_calendar_preview_link_uses_text_first_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".calendar-preview-link {" in text
     assert "appearance: none;" in text
@@ -129,7 +131,7 @@ def test_calendar_preview_link_uses_text_first_styling():
 
 
 def test_calendar_modal_action_links_use_compact_local_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".calendar-modal-action-link {" in text
     assert "appearance: none;" in text
@@ -140,7 +142,7 @@ def test_calendar_modal_action_links_use_compact_local_styling():
 
 
 def test_calendar_day_cells_use_flatter_container_chrome():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".calendar-cell {" in text
     assert "box-shadow: none;" in text
@@ -149,7 +151,7 @@ def test_calendar_day_cells_use_flatter_container_chrome():
 
 
 def test_calendar_day_counts_use_quieter_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".calendar-count {" in text
     assert "background: transparent;" in text

@@ -88,12 +88,26 @@ HTTP mutation route
 - `projects.py`
   - Depends on: `Project`, `User`, utils parsing helpers, `safe_log_changes`, `smart_cache`, `realtime`
   - Touches: list/create/update/delete/import/export of projects, including descendant `solutions`/`subcomponents` cache invalidation and broadcasts on project delete
-- `solutions.py`
-  - Depends on: `Project`, `Solution`, `Phase`, `SolutionPhase`, `User`, `github_repo_urls`, `safe_log_changes`, `smart_cache`
-  - Touches: solution CRUD, phase enablement, import/export, RAG behavior, and active-parent filtering so deleted projects hide child solution reads
-- `subcomponents.py`
-  - Depends on: `Project`, `Solution`, `Subcomponent`, `ChangeLog`, `User`, `github_repo_urls`, `log_changes`, `smart_cache`
-  - Touches: subcomponent CRUD, batch actions, activity, import/export, and active-parent filtering so deleted projects hide child subcomponent reads
+- `solutions/`
+  - `common.py`
+    - Owns shared query/payload/current-phase/publish helpers plus the package-level `enable_all_phases` hook used by write/import paths
+  - `read.py`
+    - Owns list/detail read paths and cache-scoped list/detail shaping
+  - `write.py`
+    - Owns create/update/delete mutations and direct audit/cache publication
+  - `import_export.py`
+    - Owns CSV import/export plus auto-created parent project handling
+  - Touches: solution CRUD, phase enablement, import/export, RAG behavior, active-parent filtering so deleted projects hide child solution reads, descendant subcomponent cache/broadcast invalidation on solution delete, inherited subcomponent repo-cache invalidation on solution repo-url updates/imports, direct status-patch audit coverage for derived `completed_at`/`current_phase`, and parent-project cache invalidation when CSV import auto-creates projects
+- `subcomponents/`
+  - `common.py`
+    - Owns shared query/payload/actionability helpers plus the package-level `enable_all_phases` hook used when imports auto-create solutions
+  - `read.py`
+    - Owns list/detail/activity read paths and cache-scoped serialization
+  - `write.py`
+    - Owns create/update/batch/delete mutations and direct audit/cache publication
+  - `import_export.py`
+    - Owns CSV import/export plus auto-created parent project/solution handling
+  - Touches: subcomponent CRUD, batch actions, activity, import/export, active-parent filtering so deleted projects hide child subcomponent reads, inherited repo metadata preservation in batch-update responses, direct status-patch audit coverage for derived `completed_at`, and parent project/solution cache invalidation when CSV import auto-creates them
 - `phases.py`
   - Depends on: `Phase`, `Project`, `Solution`, `SolutionPhase`, `log_changes`
   - Touches: solution-phase reads/writes, including active-parent filtering so deleted projects hide descendant phase surfaces
@@ -102,14 +116,14 @@ HTTP mutation route
   - Touches: space CRUD plus membership CRUD, including last-admin enforcement that now counts only active user accounts
 - `users.py`
   - Depends on: `User`, `SpaceMembership`, `hash_bootstrap_password`, `password_reset`, `log_changes`, `smart_cache`
-  - Touches: space-scoped roster read/update, user import/export, global-admin role management, password reset issuance, cross-membership user-cache invalidation on profile edits and CSV imports, and user-deactivation guards that prevent orphaning any admin-managed space
+  - Touches: space-scoped roster read/update, user import/export, global-admin role management, password reset issuance, cross-membership user-cache invalidation on profile edits and CSV imports, and shared user-deactivation guards that prevent orphaning any admin-managed space or deactivating the last global admin
 - `teams.py`
   - Depends on: `Team`, `TeamMember`, `SpaceMembership`, `User`, `smart_cache`
-  - Touches: team CRUD, team-member CRUD, active-space user team-tag synchronization on rename/delete
+  - Touches: team CRUD, team-member CRUD, user team-tag synchronization on rename/delete even for inactive space memberships, plus cross-membership user-cache invalidation when shared users' `team_tag` changes
 - `planning/`
   - Depends on: `PlanningWindow`, `ResourceAllocation`, `SpaceMembership`, `Subcomponent`, `Team`, `User`
-  - Depends on: `planning_work_allocation`, `planning_report_pdf`, `_mutations`, `smart_cache`, `hash_bootstrap_password`
-  - Touches: legacy resource allocations, planning windows, work-allocation teams/people/tasks/allocations, report PDF
+  - Depends on: `planning_work_allocation`, `planning_report_pdf`, `_mutations`, `smart_cache`, `hash_bootstrap_password`, `user_admin_guards`
+  - Touches: legacy resource allocations, planning windows, work-allocation teams/people/tasks/allocations, report PDF, planning-person mutations that now share protected global-admin/last-admin checks with `/users`, and planning team rename/delete paths that now repair inactive/shared-user `team_tag` state plus cross-membership user-cache invalidation
 - `audit.py`
   - Depends on: `ChangeLog`
 - `sync.py`
@@ -133,6 +147,8 @@ HTTP mutation route
   - Temp-password reset orchestration via `User.temp_password_*` fields; no separate reset-token table is active in runtime metadata
 - `src/main/backend/app/services/github_repo_urls.py`
   - URL normalization/validation for solution and subcomponent repo links
+- `src/main/backend/app/services/user_admin_guards.py`
+  - Shared global-admin and last-active-admin mutation guards used by both `/users` and planning "people" routes
 
 ## Frontend Map
 
@@ -140,14 +156,14 @@ HTTP mutation route
 - `src/main/ui/index.html`
   - Declares the authenticated shell, modal shells, auth screens, shared IDs, and view containers.
 - `src/main/ui/styles.css`
-  - Global styling for shell, modals, tables, dashboards, planning, auth, and admin views.
+  - Compatibility entry that imports split partials from `src/main/ui/styles/base.css` and `src/main/ui/styles/routes/*.css`.
 - `src/main/ui/js/app.js`
-  - Bootstraps the shell, shared DOM lookup table, route-module lazy loading, and shared UI workflows.
-  - Delegates context-path/API/WS URL building, routing, session/auth, live sync, and shared data loading to `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context}.js`.
+  - Bootstraps the shell, shared state, route-module rendering, and remaining cross-view workflows.
+  - Delegates context-path/API/WS URL building, routing, session/auth, live sync, shared data loading, DOM lookup, confirm/planning modal orchestration, and the space-switcher workflow to `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context,dom,modal-shell,space-switcher,topbar-create}.js`.
 - `src/main/ui/js/routes/master/table.js`
   - Route-local helper for deliverables table markup and filter/select-all bindings used by `src/main/ui/js/routes/master.js`
 
-### Lazy Route Registry In `app.js`
+### Lazy Route Registry In `src/main/ui/js/shell/router.js`
 - `master` -> `src/main/ui/js/routes/master.js`
 - `subcomponents-workbench` -> `src/main/ui/js/routes/subcomponents-workbench.js`
 - `dashboard` -> `src/main/ui/js/routes/dashboard.js`
@@ -197,9 +213,7 @@ HTTP mutation route
   - `uvicorn backend.main:app --reload --app-dir src/main`
 
 ## Dependency Hotspots To Prioritize
-- `src/main/ui/js/app.js` (`8246` lines)
-- `src/main/ui/js/routes/planning.js` (`1960` lines)
-- `src/main/ui/js/routes/dashboard.js` (`1415` lines)
-- `src/main/ui/js/routes/pm-dashboard.js` (`1072` lines)
-- `src/main/backend/app/routes/subcomponents.py` (`1014` lines)
-- `src/main/backend/app/routes/solutions.py` (`1001` lines)
+- `src/main/ui/js/app.js` (`7270` lines)
+- `src/main/ui/styles/routes/workbench-planning-admin.css` (`3061` lines)
+- `src/main/ui/js/routes/pm-dashboard/render.js` (`785` lines)
+- `src/main/ui/js/routes/planning/api.js` (`627` lines)

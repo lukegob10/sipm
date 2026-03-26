@@ -1,8 +1,11 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
@@ -40,7 +43,7 @@ def test_master_project_name_links_reuse_existing_project_modal_path():
 
 
 def test_master_name_links_use_flat_text_link_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".deliverables-name-link {" in text
     assert "appearance: none;" in text
@@ -57,7 +60,7 @@ def test_master_name_links_use_flat_text_link_styling():
 
 
 def test_master_type_chip_uses_colored_chip_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".deliverable-chip-btn {" in text
     assert "cursor: pointer;" in text
@@ -74,11 +77,12 @@ def test_master_type_chip_uses_colored_chip_styling():
 def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
     route_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
-    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
 
     assert 'id="preset-engineering"' in html_text
-    assert 'presetEngineering: document.getElementById("preset-engineering")' in app_text
+    assert 'presetEngineering: document.getElementById("preset-engineering")' in dom_text
     assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in app_text
     assert 'const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in app_text
     assert 'els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset("engineering"));' in app_text

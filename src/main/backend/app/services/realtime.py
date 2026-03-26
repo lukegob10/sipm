@@ -8,6 +8,8 @@ from typing import Dict, Set
 
 from fastapi import WebSocket
 
+from . import coordination
+
 
 def _int_env_with_default(name: str, default: int) -> int:
     raw = str(os.getenv(name, "")).strip()
@@ -86,6 +88,24 @@ async def _prune_idle_connections() -> None:
             unregister(ws)
 
 
+async def _broadcast_local_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
+    await _prune_idle_connections()
+    dead = []
+    for ws in list(connections):
+        meta = _connection_meta.get(ws)
+        if space_id and meta and meta.space_id != space_id:
+            continue
+        if space_id and not meta:
+            continue
+        try:
+            await ws.send_json({"type": "refresh", "entity": entity})
+            _touch(ws)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        unregister(ws)
+
+
 def _user_connection_count(user_id: str) -> int:
     return len(_user_connections.get(user_id, set()))
 
@@ -128,33 +148,33 @@ def heartbeat(ws: WebSocket) -> None:
 
 
 async def broadcast_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
-    await _prune_idle_connections()
-    dead = []
-    for ws in list(connections):
-        meta = _connection_meta.get(ws)
-        if space_id and meta and meta.space_id != space_id:
-            continue
-        if space_id and not meta:
-            continue
-        try:
-            await ws.send_json({"type": "refresh", "entity": entity})
-            _touch(ws)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        unregister(ws)
+    if coordination.uses_redis():
+        if coordination.publish_refresh(entity, space_id=space_id):
+            return
+    await _broadcast_local_refresh(entity, space_id=space_id)
 
 
 def schedule_broadcast(entity: str = "all", *, space_id: str | None = None) -> None:
     """Fire-and-forget broadcast; safe to call from sync contexts."""
+    if coordination.uses_redis() and coordination.publish_refresh(entity, space_id=space_id):
+        return
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            loop.create_task(broadcast_refresh(entity, space_id=space_id))
+            loop.create_task(_broadcast_local_refresh(entity, space_id=space_id))
         else:
-            asyncio.run(broadcast_refresh(entity, space_id=space_id))
+            asyncio.run(_broadcast_local_refresh(entity, space_id=space_id))
     except RuntimeError:
-        asyncio.run(broadcast_refresh(entity, space_id=space_id))
+        asyncio.run(_broadcast_local_refresh(entity, space_id=space_id))
+
+
+async def start_runtime() -> None:
+    if coordination.uses_redis():
+        await coordination.start_refresh_listener(_broadcast_local_refresh)
+
+
+async def stop_runtime() -> None:
+    await coordination.stop_refresh_listener()
 
 
 def connection_snapshot() -> Dict[str, object]:

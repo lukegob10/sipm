@@ -8,7 +8,9 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - `python3 scripts/check_requirements_lock.py` -> `requirements.txt is up to date with requirements.in`
 - `python3 scripts/check_route_module_test_mapping.py` -> exit `0`
 - `python3 -c "import backend.main; print('ok')"` from `src/main` -> `ok`
-- `pytest -q -s src/main/test` -> `335 passed in 119.16s (0:01:59)`
+- `pytest -q -s src/main/test` -> `423 passed, 1 skipped in 169.14s (0:02:49)`
+- `npm run lint:ui` -> pass
+- `npm run test:ui` -> `5 passed`
 
 ## Noise Exclusions For Active Review
 - Exclude `.git/`, `.venv/`, `.pytest_cache/`, `htmlcov/`, `__pycache__/`, and `.auto-research/` from broad inventory decisions.
@@ -74,13 +76,13 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - Status: reviewed; local profile mismatch fixed on 2026-03-23 and pool-range validation tightened on 2026-03-24
 
 ### Cache, Mutation, And Realtime Spine
-- Entry points: `src/main/backend/app/services/smart_cache.py`, `src/main/backend/app/routes/_mutations.py`, `src/main/backend/app/services/realtime.py`, `src/main/backend/app/routes/sync.py`
-- Depends on: in-memory cache versioning, websocket registry, route mutation helpers, space IDs
+- Entry points: `src/main/backend/app/services/smart_cache.py`, `src/main/backend/app/services/coordination.py`, `src/main/backend/app/routes/_mutations.py`, `src/main/backend/app/services/realtime.py`, `src/main/backend/app/routes/sync.py`
+- Depends on: local cache payload storage, coordination backend scope versions/pub-sub, websocket registry, route mutation helpers, space IDs
 - Used by: mutation endpoints across projects, solutions, spaces, teams, planning, and websocket refresh consumers
 - Tests: `src/main/test/test_realtime_and_sync.py`, planning live-refresh tests in `src/main/test/test_planning_work_allocation_people.py`, cache invalidation tests in `src/main/test/test_spaces.py` and `src/main/test/test_teams_space_scope.py`
 - Source of truth: service code and realtime/cache tests
-- Risk: High. Shared invalidation and websocket broadcast logic can create hidden stale-state failures; websocket limit settings and smart-cache env flags are now fail-fast validated instead of silently accepting invalid runtime values, smart-cache max entries no longer silently turns `0` or negative values back into the default cache floor, and idle websocket pruning now closes stale sockets with a reconnectable close code instead of silently dropping them from the server registry.
-- Status: reviewed; `BATCH-008` closed on 2026-03-25 with fail-fast cache config validation, explicit reconnectable idle websocket closure, and a green full-suite regression pass
+- Risk: High. Shared invalidation and websocket broadcast logic can create hidden stale-state failures; websocket limit settings and smart-cache env flags are now fail-fast validated instead of silently accepting invalid runtime values, smart-cache max entries no longer silently turns `0` or negative values back into the default cache floor, idle websocket pruning now closes stale sockets with a reconnectable close code instead of silently dropping them from the server registry, and cross-worker invalidation/broadcast now depends on the runtime coordination backend.
+- Status: reviewed; `BATCH-008` closed on 2026-03-25 with fail-fast cache config validation, explicit reconnectable idle websocket closure, Redis-backed coordination support for stage/prod, and a green regression pass
 
 ## Data And Domain Contracts
 
@@ -109,18 +111,18 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - Tests: `src/main/test/test_audit.py`, audit-failure tolerance tests in projects and solutions
 - Source of truth: audit route/service code and tests
 - Risk: Medium. Best-effort logging must not corrupt primary writes.
-- Status: reviewed; `ChangeLogRead` now exposes `space_id`, so `/audit?all_spaces=true` responses remain attributable
+- Status: reviewed; `ChangeLogRead` now exposes `space_id`, so `/audit?all_spaces=true` responses remain attributable, and audit writes now inherit the active `X-Request-ID` via request context instead of bulk routes minting unrelated UUIDs
 
 ## Core Backend Domains
 
 ### Deliverables Domain: Projects, Solutions, Subcomponents, Phases
-- Entry points: `src/main/backend/app/routes/projects.py`, `solutions.py`, `subcomponents.py`, `phases.py`
+- Entry points: `src/main/backend/app/routes/projects.py`, `src/main/backend/app/routes/solutions/{common,read,write,import_export}.py`, `src/main/backend/app/routes/subcomponents/{common,read,write,import_export}.py`, `src/main/backend/app/routes/phases.py`
 - Depends on: shared deps, models, schemas, `audit_log`, `github_repo_urls`, `smart_cache`, mutation helpers, enums
 - Used by: master view, dashboard views, import/export workflows, activity feeds
 - Tests: `src/main/test/test_projects.py`, `src/main/test/test_solutions.py`, `src/main/test/test_subcomponents.py`, `src/main/test/test_phases.py`, import/export tests
 - Source of truth: route contracts and domain tests
-- Risk: High. This is the main operational surface and touches import/export, soft delete, audit, and multi-space behavior; solution and subcomponent mutation paths now keep `completed_at` consistent with reopened statuses across direct updates, CSV imports, and subcomponent batch updates, and soft-deleted projects now consistently hide descendant solutions, subcomponents, and solution-phase surfaces instead of leaving child reads or cached child lists/details behind.
-- Status: reviewed; completion-state consistency tightened on 2026-03-24 and parent-delete descendant visibility/cache invalidation tightened on 2026-03-25
+- Risk: High. This is the main operational surface and touches import/export, soft delete, audit, and multi-space behavior; solution and subcomponent mutation paths now keep `completed_at` consistent with reopened statuses across direct updates, CSV imports, and subcomponent batch updates, soft-deleted projects now consistently hide descendant solutions, subcomponents, and solution-phase surfaces instead of leaving child reads or cached child lists/details behind, solution deletion now clears descendant subcomponent caches/broadcasts instead of leaving stale child views behind until TTL expiry, CSV imports that auto-create parent projects or solutions now invalidate those parent caches instead of leaving `/projects` or `/solutions` stale until TTL expiry, solution repo URL updates/imports now refresh descendant subcomponent caches so inherited effective repo links do not stay stale until TTL expiry, subcomponent batch responses now preserve inherited repo metadata, direct solution/subcomponent status patches now audit the derived completion transition instead of dropping it from the change log, and the old route monoliths are now split into read/write/import-export/common packages so future fixes do not have to cut across thousand-line mixed-responsibility files.
+- Status: reviewed; `BATCH-005` closed on 2026-03-25 after completion-state, descendant-visibility, cache-invalidation, inherited-repo, payload-shape, direct-audit, and route-package split fixes
 
 ### Admin Domain: Spaces, Users, Teams
 - Entry points: `src/main/backend/app/routes/spaces.py`, `users.py`, `teams.py`
@@ -128,8 +130,8 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - Used by: admin views, active-space switching, member management, team-capacity planning setup
 - Tests: `src/main/test/test_spaces.py`, `src/main/test/test_users_space_scope.py`, `src/main/test/test_teams_space_scope.py`, `src/main/test/test_global_admin_management.py`
 - Source of truth: route contracts and admin tests
-- Risk: High. Role changes and membership changes directly affect access control; team creation/restoration now honors explicit per-week default capacity inputs, duplicate space-name conflicts now fail with clean client errors instead of uncaught server errors, CSV user import no longer bypasses the global-admin account protection enforced by direct user-update routes, the standard `/teams` rename/delete path now keeps active-space `User.team_tag` values in sync instead of leaving stale user-team associations behind, direct user updates and CSV user imports now invalidate user-list caches across every active membership space instead of only the admin's current space, and the last-admin guard now counts only actually-active admin users so neither membership edits nor user deactivation can strand a space without an active `space_admin`.
-- Status: reviewed; `BATCH-006` closed on 2026-03-25
+- Risk: High. Role changes and membership changes directly affect access control; team creation/restoration now honors explicit per-week default capacity inputs, duplicate space-name conflicts now fail with clean client errors instead of uncaught server errors, CSV user import no longer bypasses the global-admin account protection enforced by direct user-update routes, the standard `/teams` rename/delete path now keeps `User.team_tag` values in sync even for inactive space memberships and invalidates shared-user roster caches across every membership space instead of leaving hidden stale team names behind, direct user updates and CSV user imports now invalidate user-list caches across every active membership space instead of only the admin's current space, and the last-admin/global-admin deactivation guards now apply consistently across both `/users` and planning "people" mutations so planning cannot sidestep protected account rules.
+- Status: reviewed; `BATCH-006` closed on 2026-03-25 and the planning crossover bypass was closed on 2026-03-25
 
 ### Planning And Work Allocation Domain
 - Entry points: `src/main/backend/app/routes/planning/{common,legacy_allocations,work_allocation}.py`, `src/main/backend/app/services/planning_work_allocation.py`, `src/main/backend/app/services/planning_report_pdf.py`, `src/main/backend/app/schemas/planning.py`
@@ -137,8 +139,8 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - Used by: `#/planning`, planning windows, allocations, PDF report generation, derived board project/solution records
 - Tests: `src/main/test/test_planning_work_allocation_people.py`, `src/main/test/test_planning_work_allocation_tasks.py`, `src/main/test/test_planning_work_allocation_report.py`, `src/main/test/test_planning_fte_month.py`
 - Source of truth: route behavior and planning tests
-- Risk: High. Planning remains a public API hotspot, but shared helpers, legacy allocation/window routes, and work-allocation board routes are now separated so future fixes do not have to cut across one monolith.
-- Status: reviewed; route/package split completed on 2026-03-24
+- Risk: High. Planning remains a public API hotspot, but shared helpers, legacy allocation/window routes, and work-allocation board routes are now separated so future fixes do not have to cut across one monolith; planning "people" mutations now reuse the same protected global-admin and last-admin deactivation guards as `/users`, and planning team rename/delete now also repairs inactive/shared-user `team_tag` state instead of leaving stale team names latent in later roster reads.
+- Status: reviewed; route/package split completed on 2026-03-24 and protected user-mutation consistency tightened on 2026-03-25
 
 ### Sync And Websocket Boundary
 - Entry points: `src/main/backend/app/routes/sync.py`, `src/main/backend/app/services/realtime.py`
@@ -152,13 +154,13 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 ## Frontend Surfaces
 
 ### Frontend Shell And Shared State
-- Entry points: `src/main/ui/index.html`, `src/main/ui/js/app.js`, `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context}.js`, `src/main/ui/styles.css`
+- Entry points: `src/main/ui/index.html`, `src/main/ui/js/app.js`, `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context,dom,modal-shell,space-switcher,topbar-create}.js`, `src/main/ui/styles.css`, `src/main/ui/styles/base.css`, `src/main/ui/styles/routes/*.css`
 - Depends on: DOM IDs defined in `index.html`, context-path derivation, route lazy-loader registry, shared modals, API and websocket URLs
 - Used by: every SPA screen
 - Tests: `src/main/test/test_frontend_ux_improvement_contract.py`, `src/main/test/test_context_path_routing.py`, multiple frontend contract tests
 - Source of truth: SPA shell files and frontend contract tests
-- Risk: High. Shared shell state still exists, but path/routing/session/live-sync/data-loading responsibilities are now split into dedicated shell modules instead of being concentrated in one file.
-- Status: reviewed; shell extraction completed on 2026-03-24 and route-local cleanup continued on 2026-03-25 with the deliverables route split into a thin entrypoint plus `src/main/ui/js/routes/master/table.js`
+- Risk: High. Shared shell state still exists, but path/routing/session/live-sync/data-loading responsibilities are now split into dedicated shell modules instead of being concentrated in one file; DOM lookup, confirm/planning modal orchestration, and the space-switcher workflow are now also isolated in shell-local modules, and the dead duplicate inline live-sync implementation has been removed so `shell/live-sync.js` is the single authority.
+- Status: reviewed; shell extraction continued through 2026-03-25 with dedicated `dom.js`, `modal-shell.js`, `space-switcher.js`, and `topbar-create.js` modules, while `styles.css` now serves as a compatibility import surface over split base/route partials instead of one monolithic stylesheet
 
 ### Frontend Route Modules
 - Entry points: `src/main/ui/js/routes/*.js`, `src/main/ui/js/route-module-test-map.json`
@@ -166,19 +168,19 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 - Used by: deliverables, planning, dashboards, spaces, access, calendar, kanban, team-capacity views
 - Tests: `src/main/test/test_ui_route_modules_exports.py`, `src/main/test/test_ui_route_module_test_mapping_gate.py`, route-specific frontend contract tests
 - Source of truth: route modules, export/mapping tests, route-specific contract tests
-- Risk: Medium. Route modules still depend on shell-owned state and DOM contracts, but they now expose a primary `render(ctx)` entrypoint in addition to legacy named exports, which reduces shell-specific coupling for future passes.
-- Status: reviewed; render-entry normalization completed on 2026-03-24 and the deliverables route now keeps its table rendering/binding in a route-local helper instead of one route file
+- Risk: Medium. Route modules still depend on shared shell state and static view roots, but the main route hotspots are now split into route-local modules: deliverables (`master/table.js`), planning (`planning/{state,common,storage,selection,api,render,interactions}.js`), dashboard (`dashboard/{common,prefs,modal,interactions,render}.js`), and PM dashboard (`pm-dashboard/{analytics,storage,interactions,render}.js`).
+- Status: reviewed; wrapper/route-local ownership completed through 2026-03-25 with focused frontend contract validation and a green full-suite pass
 
 ## Validation Surfaces
 
 ### Test Harness
 - Entry points: `src/main/test/conftest.py`, `src/main/test/*.py`
-- Depends on: FastAPI app overrides, in-memory test DB setup, route-module mapping script
+- Depends on: FastAPI app overrides, in-memory test DB setup, route-module mapping script, repo-level Node toolchain for frontend lint/unit/browser validation
 - Used by: all validation during cleanup
-- Tests: self-validating suite with `406` passing tests on 2026-03-25
-- Source of truth: test files and CI workflow
-- Risk: Medium. The suite is strong, but many frontend checks are contract/string tests rather than runtime interaction tests; observability exception flow is now directly covered in both raising and non-raising ASGI client modes.
-- Status: reviewed
+- Tests: Python suite plus `npm run lint:ui`, `npm run test:ui`, and Playwright smoke coverage
+- Source of truth: test files, `package.json`, and CI workflow
+- Risk: Medium. The suite is stronger now that frontend lint/unit/smoke entrypoints exist, route/style contract tests can resolve imported stylesheet partials, and the route split surfaces are covered by focused contracts; local browser execution still depends on Playwright system libraries and the smoke surface remains intentionally small compared to the Python contract suite.
+- Status: reviewed; Node/Vitest/Playwright tooling and the imported-stylesheet contract harness were in place by 2026-03-25
 
 ## Not Present Or Minimal
 - Infra/deploy surface: not present in repo

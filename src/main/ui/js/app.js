@@ -1,7 +1,5 @@
 import {
   API_BASE,
-  APP_ASSET_VERSION,
-  buildApiUrl,
   buildAppUrl,
   buildResetPageUrl,
   buildWsUrl,
@@ -9,16 +7,16 @@ import {
   refreshStylesheetVersion,
 } from "./shell/paths.js";
 import { createShellContext } from "./shell/context.js";
+import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
 import { createDataStoreController } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
 import {
-  LIVE_SYNC_CLOSE_AUTH,
-  LIVE_SYNC_CLOSE_BUSY,
-  LIVE_SYNC_CLOSE_LIMIT,
-  LIVE_SYNC_CLOSE_SPACE,
   createLiveSyncController,
 } from "./shell/live-sync.js";
+import { createModalShellController } from "./shell/modal-shell.js";
+import { createSpaceSwitcherController } from "./shell/space-switcher.js";
+import { createTopbarCreateController } from "./shell/topbar-create.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
@@ -45,239 +43,7 @@ async function copyText(value) {
   if (!copied) throw new Error("Clipboard copy is not available in this browser.");
 }
 
-const els = {
-  navButtons: document.querySelectorAll(".nav-btn[data-view]"),
-  navAdminSection: document.getElementById("nav-admin-section"),
-  views: document.querySelectorAll(".view"),
-  status: document.getElementById("connection-status"),
-  topbarCreateShell: document.getElementById("topbar-create-shell"),
-  topbarCreateToggle: document.getElementById("topbar-create-toggle"),
-  topbarCreatePanel: document.getElementById("topbar-create-panel"),
-  topbarCreateProject: document.getElementById("topbar-create-project"),
-  topbarCreateSolution: document.getElementById("topbar-create-solution"),
-  topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent"),
-  spaceSwitcherShell: document.getElementById("space-switcher-shell"),
-  spaceSwitcherTrigger: document.getElementById("space-switcher-trigger"),
-  spaceSwitcherCurrent: document.getElementById("space-switcher-current"),
-  spaceSwitcherMeta: document.getElementById("space-switcher-meta"),
-  spaceSwitcherPanel: document.getElementById("space-switcher-panel"),
-  spaceSwitcherClose: document.getElementById("space-switcher-close"),
-  spaceSwitcherSearch: document.getElementById("space-switcher-search"),
-  spaceSwitcherFeedback: document.getElementById("space-switcher-feedback"),
-  spaceSwitcherCurrentList: document.getElementById("space-switcher-current-list"),
-  spaceSwitcherRecentList: document.getElementById("space-switcher-recent-list"),
-  spaceSwitcherAllList: document.getElementById("space-switcher-all-list"),
-  currentUser: document.getElementById("current-user"),
-  completedVisibilityToggle: document.getElementById("completed-visibility-toggle"),
-  logoutBtn: document.getElementById("logout-btn"),
-  themeToggle: document.getElementById("theme-toggle"),
-  appShell: document.getElementById("app-shell"),
-  authScreen: document.getElementById("auth-screen"),
-  authTabLogin: document.getElementById("auth-tab-login"),
-  authTabRegister: document.getElementById("auth-tab-register"),
-  authTabs: document.getElementById("auth-tabs"),
-  loginForm: document.getElementById("login-form"),
-  registerForm: document.getElementById("register-form"),
-  resetLink: document.getElementById("reset-link"),
-  authError: document.getElementById("auth-error"),
-  authNotice: document.getElementById("auth-notice"),
-  resetScreen: document.getElementById("reset-screen"),
-  resetForm: document.getElementById("reset-form"),
-  resetError: document.getElementById("reset-error"),
-  resetSuccess: document.getElementById("reset-success"),
-  idleModal: document.getElementById("idle-modal"),
-  idleStay: document.getElementById("idle-stay"),
-  idleLogout: document.getElementById("idle-logout"),
-  masterFilters: document.getElementById("master-filters"),
-  masterQuickstart: document.getElementById("master-quickstart"),
-  masterTable: document.getElementById("master-table"),
-  subcomponentsWorkbenchSearch: document.getElementById("subcomponents-workbench-search"),
-  subcomponentsWorkbenchProject: document.getElementById("subcomponents-workbench-project"),
-  subcomponentsWorkbenchSolution: document.getElementById("subcomponents-workbench-solution"),
-  subcomponentsWorkbenchAssignee: document.getElementById("subcomponents-workbench-assignee"),
-  subcomponentsWorkbenchStatus: document.getElementById("subcomponents-workbench-status"),
-  subcomponentsWorkbenchPriority: document.getElementById("subcomponents-workbench-priority"),
-  subcomponentsWorkbenchClearFilters: document.getElementById("subcomponents-workbench-clear-filters"),
-  subcomponentsWorkbenchTable: document.getElementById("subcomponents-workbench-table"),
-  subcomponentsWorkbenchKpis: document.getElementById("subcomponents-workbench-kpis"),
-  subcomponentsWorkbenchSelectionCount: document.getElementById("subcomponents-workbench-selection-count"),
-  subcomponentsWorkbenchSavedSelect: document.getElementById("subcomponents-workbench-saved-select"),
-  subcomponentsWorkbenchSavedName: document.getElementById("subcomponents-workbench-saved-name"),
-  subcomponentsWorkbenchSavedSave: document.getElementById("subcomponents-workbench-saved-save"),
-  subcomponentsWorkbenchSavedDelete: document.getElementById("subcomponents-workbench-saved-delete"),
-  subcomponentsWorkbenchSavedStatus: document.getElementById("subcomponents-workbench-saved-status"),
-  subcomponentsWorkbenchBulkAction: document.getElementById("subcomponents-workbench-bulk-action"),
-  subcomponentsWorkbenchBulkStatus: document.getElementById("subcomponents-workbench-bulk-status"),
-  subcomponentsWorkbenchBulkAssignee: document.getElementById("subcomponents-workbench-bulk-assignee"),
-  subcomponentsWorkbenchBulkShift: document.getElementById("subcomponents-workbench-bulk-shift"),
-  subcomponentsWorkbenchBulkApply: document.getElementById("subcomponents-workbench-bulk-apply"),
-  subcomponentsWorkbenchBulkFeedback: document.getElementById("subcomponents-workbench-bulk-feedback"),
-  subcomponentsWorkbenchForm: document.getElementById("subcomponents-workbench-form"),
-  subcomponentsWorkbenchFormStatus: document.getElementById("subcomponents-workbench-form-status"),
-  subcomponentsWorkbenchDelete: document.getElementById("subcomponents-workbench-delete"),
-  subcomponentsWorkbenchReset: document.getElementById("subcomponents-workbench-reset"),
-  subcomponentsWorkbenchClose: document.getElementById("subcomponents-workbench-close"),
-  subcomponentsWorkbenchContext: document.getElementById("subcomponents-workbench-context"),
-  subcomponentsWorkbenchActivity: document.getElementById("subcomponents-workbench-activity"),
-  subcomponentsWorkbenchLayout: document.getElementById("subcomponents-workbench-layout"),
-  subcomponentsWorkbenchDrawer: document.getElementById("subcomponents-workbench-drawer"),
-  projectModal: document.getElementById("project-modal"),
-  projectModalClose: document.getElementById("project-modal-close"),
-  projectModalTitle: document.getElementById("project-modal-title"),
-  solutionModal: document.getElementById("solution-modal"),
-  solutionModalClose: document.getElementById("solution-modal-close"),
-  solutionModalTitle: document.getElementById("solution-modal-title"),
-  subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal"),
-  subcomponentCreatePickerClose: document.getElementById("subcomponent-create-picker-close"),
-  subcomponentCreatePickerCancel: document.getElementById("subcomponent-create-picker-cancel"),
-  subcomponentCreatePickerForm: document.getElementById("subcomponent-create-picker-form"),
-  subcomponentCreatePickerSelect: document.getElementById("subcomponent-create-picker-select"),
-  subcomponentCreatePickerStatus: document.getElementById("subcomponent-create-picker-status"),
-  confirmModal: document.getElementById("confirm-modal"),
-  confirmModalTitle: document.getElementById("confirm-modal-title"),
-  confirmModalMessage: document.getElementById("confirm-modal-message"),
-  confirmModalClose: document.getElementById("confirm-modal-close"),
-  confirmModalCancel: document.getElementById("confirm-modal-cancel"),
-  confirmModalConfirm: document.getElementById("confirm-modal-confirm"),
-  solutionActivity: document.getElementById("solution-activity"),
-  solutionSubcomponentTable: document.getElementById("solution-subcomponent-table"),
-  subcomponentViewToggle: document.getElementById("subcomponent-view-toggle"),
-  presetMy: document.getElementById("preset-my"),
-  presetOverdue: document.getElementById("preset-overdue"),
-  presetBlocked: document.getElementById("preset-blocked"),
-  presetEngineering: document.getElementById("preset-engineering"),
-  presetClear: document.getElementById("preset-clear"),
-  bulkSelectedCount: document.getElementById("bulk-selected-count"),
-  bulkAction: document.getElementById("bulk-action"),
-  bulkStatus: document.getElementById("bulk-status"),
-  bulkOwner: document.getElementById("bulk-owner"),
-  bulkApply: document.getElementById("bulk-apply"),
-  bulkFeedback: document.getElementById("bulk-feedback"),
-  dashboardCards: document.getElementById("dashboard-cards"),
-  dashboardSpaceCapacity: document.getElementById("dashboard-space-capacity"),
-  dashboardTopProjects: document.getElementById("dashboard-top-projects"),
-  dashboardCompletedQuarter: document.getElementById("dashboard-completed-quarter"),
-  dashboardUpcomingQuarter: document.getElementById("dashboard-upcoming-quarter"),
-  dashboardBacklog: document.getElementById("dashboard-backlog"),
-  pmDashboardSummary: document.getElementById("pm-dashboard-summary"),
-  pmDashboardHealth: document.getElementById("pm-dashboard-health"),
-  pmDashboardRisks: document.getElementById("pm-dashboard-risks"),
-  pmDashboardTimeline: document.getElementById("pm-dashboard-timeline"),
-  pmDashboardCapacity: document.getElementById("pm-dashboard-capacity"),
-  pmDashboardStatus: document.getElementById("pm-dashboard-status"),
-  pmDashboardActions: document.getElementById("pm-dashboard-actions"),
-  teamForm: document.getElementById("team-form"),
-  teamList: document.getElementById("team-list"),
-  deleteTeamBtn: document.getElementById("delete-team"),
-  teamMemberForm: document.getElementById("team-member-form"),
-  teamMemberList: document.getElementById("team-member-list"),
-  deleteMemberBtn: document.getElementById("delete-member"),
-  capacityUserForm: document.getElementById("capacity-user-form"),
-  capacityUserFormStatus: document.getElementById("capacity-user-form-status"),
-  capacityUserList: document.getElementById("capacity-user-list"),
-  capacityTeamFilter: document.getElementById("capacity-team-filter"),
-  capacityNameFilter: document.getElementById("capacity-name-filter"),
-  capacityReload: document.getElementById("capacity-reload"),
-  capacityClearFilters: document.getElementById("capacity-clear-filters"),
-  capacityUserOptions: document.getElementById("capacity-user-options"),
-  rosterUpload: document.getElementById("roster-upload"),
-  rosterDownload: document.getElementById("roster-download"),
-  rosterFile: document.getElementById("roster-file"),
-  rosterImportResult: document.getElementById("roster-import-result"),
-  capacityUserDelete: document.getElementById("capacity-user-delete"),
-  spaceGovernanceShell: document.getElementById("space-governance-shell"),
-  spaceCreateModal: document.getElementById("space-create-modal"),
-  spaceCreateModalClose: document.getElementById("space-create-modal-close"),
-  spaceCreateModalForm: document.getElementById("space-create-modal-form"),
-  spaceCreateStatus: document.getElementById("space-create-status"),
-  spaceMemberModal: document.getElementById("space-member-modal"),
-  spaceMemberModalClose: document.getElementById("space-member-modal-close"),
-  spaceMemberModalForm: document.getElementById("space-member-modal-form"),
-  spaceMemberModalContext: document.getElementById("space-member-modal-context"),
-  spaceMemberStatus: document.getElementById("space-member-status"),
-  spaceDirectoryModal: document.getElementById("space-directory-modal"),
-  spaceDirectoryModalClose: document.getElementById("space-directory-modal-close"),
-  spaceDirectoryModalBody: document.getElementById("space-directory-modal-body"),
-  projectForm: document.getElementById("project-form"),
-  projectSubmitBtn: document.getElementById("project-submit-btn"),
-  projectFormStatus: document.getElementById("project-form-status"),
-  csvActionsToggle: document.getElementById("csv-actions-toggle"),
-  csvActionsMenu: document.getElementById("csv-actions-menu"),
-  projectsDownload: document.getElementById("projects-download"),
-  projectsUpload: document.getElementById("projects-upload"),
-  projectsFile: document.getElementById("projects-file"),
-  projectsImportResult: document.getElementById("projects-import-result"),
-  solutionForm: document.getElementById("solution-form"),
-  solutionSubmitBtn: document.getElementById("solution-submit-btn"),
-  solutionFormStatus: document.getElementById("solution-form-status"),
-  solutionsDownload: document.getElementById("solutions-download"),
-  solutionsUpload: document.getElementById("solutions-upload"),
-  solutionsFile: document.getElementById("solutions-file"),
-  solutionsImportResult: document.getElementById("solutions-import-result"),
-  csvUploadModal: document.getElementById("csv-upload-modal"),
-  csvUploadBackdrop: document.getElementById("csv-upload-backdrop"),
-  csvUploadClose: document.getElementById("csv-upload-close"),
-  csvUploadTitle: document.getElementById("csv-upload-title"),
-  csvUploadDescription: document.getElementById("csv-upload-description"),
-  csvDropzone: document.getElementById("csv-dropzone"),
-  csvUploadFile: document.getElementById("csv-upload-file"),
-  csvUploadFileName: document.getElementById("csv-upload-file-name"),
-  csvDownloadTemplate: document.getElementById("csv-download-template"),
-  csvSubmitUpload: document.getElementById("csv-submit-upload"),
-  csvUploadStatus: document.getElementById("csv-upload-status"),
-  phasesTable: document.getElementById("phases-table"),
-  subcomponentForm: document.getElementById("subcomponent-form"),
-  subcomponentFormFooter: document.getElementById("subcomponent-form-footer"),
-  subcomponentSubmitBtn: document.getElementById("subcomponent-submit-btn"),
-  subcomponentFormStatus: document.getElementById("subcomponent-form-status"),
-  subcomponentRepoPreview: document.getElementById("subcomponent-repo-preview"),
-  showSubcomponentFormBtn: document.getElementById("show-subcomponent-form"),
-  kanbanBoard: document.getElementById("kanban-board"),
-  calendarGrid: document.getElementById("calendar-grid"),
-  calendarMonthInput: document.getElementById("calendar-month"),
-  calendarPrev: document.getElementById("calendar-prev"),
-  calendarNext: document.getElementById("calendar-next"),
-  kanbanFilterProject: document.getElementById("kanban-filter-project"),
-  kanbanFilterOwner: document.getElementById("kanban-filter-owner"),
-  calendarFilterProject: document.getElementById("calendar-filter-project"),
-  calendarFilterOwner: document.getElementById("calendar-filter-owner"),
-  calendarModal: document.getElementById("calendar-modal"),
-  calendarModalTitle: document.getElementById("calendar-modal-title"),
-  calendarModalList: document.getElementById("calendar-modal-list"),
-  calendarModalClose: document.getElementById("calendar-modal-close"),
-  planningBoard: document.getElementById("planning-board"),
-  planningSearch: document.getElementById("planning-search"),
-  planningTeamTagFilter: document.getElementById("planning-team-tag-filter"),
-  planningFilterOver: document.getElementById("planning-filter-over"),
-  planningFilterUnder: document.getElementById("planning-filter-under"),
-  planningFrom: document.getElementById("planning-from"),
-  planningTo: document.getElementById("planning-to"),
-  planningLayout: document.getElementById("planning-layout"),
-  planningDrawer: document.getElementById("planning-drawer"),
-  planningAllocationDrawer: document.getElementById("planning-allocation-drawer"),
-  planningWindowDrawer: document.getElementById("planning-window-drawer"),
-  planningAddAllocation: document.getElementById("planning-add-allocation"),
-  planningCloseAllocation: document.getElementById("planning-close-allocation"),
-  planningCloseWindow: document.getElementById("planning-close-window"),
-  planningWindowForm: document.getElementById("planning-window-form"),
-  allocationForm: document.getElementById("allocation-form"),
-  planningWindowSelect: document.getElementById("planning-window-select"),
-  allocationWindowHint: document.getElementById("allocation-window-hint"),
-  allocationStatus: document.getElementById("allocation-status"),
-  editWindowBtn: document.getElementById("edit-window-btn"),
-  saveWindowBtn: document.getElementById("save-window-btn"),
-  clearWindowBtn: document.getElementById("clear-window-btn"),
-  planningModal: document.getElementById("planning-modal"),
-  planningModalTitle: document.getElementById("planning-modal-title"),
-  planningModalBody: document.getElementById("planning-modal-body"),
-  planningModalClose: document.getElementById("planning-modal-close"),
-  planningRoster: document.getElementById("planning-roster"),
-  planningWindowSummary: document.getElementById("planning-window-summary"),
-  planningKpis: document.getElementById("planning-kpis"),
-  deleteProjectBtn: document.getElementById("delete-project"),
-  deleteSolutionBtn: document.getElementById("delete-solution"),
-  deleteSubcomponentBtn: document.getElementById("delete-subcomponent"),
-};
+const els = queryShellElements();
 
 const normalize = (value) => (value || "").toString().trim().toLowerCase();
 const normalizeSpaceRole = (value) => normalize(value).replace(/[\s-]+/g, "_");
@@ -515,8 +281,6 @@ let idleLastActive = Date.now();
 let idleWarned = false;
 let idleInterval = null;
 let idleListenersBound = false;
-let pendingConfirmResolve = null;
-let confirmReturnFocusEl = null;
 const csvUploadState = {
   kind: "",
   file: null,
@@ -532,16 +296,48 @@ const ignoreNextRefresh = {
   },
 };
 
+const topbarCreateController = createTopbarCreateController({
+  state,
+  els,
+  escapeHtml,
+  openProjectForm,
+  openSolutionModal,
+  showSubcomponentForm,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+});
+const {
+  bindSubcomponentCreatePicker,
+  bindTopbarCreateMenu,
+  closeTopbarCreateMenu,
+  closeSubcomponentCreatePicker,
+} = topbarCreateController;
+const modalShellController = createModalShellController({
+  els,
+  onPlanningModalAction(action, { allocationId }) {
+    if (action === "open-allocation-work-item") {
+      openAllocationWorkItemDrilldown(allocationId);
+    }
+  },
+});
+const spaceSwitcherController = createSpaceSwitcherController({
+  state,
+  els,
+  normalize,
+  normalizeSpaceRole,
+  escapeAttr,
+  esc,
+  userIsGlobalAdmin,
+  syncRoleAwareNavigation,
+  onSwitchActiveSpace: async (targetSpaceId) => switchActiveSpace(targetSpaceId),
+});
+
 function getRouteModule(view) {
   return routerController.getRouteModule(view);
 }
 
 async function ensureRouteModule(view) {
   return routerController.ensureRouteModule(view);
-}
-
-function normalizeView(view) {
-  return routerController.normalizeView(view);
 }
 
 function isAdminView(view) {
@@ -556,16 +352,8 @@ function canAccessView(view) {
   return routerController.canAccessView(view);
 }
 
-function resolveAccessibleView(view) {
-  return routerController.resolveAccessibleView(view);
-}
-
 function appRelativePath(pathname = window.location.pathname) {
   return routerController.appRelativePath(pathname);
-}
-
-function routePathForView(view) {
-  return routerController.routePathForView(view);
 }
 
 function viewHref(view) {
@@ -584,24 +372,8 @@ function syncPathForView(view, replace = false) {
   return routerController.syncPathForView(view, replace);
 }
 
-function viewDomIdForRoute(view) {
-  return routerController.viewDomIdForRoute(view);
-}
-
-function navViewForRoute(view) {
-  return routerController.navViewForRoute(view);
-}
-
 function isSpaceGovernanceView(view) {
   return routerController.isSpaceGovernanceView(view);
-}
-
-function entitiesForView(view) {
-  return routerController.entitiesForView(view);
-}
-
-function isKnownEntity(entity) {
-  return routerController.isKnownEntity(entity);
 }
 
 function clearDataState() {
@@ -612,16 +384,8 @@ function markIgnoreRefresh(entity) {
   return dataStoreController.markIgnoreRefresh(entity);
 }
 
-async function fetchEntityData(entity) {
-  return dataStoreController.fetchEntityData(entity);
-}
-
 function applyEntityData(entity, data) {
   return dataStoreController.applyEntityData(entity, data);
-}
-
-function scheduleViewPrefetch(view) {
-  return dataStoreController.scheduleViewPrefetch(view);
 }
 
 async function refreshFromServer(entity = "all") {
@@ -785,35 +549,15 @@ function setResetVisible(show) {
 
 
 function currentSpaceRoleLabel(ctx = state.activeSpace) {
-  if (!ctx) return "";
-  if (ctx.is_global_admin) return "Global Admin";
-  const role = normalizeSpaceRole(ctx.space_role || "member")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (ch) => ch.toUpperCase());
-  return role || "Member";
+  return spaceSwitcherController.currentSpaceRoleLabel(ctx);
 }
 
 function clearSpaceFeedback() {
-  if (state.spaceFeedback?.timeoutId) {
-    clearTimeout(state.spaceFeedback.timeoutId);
-  }
-  state.spaceFeedback = { text: "", tone: "", timeoutId: null };
+  return spaceSwitcherController.clearSpaceFeedback();
 }
 
 function setSpaceFeedback(message, tone = "info", autoClearMs = 0) {
-  clearSpaceFeedback();
-  if (!message) {
-    renderSpaceSwitcher();
-    return;
-  }
-  state.spaceFeedback = { text: message, tone, timeoutId: null };
-  if (autoClearMs > 0) {
-    state.spaceFeedback.timeoutId = setTimeout(() => {
-      clearSpaceFeedback();
-      renderSpaceSwitcher();
-    }, autoClearMs);
-  }
-  renderSpaceSwitcher();
+  return spaceSwitcherController.setSpaceFeedback(message, tone, autoClearMs);
 }
 
 function clearSpaceGovernanceNotice() {
@@ -873,91 +617,12 @@ function syncRoleAwareNavigation() {
 
 
 function renderSpaceSwitcher() {
-  const active = state.activeSpace;
-  if (els.spaceSwitcherTrigger) {
-    els.spaceSwitcherTrigger.disabled = !state.authed || state.spaceSwitching || !(state.spaces || []).length;
-    els.spaceSwitcherTrigger.setAttribute("aria-expanded", state.spaceSwitcherOpen ? "true" : "false");
-    els.spaceSwitcherTrigger.classList.toggle("is-busy", !!state.spaceSwitching);
-  }
-  if (els.spaceSwitcherCurrent) {
-    els.spaceSwitcherCurrent.textContent = state.authed
-      ? (active?.space_name || active?.space_id || "No active space")
-      : "Sign in";
-  }
-  if (els.spaceSwitcherMeta) {
-    const meta = !state.authed
-      ? ""
-      : (state.spaceSwitching ? "Switching" : (active ? currentSpaceRoleLabel(active) : ""));
-    els.spaceSwitcherMeta.textContent = meta || "Role";
-    els.spaceSwitcherMeta.classList.toggle("hidden", !meta);
-  }
-  if (els.spaceSwitcherPanel) {
-    els.spaceSwitcherPanel.classList.toggle("hidden", !state.spaceSwitcherOpen || !state.authed);
-  }
-  if (els.spaceSwitcherFeedback) {
-    els.spaceSwitcherFeedback.textContent = state.spaceFeedback?.text || "";
-    els.spaceSwitcherFeedback.className = "form-notice";
-    if (state.spaceFeedback?.tone === "success") els.spaceSwitcherFeedback.classList.add("notice-success");
-    if (state.spaceFeedback?.tone === "error") els.spaceSwitcherFeedback.classList.add("notice-error");
-  }
-  const renderList = (container, spaces, { emptyText = "No spaces available", currentId = active?.space_id || "" } = {}) => {
-    if (!container) return;
-    if (!spaces.length) {
-      container.innerHTML = `<p class="muted space-switcher-empty">${emptyText}</p>`;
-      return;
-    }
-    container.innerHTML = spaces.map((space) => {
-      const isCurrent = space.space_id === currentId;
-      const roleLabel = isCurrent
-        ? currentSpaceRoleLabel(active)
-        : (userIsGlobalAdmin() ? "Global Admin" : "Accessible");
-      return `<button
-        type="button"
-        class="space-switcher-option${isCurrent ? " is-current" : ""}"
-        data-space-switch="${escapeAttr(space.space_id)}"
-        ${isCurrent || state.spaceSwitching ? "disabled" : ""}
-      >
-        <span class="space-switcher-option-main">
-          <strong>${esc(space.name || space.space_id)}</strong>
-          <span class="space-switcher-option-meta">${esc(space.slug || "Workspace")}</span>
-        </span>
-        <span class="space-switcher-option-side">
-          <span class="pill ${isCurrent ? "" : "muted"}">${esc(roleLabel)}</span>
-          ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
-        </span>
-      </button>`;
-    }).join("");
-  };
-  const query = normalize(state.spaceSwitcherQuery);
-  const activeId = active?.space_id || "";
-  const visibleSpaces = (state.spaces || []).filter((space) => {
-    if (!query) return true;
-    return [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query));
-  });
-  const recentSpaceIds = state.spaceRecentIds.filter((spaceId) => spaceId && spaceId !== activeId);
-  const recentSpaces = recentSpaceIds
-    .map((spaceId) => (state.spaces || []).find((space) => space.space_id === spaceId))
-    .filter(Boolean)
-    .filter((space, index, list) => list.findIndex((item) => item.space_id === space.space_id) === index)
-    .filter((space) => !query || [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query)));
-  renderList(els.spaceSwitcherCurrentList, active ? [{
-    space_id: active.space_id,
-    name: active.space_name || active.space_id,
-    slug: "",
-  }] : [], { emptyText: "No active space", currentId: activeId });
-  renderList(els.spaceSwitcherRecentList, recentSpaces, { emptyText: "No recent spaces yet", currentId: activeId });
-  renderList(els.spaceSwitcherAllList, visibleSpaces, { emptyText: "No matching spaces", currentId: activeId });
-  syncRoleAwareNavigation();
+  return spaceSwitcherController.renderSpaceSwitcher();
 }
 
 
 function spaceNameForId(spaceId) {
-  const id = String(spaceId || "").trim();
-  if (!id) return "";
-  const match = (state.spaces || []).find((space) => space.space_id === id);
-  if (match?.name) return match.name;
-  if ((state.activeSpace?.space_id || "") === id) return state.activeSpace?.space_name || id;
-  return id;
+  return spaceSwitcherController.spaceNameForId(spaceId);
 }
 
 
@@ -1235,10 +900,6 @@ function stopIdleWatch() {
   hideIdleModal();
 }
 
-async function refreshSessionTokens(options = {}) {
-  return sessionController.refreshSessionTokens(options);
-}
-
 function maybeRefreshSessionOnActivity() {
   return sessionController.maybeRefreshSessionOnActivity();
 }
@@ -1255,18 +916,6 @@ function handleSessionExpired() {
   return sessionController.handleSessionExpired();
 }
 
-async function fetchCurrentUser() {
-  return sessionController.fetchCurrentUser();
-}
-
-async function performLogin(email, password) {
-  return sessionController.performLogin(email, password);
-}
-
-async function performRegister(display_name, email, password) {
-  return sessionController.performRegister(display_name, email, password);
-}
-
 function isResetPath() {
   return sessionController.isResetPath();
 }
@@ -1275,175 +924,8 @@ function bindAuthUI() {
   return sessionController.bindAuthUI();
 }
 
-function clearLiveSyncRetry() {
-  if (liveSyncRetryTimer) {
-    clearTimeout(liveSyncRetryTimer);
-    liveSyncRetryTimer = null;
-  }
-}
-
-function resetLiveSyncRecoveryFlags() {
-  liveSyncReconnectAttempt = 0;
-  liveSyncAuthRecoveryUsed = false;
-  liveSyncSpaceRecoveryUsed = false;
-}
-
-function closeLiveSyncSocket(closeCode = 1000, reason = "") {
-  const socket = liveSyncSocket;
-  liveSyncSocket = null;
-  state.liveSync.socketSpaceId = "";
-  if (!socket) return;
-  try {
-    if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
-      socket.close(closeCode, reason);
-    }
-  } catch (err) {
-    console.warn("Live sync close failed", err);
-  }
-}
-
 function stopLiveSync(options = {}) {
   return liveSyncController.stopLiveSync(options);
-}
-
-function liveUrl() {
-  const url = new URL(buildWsUrl("/ws"));
-  if (state.activeSpace?.space_id) {
-    url.searchParams.set("space_id", state.activeSpace.space_id);
-  }
-  return url.toString();
-}
-
-function liveSyncRetryDelayMs() {
-  const idx = Math.min(liveSyncReconnectAttempt, LIVE_SYNC_RETRY_DELAYS_MS.length - 1);
-  const base = LIVE_SYNC_RETRY_DELAYS_MS[idx];
-  const jitter = 0.85 + (Math.random() * 0.3);
-  return Math.round(base * jitter);
-}
-
-function scheduleLiveSyncRetry() {
-  if (!state.authed) return;
-  if (document.hidden) {
-    stopLiveSync({ phase: "paused", pausedForHidden: true });
-    return;
-  }
-  clearLiveSyncRetry();
-  const delay = liveSyncRetryDelayMs();
-  liveSyncReconnectAttempt += 1;
-  setLiveSyncPhase("reconnecting");
-  liveSyncRetryTimer = window.setTimeout(() => {
-    liveSyncRetryTimer = null;
-    startLiveSync({ force: true, preserveRecovery: true });
-  }, delay);
-}
-
-async function recoverLiveSyncAuth() {
-  if (liveSyncRecoveryPromise) return liveSyncRecoveryPromise;
-  if (liveSyncAuthRecoveryUsed) {
-    handleSessionExpired();
-    return false;
-  }
-  liveSyncAuthRecoveryUsed = true;
-  setLiveSyncPhase("reconnecting");
-  liveSyncRecoveryPromise = (async () => {
-    const refreshed = await refreshSessionTokens({
-      force: true,
-      silentFailure: true,
-      suppressLiveSyncRestart: true,
-    });
-    if (!refreshed) {
-      handleSessionExpired();
-      return false;
-    }
-    startLiveSync({ force: true, preserveRecovery: true });
-    return true;
-  })();
-  try {
-    return await liveSyncRecoveryPromise;
-  } finally {
-    liveSyncRecoveryPromise = null;
-  }
-}
-
-async function recoverLiveSyncSpace() {
-  if (liveSyncRecoveryPromise) return liveSyncRecoveryPromise;
-  if (liveSyncSpaceRecoveryUsed) {
-    setSpaceFeedback(
-      "Live sync lost access to the active space. Refresh this tab or switch to another space to restore sync.",
-      "error",
-      9000,
-    );
-    stopLiveSync({ phase: "attention", text: "Space attention", tone: "warn", preserveRecovery: true });
-    return false;
-  }
-  liveSyncSpaceRecoveryUsed = true;
-  setLiveSyncPhase("reconnecting");
-  liveSyncRecoveryPromise = (async () => {
-    const previousSpaceId = state.activeSpace?.space_id || "";
-    try {
-      await refreshSpaceContext({
-        apiOptions: { skipAuthRefresh: true },
-        suppressLiveSyncRestart: true,
-      });
-    } catch (err) {
-      if (handleAuthError(err)) return false;
-      console.warn("Live sync space recovery failed", err);
-    }
-    if (!state.authed) return false;
-    const nextSpaceId = state.activeSpace?.space_id || "";
-    if (!nextSpaceId) {
-      setSpaceFeedback("Unable to restore the active space for live sync.", "error", 9000);
-      stopLiveSync({ phase: "attention", text: "Space attention", tone: "warn", preserveRecovery: true });
-      return false;
-    }
-    if (nextSpaceId !== previousSpaceId) {
-      setSpaceFeedback(`Live sync moved to ${spaceNameForId(nextSpaceId) || nextSpaceId}.`, "info", 4200);
-    }
-    clearDataState();
-    try {
-      await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
-    } catch (err) {
-      console.warn("Live sync space recovery failed to reload current view", err);
-      if (handleAuthError(err)) return false;
-    }
-    startLiveSync({ force: true, preserveRecovery: true });
-    return true;
-  })();
-  try {
-    return await liveSyncRecoveryPromise;
-  } finally {
-    liveSyncRecoveryPromise = null;
-  }
-}
-
-async function handleLiveSyncClose(event) {
-  if (!state.authed) return;
-  if (document.hidden) {
-    stopLiveSync({ phase: "paused", pausedForHidden: true });
-    return;
-  }
-  if (event.code === LIVE_SYNC_CLOSE_AUTH) {
-    await recoverLiveSyncAuth();
-    return;
-  }
-  if (event.code === LIVE_SYNC_CLOSE_SPACE) {
-    await recoverLiveSyncSpace();
-    return;
-  }
-  if (event.code === LIVE_SYNC_CLOSE_LIMIT) {
-    setSpaceFeedback(
-      "Live sync paused because this account already has the maximum number of connected tabs.",
-      "info",
-      9000,
-    );
-    stopLiveSync({ phase: "paused", text: "Sync paused", tone: "warn", preserveRecovery: true });
-    return;
-  }
-  if (event.code === LIVE_SYNC_CLOSE_BUSY || event.code === 1006 || event.code === 1011 || event.code === 1001) {
-    scheduleLiveSyncRetry();
-    return;
-  }
-  scheduleLiveSyncRetry();
 }
 
 function startLiveSync(options = {}) {
@@ -2339,7 +1821,7 @@ async function renderSubcomponentsWorkbenchActivity(subcomponentId) {
         </div>`;
       })
       .join("");
-  } catch (err) {
+  } catch (_err) {
     if (wb.activityRequestId !== reqId) return;
     activityEl.innerHTML = "<p class='muted'>Activity unavailable for this role.</p>";
   }
@@ -2634,22 +2116,6 @@ function solutionProgress(solution) {
   return Math.round(((idx + 1) / phases.length) * 100);
 }
 
-function computeScoreNumbers(item) {
-  const basePriority = Number(item.priority ?? 3) || 3;
-  const due = item.due_date ? new Date(item.due_date) : null;
-  const daysToDue = due ? Math.max(0, Math.ceil((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : null;
-  const timeCriticality = daysToDue == null ? 1 : Math.max(1, 30 - Math.min(30, daysToDue));
-  const jobSize = Math.max(1, 6 - Math.min(5, basePriority)); // higher priority -> smaller job size
-  const businessValue = Math.max(1, basePriority * 1.5);
-  const riskReduction = Math.max(1, (item.risks ? 2 : 1) + (item.blockers ? 1 : 0));
-  const impact = Math.max(1, basePriority);
-  const confidence = 0.5 + Math.min(0.5, (item.owner ? 0.2 : 0) + (item.assignee ? 0.3 : 0));
-  const effort = Math.max(1, jobSize);
-  const wsjf = Number((((businessValue + timeCriticality + riskReduction) / jobSize).toFixed(2)));
-  const ice = Number(((impact * confidence) / effort).toFixed(2));
-  return { wsjf, ice, businessValue, timeCriticality, riskReduction, jobSize, impact, confidence, effort };
-}
-
 function formatStatus(status) {
   if (!status) return "—";
   return status
@@ -2667,15 +2133,6 @@ function escapeAttr(value) {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function ragPill(ragStatus, ragReason) {
-  if (!ragStatus) return "—";
-  const status = String(ragStatus);
-  const label = status.charAt(0).toUpperCase() + status.slice(1);
-  const cls = status === "red" ? "rag-red" : status === "green" ? "rag-green" : "rag-amber";
-  const title = ragReason ? `Reason: ${ragReason}` : label;
-  return `<span class="pill rag-pill ${cls}" title="${escapeAttr(title)}">${label}</span>`;
 }
 
 function phaseDisplayName(phaseId) {
@@ -2964,203 +2421,6 @@ function bindDebouncedInput(element, onChange, delayMs = 180) {
       onChange(element.value || "");
     }, delayMs);
   });
-}
-
-function closeTopbarCreateMenu({ restoreFocus = true } = {}) {
-  if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
-  els.topbarCreatePanel.classList.add("hidden");
-  els.topbarCreateToggle.setAttribute("aria-expanded", "false");
-  if (restoreFocus) els.topbarCreateToggle.focus();
-}
-
-function subcomponentCreateCandidateSolutions() {
-  return [...(state.solutions || [])].sort((a, b) => {
-    const projectA = state.projects.find((project) => project.project_id === a.project_id)?.project_name || "";
-    const projectB = state.projects.find((project) => project.project_id === b.project_id)?.project_name || "";
-    const projectDiff = projectA.localeCompare(projectB);
-    if (projectDiff !== 0) return projectDiff;
-    return String(a.solution_name || "").localeCompare(String(b.solution_name || ""));
-  });
-}
-
-function subcomponentCreateSolutionLabel(solution) {
-  const projectName = state.projects.find((project) => project.project_id === solution?.project_id)?.project_name || "";
-  const solutionName = String(solution?.solution_name || "").trim() || "Untitled Solution";
-  return projectName ? `${projectName} / ${solutionName}` : solutionName;
-}
-
-function closeSubcomponentCreatePicker() {
-  if (!els.subcomponentCreatePickerModal) return;
-  els.subcomponentCreatePickerModal.classList.add("hidden");
-  clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
-}
-
-function continueSubcomponentCreateForSolution(solution) {
-  if (!solution?.solution_id) return;
-  closeSubcomponentCreatePicker();
-  openSolutionModal(solution, "subcomponents");
-  showSubcomponentForm(solution);
-}
-
-function populateSubcomponentCreatePickerOptions(selectedSolutionId = "") {
-  if (!els.subcomponentCreatePickerSelect) return;
-  const solutions = subcomponentCreateCandidateSolutions();
-  const options = solutions
-    .map((solution) => {
-      const selected = solution.solution_id === selectedSolutionId ? "selected" : "";
-      return `<option value="${escapeHtml(solution.solution_id)}" ${selected}>${escapeHtml(subcomponentCreateSolutionLabel(solution))}</option>`;
-    })
-    .join("");
-  els.subcomponentCreatePickerSelect.innerHTML = options;
-  if (selectedSolutionId) {
-    els.subcomponentCreatePickerSelect.value = selectedSolutionId;
-  }
-}
-
-function openSubcomponentCreatePicker(selectedSolutionId = "") {
-  if (!els.subcomponentCreatePickerModal) return;
-  populateSubcomponentCreatePickerOptions(selectedSolutionId);
-  clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
-  els.subcomponentCreatePickerModal.classList.remove("hidden");
-  window.setTimeout(() => {
-    els.subcomponentCreatePickerSelect?.focus();
-  }, 0);
-}
-
-function handleTopbarSubcomponentCreate() {
-  closeTopbarCreateMenu({ restoreFocus: false });
-  const currentOpenSolutionId = !els.solutionModal?.classList.contains("hidden")
-    ? (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "")
-    : "";
-  const currentOpenSolution = currentOpenSolutionId
-    ? state.solutions.find((solution) => solution.solution_id === currentOpenSolutionId)
-    : null;
-  if (currentOpenSolution?.solution_id) {
-    continueSubcomponentCreateForSolution(currentOpenSolution);
-    return;
-  }
-  const solutions = subcomponentCreateCandidateSolutions();
-  if (!solutions.length) {
-    openSolutionModal(null, "details");
-    setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");
-    return;
-  }
-  if (solutions.length === 1) {
-    continueSubcomponentCreateForSolution(solutions[0]);
-    return;
-  }
-  openSubcomponentCreatePicker(currentOpenSolutionId);
-}
-
-function openTopbarCreateMenu() {
-  if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
-  if (els.csvActionsMenu && !els.csvActionsMenu.classList.contains("hidden")) {
-    els.csvActionsMenu.classList.add("hidden");
-    els.csvActionsToggle?.setAttribute("aria-expanded", "false");
-  }
-  els.topbarCreatePanel.classList.remove("hidden");
-  els.topbarCreateToggle.setAttribute("aria-expanded", "true");
-  const items = Array.from(els.topbarCreatePanel.querySelectorAll("[role='menuitem']"));
-  items[0]?.focus();
-}
-
-function bindTopbarCreateMenu() {
-  const topbarCreateMenuItems = () => Array.from(els.topbarCreatePanel?.querySelectorAll("[role='menuitem']") || []);
-  const toggleTopbarCreateMenu = () => {
-    if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
-    const isHidden = els.topbarCreatePanel.classList.contains("hidden");
-    if (isHidden) {
-      openTopbarCreateMenu();
-    } else {
-      closeTopbarCreateMenu();
-    }
-  };
-
-  if (els.topbarCreateToggle && !els.topbarCreateToggle._bound) {
-    els.topbarCreateToggle.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown") return;
-      event.preventDefault();
-      openTopbarCreateMenu();
-    });
-    els.topbarCreateToggle.addEventListener("click", (event) => {
-      event.stopPropagation();
-      toggleTopbarCreateMenu();
-    });
-    els.topbarCreateToggle._bound = true;
-  }
-
-  if (els.topbarCreatePanel && !els.topbarCreatePanel._bound) {
-    els.topbarCreatePanel.addEventListener("keydown", (event) => {
-      const items = topbarCreateMenuItems();
-      if (!items.length) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const activeIndex = items.indexOf(document.activeElement);
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeTopbarCreateMenu();
-        return;
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        items[(activeIndex + 1) % items.length]?.focus();
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        items[(activeIndex - 1 + items.length) % items.length]?.focus();
-        return;
-      }
-      if (event.key === "Home") {
-        event.preventDefault();
-        first.focus();
-        return;
-      }
-      if (event.key === "End") {
-        event.preventDefault();
-        last.focus();
-        return;
-      }
-    });
-    els.topbarCreatePanel.addEventListener("click", (event) => {
-      event.stopPropagation();
-    });
-    els.topbarCreatePanel._bound = true;
-  }
-
-  if (!document._topbarCreateMenuCloseBound) {
-    document.addEventListener("click", (event) => {
-      const menu = els.topbarCreatePanel;
-      const toggle = els.topbarCreateToggle;
-      if (!menu || !toggle) return;
-      if (menu.classList.contains("hidden")) return;
-      if (menu.contains(event.target) || toggle.contains(event.target)) return;
-      closeTopbarCreateMenu({ restoreFocus: false });
-    });
-    document._topbarCreateMenuCloseBound = true;
-  }
-
-  if (els.topbarCreateProject && !els.topbarCreateProject._bound) {
-    els.topbarCreateProject.addEventListener("click", () => {
-      closeTopbarCreateMenu({ restoreFocus: false });
-      openProjectForm(null);
-    });
-    els.topbarCreateProject._bound = true;
-  }
-
-  if (els.topbarCreateSolution && !els.topbarCreateSolution._bound) {
-    els.topbarCreateSolution.addEventListener("click", () => {
-      closeTopbarCreateMenu({ restoreFocus: false });
-      openSolutionModal(null, "details");
-    });
-    els.topbarCreateSolution._bound = true;
-  }
-
-  if (els.topbarCreateSubcomponent && !els.topbarCreateSubcomponent._bound) {
-    els.topbarCreateSubcomponent.addEventListener("click", handleTopbarSubcomponentCreate);
-    els.topbarCreateSubcomponent._bound = true;
-  }
 }
 
 function bindDeliverablesControls() {
@@ -3844,22 +3104,11 @@ function openPMDashboardProjectDrilldown(projectId) {
 }
 
 function closePlanningModal() {
-  if (els.planningModal) {
-    els.planningModal.classList.add("hidden");
-  }
-  if (els.planningModalBody) {
-    els.planningModalBody.innerHTML = "";
-  }
+  return modalShellController.closePlanningModal();
 }
 
 function openPlanningModal(title, bodyHtml) {
-  if (els.planningModalTitle) {
-    els.planningModalTitle.textContent = title || "Details";
-  }
-  if (els.planningModalBody) {
-    els.planningModalBody.innerHTML = bodyHtml || "";
-  }
-  els.planningModal?.classList.remove("hidden");
+  return modalShellController.openPlanningModal(title, bodyHtml);
 }
 
 function openAllocationWorkItemDrilldown(allocationId) {
@@ -4041,57 +3290,15 @@ function openPMDashboardSubcomponentDrilldown(subcomponentId) {
 }
 
 function closeConfirmModal(result = false) {
-  const resolver = pendingConfirmResolve;
-  pendingConfirmResolve = null;
-  if (els.confirmModal) {
-    els.confirmModal.classList.add("hidden");
-  }
-  if (confirmReturnFocusEl && typeof confirmReturnFocusEl.focus === "function") {
-    confirmReturnFocusEl.focus();
-  }
-  confirmReturnFocusEl = null;
-  if (resolver) {
-    resolver(result);
-  }
+  return modalShellController.closeConfirmModal(result);
 }
 
 function showConfirmModal(options = {}) {
-  const title = String(options.title || "Confirm Action");
-  const message = String(options.message || "Are you sure you want to continue?");
-  const confirmLabel = String(options.confirmLabel || "Confirm");
-  const cancelLabel = String(options.cancelLabel || "Cancel");
-  if (!els.confirmModal || !els.confirmModalTitle || !els.confirmModalMessage || !els.confirmModalConfirm || !els.confirmModalCancel) {
-    console.warn("Confirm modal shell missing; canceling action.");
-    return Promise.resolve(false);
-  }
-  if (pendingConfirmResolve) {
-    const staleResolver = pendingConfirmResolve;
-    pendingConfirmResolve = null;
-    staleResolver(false);
-  }
-  confirmReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-  els.confirmModalTitle.textContent = title;
-  els.confirmModalMessage.textContent = message;
-  els.confirmModalConfirm.textContent = confirmLabel;
-  els.confirmModalCancel.textContent = cancelLabel;
-  els.confirmModal.classList.remove("hidden");
-  window.setTimeout(() => {
-    els.confirmModalConfirm?.focus();
-  }, 0);
-  return new Promise((resolve) => {
-    pendingConfirmResolve = resolve;
-  });
+  return modalShellController.showConfirmModal(options);
 }
 
 function bindConfirmModal() {
-  if (!els.confirmModal || els.confirmModal._bound) return;
-  const cancel = () => closeConfirmModal(false);
-  const approve = () => closeConfirmModal(true);
-  els.confirmModalClose?.addEventListener("click", cancel);
-  els.confirmModalCancel?.addEventListener("click", cancel);
-  els.confirmModalConfirm?.addEventListener("click", approve);
-  els.confirmModal.querySelector(".modal-backdrop")?.addEventListener("click", cancel);
-  els.confirmModal._bound = true;
+  return modalShellController.bindConfirmModal();
 }
 
 function setProjectFormVisibility(show) {
@@ -4712,34 +3919,6 @@ function bindModalShortcuts() {
   document._jiraLiteModalBound = true;
 }
 
-function bindSubcomponentCreatePicker() {
-  if (els.subcomponentCreatePickerClose && !els.subcomponentCreatePickerClose._bound) {
-    els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);
-    els.subcomponentCreatePickerClose._bound = true;
-  }
-  if (els.subcomponentCreatePickerCancel && !els.subcomponentCreatePickerCancel._bound) {
-    els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);
-    els.subcomponentCreatePickerCancel._bound = true;
-  }
-  if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal._bound) {
-    els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);
-    els.subcomponentCreatePickerModal._bound = true;
-  }
-  if (els.subcomponentCreatePickerForm && !els.subcomponentCreatePickerForm._bound) {
-    els.subcomponentCreatePickerForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const solutionId = (new FormData(els.subcomponentCreatePickerForm).get("solution_id") || "").toString().trim();
-      const solution = state.solutions.find((row) => row.solution_id === solutionId);
-      if (!solution?.solution_id) {
-        setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");
-        return;
-      }
-      continueSubcomponentCreateForSolution(solution);
-    });
-    els.subcomponentCreatePickerForm._bound = true;
-  }
-}
-
 async function renderSolutionActivity(solutionId) {
   if (!els.solutionActivity) return;
   if (!solutionId) {
@@ -4765,7 +3944,7 @@ async function renderSolutionActivity(solutionId) {
       })
       .join("");
     els.solutionActivity.innerHTML = html;
-  } catch (err) {
+  } catch (_err) {
     els.solutionActivity.innerHTML = `<p class='muted'>Unable to load activity.</p>`;
   }
 }
@@ -5092,7 +4271,6 @@ function populateSelects() {
     }
   }
   if (els.subcomponentsWorkbenchAssignee || els.subcomponentsWorkbenchBulkAssignee || els.subcomponentsWorkbenchForm) {
-    const wb = state.subcomponentsWorkbench;
     const users = state.users
       .filter((u) => u.display_name && u.soeid)
       .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
@@ -5892,125 +5070,7 @@ function bindCsvControls() {
 }
 
 function bindSpaceSwitcher() {
-  const closeSwitcher = ({ returnFocus = false } = {}) => {
-    if (!state.spaceSwitcherOpen) return;
-    state.spaceSwitcherOpen = false;
-    state.spaceSwitcherQuery = "";
-    if (els.spaceSwitcherSearch) els.spaceSwitcherSearch.value = "";
-    renderSpaceSwitcher();
-    if (returnFocus) els.spaceSwitcherTrigger?.focus();
-  };
-  const openSwitcher = () => {
-    if (!state.authed || state.spaceSwitching || !(state.spaces || []).length) return;
-    state.spaceSwitcherOpen = true;
-    renderSpaceSwitcher();
-    window.setTimeout(() => {
-      els.spaceSwitcherSearch?.focus();
-      els.spaceSwitcherSearch?.select();
-    }, 0);
-  };
-  const visibleOptions = () => Array.from(
-    els.spaceSwitcherPanel?.querySelectorAll(".space-switcher-option:not([disabled])") || []
-  );
-  const moveFocus = (delta) => {
-    const options = visibleOptions();
-    if (!options.length) return;
-    const currentIndex = options.indexOf(document.activeElement);
-    const nextIndex = currentIndex === -1
-      ? (delta > 0 ? 0 : options.length - 1)
-      : (currentIndex + delta + options.length) % options.length;
-    options[nextIndex]?.focus();
-  };
-
-  if (els.spaceSwitcherTrigger && !els.spaceSwitcherTrigger._bound) {
-    els.spaceSwitcherTrigger.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (state.spaceSwitcherOpen) closeSwitcher();
-      else openSwitcher();
-    });
-    els.spaceSwitcherTrigger.addEventListener("keydown", (event) => {
-      if (!["Enter", " ", "ArrowDown"].includes(event.key)) return;
-      event.preventDefault();
-      openSwitcher();
-    });
-    els.spaceSwitcherTrigger._bound = true;
-  }
-  if (els.spaceSwitcherClose && !els.spaceSwitcherClose._bound) {
-    els.spaceSwitcherClose.addEventListener("click", () => closeSwitcher({ returnFocus: true }));
-    els.spaceSwitcherClose._bound = true;
-  }
-  if (els.spaceSwitcherSearch && !els.spaceSwitcherSearch._bound) {
-    els.spaceSwitcherSearch.addEventListener("input", () => {
-      state.spaceSwitcherQuery = els.spaceSwitcherSearch.value || "";
-      renderSpaceSwitcher();
-    });
-    els.spaceSwitcherSearch.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSwitcher({ returnFocus: true });
-        return;
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        moveFocus(1);
-      }
-    });
-    els.spaceSwitcherSearch._bound = true;
-  }
-  if (els.spaceSwitcherPanel && !els.spaceSwitcherPanel._bound) {
-    els.spaceSwitcherPanel.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      const button = event.target.closest("button[data-space-switch]");
-      if (!button) return;
-      const targetSpaceId = button.getAttribute("data-space-switch") || "";
-      if (!targetSpaceId) return;
-      await switchActiveSpace(targetSpaceId);
-    });
-    els.spaceSwitcherPanel.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeSwitcher({ returnFocus: true });
-        return;
-      }
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        moveFocus(1);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        moveFocus(-1);
-        return;
-      }
-      if (event.key === "Home") {
-        event.preventDefault();
-        visibleOptions()[0]?.focus();
-        return;
-      }
-      if (event.key === "End") {
-        event.preventDefault();
-        const options = visibleOptions();
-        options[options.length - 1]?.focus();
-      }
-    });
-    els.spaceSwitcherPanel._bound = true;
-  }
-  if (!document._spaceSwitcherCloseBound) {
-    document.addEventListener("click", (event) => {
-      if (!state.spaceSwitcherOpen) return;
-      const shell = els.spaceSwitcherShell;
-      if (shell?.contains(event.target)) return;
-      closeSwitcher();
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      if (state.spaceSwitcherOpen) {
-        event.preventDefault();
-        closeSwitcher({ returnFocus: true });
-      }
-    });
-    document._spaceSwitcherCloseBound = true;
-  }
+  return spaceSwitcherController.bindSpaceSwitcher();
 }
 
 function bindNav() {
@@ -6264,25 +5324,6 @@ function bindCalendarControls() {
       }
     });
   }
-  if (els.planningModal) {
-    els.planningModal.addEventListener("click", (e) => {
-      if (!(e.target instanceof Element)) return;
-      const actionEl = e.target.closest("[data-planning-modal-action]");
-      if (actionEl) {
-        const action = actionEl.getAttribute("data-planning-modal-action") || "";
-        if (action === "open-allocation-work-item") {
-          const allocationId = actionEl.getAttribute("data-allocation-id") || "";
-          openAllocationWorkItemDrilldown(allocationId);
-        }
-        return;
-      }
-      if (e.target === els.planningModal || e.target.classList.contains("modal-backdrop")) {
-        closePlanningModal();
-      }
-    });
-  }
-  els.planningModalClose?.addEventListener("click", () => closePlanningModal());
-
   if (els.planningWindowForm) {
     els.planningWindowForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -6342,8 +5383,6 @@ function bindCalendarControls() {
   }
 
   if (els.allocationForm) {
-    const typeSel = els.allocationForm.querySelector('[name="work_item_type"]');
-    const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
     els.allocationForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const data = new FormData(els.allocationForm);
@@ -6645,10 +5684,6 @@ function activeSpaceId() {
 function activeSpaceScopedStorageKey(prefix, spaceId = activeSpaceId()) {
   const scope = normalize(spaceId || "no-space");
   return `${prefix}:${scope}`;
-}
-
-function readStoredJson(key, fallback) {
-  return readStoredJsonState(key, fallback).value;
 }
 
 function readStoredJsonState(key, fallback) {
@@ -7972,18 +7007,6 @@ function bindSpaceAdminControls() {
   }
 }
 
-function renderSpaceAdminPanel() {
-  renderGovernanceHub();
-}
-
-function renderSpaceMembershipPanel() {
-  renderGovernanceHub();
-}
-
-function renderGlobalAdminPanel() {
-  renderGovernanceHub("platform-access");
-}
-
 function renderPlanning() {
   const mod = getRouteModule("planning");
   if (!mod || typeof mod.renderPlanning !== "function") {
@@ -8221,6 +7244,7 @@ function init() {
   bindNav();
   document.addEventListener("visibilitychange", handleLiveSyncVisibilityChange);
   bindConfirmModal();
+  modalShellController.bindPlanningModal();
   renderTopbarStatus();
   renderSpaceSwitcher();
   bindDeliverablesControls();

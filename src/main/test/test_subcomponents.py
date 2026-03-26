@@ -157,6 +157,73 @@ async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, 
 
 
 @pytest.mark.anyio
+async def test_solution_repo_update_refreshes_cached_subcomponent_repo_inheritance(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    clear_cache()
+    try:
+        project, _ = await create_project_solution(client)
+        solution_resp = await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={
+                "solution_name": "Repo Inheritance Solution",
+                "version": "1.0.0",
+                "owner": "Solution Owner",
+                "github_repo_url": "https://github.com/example-org/platform-service",
+            },
+        )
+        assert solution_resp.status_code == 201, solution_resp.text
+        solution = solution_resp.json()
+
+        create_resp = await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+            json={"subcomponent_name": "Inherited Task"},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        subcomponent = create_resp.json()
+
+        primed_list = await client.get("/project-manager/api/subcomponents")
+        assert primed_list.status_code == 200, primed_list.text
+        assert primed_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+
+        primed_solution_list = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert primed_solution_list.status_code == 200, primed_solution_list.text
+        assert primed_solution_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+
+        primed_detail = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert primed_detail.status_code == 200, primed_detail.text
+        assert primed_detail.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+
+        update_resp = await client.patch(
+            f"/project-manager/api/solutions/{solution['solution_id']}",
+            json={"github_repo_url": "https://github.com/example-org/platform-service-v2"},
+        )
+        assert update_resp.status_code == 200, update_resp.text
+
+        list_resp = await client.get("/project-manager/api/subcomponents")
+        assert list_resp.status_code == 200, list_resp.text
+        assert list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+
+        solution_list_resp = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+        assert solution_list_resp.status_code == 200, solution_list_resp.text
+        assert solution_list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+
+        detail_resp = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+        )
+        assert detail_resp.status_code == 200, detail_resp.text
+        assert detail_resp.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+        assert detail_resp.json()["repo_source"] == "inherited"
+    finally:
+        clear_cache()
+
+
+@pytest.mark.anyio
 async def test_subcomponent_rejects_invalid_github_repo_override(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
@@ -347,6 +414,87 @@ async def test_batch_reopening_subcomponents_clears_completed_at(client, db_sess
     assert len(reopened) == 1
     assert reopened[0]["status"] == "in_progress"
     assert reopened[0]["completed_at"] is None
+
+
+@pytest.mark.anyio
+async def test_update_subcomponent_status_logs_completed_at_audit_field(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+
+    created_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={
+            "subcomponent_name": "Audit Completion Task",
+            "status": "to_do",
+            "assignee": "Engineer A",
+        },
+    )
+    assert created_resp.status_code == 201, created_resp.text
+    created = created_resp.json()
+
+    update_resp = await client.patch(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}",
+        json={"status": "complete"},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    updated = update_resp.json()
+    assert updated["completed_at"] is not None
+
+    audit_resp = await client.get(
+        "/project-manager/api/audit",
+        params={
+            "entity_type": "subcomponent",
+            "entity_id": created["subcomponent_id"],
+            "field": "completed_at",
+        },
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    rows = audit_resp.json()
+    assert any(row["new_value"] for row in rows)
+
+
+@pytest.mark.anyio
+async def test_batch_update_subcomponents_preserves_inherited_repo_metadata(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    project, _ = await create_project_solution(client)
+
+    solution_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Batch Repo Solution",
+            "version": "1.0.0",
+            "owner": "Solution Owner",
+            "github_repo_url": "https://github.com/example-org/platform-service",
+        },
+    )
+    assert solution_resp.status_code == 201, solution_resp.text
+    solution = solution_resp.json()
+
+    created_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={
+            "subcomponent_name": "Batch Repo Task",
+            "status": "to_do",
+            "assignee": "Engineer A",
+        },
+    )
+    assert created_resp.status_code == 201, created_resp.text
+    created = created_resp.json()
+    assert created["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert created["repo_source"] == "inherited"
+
+    batch_resp = await client.patch(
+        "/project-manager/api/subcomponents/actions/batch",
+        json={
+            "subcomponent_ids": [created["subcomponent_id"]],
+            "status": "in_progress",
+        },
+    )
+    assert batch_resp.status_code == 200, batch_resp.text
+    rows = batch_resp.json()
+    assert len(rows) == 1
+    assert rows[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert rows[0]["repo_source"] == "inherited"
 
 
 @pytest.mark.anyio

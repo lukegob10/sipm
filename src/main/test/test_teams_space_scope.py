@@ -262,6 +262,136 @@ async def test_team_rename_updates_active_space_user_team_tags_and_invalidates_u
 
 
 @pytest.mark.anyio
+async def test_team_rename_updates_inactive_space_user_team_tags(client, db_sessionmaker):
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    clear_cache()
+    try:
+        _set_current_space("space-team-rename-inactive", "Team Rename Inactive Space")
+        with db_sessionmaker() as session:
+            space = Space(
+                space_id="space-team-rename-inactive",
+                name="Team Rename Inactive Space",
+                slug="team-rename-inactive-space",
+                is_active=True,
+            )
+            user = User(
+                user_id="team-rename-inactive-user",
+                soeid="teamrenameinactive1",
+                email="teamrenameinactive1@example.com",
+                display_name="Team Rename Inactive User",
+                password_hash="x",
+                role="user",
+                is_active=False,
+                team_tag="Platform",
+            )
+            membership = SpaceMembership(
+                membership_id="team-rename-inactive-membership",
+                space_id=space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="inactive",
+            )
+            team = Team(
+                team_id="team-rename-inactive-id",
+                space_id=space.space_id,
+                name="Platform",
+                default_capacity_per_week=0,
+                default_capacity_fte_month=0.0,
+                capacity_unit="fte_month",
+            )
+            session.add_all([space, user, membership, team])
+            session.commit()
+
+        renamed = await client.patch(
+            "/project-manager/api/teams/team-rename-inactive-id",
+            json={"name": "Core Platform"},
+        )
+        assert renamed.status_code == 200, renamed.text
+
+        with db_sessionmaker() as session:
+            refreshed_user = session.query(User).filter(User.user_id == "team-rename-inactive-user").first()
+            assert refreshed_user is not None
+            assert refreshed_user.team_tag == "Core Platform"
+    finally:
+        clear_cache()
+        _restore_current_space(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_team_rename_invalidates_shared_user_cache_in_other_space(client, db_sessionmaker):
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    clear_cache()
+    try:
+        with db_sessionmaker() as session:
+            source_space = Space(
+                space_id="space-team-rename-source",
+                name="Team Rename Source Space",
+                slug="team-rename-source-space",
+                is_active=True,
+            )
+            other_space = Space(
+                space_id="space-team-rename-other",
+                name="Team Rename Other Space",
+                slug="team-rename-other-space",
+                is_active=True,
+            )
+            user = User(
+                user_id="team-rename-shared-user",
+                soeid="teamrenameshared1",
+                email="teamrenameshared1@example.com",
+                display_name="Team Rename Shared User",
+                password_hash="x",
+                role="user",
+                is_active=True,
+                team_tag="Platform",
+            )
+            source_membership = SpaceMembership(
+                membership_id="team-rename-source-membership",
+                space_id=source_space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="active",
+            )
+            other_membership = SpaceMembership(
+                membership_id="team-rename-other-membership",
+                space_id=other_space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="active",
+            )
+            team = Team(
+                team_id="team-rename-shared-id",
+                space_id=source_space.space_id,
+                name="Platform",
+                default_capacity_per_week=0,
+                default_capacity_fte_month=0.0,
+                capacity_unit="fte_month",
+            )
+            session.add_all([source_space, other_space, user, source_membership, other_membership, team])
+            session.commit()
+
+        _set_current_space("space-team-rename-other", "Team Rename Other Space")
+        primed = await client.get("/project-manager/api/users")
+        assert primed.status_code == 200, primed.text
+        assert primed.json()[0]["team_tag"] == "Platform"
+
+        _set_current_space("space-team-rename-source", "Team Rename Source Space")
+        renamed = await client.patch(
+            "/project-manager/api/teams/team-rename-shared-id",
+            json={"name": "Core Platform"},
+        )
+        assert renamed.status_code == 200, renamed.text
+
+        _set_current_space("space-team-rename-other", "Team Rename Other Space")
+        refreshed = await client.get("/project-manager/api/users")
+        assert refreshed.status_code == 200, refreshed.text
+        assert refreshed.json()[0]["team_tag"] == "Core Platform"
+    finally:
+        clear_cache()
+        _restore_current_space(original_current_space)
+
+
+@pytest.mark.anyio
 async def test_team_delete_clears_active_space_user_team_tags_and_invalidates_user_cache(client, db_sessionmaker):
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     clear_cache()
@@ -312,6 +442,61 @@ async def test_team_delete_clears_active_space_user_team_tags_and_invalidates_us
         refreshed = await client.get("/project-manager/api/users")
         assert refreshed.status_code == 200, refreshed.text
         assert refreshed.json()[0]["team_tag"] is None
+    finally:
+        clear_cache()
+        _restore_current_space(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_planning_team_delete_clears_inactive_space_user_team_tags(client, db_sessionmaker):
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    clear_cache()
+    try:
+        _set_current_space("space-planning-team-delete-inactive", "Planning Team Delete Inactive Space")
+        with db_sessionmaker() as session:
+            space = Space(
+                space_id="space-planning-team-delete-inactive",
+                name="Planning Team Delete Inactive Space",
+                slug="planning-team-delete-inactive-space",
+                is_active=True,
+            )
+            user = User(
+                user_id="planning-team-delete-inactive-user",
+                soeid="planningteamdeleteinactive1",
+                email="planningteamdeleteinactive1@example.com",
+                display_name="Planning Team Delete Inactive User",
+                password_hash="x",
+                role="user",
+                is_active=False,
+                team_tag="Platform",
+            )
+            membership = SpaceMembership(
+                membership_id="planning-team-delete-inactive-membership",
+                space_id=space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="inactive",
+            )
+            team = Team(
+                team_id="planning-team-delete-inactive-id",
+                space_id=space.space_id,
+                name="Platform",
+                default_capacity_per_week=0,
+                default_capacity_fte_month=0.0,
+                capacity_unit="fte_month",
+            )
+            session.add_all([space, user, membership, team])
+            session.commit()
+
+        deleted = await client.delete(
+            "/project-manager/api/planning/work-allocation/teams/planning-team-delete-inactive-id"
+        )
+        assert deleted.status_code == 204, deleted.text
+
+        with db_sessionmaker() as session:
+            refreshed_user = session.query(User).filter(User.user_id == "planning-team-delete-inactive-user").first()
+            assert refreshed_user is not None
+            assert refreshed_user.team_tag is None
     finally:
         clear_cache()
         _restore_current_space(original_current_space)

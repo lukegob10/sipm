@@ -8,6 +8,7 @@ import pytest
 
 import backend.app.routes.subcomponents as subcomponents_route
 from backend.app.models import Project, Solution, Subcomponent
+from backend.app.services.smart_cache import clear_cache
 
 @pytest.mark.anyio
 async def test_subcomponents_import_updates_creates_and_exports(client):
@@ -178,6 +179,54 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         for r in rows
     )
     assert any(r["project_name"] == "Auto Project" and r["subcomponent_name"] == "Auto Task" for r in rows)
+
+
+@pytest.mark.anyio
+async def test_subcomponents_import_auto_created_parents_refresh_project_solution_and_subcomponent_lists(client):
+    clear_cache()
+    try:
+        primed_projects = await client.get("/project-manager/api/projects/")
+        assert primed_projects.status_code == 200, primed_projects.text
+        assert primed_projects.json() == []
+
+        primed_solutions = await client.get("/project-manager/api/solutions")
+        assert primed_solutions.status_code == 200, primed_solutions.text
+        assert primed_solutions.json() == []
+
+        primed_subcomponents = await client.get("/project-manager/api/subcomponents")
+        assert primed_subcomponents.status_code == 200, primed_subcomponents.text
+        assert primed_subcomponents.json() == []
+
+        csv_text = "\n".join(
+            [
+                "project_name,solution_name,version,subcomponent_name,status,priority,due_date,assignee,solution_owner",
+                "Imported Project,Imported Solution,0.1.0,Imported Task,to_do,3,,Engineer A,Owner",
+            ]
+        )
+        imported = await client.post(
+            "/project-manager/api/subcomponents/import",
+            content=csv_text.encode("utf-8"),
+            headers={"Content-Type": "text/csv"},
+        )
+        assert imported.status_code == 200, imported.text
+        payload = imported.json()
+        assert payload["projects_created"] == 1
+        assert payload["solutions_created"] == 1
+        assert payload["created"] == 1
+
+        projects = await client.get("/project-manager/api/projects/")
+        assert projects.status_code == 200, projects.text
+        assert [row["project_name"] for row in projects.json()] == ["Imported Project"]
+
+        solutions = await client.get("/project-manager/api/solutions")
+        assert solutions.status_code == 200, solutions.text
+        assert [row["solution_name"] for row in solutions.json()] == ["Imported Solution"]
+
+        subcomponents = await client.get("/project-manager/api/subcomponents")
+        assert subcomponents.status_code == 200, subcomponents.text
+        assert [row["subcomponent_name"] for row in subcomponents.json()] == ["Imported Task"]
+    finally:
+        clear_cache()
 
 
 @pytest.mark.anyio

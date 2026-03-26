@@ -14,7 +14,9 @@ Pass scope: broad setup pass, system mapping, baseline validation, first ranked 
 | `python3 scripts/codebase_review.py stale-scripts` | only repo `scripts/` files scanned; all three current scripts are referenced |
 | `pytest -q -s src/main/test/test_codebase_review_tooling.py` | `3 passed in 2.08s` |
 | `python3 -c "import backend.main; print('ok')"` from `src/main` | `ok` |
-| `pytest -q -s src/main/test` | `399 passed in 138.93s (0:02:18)` |
+| `pytest -q -s src/main/test` | `423 passed, 1 skipped in 169.14s (0:02:49)` |
+| `npm run lint:ui` | pass |
+| `npm run test:ui` | `5 passed` |
 
 ## Deferred Review Queue
 
@@ -26,19 +28,44 @@ Pass scope: broad setup pass, system mapping, baseline validation, first ranked 
 | --- | --- | --- | --- | --- | --- | --- |
 | `CCR-000` | Workflow / audit memory | Medium | should-fix | fixed now | No repo-tracked audit workspace existed before this pass, so broad findings would have been chat-only and easy to lose. | Added `docs/codebase-review/00-system-map.md`, `01-review-ledger.md`, `02-dependency-map.md`, and `03-fix-queue.md`. No runtime behavior changed. |
 | `CCR-001` | Workflow / audit tooling | Medium | should-fix | fixed now | Raw broad inventory helpers counted `htmlcov/*` and over-classified active files as stale candidates. | Added `scripts/codebase_review.py` to inventory only git-active files and to scan only repo `scripts/` entries for stale-candidate checks. Validated with `test_codebase_review_tooling.py` and reran the existing workflow gates. |
-| `CCR-002` | Frontend shell | High | should-fix | fixed now | `src/main/ui/js/app.js` was a `9003` line shell hotspot that owned route loading, DOM lookup, shared state, modal orchestration, API URL construction, and websocket wiring. | Extracted shell responsibilities into `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context}.js`, standardized route-module `render(ctx)` entrypoints, and validated with focused frontend contract suites plus `test_context_path_routing.py`. |
+| `CCR-002` | Frontend shell | High | should-fix | fixed now | `src/main/ui/js/app.js` was a `9003` line shell hotspot that owned route loading, DOM lookup, shared state, modal orchestration, API URL construction, and websocket wiring. | Extracted shell responsibilities into `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context,dom,modal-shell,space-switcher,topbar-create}.js`, standardized route-module `render(ctx)` entrypoints, split major route hotspots into route-local modules, and validated with focused frontend contract suites, `npm run lint:ui`, `npm run test:ui`, and a green full Python suite. |
 | `CCR-003` | Planning backend | High | should-fix | fixed now | `src/main/backend/app/routes/planning.py` was a `1515` line mixed-responsibility public API hotspot that bundled legacy allocations, work-allocation board logic, summary/report flows, and mutation/cache orchestration. | Replaced it with a `planning/` route package plus `src/main/backend/app/schemas/planning.py`, and validated with the planning suite plus `test_planning_router_composition.py`. |
 | `CCR-004` | Protected runtime / auth / DB / space boundary | High | must-fix | fixed now | `src/main/backend/main.py`, `deps.py`, `auth.py`, `db.py`, `runtime.py`, `services/spaces.py`, and `security.py` form a single protected seam for startup, cookies, JWTs, DB sessions, and active-space resolution. | Narrow protected-path fixes are now backed by focused auth/db/runtime tests plus route-space enforcement coverage, including active-space fail-closed behavior, startup config hardening, legacy global-admin role normalization, and CSV import authz checks. |
 | `CCR-005` | Data contracts | High | must-fix | fixed now | SQLAlchemy models and Pydantic schemas are now locked against the documented Oracle contract. Oracle `VARCHAR2` compilation drift, solution/subcomponent `github_repo_url` width mismatches, stale `PasswordResetToken` metadata, and missing audit `space_id` read coverage were fixed, and the schema doc is now regression-tested against live metadata. | `pytest -q -s src/main/test/test_models_schema_contract.py src/main/test/test_audit.py src/main/test/test_projects.py src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_users_space_scope.py` -> `56 passed in 45.67s` |
-| `CCR-006` | Frontend route split validation | Medium | should-fix | flagged for follow-up | The route-module gate confirms that every `src/main/ui/js/routes/*.js` file maps to at least one test and exports expected entrypoints, but it does not prove route behavior or shell-to-route boundaries. | `scripts/check_route_module_test_mapping.py` and route export tests pass; deeper route-behavior review is queued. |
+| `CCR-006` | Frontend route split validation | Medium | should-fix | fixed now | The route-module gate initially proved only exports/mappings, not whether the split boundaries were real or whether route-local ownership had actually moved out of the shell. | Deliverables, planning, dashboard, and PM dashboard are now split into route-local modules; shell DOM/modal/space-switcher ownership is extracted; imported stylesheet contracts are covered by focused frontend tests; and route/module coverage is backed by `scripts/check_route_module_test_mapping.py`, route export tests, `154` focused frontend contract tests, `npm run lint:ui`, `npm run test:ui`, and a green full Python suite. |
 | `CCR-007` | Observability / operations | Medium | advisory | fixed now | Repo inventory initially found no observability surface beyond `/health`; no repo-visible request correlation, structured request/error logging, readiness probe, or operator docs were present. | Added request-ID middleware, structured logging, `/health/ready`, DB readiness checks, and README ops documentation. Validated with `test_observability.py`, `test_context_path_routing.py`, and `test_seed_and_db.py`. |
-| `CCR-008` | Test strategy | Medium | advisory | flagged for follow-up | The test harness is strong overall, but a visible share of frontend coverage is string/markup contract testing rather than runtime interaction testing. | Full suite is green; test-quality pass remains queued after structural hotspots. |
+| `CCR-008` | Test strategy | Medium | advisory | fixed now | The repo originally had no real frontend execution gate, and much of the UI protection depended on source-text contracts alone. | Added repo-level frontend lint/unit/browser tooling (`eslint`, `vitest`, Playwright smoke harness), strengthened observability/runtime tests, and updated style-contract helpers to follow imported stylesheet partials without losing coverage. Full suite, frontend lint, and frontend unit tests are green; the remaining limitation is only that the browser smoke surface is intentionally small. |
 | `CCR-009` | Audit execution context | Medium | advisory | out of scope | `git status --short` showed the worktree already dirty across backend, frontend, tests, and schema files before this pass started. | This run only added new audit artifacts and did not modify existing dirty files. |
 
 ## Closure Ledger
-- Fixed now: `CCR-000`, `CCR-001`, `CCR-002`, `CCR-003`, `CCR-004`, `CCR-005`, `CCR-007`
-- Flagged for follow-up: `CCR-006`, `CCR-008`
+- Fixed now: `CCR-000`, `CCR-001`, `CCR-002`, `CCR-003`, `CCR-004`, `CCR-005`, `CCR-006`, `CCR-007`, `CCR-008`
 - Out of scope: `CCR-009`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: shared runtime coordination and audit request correlation
+
+- Fixed: `src/main/backend/app/services/coordination.py` now provides a shared coordination backend with `memory` and `redis` modes; `smart_cache.py` now reads scope versions through that backend, `realtime.py` now uses it for cross-worker refresh fanout, and `main.py` starts/stops the realtime listener on lifespan boundaries.
+- Fixed: `src/main/backend/app/request_context.py` and `services/audit_log.py` now propagate the inbound `X-Request-ID` into audit rows by default, and bulk project/solution/subcomponent imports no longer mint unrelated UUIDs for audit correlation.
+- Why it mattered: cache invalidation and websocket refresh were previously worker-local only, and audit rows from bulk writes could not be traced back to the originating request log line.
+- Validation:
+  - `pytest -q -s src/main/test/test_observability.py src/main/test/test_realtime_and_sync.py src/main/test/test_smart_cache.py src/main/test/test_request_audit_correlation.py src/main/test/test_coordination_backend.py` -> `30 passed, 1 skipped in 10.72s`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: frontend validation tooling and dead shell-state cleanup
+
+- Fixed: repo-level Node tooling now exists via `package.json`, `eslint.config.js`, `vitest.config.js`, `playwright.config.js`, and `scripts/run_ui_smoke_app.py`; the CI workflow now installs Node, runs frontend lint/unit checks, provisions Redis, and invokes Playwright smoke coverage.
+- Fixed: `src/main/ui/js/app.js` no longer carries the dead duplicate inline live-sync retry/recovery implementation; `src/main/ui/js/shell/live-sync.js` is now the only live-sync owner.
+- Why it mattered: the repo previously had no real frontend execution gate in CI, and `app.js` still carried unreachable websocket code that referenced symbols the shell no longer owned.
+- Validation:
+  - `npm run lint:ui`
+  - `npm run test:ui`
+  - `pytest -q -s src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_ui_route_modules_exports.py src/main/test/test_live_sync_session_frontend_contract.py src/main/test/test_master_frontend_contract.py` -> green
 
 ## Incremental Update
 
@@ -411,6 +438,18 @@ Issue set: deliverables domain / soft-deleted parent descendant visibility
 
 Date: 2026-03-25
 Mode: `follow-up audit`
+Issue set: deliverables domain / route monolith decomposition
+
+- Fixed: `src/main/backend/app/routes/solutions.py` and `src/main/backend/app/routes/subcomponents.py` were replaced by `solutions/{common,read,write,import_export}.py` and `subcomponents/{common,read,write,import_export}.py`, while preserving the same package import path, `router` export, HTTP routes, response shapes, and the package-level `enable_all_phases` monkeypatch target used by the current tests.
+- Why it mattered: both deliverables route files were still around a thousand lines and mixed read paths, write paths, CSV import/export, cache publication, audit logging, and derived-state helpers in one place. That made every future change harder to reason about and raised the risk of accidental cross-path regressions.
+- Validation:
+  - `pytest -q -s src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `47 passed in 54.40s`
+  - `pytest -q -s src/main/test` from repo root -> `423 passed, 1 skipped in 170.17s (0:02:50)`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
 Issue set: admin domain / active space-admin invariant
 
 - Fixed: `src/main/backend/app/routes/spaces.py` now counts only active user accounts when enforcing the last-`space_admin` guard, and `src/main/backend/app/routes/users.py` now blocks deactivating a user if that would orphan any space where they are the last active `space_admin`, including cross-space cases.
@@ -419,6 +458,100 @@ Issue set: admin domain / active space-admin invariant
   - `pytest -q -s src/main/test/test_spaces.py src/main/test/test_users_space_scope.py src/main/test/test_teams_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_space_isolation_strict.py` -> `34 passed in 35.19s`
   - `pytest -q -s src/main/test` from repo root -> `406 passed in 160.63s (0:02:40)`
 
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: deliverables domain / solution-delete descendant cache invalidation
+
+- Fixed: `src/main/backend/app/routes/solutions.py` now invalidates and broadcasts descendant `subcomponents` when a solution is soft-deleted, instead of only invalidating `solutions`.
+- Why it mattered: subcomponent reads already hide deleted parents on cold queries, but the old delete path left cached `/subcomponents`, solution-scoped subcomponent lists, and subcomponent detail views visible until TTL expiry after the parent solution was deleted.
+- Validation: `pytest -q -s src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_import_export_subcomponents.py` -> `32 passed in 36.19s`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: deliverables domain / import-created parent cache invalidation
+
+- Fixed: `src/main/backend/app/routes/solutions.py` and `subcomponents.py` now invalidate and broadcast parent `projects` and `solutions` namespaces when CSV imports auto-create those parent records, instead of only publishing the imported child namespace.
+- Why it mattered: a successful import could create a new project or solution while cached `/projects` or `/solutions` responses still returned the old empty/stale list until TTL expiry, which is the wrong behavior for an import that just materially expanded the deliverables tree.
+- Validation: `pytest -q -s src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py src/main/test/test_solutions.py src/main/test/test_subcomponents.py` -> `43 passed in 48.56s`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: deliverables domain / inherited subcomponent repo-cache invalidation
+
+- Fixed: `src/main/backend/app/routes/solutions.py` now invalidates and broadcasts descendant `subcomponents` when a solution update or CSV import changes `github_repo_url` on an existing solution. That closes the inherited repo-link cache gap for `SubcomponentRead.effective_github_repo_url` and `repo_source`, which derive from the parent solution when a subcomponent has no override.
+- Why it mattered: cached `/subcomponents`, solution-scoped subcomponent lists, and subcomponent detail responses could keep showing the old inherited repo URL until TTL expiry after a solution repo-link change, even though the parent solution already reflected the new link.
+- Validation:
+  - `pytest -q -s src/main/test/test_subcomponents.py src/main/test/test_solutions.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `45 passed in 50.37s`
+  - `pytest -q -s src/main/test` -> `411 passed in 160.36s (0:02:40)`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: deliverables domain / subcomponent batch-response repo metadata
+
+- Fixed: `src/main/backend/app/routes/subcomponents.py` now resolves parent solution repo URLs before returning rows from `/subcomponents/actions/batch`, so inherited `effective_github_repo_url` and `repo_source` stay consistent with the single-row create/update/detail paths.
+- Why it mattered: the bulk-update route returned subcomponent payloads without the parent solution repo context, which could make inherited repo links disappear or come back wrong in the immediate batch response even though the stored data was unchanged.
+- Validation: `pytest -q -s src/main/test/test_subcomponents.py src/main/test/test_import_export_subcomponents.py` -> `19 passed in 21.75s`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: deliverables domain / direct completion audit coverage
+
+- Fixed: `src/main/backend/app/routes/solutions.py` and `subcomponents.py` now include derived completion fields in direct `PATCH` audit entries. Solution status updates now audit `completed_at` and any status-driven `current_phase` change, and subcomponent status updates now audit `completed_at`.
+- Why it mattered: the direct patch paths already changed completion state in the database and response payload, but the audit trail dropped that derived transition even though the import and batch paths already recorded it.
+- Validation:
+  - `pytest -q -s src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_audit.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `51 passed in 55.52s`
+  - `pytest -q -s src/main/test` -> `413 passed in 157.83s (0:02:37)`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: planning/admin crossover / protected user-mutation guards
+
+- Fixed: planning "people" mutations in `src/main/backend/app/routes/planning/work_allocation.py` now reuse a shared guard service in `src/main/backend/app/services/user_admin_guards.py`, and `src/main/backend/app/routes/users.py` now uses the same shared helper. Non-global-admin actors can no longer modify global-admin accounts through the planning surface, and planning can no longer deactivate the last active global admin or the last active `space_admin`.
+- Why it mattered: the standard `/users` routes already enforced those protections, but planning "people" update/delete was a side door that could still modify or deactivate protected accounts because it changed `User.is_active` directly without the same checks.
+- Validation:
+  - `pytest -q -s src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_spaces.py src/main/test/test_route_space_enforcement_gate.py` -> `30 passed in 30.91s`
+  - `pytest -q -s src/main/test` -> `416 passed in 165.42s (0:02:45)`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: admin/planning team-tag sync and shared-user cache repair
+
+- Fixed: `src/main/backend/app/routes/teams.py` and `src/main/backend/app/routes/planning/work_allocation.py` now repair `User.team_tag` for all non-deleted space memberships during team rename/delete, not just currently active users. Both paths also now invalidate `/users` caches across every membership space for affected shared users instead of only invalidating the team's current space.
+- Why it mattered: team rename/delete was only fixing the visible active-user slice. Inactive users and inactive memberships could keep a stale team name hidden on the shared `User` row, and shared users could still leave stale `/users` caches behind in other spaces because `team_tag` is global per user rather than per space.
+- Validation:
+  - `pytest -q -s src/main/test/test_teams_space_scope.py src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py` -> `28 passed in 29.55s`
+  - `pytest -q -s src/main/test` -> `419 passed in 168.93s (0:02:48)`
+
+## Incremental Update
+
+Date: 2026-03-25
+Mode: `follow-up audit`
+Issue set: frontend shell ownership and stylesheet contract closure
+
+- Fixed: `src/main/ui/js/app.js` now delegates DOM lookup, confirm/planning modal behavior, and the space-switcher workflow to `src/main/ui/js/shell/{dom,modal-shell,space-switcher}.js`, and `styles.css` now imports split partials from `src/main/ui/styles/{base.css,routes/*.css}` instead of carrying one giant stylesheet directly.
+- Fixed: route-local frontend ownership is now real across deliverables, planning, dashboard, and PM dashboard, and the frontend contract tests now resolve imported stylesheet partials through `ui_style_contract.py` instead of pinning everything to one file.
+- Why it mattered: the shell still owned raw DOM lookup and shared modal/switcher internals, and the single `styles.css` file kept CSS ownership coupled to one global contract even after the JS route splits landed.
+- Validation:
+  - `pytest -q -s src/main/test/test_calendar_frontend_contract.py src/main/test/test_dark_mode_theme_contract.py src/main/test/test_dashboard_frontend_contract.py src/main/test/test_deliverables_save_feedback_frontend_contract.py src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_kanban_frontend_contract.py src/main/test/test_master_frontend_contract.py src/main/test/test_modal_layout_frontend_contract.py src/main/test/test_planning_header_compact_frontend_contract.py src/main/test/test_pm_dashboard_frontend_contract.py src/main/test/test_space_governance_frontend_contract.py src/main/test/test_subcomponents_workbench_frontend_contract.py src/main/test/test_view_heading_frontend_contract.py` -> `154 passed in 7.45s`
+  - `npm run lint:ui`
+  - `npm run test:ui` -> `5 passed`
+  - `pytest -q -s src/main/test` -> `423 passed, 1 skipped in 169.14s (0:02:49)`
+
 ## Next Highest-Leverage Focus
-1. `BATCH-005` deliverables backend, because the remaining CRUD/import/export edge cases still affect the main operational surface.
-2. broad rescan and reprioritization, because the previous top-ranked admin/frontend/realtime/test batches are now closed.
+1. broad rescan only if new product requirements or regressions surface, because the ranked cleanup queue is closed on current evidence.
+2. expand the Playwright smoke surface if future UI work starts touching cross-route interaction flows more often.
+3. keep shrinking `src/main/ui/js/app.js` opportunistically when route-specific workflows move, but there is no active review blocker waiting on that work now.

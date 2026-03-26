@@ -1,9 +1,7 @@
-from datetime import datetime, timezone
-from typing import List, Optional
-
 import csv
+from datetime import datetime, timezone
 from io import StringIO
-from uuid import uuid4
+from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -270,8 +268,6 @@ def import_projects(
         return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0}
     created = updated = 0
     seen = set()
-    request_id = str(uuid4())
-
     for idx, row in enumerate(rows, start=2):  # header is row 1
         name = normalize_str(row.get("project_name"))
         sponsor = normalize_str(row.get("sponsor"))
@@ -348,7 +344,7 @@ def import_projects(
                         ),
                         "priority": (before["priority"], existing.priority),
                     },
-                    request_id=request_id,
+                    request_id=None,
                 )
                 updated += 1
             else:
@@ -382,7 +378,7 @@ def import_projects(
                         "strategic_objective": (None, project.strategic_objective),
                         "priority": (None, project.priority),
                     },
-                    request_id=request_id,
+                    request_id=None,
                 )
                 created += 1
             session.commit()

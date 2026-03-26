@@ -8,7 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ...auth.auth import hash_bootstrap_password
-from ...deps import current_space as current_space_dep, get_db, require_space_role
+from ...deps import current_space as current_space_dep, current_user as current_user_dep, get_db, require_space_role
 from ...models import ResourceAllocation, SpaceMembership, Subcomponent, Team, User
 from ...schemas.planning import (
     WorkAllocationAssignmentCreate,
@@ -40,6 +40,8 @@ from ...services.planning_work_allocation import (
     team_name_to_id_map,
 )
 from ...services.spaces import SpaceContext
+from ...services.smart_cache import invalidate_space
+from ...services.user_admin_guards import ensure_actor_can_modify_user, ensure_user_can_be_deactivated
 from ...utils.enums import SubcomponentStatus
 from .common import (
     _HOURS_PER_FTE_MONTH,
@@ -62,6 +64,31 @@ from .common import (
 
 
 router = APIRouter()
+
+
+def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(User)
+        .join(SpaceMembership, SpaceMembership.user_id == User.user_id)
+        .filter(SpaceMembership.space_id == space_ctx.space_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+    )
+
+
+def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set[str]) -> None:
+    if not user_ids:
+        return
+    rows = (
+        session.query(SpaceMembership.space_id)
+        .filter(SpaceMembership.user_id.in_(sorted(user_ids)))
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .distinct()
+        .all()
+    )
+    for row in rows:
+        space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
+        if space_id:
+            invalidate_space(space_id, ["users"])
 
 
 @router.get("/planning/work-allocation/teams", response_model=List[WorkAllocationTeamRead])
@@ -140,6 +167,7 @@ def update_work_allocation_team(
 ) -> WorkAllocationTeamRead:
     row = active_team(session, team_id, space_ctx)
     next_name = (payload.name or "").strip() if payload.name is not None else None
+    affected_user_ids: set[str] = set()
     if next_name:
         conflict = (
             session.query(Team)
@@ -153,9 +181,10 @@ def update_work_allocation_team(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team name already exists")
         old_name = row.name
         row.name = next_name
-        for user in active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+        for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
             user.team_tag = next_name
             session.add(user)
+            affected_user_ids.add(user.user_id)
     row.updated_at = datetime.now(timezone.utc)
     session.add(row)
     commit_planning_mutation(
@@ -165,6 +194,7 @@ def update_work_allocation_team(
         refresh=row,
         on_integrity_error=raise_team_rename_conflict,
     )
+    _invalidate_user_caches_for_user_memberships(session, affected_user_ids)
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
 
@@ -178,17 +208,20 @@ def delete_work_allocation_team(
     row = active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
     old_name = row.name
+    affected_user_ids: set[str] = set()
     row.deleted_at = now
     session.add(row)
-    for user in active_space_user_query(session, space_ctx).filter(User.team_tag == old_name).all():
+    for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
         user.team_tag = None
         user.updated_at = now
         session.add(user)
+        affected_user_ids.add(user.user_id)
     commit_planning_mutation(
         session,
         space_ctx,
         cache_keys=("teams", "users", "planning"),
     )
+    _invalidate_user_caches_for_user_memberships(session, affected_user_ids)
     return None
 
 
@@ -254,9 +287,11 @@ def update_work_allocation_person(
     payload: WorkAllocationPersonUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> WorkAllocationPersonRead:
     row = active_person_by_soeid(session, person_id, space_ctx)
+    ensure_actor_can_modify_user(actor=current_user, target=row)
     updates = payload.model_dump(exclude_unset=True)
 
     if "name" in updates:
@@ -273,6 +308,8 @@ def update_work_allocation_person(
         row.capacity_hours = max(int(round(cap * 40.0)), 0)
 
     if "active" in updates and updates.get("active") is not None:
+        if row.is_active and not bool(updates["active"]):
+            ensure_user_can_be_deactivated(session, row)
         row.is_active = bool(updates["active"])
 
     row.updated_at = datetime.now(timezone.utc)
@@ -292,9 +329,12 @@ def delete_work_allocation_person(
     person_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> None:
     row = active_person_by_soeid(session, person_id, space_ctx)
+    ensure_actor_can_modify_user(actor=current_user, target=row)
+    ensure_user_can_be_deactivated(session, row)
     now = datetime.now(timezone.utc)
     row.is_active = False
     row.updated_at = now

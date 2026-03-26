@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
@@ -109,7 +111,7 @@ def test_kanban_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_
 
 
 def test_kanban_uses_dense_title_link_style():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".kanban-card {" in text
     assert "background: var(--panel);" in text
@@ -134,7 +136,7 @@ def test_kanban_uses_dense_title_link_style():
 
 
 def test_light_theme_preserves_subtle_kanban_project_surface():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".theme-light .kanban-project {" in text
     assert "background: var(--panel);" in text
@@ -142,7 +144,7 @@ def test_light_theme_preserves_subtle_kanban_project_surface():
 
 
 def test_kanban_solution_container_uses_quieter_chrome():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".kanban-solution {" in text
     assert "padding: 0;" in text

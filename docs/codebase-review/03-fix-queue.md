@@ -12,7 +12,7 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
 - Medium+, DB-related, and contract-changing items go to `docs/codebase-review/04-review-required.md` and do not block low-risk execution.
 
 ## Ranked Next Batches
-1. `BATCH-005` deliverables backend: projects, solutions, subcomponents, phases
+- none currently queued; broad rescan and reprioritization is next because the ranked micro-batch queue is closed on current evidence
 
 ## Completed Batches
 
@@ -50,6 +50,7 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - fixed duplicate-space conflict handling, team default-capacity precedence, and the `/users/import` global-admin authz bypass
   - kept team rename/delete mutations and cross-space shared-user updates/imports consistent with `users` cache invalidation
   - enforced the active-admin invariant across both membership edits and user deactivation, counting only actually-active admin users
+  - aligned planning "people" mutations with the same protected global-admin and last-admin guards used by `/users`
 - Validation:
   - `pytest -q -s src/main/test/test_spaces.py src/main/test/test_users_space_scope.py src/main/test/test_teams_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_space_isolation_strict.py`
   - `pytest -q -s src/main/test`
@@ -72,38 +73,93 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - no DB schema, migration, or live-table changes were made
   - closure is backed by focused protected-path and admin/authz regression tests
 
+### `BATCH-003` Frontend Shell Hotspot In `app.js`
+- Outcome:
+  - extracted shared shell responsibilities into `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context,dom,modal-shell,space-switcher,topbar-create}.js`
+  - standardized route modules on a primary `render(ctx)` entrypoint while preserving legacy exports
+  - reduced `src/main/ui/js/app.js` to shell composition, wiring, and shared UI workflows instead of core routing/session/live-sync/DOM/modal/switcher ownership
+- Validation:
+  - `python3 scripts/check_route_module_test_mapping.py`
+  - `pytest -q -s src/main/test/test_ui_route_modules_exports.py src/main/test/test_ui_route_module_test_mapping_gate.py src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_context_path_routing.py src/main/test/test_team_capacity_frontend_contract.py`
+  - `npm run lint:ui`
+  - `npm run test:ui`
+  - `pytest -q -s src/main/test` from `src/main`
+- Notes:
+  - no route-name, DOM-ID, or visible UX-structure change was made
+  - closure is backed by frontend contract coverage plus a green full-suite pass
+
 ### `BATCH-008` Realtime, Cache, And Sync
 - Outcome:
   - hardened websocket registration failure handling and limit validation
   - made smart-cache env parsing fail fast on invalid boolean, integer, and non-positive max-entry values
   - closed idle-pruned websocket connections with reconnectable code `1001` before unregistering them
+  - added a shared coordination backend so cache scope versions and realtime refresh fanout can move from process-local state to Redis in stage/prod while preserving memory mode for local/test
+  - aligned audit request correlation so bulk project/solution/subcomponent writes inherit the active request ID instead of generating unrelated UUIDs
   - ran the focused batch gate plus a full-suite regression pass after the shared realtime/cache changes
 - Validation:
   - `pytest -q -s src/main/test/test_realtime_and_sync.py src/main/test/test_planning_work_allocation_people.py src/main/test/test_spaces.py src/main/test/test_teams_space_scope.py`
+  - `pytest -q -s src/main/test/test_observability.py src/main/test/test_request_audit_correlation.py src/main/test/test_coordination_backend.py`
   - `pytest -q -s src/main/test` from `src/main`
 - Notes:
   - no DB schema, migration, or live-table changes were made
   - closure is backed by focused realtime/cache tests and a green full-suite pass
 
+### `BATCH-005` Deliverables Backend: Projects, Solutions, Subcomponents, Phases
+- Outcome:
+  - kept solution and subcomponent completion-state metadata consistent across direct updates, CSV imports, and subcomponent batch updates
+  - made soft-deleted parent projects and solutions hide descendant solution, subcomponent, and phase surfaces immediately on both cold reads and cached reads
+  - fixed parent/child cache invalidation around solution delete, auto-created parents in CSV imports, and inherited repo-link changes from solutions to subcomponents
+  - fixed subcomponent batch responses and direct solution/subcomponent status-patch audit entries so returned payloads and audit trails match the real derived state
+  - replaced the old `solutions.py` and `subcomponents.py` route monoliths with `solutions/` and `subcomponents/` packages split into `common`, `read`, `write`, and `import_export` modules while preserving the same route contracts and package import paths
+- Validation:
+  - `pytest -q -s src/main/test/test_projects.py src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_phases.py src/main/test/test_audit.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py`
+  - `pytest -q -s src/main/test`
+- Notes:
+  - no DB schema, migration, or live-table changes were made
+  - closure is backed by focused deliverables regression tests and a green full-suite pass
+
+### `BATCH-007` Planning Backend And Report Generation
+- Outcome:
+  - replaced the old monolithic `planning.py` route file with the `planning/{common,legacy_allocations,work_allocation}.py` package
+  - moved inline planning wire schemas into `src/main/backend/app/schemas/planning.py`
+  - preserved the same planning routes and report behavior while narrowing future change surfaces
+  - closed the planning "people" side door around protected user-deactivation and global-admin mutation rules
+- Validation:
+  - `pytest -q -s src/main/test/test_planning_fte_month.py src/main/test/test_planning_work_allocation_people.py src/main/test/test_planning_work_allocation_tasks.py src/main/test/test_planning_work_allocation_report.py src/main/test/test_planning_router_composition.py`
+  - `pytest -q -s src/main/test` from `src/main`
+- Notes:
+  - no planning API contract or DB schema change was made
+  - closure is backed by focused planning regression tests plus a green full-suite pass
+
 ### `BATCH-009` Frontend Route Modules, Markup, And Styles
 - Outcome:
   - split `src/main/ui/js/routes/master.js` into a thin route entrypoint plus `src/main/ui/js/routes/master/table.js`
+  - split `src/main/ui/js/routes/planning.js`, `dashboard.js`, and `pm-dashboard.js` into thin entrypoints plus route-local modules
+  - moved shared shell DOM lookup, confirm/planning modal behavior, and the space-switcher workflow into dedicated shell modules
+  - split `src/main/ui/styles.css` into imported partials under `src/main/ui/styles/{base.css,routes/*.css}` while preserving the same visible UI and selector contracts
   - preserved the same deliverables route names, DOM IDs, filters, repo-visibility behavior, and bulk-selection behavior
-  - updated route-specific frontend contract tests to follow the new route-local boundary
+  - updated route-specific frontend contract tests to follow the new route-local boundary and the imported stylesheet contract
 - Validation:
-  - `pytest -q -s src/main/test/test_master_frontend_contract.py src/main/test/test_ui_route_modules_exports.py src/main/test/test_frontend_ux_improvement_contract.py`
+  - `pytest -q -s src/main/test/test_master_frontend_contract.py src/main/test/test_ui_route_modules_exports.py src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_dashboard_frontend_contract.py src/main/test/test_pm_dashboard_frontend_contract.py src/main/test/test_planning_header_compact_frontend_contract.py`
+  - `pytest -q -s src/main/test/test_calendar_frontend_contract.py src/main/test/test_dark_mode_theme_contract.py src/main/test/test_deliverables_save_feedback_frontend_contract.py src/main/test/test_kanban_frontend_contract.py src/main/test/test_modal_layout_frontend_contract.py src/main/test/test_space_governance_frontend_contract.py src/main/test/test_subcomponents_workbench_frontend_contract.py src/main/test/test_view_heading_frontend_contract.py`
   - `python3 scripts/check_route_module_test_mapping.py`
+  - `npm run lint:ui`
+  - `npm run test:ui`
   - `pytest -q -s src/main/test` from `src/main`
 - Notes:
-  - no sweeping CSS rewrite or shell-contract change was made
+  - no route-name, DOM-ID, or visible UX-structure change was made
   - closure is backed by route-specific contract coverage and a green full-suite pass
 
 ### `BATCH-010` Test Suite Quality And Coverage Gaps
 - Outcome:
   - strengthened observability regression coverage so unhandled exceptions are explicitly tested in both raising and non-raising ASGI client modes
   - closed the exact test gap that allowed the middleware exception-flow regression to slip until a late full-suite run
+  - added repo-level frontend lint/unit/browser commands with Vitest router/live-sync tests and a Playwright smoke harness backed by `scripts/run_ui_smoke_app.py`
+  - updated frontend contract helpers so imported stylesheet partials remain covered after the CSS split instead of pinning the suite to one monolithic file
 - Validation:
   - `pytest -q -s src/main/test/test_observability.py`
+  - `npm run lint:ui`
+  - `npm run test:ui`
   - `pytest -q -s src/main/test` from `src/main`
 - Notes:
   - this batch was test-only
@@ -182,6 +238,7 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - 2026-03-24: extracted shared shell responsibilities into `src/main/ui/js/shell/{paths,router,session,live-sync,data-store,context}.js`, leaving `src/main/ui/js/app.js` focused on controller wiring plus shared UI workflows.
   - 2026-03-24: standardized route modules on a primary `render(ctx)` entrypoint without removing legacy named exports, which keeps lazy-loaded route contracts stable while enabling shell-side dispatch cleanup.
   - 2026-03-24: validated the shell extraction with `pytest -q -s src/main/test/test_ui_route_modules_exports.py src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_live_sync_session_frontend_contract.py src/main/test/test_team_capacity_frontend_contract.py src/main/test/test_*frontend_contract.py src/main/test/test_context_path_routing.py` -> `122 passed in 10.23s`.
+  - 2026-03-25: extracted shell DOM lookup into `src/main/ui/js/shell/dom.js`, confirm/planning modal behavior into `src/main/ui/js/shell/modal-shell.js`, and the space-switcher workflow into `src/main/ui/js/shell/space-switcher.js`, reducing the shared shell contract inside `app.js` without changing route names, DOM IDs, or visible UX. Validated with `pytest -q -s src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_live_sync_session_frontend_contract.py src/main/test/test_space_governance_frontend_contract.py src/main/test/test_ui_legacy_cleanup_contract.py src/main/test/test_master_frontend_contract.py` -> `68 passed in 2.44s`, `npm run lint:ui`, and `pytest -q -s src/main/test` -> `423 passed, 1 skipped in 169.14s (0:02:49)`.
 
 ### `BATCH-004` SQL / Model / Schema / Audit-Log Contract Alignment
 - Scope: `docs/sql/schema_oracle_ta.sql`, `docs/sql/migrations/*.sql`, `src/main/backend/app/models/*`, `src/main/backend/app/schemas/__init__.py`, `src/main/backend/app/services/audit_log.py`
@@ -221,6 +278,11 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - 2026-03-24: fixed reopen-state drift in `src/main/backend/app/routes/solutions.py`. Direct updates and CSV import updates now clear `completed_at` when a solution moves back out of `complete`, preserving consistency between status, exports, and filtered list views. Validated with `pytest -q -s src/main/test/test_solutions.py src/main/test/test_import_export_solutions.py`.
   - 2026-03-24: fixed reopen-state drift in `src/main/backend/app/routes/subcomponents.py`. Direct updates, CSV import updates, and batch status updates now clear `completed_at` when a subcomponent is reopened instead of leaving stale completion metadata behind. Validated with `pytest -q -s src/main/test/test_subcomponents.py src/main/test/test_import_export_subcomponents.py`.
   - 2026-03-25: fixed soft-deleted parent visibility drift in `src/main/backend/app/routes/projects.py`, `solutions.py`, `subcomponents.py`, and `phases.py`. Project deletes now invalidate and broadcast descendant `solutions`/`subcomponents` namespaces, and shared solution/subcomponent/phase lookup paths now require an active parent project so deleted projects no longer leave child reads or cached child lists/details behind. Validated with `pytest -q -s src/main/test/test_projects.py src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_phases.py` -> `44 passed in 45.38s`, `pytest -q -s src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `12 passed in 13.31s`, and `pytest -q -s src/main/test` from repo root -> `404 passed in 153.54s (0:02:33)`.
+  - 2026-03-25: fixed solution-delete descendant cache drift in `src/main/backend/app/routes/solutions.py`. Soft-deleting a solution now invalidates and broadcasts descendant `subcomponents`, so cached `/subcomponents`, solution-scoped subcomponent lists, and subcomponent detail views do not stay visible until TTL expiry after the parent solution is deleted. Validated with `pytest -q -s src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_import_export_subcomponents.py` -> `32 passed in 36.19s`.
+  - 2026-03-25: fixed import-created parent cache drift in `src/main/backend/app/routes/solutions.py` and `subcomponents.py`. When CSV imports auto-create parent projects or solutions, they now invalidate and broadcast those parent namespaces instead of only the imported child namespace, so primed `/projects` and `/solutions` lists refresh immediately after import. Validated with `pytest -q -s src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py src/main/test/test_solutions.py src/main/test/test_subcomponents.py` -> `43 passed in 48.56s`.
+  - 2026-03-25: fixed inherited subcomponent repo-cache drift in `src/main/backend/app/routes/solutions.py`. When an existing solution's `github_repo_url` changes through direct update or CSV import, the route now invalidates and broadcasts descendant `subcomponents` so cached effective repo links do not stay stale until TTL expiry. Validated with `pytest -q -s src/main/test/test_subcomponents.py src/main/test/test_solutions.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `45 passed in 50.37s` and `pytest -q -s src/main/test` -> `411 passed in 160.36s (0:02:40)`.
+  - 2026-03-25: fixed subcomponent batch-response repo metadata in `src/main/backend/app/routes/subcomponents.py`. `/subcomponents/actions/batch` now resolves parent solution repo URLs before serializing rows, so inherited `effective_github_repo_url` and `repo_source` match the single-row detail/update paths. Validated with `pytest -q -s src/main/test/test_subcomponents.py src/main/test/test_import_export_subcomponents.py` -> `19 passed in 21.75s`.
+  - 2026-03-25: fixed direct completion-audit drift in `src/main/backend/app/routes/solutions.py` and `subcomponents.py`. Direct status patches now audit derived `completed_at`, and direct solution status patches also audit status-driven `current_phase`, matching the state transitions already recorded by the import and batch paths. Validated with `pytest -q -s src/main/test/test_solutions.py src/main/test/test_subcomponents.py src/main/test/test_audit.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py` -> `51 passed in 55.52s` and `pytest -q -s src/main/test` -> `413 passed in 157.83s (0:02:37)`.
 
 ### `BATCH-006` Admin Domain: Spaces, Users, Teams, Access Control
 - Scope: `src/main/backend/app/routes/spaces.py`, `users.py`, `teams.py`, plus only directly involved shared helpers
@@ -239,9 +301,11 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - 2026-03-24: fixed fail-late duplicate-space handling in `src/main/backend/app/routes/spaces.py`. Duplicate space names and slugs now return explicit `400` conflicts instead of raw server errors when the DB unique constraints fire. Validated with `pytest -q -s src/main/test/test_spaces.py`.
   - 2026-03-25: fixed a CSV import authz bypass in `src/main/backend/app/routes/users.py`. Non-global-admin actors can no longer use `/users/import` to modify or reactivate global-admin accounts, and the path now returns a row-level import error instead. Validated with `pytest -q -s src/main/test/test_users_space_scope.py src/main/test/test_global_admin_management.py`.
   - 2026-03-25: fixed stale user-team linkage in `src/main/backend/app/routes/teams.py`. Standard team rename/delete mutations now keep active-space `User.team_tag` values in sync and invalidate both `teams` and `users` cache scopes, matching the behavior already enforced by the planning team-management path. Validated with `pytest -q -s src/main/test/test_teams_space_scope.py` and `pytest -q -s src/main/test/test_planning_work_allocation_people.py`.
+  - 2026-03-25: tightened the same team-tag repair in `src/main/backend/app/routes/teams.py`. Team rename/delete now also updates inactive space memberships and invalidates `/users` caches across every membership space for affected shared users, so stale team names do not survive into later reactivations or other-space roster caches. Validated with `pytest -q -s src/main/test/test_teams_space_scope.py src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py` -> `28 passed in 29.55s` and `pytest -q -s src/main/test` -> `419 passed in 168.93s (0:02:48)`.
   - 2026-03-25: fixed cross-space user-roster cache invalidation in `src/main/backend/app/routes/users.py`. Direct user profile updates now invalidate every active membership space for the target user instead of only the admin's current space, so shared users do not leave stale `/users` and roster-export data behind in other spaces. Validated with `pytest -q -s src/main/test/test_spaces.py src/main/test/test_users_space_scope.py src/main/test/test_teams_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_space_isolation_strict.py` -> `31 passed in 31.67s`.
   - 2026-03-25: fixed the same stale-cache class in `src/main/backend/app/routes/users.py` for `/users/import`. CSV imports now invalidate every active membership space for each imported user instead of only the admin's current space, so shared users do not leave stale roster data behind in other spaces after import-based edits. Validated with `pytest -q -s src/main/test/test_spaces.py src/main/test/test_users_space_scope.py src/main/test/test_teams_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_space_isolation_strict.py` -> `32 passed in 32.53s`.
   - 2026-03-25: fixed the active-admin invariant in `src/main/backend/app/routes/spaces.py` and `src/main/backend/app/routes/users.py`. Last-admin checks now count only active user accounts, and user deactivation now refuses to orphan any space where the target is the last active `space_admin`, including cross-space cases. Validated with `pytest -q -s src/main/test/test_spaces.py src/main/test/test_users_space_scope.py src/main/test/test_teams_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_space_isolation_strict.py` -> `34 passed in 35.19s` and `pytest -q -s src/main/test` -> `406 passed in 160.63s (0:02:40)`.
+  - 2026-03-25: fixed the planning crossover bypass in `src/main/backend/app/routes/planning/work_allocation.py` by moving protected global-admin and last-admin mutation checks into `src/main/backend/app/services/user_admin_guards.py` and reusing them from both planning "people" routes and `/users`. Planning can no longer modify global-admin accounts as a non-global-admin actor, nor deactivate the last active global admin or `space_admin`. Validated with `pytest -q -s src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_spaces.py src/main/test/test_route_space_enforcement_gate.py` -> `30 passed in 30.91s` and `pytest -q -s src/main/test` -> `416 passed in 165.42s (0:02:45)`.
 
 ### `BATCH-007` Planning Backend And Report Generation
 - Scope: `src/main/backend/app/routes/planning/{common,legacy_allocations,work_allocation}.py`, `src/main/backend/app/services/planning_work_allocation.py`, `src/main/backend/app/services/planning_report_pdf.py`, and the smallest necessary model/test surface
@@ -256,6 +320,9 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - queue is updated to reflect what remains inside the `planning/` package
 - Validation:
   - `pytest -q -s src/main/test/test_planning_work_allocation_people.py src/main/test/test_planning_work_allocation_tasks.py src/main/test/test_planning_work_allocation_report.py src/main/test/test_planning_fte_month.py`
+ - Progress:
+ - 2026-03-25: fixed a protected user-mutation bypass in `src/main/backend/app/routes/planning/work_allocation.py`. Planning "people" update/delete now reuse shared guards in `src/main/backend/app/services/user_admin_guards.py`, so the planning surface can no longer modify global-admin accounts as a non-global-admin actor or deactivate the last active global admin / `space_admin`. Validated with `pytest -q -s src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py src/main/test/test_global_admin_management.py src/main/test/test_spaces.py src/main/test/test_route_space_enforcement_gate.py` -> `30 passed in 30.91s` and `pytest -q -s src/main/test` -> `416 passed in 165.42s (0:02:45)`.
+  - 2026-03-25: fixed stale planning team-tag repair in `src/main/backend/app/routes/planning/work_allocation.py`. Planning team rename/delete now also repair inactive users' `team_tag` state and invalidate `/users` caches across every membership space for affected shared users, so planning no longer leaves latent team-name drift behind the standard `/teams` path. Validated with `pytest -q -s src/main/test/test_teams_space_scope.py src/main/test/test_planning_work_allocation_people.py src/main/test/test_users_space_scope.py` -> `28 passed in 29.55s` and `pytest -q -s src/main/test` -> `419 passed in 168.93s (0:02:48)`.
   - rerun full suite if shared mutation/cache/runtime code changes
 - Progress:
   - 2026-03-24: replaced `src/main/backend/app/routes/planning.py` with `src/main/backend/app/routes/planning/{common,legacy_allocations,work_allocation}.py`, preserving the same router export and public planning paths while splitting shared helpers from route groups.
@@ -298,6 +365,8 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
   - rerun full suite if shared shell or markup changes materially
 - Progress:
   - 2026-03-25: split the deliverables route so `src/main/ui/js/routes/master.js` is now a thin route entrypoint and `src/main/ui/js/routes/master/table.js` owns deliverables table rendering and route-local bindings. Validated with `pytest -q -s src/main/test/test_master_frontend_contract.py src/main/test/test_ui_route_modules_exports.py src/main/test/test_frontend_ux_improvement_contract.py` -> `59 passed in 1.60s`, `python3 scripts/check_route_module_test_mapping.py`, and `pytest -q -s src/main/test` from `src/main` -> `398 passed in 138.29s (0:02:18)`.
+  - 2026-03-25: split the planning, dashboard, and PM dashboard route monoliths into thin wrappers plus route-local modules, preserving the same route names and render-entry contracts. Validated with `pytest -q -s src/main/test/test_planning_header_compact_frontend_contract.py src/main/test/test_dashboard_frontend_contract.py src/main/test/test_pm_dashboard_frontend_contract.py src/main/test/test_pm_dashboard_space_scope_contract.py src/main/test/test_ui_route_modules_exports.py` -> green, `npm run lint:ui`, and `npm run test:ui`.
+  - 2026-03-25: split `src/main/ui/styles.css` into imported partials under `src/main/ui/styles/{base.css,routes/*.css}` and updated the frontend contract harness to resolve imported CSS. Validated with `pytest -q -s src/main/test/test_calendar_frontend_contract.py src/main/test/test_dark_mode_theme_contract.py src/main/test/test_dashboard_frontend_contract.py src/main/test/test_deliverables_save_feedback_frontend_contract.py src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_kanban_frontend_contract.py src/main/test/test_master_frontend_contract.py src/main/test/test_modal_layout_frontend_contract.py src/main/test/test_planning_header_compact_frontend_contract.py src/main/test/test_pm_dashboard_frontend_contract.py src/main/test/test_space_governance_frontend_contract.py src/main/test/test_subcomponents_workbench_frontend_contract.py src/main/test/test_view_heading_frontend_contract.py` -> `154 passed in 7.45s`.
 
 ### `BATCH-010` Test Suite Quality And Coverage Gaps
 - Scope: tests only, after structural hotspots have settled
@@ -313,6 +382,7 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
 - Progress:
   - 2026-03-25: expanded `src/main/test/test_route_space_enforcement_gate.py` to recurse into nested route packages, so the planning route split does not leave those protected endpoints outside the dependency-enforcement test.
   - 2026-03-25: expanded `src/main/test/test_observability.py` so the observability boundary is covered in both ASGI client modes: the default client still raises unhandled endpoint exceptions, and a non-raising client still exercises the logged `500` path. Validated with `pytest -q -s src/main/test/test_observability.py` -> `7 passed in 6.73s` and `pytest -q -s src/main/test` from `src/main` -> `399 passed in 138.93s (0:02:18)`.
+  - 2026-03-25: updated the frontend contract harness to resolve imported stylesheet partials through `ui_style_contract.py`, keeping CSS contract tests meaningful after the stylesheet split instead of forcing styles back into one file. Validated with the `154`-test frontend contract slice plus `pytest -q -s src/main/test` -> `423 passed, 1 skipped in 169.14s (0:02:49)`.
 
 ## Rescan Checkpoints
 - After `BATCH-003`, rerun the broad inventory, refresh the hotspot ranking, and update the top three queued batches.

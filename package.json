@@ -1,0 +1,17 @@
+{
+  "name": "sipm-ui-tooling",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint:ui": "eslint src/main/ui/js src/main/ui/test playwright.config.js",
+    "test:ui": "vitest run",
+    "test:ui:smoke": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "eslint": "^9.20.1",
+    "globals": "^15.15.0",
+    "jsdom": "^26.0.0",
+    "vitest": "^2.1.8"
+  }
+}

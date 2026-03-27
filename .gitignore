@@ -41,6 +41,8 @@ Desktop.ini
 node_modules/
 dist/
 build/
+test-results/
+playwright-report/
 
 # Local environment / secret files
 .env
@@ -53,3 +55,7 @@ build/
 # Local enhancement artifacts
 docs/enhancements/
 docs/specs/
+
+
+# Skill artifacts
+.auto-research/

@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Iterable
+
+from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from ...models import Project
+from ...schemas import ProjectRead
+from ...services.realtime import schedule_broadcast
+from ...services.smart_cache import invalidate_space
+from ...services.spaces import SpaceContext
+
+_PROJECTS_LIST_TTL_SECONDS = 20
+_PROJECTS_DETAIL_TTL_SECONDS = 30
+_WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
+_PROJECT_CREATE_AUDIT_FIELDS = (
+    "project_name",
+    "status",
+    "description",
+    "success_criteria",
+    "sponsor",
+    "sponsor_user_soeid",
+    "strategic_objective",
+    "priority",
+)
+
+
+def _role_scope(space_ctx: SpaceContext) -> str:
+    if space_ctx.is_global_admin:
+        return "global_admin"
+    return space_ctx.space_role or "member"
+
+
+def _project_payload(project: Project) -> dict:
+    return ProjectRead.model_validate(project).model_dump(mode="json")
+
+
+def _project_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+    )
+
+
+def _active_project_name_conflict_query(session: Session, *, project_name: str, space_id: str):
+    return (
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_id)
+        .filter(Project.project_name == project_name)
+    )
+
+
+def _exclude_work_allocation_board_projects(query):
+    return query.filter(~Project.project_name.like(f"{_WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
+
+
+def _get_project_or_404(session: Session, project_id: str, space_ctx: SpaceContext) -> Project:
+    project = (
+        session.query(Project)
+        .filter(Project.project_id == project_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .first()
+    )
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
+
+
+def _is_project_name_conflict_integrity_error(exc: IntegrityError) -> bool:
+    parts = [
+        str(exc),
+        str(getattr(exc, "orig", "")),
+        str(getattr(exc, "statement", "")),
+    ]
+    text = " ".join(parts).lower()
+    if "uix_project_space_name" in text or "uix_project_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker:
+        return False
+    return ("project_name" in text) or ("tb_ta_pm_projects" in text)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _deleted_project_name(project_name: str, project_id: str, deleted_at: datetime) -> str:
+    base = (project_name or "Project").strip() or "Project"
+    stamp = _as_utc(deleted_at).strftime("%Y%m%dT%H%M%SZ")
+    token = (project_id or "")[:8] or "deleted"
+    suffix = f" [deleted {stamp} {token}]"
+    max_base_len = max(1, 255 - len(suffix))
+    return f"{base[:max_base_len]}{suffix}"
+
+
+def _project_create_changes(project: Project) -> dict[str, tuple[object | None, object | None]]:
+    return {field: (None, getattr(project, field)) for field in _PROJECT_CREATE_AUDIT_FIELDS}
+
+
+def _project_change_set(
+    project: Project,
+    before: dict[str, object | None],
+    fields: Iterable[str],
+) -> dict[str, tuple[object | None, object | None]]:
+    return {field: (before.get(field), getattr(project, field)) for field in fields}
+
+
+def _publish_project_mutation(space_id: str) -> None:
+    invalidate_space(space_id, ["projects"])
+    schedule_broadcast("projects", space_id=space_id)
+
+
+def _publish_project_deletion(space_id: str) -> None:
+    invalidate_space(space_id, ["projects", "solutions", "subcomponents"])
+    schedule_broadcast("projects", space_id=space_id)
+    schedule_broadcast("solutions", space_id=space_id)
+    schedule_broadcast("subcomponents", space_id=space_id)
+
+
+__all__ = [
+    "_PROJECTS_DETAIL_TTL_SECONDS",
+    "_PROJECTS_LIST_TTL_SECONDS",
+    "_active_project_name_conflict_query",
+    "_deleted_project_name",
+    "_exclude_work_allocation_board_projects",
+    "_get_project_or_404",
+    "_is_project_name_conflict_integrity_error",
+    "_project_change_set",
+    "_project_create_changes",
+    "_project_payload",
+    "_project_query",
+    "_publish_project_deletion",
+    "_publish_project_mutation",
+    "_role_scope",
+]

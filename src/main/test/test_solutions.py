@@ -2,8 +2,12 @@ from datetime import date, timedelta
 
 import pytest
 
+import backend.app.routes.solutions as solutions_route
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
+from backend.app.models import Solution
+from backend.app.services import audit_log as audit_log_module
+from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext
 
 
@@ -43,6 +47,109 @@ async def test_create_solution_defaults_owner_and_version(client):
     assert data["owner"] == "Test User"
     assert data["owner_user_soeid"] == "tu12345"
     assert data["assignee"] == "Test User"
+
+
+@pytest.mark.anyio
+async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Audit Fallback Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    description = "\n".join(f"Solution description line {idx}" for idx in range(1, 60))
+
+    def _broken_log_changes(*args, **kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr(audit_log_module, "log_changes", _broken_log_changes)
+
+    resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Long Text Audit Fallback Solution",
+            "description": description,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    created = resp.json()
+    assert created["description"] == description
+
+
+@pytest.mark.anyio
+async def test_create_solution_rolls_back_when_phase_enablement_fails(client, db_sessionmaker, monkeypatch):
+    project = await create_project(client)
+
+    def _fail_enable_all_phases(*_args, **_kwargs):
+        raise RuntimeError("phase seed failed")
+
+    monkeypatch.setattr(solutions_route, "enable_all_phases", _fail_enable_all_phases)
+
+    with pytest.raises(RuntimeError, match="phase seed failed"):
+        await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={"solution_name": "Atomic Failure Solution"},
+        )
+
+    with db_sessionmaker() as session:
+        count = (
+            session.query(Solution)
+            .filter(Solution.project_id == project["project_id"])
+            .count()
+        )
+        assert count == 0
+
+
+@pytest.mark.anyio
+async def test_solution_github_repo_url_is_normalized_and_can_be_cleared(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Repo Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    create_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Repo Solution",
+            "github_repo_url": "https://github.com/ExampleOrg/example-repo.git/",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["github_repo_url"] == "https://github.com/ExampleOrg/example-repo"
+
+    update_resp = await client.patch(
+        f"/project-manager/api/solutions/{created['solution_id']}",
+        json={"github_repo_url": ""},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    assert update_resp.json()["github_repo_url"] is None
+
+    audit_resp = await client.get(
+        "/project-manager/api/audit",
+        params={
+            "entity_type": "solution",
+            "entity_id": created["solution_id"],
+            "field": "github_repo_url",
+        },
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    rows = audit_resp.json()
+    assert len(rows) >= 2
+
+
+@pytest.mark.anyio
+async def test_solution_rejects_invalid_github_repo_url(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Invalid Repo Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    bad_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Bad Repo",
+            "github_repo_url": "https://github.com/example-org/example-repo/issues/1",
+        },
+    )
+    assert bad_resp.status_code == 400, bad_resp.text
+    assert "github_repo_url" in bad_resp.json()["detail"]
 
 
 @pytest.mark.anyio
@@ -165,6 +272,44 @@ async def test_update_solution_status_and_description(client):
     assert updated["success_criteria"] == "100% traffic migrated; no Sev1 incidents for 30 days"
     assert updated["completed_at"] is not None
 
+    audit_resp = await client.get(
+        "/project-manager/api/audit",
+        params={
+            "entity_type": "solution",
+            "entity_id": solution_id,
+            "field": "completed_at",
+        },
+    )
+    assert audit_resp.status_code == 200, audit_resp.text
+    rows = audit_resp.json()
+    assert any(row["new_value"] for row in rows)
+
+
+@pytest.mark.anyio
+async def test_reopening_solution_clears_completed_at(client):
+    project = await create_project(client)
+    created = (
+        await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={
+                "solution_name": "Reopenable Solution",
+                "version": "1.0.0",
+                "status": "complete",
+                "owner": "Solution Owner",
+            },
+        )
+    ).json()
+    solution_id = created["solution_id"]
+    assert created["completed_at"] is not None
+
+    reopened = await client.patch(
+        f"/project-manager/api/solutions/{solution_id}",
+        json={"status": "active"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["status"] == "active"
+    assert reopened.json()["completed_at"] is None
+
 
 @pytest.mark.anyio
 async def test_solution_create_and_update_support_long_text_fields(client):
@@ -229,6 +374,47 @@ async def test_delete_solution_soft_deletes(client):
     list_resp = await client.get(f"/project-manager/api/projects/{project['project_id']}/solutions")
     assert list_resp.status_code == 200
     assert list_resp.json() == []
+
+
+@pytest.mark.anyio
+async def test_soft_deleted_project_hides_solution_reads_and_clears_solution_cache(client):
+    clear_cache()
+    try:
+        project = await create_project(client)
+        create_resp = await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json={"solution_name": "Hidden With Project", "version": "1.0.0", "owner": "Solution Owner"},
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        solution = create_resp.json()
+
+        primed_list = await client.get("/project-manager/api/solutions")
+        assert primed_list.status_code == 200, primed_list.text
+        assert [row["solution_id"] for row in primed_list.json()] == [solution["solution_id"]]
+
+        primed_detail = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}")
+        assert primed_detail.status_code == 200, primed_detail.text
+
+        primed_export = await client.get("/project-manager/api/solutions/export")
+        assert primed_export.status_code == 200, primed_export.text
+        assert "Hidden With Project" in primed_export.text
+
+        delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+        assert delete_resp.status_code == 204, delete_resp.text
+
+        list_resp = await client.get("/project-manager/api/solutions")
+        assert list_resp.status_code == 200, list_resp.text
+        assert list_resp.json() == []
+
+        detail_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}")
+        assert detail_resp.status_code == 404, detail_resp.text
+        assert detail_resp.json()["detail"] == "Solution not found"
+
+        export_resp = await client.get("/project-manager/api/solutions/export")
+        assert export_resp.status_code == 200, export_resp.text
+        assert "Hidden With Project" not in export_resp.text
+    finally:
+        clear_cache()
 
 
 @pytest.mark.anyio

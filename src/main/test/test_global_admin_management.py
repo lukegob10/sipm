@@ -103,3 +103,45 @@ async def test_non_global_admin_cannot_manage_global_admin_role(client, db_sessi
             fastapi_app.dependency_overrides.pop(deps_module.current_user, None)
         else:
             fastapi_app.dependency_overrides[deps_module.current_user] = original_current_user
+
+
+@pytest.mark.anyio
+async def test_global_admin_routes_accept_legacy_formatted_role_values(client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        legacy = User(
+            user_id="legacy-global-admin",
+            soeid="legacyga",
+            email="legacyga@example.com",
+            display_name="Legacy Global Admin",
+            password_hash="x",
+            role="Global Admin",
+            is_active=True,
+        )
+        session.add(legacy)
+        session.commit()
+
+    original_require_user = fastapi_app.dependency_overrides.get(deps_module.require_user)
+    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+    try:
+        actor = SimpleNamespace(
+            user_id="legacy-admin-actor",
+            role="global-admin",
+            is_active=True,
+            display_name="Legacy Actor",
+            soeid="legacyactor",
+        )
+        fastapi_app.dependency_overrides[deps_module.require_user] = lambda: actor
+        fastapi_app.dependency_overrides[deps_module.current_user] = lambda: actor
+
+        list_resp = await client.get("/project-manager/api/users/global-admins")
+        assert list_resp.status_code == 200, list_resp.text
+        assert [u["soeid"] for u in list_resp.json()] == ["legacyga"]
+    finally:
+        if original_require_user is None:
+            fastapi_app.dependency_overrides.pop(deps_module.require_user, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.require_user] = original_require_user
+        if original_current_user is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_user, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_user] = original_current_user

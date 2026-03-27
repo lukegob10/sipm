@@ -117,6 +117,23 @@
           <span id="connection-status" class="pill">Loading…</span>
         </div>
         <div class="topbar-actions">
+          <div id="topbar-create-shell" class="topbar-create-menu">
+            <button
+              type="button"
+              id="topbar-create-toggle"
+              class="primary"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="topbar-create-panel"
+            >
+              Create
+            </button>
+            <div id="topbar-create-panel" class="topbar-create-panel hidden" role="menu" aria-label="Create deliverable">
+              <button type="button" id="topbar-create-project" class="secondary topbar-create-item" role="menuitem">Create Project</button>
+              <button type="button" id="topbar-create-solution" class="secondary topbar-create-item" role="menuitem">Create Solution</button>
+              <button type="button" id="topbar-create-subcomponent" class="secondary topbar-create-item" role="menuitem">Create Subcomponent</button>
+            </div>
+          </div>
           <div id="space-switcher-shell" class="space-switcher-shell">
             <button
               type="button"
@@ -189,16 +206,13 @@
               <p class="view-breadcrumb">Work / Deliverables</p>
               <h2>Deliverables</h2>
             </div>
-            <div class="panel-actions">
-              <button id="create-project" class="primary">Create Project</button>
-              <button id="create-solution" class="primary">Create Solution</button>
-            </div>
           </div>
           <div class="panel-toolbar">
             <div class="toolbar-group">
               <button id="preset-my" class="secondary" type="button">My Items</button>
               <button id="preset-overdue" class="secondary" type="button">Overdue</button>
               <button id="preset-blocked" class="secondary" type="button">Blocked</button>
+              <button id="preset-engineering" class="secondary" type="button">Solutions</button>
               <button id="preset-clear" class="text-link" type="button">Clear Filters</button>
             </div>
             <div class="toolbar-group">
@@ -505,13 +519,15 @@
               <label class="full-span">Description <textarea name="description"></textarea></label>
               <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
               <label class="full-span">Strategic Objective <textarea name="strategic_objective" placeholder="Theme/initiative intent"></textarea></label>
-              <div class="form-actions full-span">
-                <button type="submit" id="project-submit-btn">Create Project</button>
-                <button type="reset" class="secondary">Reset</button>
+            </form>
+            <div class="modal-form-footer full-span">
+              <div class="form-actions">
+                <button type="submit" id="project-submit-btn" form="project-form">Create Project</button>
+                <button type="reset" class="secondary" form="project-form">Reset</button>
                 <button type="button" id="delete-project" class="secondary" disabled>Delete</button>
               </div>
-              <p id="project-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
-            </form>
+              <p id="project-form-status" class="form-notice" role="status" aria-live="polite"></p>
+            </div>
           </div>
         </div>
       </div>
@@ -519,23 +535,25 @@
       <div id="solution-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
-          <div class="modal-header modal-header-sticky">
-            <h3 id="solution-modal-title">Solution</h3>
-            <button
-              type="button"
-              id="solution-modal-close"
-              class="secondary modal-close-x"
-              aria-label="Close solution dialog"
-              title="Close"
-            >
-              ×
-            </button>
-          </div>
-          <div class="modal-tabs">
-            <button class="tab active" data-tab="details" type="button">Details</button>
-            <button class="tab" data-tab="phases" type="button">Phases</button>
-            <button class="tab" data-tab="subcomponents" type="button">Subcomponents</button>
-            <button class="tab" data-tab="activity" type="button">Activity</button>
+          <div class="modal-sticky-chrome">
+            <div class="modal-header modal-header-sticky">
+              <h3 id="solution-modal-title">Solution</h3>
+              <button
+                type="button"
+                id="solution-modal-close"
+                class="secondary modal-close-x"
+                aria-label="Close solution dialog"
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div class="modal-tabs">
+              <button class="tab active" data-tab="details" type="button">Details</button>
+              <button class="tab" data-tab="phases" type="button">Phases</button>
+              <button class="tab" data-tab="subcomponents" type="button">Subcomponents</button>
+              <button class="tab" data-tab="activity" type="button">Activity</button>
+            </div>
           </div>
           <div class="modal-body">
             <div class="modal-tab active" data-tab-panel="details">
@@ -547,6 +565,10 @@
                   <select name="project_id" required></select>
                 </label>
                 <label class="wide"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span><input name="solution_name" required /></label>
+                <label class="full-span">Primary GitHub Repo
+                  <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
+                </label>
+                <p class="form-hint full-span">Primary repo for this solution or tool.</p>
                 <label>Version <input name="version" value="0.1.0" /></label>
                 <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
                 <label>Status
@@ -595,13 +617,15 @@
                 <label class="full-span">RAG Reason <textarea name="rag_reason" placeholder="Reason for current RAG"></textarea></label>
                 <label class="full-span">Blockers <textarea name="blockers"></textarea></label>
                 <label class="full-span">Risks <textarea name="risks"></textarea></label>
-                <div class="form-actions full-span">
-                  <button type="submit" id="solution-submit-btn">Create Solution</button>
-                  <button type="reset" class="secondary">Reset</button>
+              </form>
+              <div class="modal-form-footer full-span">
+                <div class="form-actions">
+                  <button type="submit" id="solution-submit-btn" form="solution-form">Create Solution</button>
+                  <button type="reset" class="secondary" form="solution-form">Reset</button>
                   <button type="button" id="delete-solution" class="secondary" disabled>Delete</button>
                 </div>
-                <p id="solution-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
-              </form>
+                <p id="solution-form-status" class="form-notice" role="status" aria-live="polite"></p>
+              </div>
             </div>
             <div class="modal-tab" data-tab-panel="phases">
               <div class="panel soft">
@@ -610,50 +634,59 @@
               </div>
             </div>
             <div class="modal-tab" data-tab-panel="subcomponents">
-              <div class="subcomponent-header">
-                <h3>Subcomponents</h3>
-                <div class="subcomponent-actions">
-                  <button id="subcomponent-view-toggle" class="secondary" type="button">Swimlane View</button>
-                  <button id="show-subcomponent-form" class="secondary" type="button">Add Subcomponent</button>
+              <div class="subcomponent-tab-scroll">
+                <div class="subcomponent-header">
+                  <h3>Subcomponents</h3>
+                  <div class="subcomponent-actions">
+                    <button id="subcomponent-view-toggle" class="secondary" type="button">Swimlane View</button>
+                    <button id="show-subcomponent-form" class="secondary" type="button">Add Subcomponent</button>
+                  </div>
                 </div>
+                <div id="solution-subcomponent-table" class="table"></div>
+                <form id="subcomponent-form" class="form compact hidden">
+                  <h3 class="form-title">Subcomponent Details</h3>
+                  <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+                  <input type="hidden" name="subcomponent_id" />
+                  <input type="hidden" name="project_id" />
+                  <input type="hidden" name="solution_id" />
+                  <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="subcomponent_name" required /></label>
+                  <label class="full-span">GitHub Repo Override
+                    <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
+                  </label>
+                  <p class="form-hint full-span">Leave blank to inherit the solution repo.</p>
+                  <p id="subcomponent-repo-preview" class="form-hint full-span">No solution repo set.</p>
+                  <label>Priority
+                    <input type="number" name="priority" min="0" max="5" value="3" />
+                  </label>
+                  <label>Due Date <input type="date" name="due_date" /></label>
+                  <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
+                  <label>Status
+                    <select name="status">
+                      <option value="to_do">To do</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="on_hold">On hold</option>
+                      <option value="complete">Complete</option>
+                      <option value="abandoned">Abandoned</option>
+                    </select>
+                  </label>
+                  <label>Assignee
+                    <select name="assignee"></select>
+                  </label>
+                  <label>Assignee SOEID <input name="assignee_user_soeid" placeholder="SOEID" /></label>
+                  <label>Estimate (FTE-Months) <input type="number" name="estimate_hours" min="0" step="0.05" /></label>
+                  <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
+                  <label class="full-span">Blocker Note <textarea name="blocker_note" placeholder="What's blocking?"></textarea></label>
+                  <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
+                </form>
               </div>
-              <div id="solution-subcomponent-table" class="table"></div>
-              <form id="subcomponent-form" class="form compact hidden">
-                <h3 class="form-title">Subcomponent Details</h3>
-                <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
-                <input type="hidden" name="subcomponent_id" />
-                <input type="hidden" name="project_id" />
-                <input type="hidden" name="solution_id" />
-                <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="subcomponent_name" required /></label>
-                <label>Priority
-                  <input type="number" name="priority" min="0" max="5" value="3" />
-                </label>
-                <label>Due Date <input type="date" name="due_date" /></label>
-                <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
-                <label>Status
-                  <select name="status">
-                    <option value="to_do">To do</option>
-                    <option value="in_progress">In progress</option>
-                    <option value="on_hold">On hold</option>
-                    <option value="complete">Complete</option>
-                    <option value="abandoned">Abandoned</option>
-                  </select>
-                </label>
-                <label>Assignee
-                  <select name="assignee"></select>
-                </label>
-                <label>Assignee SOEID <input name="assignee_user_soeid" placeholder="SOEID" /></label>
-                <label>Estimate (FTE-Months) <input type="number" name="estimate_hours" min="0" step="0.05" /></label>
-                <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
-                <label class="full-span">Blocker Note <textarea name="blocker_note" placeholder="What's blocking?"></textarea></label>
-                <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
-                <div class="form-actions full-span">
-                  <button type="submit" id="subcomponent-submit-btn">Create Subcomponent</button>
-                  <button type="reset" class="secondary">Reset</button>
+              <div id="subcomponent-form-footer" class="modal-form-footer full-span hidden">
+                <div class="form-actions">
+                  <button type="submit" id="subcomponent-submit-btn" form="subcomponent-form">Create Subcomponent</button>
+                  <button type="reset" class="secondary" form="subcomponent-form">Reset</button>
                   <button type="button" id="delete-subcomponent" class="secondary" disabled>Delete</button>
                 </div>
-                <p id="subcomponent-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
-              </form>
+                <p id="subcomponent-form-status" class="form-notice" role="status" aria-live="polite"></p>
+              </div>
             </div>
             <div class="modal-tab" data-tab-panel="activity">
               <div class="panel soft">
@@ -678,6 +711,29 @@
               <button type="button" id="confirm-modal-cancel" class="secondary">Cancel</button>
               <button type="button" id="confirm-modal-confirm" class="primary danger">Delete</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="subcomponent-create-picker-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="subcomponent-create-picker-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 id="subcomponent-create-picker-title">Create Subcomponent</h3>
+            <button type="button" id="subcomponent-create-picker-close" class="secondary modal-close-x" aria-label="Close subcomponent picker" title="Close">×</button>
+          </div>
+          <div class="modal-body">
+            <form id="subcomponent-create-picker-form" class="form compact">
+              <p class="form-hint full-span">Choose the solution that should own the new subcomponent.</p>
+              <label class="full-span"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span>
+                <select id="subcomponent-create-picker-select" name="solution_id" required></select>
+              </label>
+              <div class="form-actions full-span">
+                <button type="submit" class="primary">Continue</button>
+                <button type="button" id="subcomponent-create-picker-cancel" class="secondary">Cancel</button>
+              </div>
+              <p id="subcomponent-create-picker-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+            </form>
           </div>
         </div>
       </div>

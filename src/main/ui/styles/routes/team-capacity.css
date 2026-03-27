@@ -1,0 +1,141 @@
+#capacity-panel table tr.over td {
+  background: rgba(219, 35, 11, 0.1);
+}
+
+.planning-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.planning-kpis .kpi-card {
+  min-height: 86px;
+}
+.planning-kpis .kpi-value {
+  font-size: 22px;
+}
+
+.capacity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+.capacity-badge.ok {
+  background: var(--accent-hover);
+  color: var(--text);
+  border-color: var(--nav-active-border);
+}
+.capacity-badge.warn {
+  background: var(--warning-soft);
+  color: var(--text);
+  border-color: var(--warning-border);
+}
+.capacity-badge.over {
+  background: var(--danger-soft);
+  color: var(--text);
+  border-color: var(--danger-border);
+}
+
+.stacked {
+  display: grid;
+  gap: 16px;
+}
+.stack-block h3 {
+  margin: 0 0 8px;
+}
+
+#view-team-capacity .panel-header {
+  margin-bottom: 12px;
+}
+
+#view-team-capacity .view-heading {
+  gap: 6px;
+}
+
+#view-team-capacity {
+  --team-capacity-field-gap: 1cm;
+  --team-capacity-action-gap: 8px;
+  --team-capacity-field-min: 220px;
+  --team-capacity-field-max: 360px;
+  --team-capacity-btn-min: 150px;
+  --team-capacity-btn-max: 240px;
+}
+
+#view-team-capacity #capacity-user-form.form.compact {
+  grid-template-columns: repeat(3, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  justify-content: start;
+}
+
+#view-team-capacity .stack-block > .form.compact {
+  grid-template-columns: repeat(2, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  justify-content: start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact,
+#view-team-capacity .stack-block > .form.compact {
+  column-gap: var(--team-capacity-field-gap);
+  row-gap: 10px;
+  align-items: start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact label,
+#view-team-capacity .stack-block > .form.compact label {
+  gap: 6px;
+}
+
+#view-team-capacity #capacity-user-form.form.compact .form-actions,
+#view-team-capacity .stack-block > .form.compact .form-actions {
+  gap: var(--team-capacity-action-gap);
+  margin-top: 4px;
+  justify-content: flex-start;
+}
+
+#view-team-capacity #capacity-user-form.form.compact .form-actions button,
+#view-team-capacity .stack-block > .form.compact .form-actions button {
+  flex: 0 0 auto;
+  min-width: var(--team-capacity-btn-min);
+  max-width: var(--team-capacity-btn-max);
+  padding: 8px 12px;
+}
+
+#capacity-user-list .panel-toolbar.compact + .planning-kpis {
+  margin-top: 12px;
+}
+
+@media (max-width: 1320px) {
+  #view-team-capacity #capacity-user-form.form.compact {
+    grid-template-columns: repeat(2, minmax(var(--team-capacity-field-min), var(--team-capacity-field-max)));
+  }
+}
+
+@media (max-width: 860px) {
+  #view-team-capacity #capacity-user-form.form.compact,
+  #view-team-capacity .stack-block > .form.compact {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+
+  #view-team-capacity #capacity-user-form.form.compact .form-actions button,
+  #view-team-capacity .stack-block > .form.compact .form-actions button {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
+.theme-light .capacity-badge.ok {
+  background: rgba(0, 58, 114, 0.12);
+  border-color: rgba(0, 58, 114, 0.3);
+}
+.theme-light .capacity-badge.warn {
+  background: rgba(130, 154, 177, 0.2);
+  border-color: rgba(130, 154, 177, 0.4);
+}
+.theme-light .capacity-badge.over {
+  background: rgba(219, 35, 11, 0.16);
+  border-color: rgba(219, 35, 11, 0.4);
+}

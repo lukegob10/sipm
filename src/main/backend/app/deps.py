@@ -18,7 +18,7 @@ from .db.db import get_session
 from .models import User
 from .security import security_http_exception
 from .services.audit_log import log_changes
-from .services.spaces import SpaceContext, resolve_active_space_context
+from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
 
 
 def get_db() -> Iterator[Session]:
@@ -126,6 +126,12 @@ def current_space(
 ) -> SpaceContext:
     requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
     ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    if requested_space_id and ctx.space_id != requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
     request.state.space_context = ctx
     return ctx
 
@@ -135,7 +141,7 @@ def require_global_admin(
     session: Session = Depends(get_db),
     user: User = Depends(require_user),
 ) -> User:
-    if (user.role or "").strip().lower() != "global_admin":
+    if not is_global_admin_role(user.role):
         _audit_permission_denied(
             session,
             user_id=user.user_id,

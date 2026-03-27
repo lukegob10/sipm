@@ -46,6 +46,35 @@ async def test_audit_endpoint_supports_filters(client):
     assert all(row["user_id"] == "test-user" for row in rows)
 
 
+@pytest.mark.anyio
+async def test_audit_all_spaces_rows_include_space_id(client):
+    project = (
+        await client.post(
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Cross Space Audit Project",
+                "status": "active",
+                "sponsor": "Architecture",
+            },
+        )
+    ).json()
+
+    rows = (
+        await client.get(
+            "/project-manager/api/audit",
+            params={
+                "entity_type": "project",
+                "entity_id": project["project_id"],
+                "all_spaces": "true",
+            },
+        )
+    ).json()
+
+    assert rows
+    assert all("space_id" in row for row in rows)
+    assert all(row["space_id"] for row in rows)
+
+
 def test_log_changes_stringifies_and_ignores_invalid_or_noop_pairs(db_sessionmaker):
     class BadIso:
         def isoformat(self):
@@ -106,4 +135,38 @@ def test_log_changes_stringifies_and_ignores_invalid_or_noop_pairs(db_sessionmak
         assert rows[0].field is None
         assert rows[1].field == "bad"
         assert rows[1].new_value == str(bad)
+
+
+def test_log_changes_reads_lob_values_and_skips_equal_text(db_sessionmaker):
+    class FakeLob:
+        def __init__(self, value: str):
+            self.value = value
+
+        def read(self) -> str:
+            return self.value
+
+    with db_sessionmaker() as session:
+        log_changes(
+            session,
+            entity_type="project",
+            entity_id="p-lob",
+            user_id="u1",
+            action="update",
+            changes={
+                "same": (FakeLob("unchanged"), "unchanged"),
+                "description": (None, FakeLob("expanded project description")),
+            },
+        )
+        session.commit()
+
+        rows = (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "project")
+            .filter(ChangeLog.entity_id == "p-lob")
+            .order_by(ChangeLog.created_at.asc())
+            .all()
+        )
+        assert len(rows) == 1
+        assert rows[0].field == "description"
+        assert rows[0].new_value == "expanded project description"
 

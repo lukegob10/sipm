@@ -1,65 +1,84 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
+PM_DASHBOARD_ANALYTICS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "analytics.js"
+PM_DASHBOARD_STORAGE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "storage.js"
+PM_DASHBOARD_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "interactions.js"
+PM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "render.js"
+PM_DASHBOARD_SECTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "sections.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_and_capacity_rows():
-    text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
-    assert "function normalizePMDashboardIdentity(value) {" in text
-    assert "function buildPMDashboardOwnerDirectory(users) {" in text
-    assert "function resolvePMDashboardOwnerAssigneeKey(soeidValue, labelValue, ownerDirectory) {" in text
-    assert "function renderPMDashboardOwnerLink(label, assigneeKey) {" in text
-    assert 'function renderPMDashboardProjectLink(label, projectId)' in text
-    assert 'function renderPMDashboardSolutionLink(label, solutionId)' in text
-    assert 'function renderPMDashboardTimelineLink(row)' in text
-    assert 'function renderPMDashboardCapacityLink(row)' in text
-    assert 'return ownerDirectory?.uniqueDisplayNameToKey?.get(labelToken) || "";' in text
-    assert 'if (!resolvedKey || resolvedKey === "unassigned") return esc(ownerLabel);' in text
-    assert 'renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations"' in text
-    assert 'renderPMDashboardRowLink(label, "open-project"' in text
-    assert 'renderPMDashboardRowLink(label, "open-solution"' in text
-    assert 'renderPMDashboardRowLink(row.name, "open-subcomponent"' in text
-    assert 'renderPMDashboardRowLink(row.label, "open-capacity-allocations"' in text
-    assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in text
-    assert "renderPMDashboardSolutionLink(row.solutionName, row.solutionId)" in text
-    assert "renderPMDashboardTimelineLink(row)" in text
-    assert "renderPMDashboardCapacityLink(row)" in text
-    assert "renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)" in text
-    assert "const ownerDirectory = buildPMDashboardOwnerDirectory(users);" in text
-    assert 'if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;' in text
-    assert "projectId: project.project_id" in text
-    assert 'itemKind: "solution"' in text
-    assert 'itemKind: "subcomponent"' in text
-    assert "solutionId: solution.solution_id" in text
-    assert "subcomponentId: subcomponent.subcomponent_id" in text
-    assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory)," in text
-    assert 'ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(' in text
-    assert "allocations: rowAllocations" in text
-    assert "pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));" in text
+    route_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
+    analytics_text = PM_DASHBOARD_ANALYTICS.read_text(encoding="utf-8")
+    render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
+
+    assert 'import { createPMDashboardState, renderPMDashboardView } from "./pm-dashboard/render.js";' in route_text
+    assert "function normalizePMDashboardIdentity(value) {" in analytics_text
+    assert "function buildPMDashboardOwnerDirectory(users) {" in analytics_text
+    assert "function resolvePMDashboardOwnerAssigneeKey(soeidValue, labelValue, ownerDirectory) {" in analytics_text
+    assert "function renderPMDashboardOwnerLink(label, assigneeKey) {" in analytics_text
+    assert "function renderPMDashboardProjectLink(label, projectId) {" in analytics_text
+    assert "function renderPMDashboardSolutionLink(label, solutionId) {" in analytics_text
+    assert "function renderPMDashboardTimelineLink(row) {" in analytics_text
+    assert "function renderPMDashboardCapacityLink(row) {" in analytics_text
+    assert 'return ownerDirectory?.uniqueDisplayNameToKey?.get(labelToken) || "";' in analytics_text
+    assert 'if (!resolvedKey || resolvedKey === "unassigned") return esc(ownerLabel);' in analytics_text
+    assert 'renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations"' in analytics_text
+    assert 'renderPMDashboardRowLink(label, "open-project"' in analytics_text
+    assert 'renderPMDashboardRowLink(label, "open-solution"' in analytics_text
+    assert 'renderPMDashboardRowLink(row.name, "open-subcomponent"' in analytics_text
+    assert 'renderPMDashboardRowLink(row.label, "open-capacity-allocations"' in analytics_text
+    assert 'from "./sections.js";' in render_text
+    assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in sections_text
+    assert "renderPMDashboardSolutionLink(row.solutionName, row.solutionId)" in sections_text
+    assert "renderPMDashboardTimelineLink(row)" in sections_text
+    assert "renderPMDashboardCapacityLink(row)" in sections_text
+    assert "renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)" in sections_text
+    assert "const ownerDirectory = buildPMDashboardOwnerDirectory(users);" in render_text
+    assert 'if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;' in analytics_text
+    assert "projectId: project.project_id" in render_text
+    assert 'itemKind: "solution"' in render_text
+    assert 'itemKind: "subcomponent"' in render_text
+    assert "solutionId: solution.solution_id" in render_text
+    assert "subcomponentId: subcomponent.subcomponent_id" in render_text
+    assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory)," in render_text
+    assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(" in render_text
+    assert "allocations: rowAllocations" in render_text
+    assert "pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));" in render_text
 
 
 def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown_actions():
-    text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
-    assert 'const pmDashboardState = {' in text
-    assert 'document.getElementById("view-pm-dashboard")' in text
-    assert 'const actionEl = event.target.closest("[data-pm-dashboard-action]")' in text
-    assert 'if (action === "open-project") {' in text
-    assert 'pmDashboardState.ctx?.openPMDashboardProjectDrilldown' in text
-    assert 'if (action === "open-solution") {' in text
-    assert 'pmDashboardState.ctx?.openPMDashboardSolutionDrilldown' in text
-    assert 'if (action === "open-subcomponent") {' in text
-    assert 'pmDashboardState.ctx?.openPMDashboardSubcomponentDrilldown' in text
-    assert 'if (action === "open-capacity-allocations") {' in text
-    assert 'const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);' in text
-    assert 'pmDashboardState.ctx?.openPMDashboardCapacityDrilldown' in text
-    assert 'if (action !== "set-capacity-month") return;' in text
-    assert 'persistCapacityMonth(pmDashboardState.capacitySpaceId, nextMonth);' in text
-    assert 'renderPMDashboard(pmDashboardState.ctx);' in text
-    assert "pmDashboardState.ctx = ctx;" in text
+    route_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
+    interactions_text = PM_DASHBOARD_INTERACTIONS.read_text(encoding="utf-8")
+    render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    storage_text = PM_DASHBOARD_STORAGE.read_text(encoding="utf-8")
+
+    assert "const pmDashboardState = createPMDashboardState();" in route_text
+    assert 'document.getElementById("view-pm-dashboard")' in interactions_text
+    assert 'const actionEl = event.target.closest("[data-pm-dashboard-action]")' in interactions_text
+    assert 'if (action === "open-project") {' in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardProjectDrilldown" in interactions_text
+    assert 'if (action === "open-solution") {' in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardSolutionDrilldown" in interactions_text
+    assert 'if (action === "open-subcomponent") {' in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardSubcomponentDrilldown" in interactions_text
+    assert 'if (action === "open-capacity-allocations") {' in interactions_text
+    assert 'const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);' in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardCapacityDrilldown" in interactions_text
+    assert 'if (action !== "set-capacity-month") return;' in interactions_text
+    assert 'persistCapacityMonth(pmDashboardState.capacitySpaceId, nextMonth);' in interactions_text
+    assert "rerender();" in interactions_text
+    assert "pmDashboardState.ctx = ctx;" in render_text
+    assert "renderPMDashboardCapacitySection({" in render_text
+    assert "function ensureCapacityMonth(pmDashboardState, spaceId) {" in storage_text
 
 
 def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and_capacity_surfaces():
@@ -85,7 +104,7 @@ def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and
 
 
 def test_pm_dashboard_uses_pm_row_link_style_for_dense_title_actions():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
     assert ".pm-row-link {" in text
     assert "appearance: none;" in text
     assert "box-shadow: none;" in text
@@ -99,7 +118,7 @@ def test_pm_dashboard_uses_pm_row_link_style_for_dense_title_actions():
 
 
 def test_pm_dashboard_immediate_action_links_use_text_first_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".pm-action-link {" in text
     assert "color: inherit;" in text
@@ -109,7 +128,7 @@ def test_pm_dashboard_immediate_action_links_use_text_first_styling():
 
 
 def test_pm_dashboard_quick_links_use_text_first_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".pm-quick-links a {" in text
     assert "color: inherit;" in text
@@ -121,14 +140,14 @@ def test_pm_dashboard_quick_links_use_text_first_styling():
 
 
 def test_pm_dashboard_action_rows_use_lighter_container_chrome():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".pm-action-row {" in text
     assert "background: transparent;" in text
 
 
 def test_pm_dashboard_signal_tokens_use_quieter_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".pm-signal {" in text
     assert "padding: 0;" in text
@@ -137,7 +156,7 @@ def test_pm_dashboard_signal_tokens_use_quieter_styling():
 
 
 def test_pm_dashboard_item_kind_tokens_use_quieter_styling():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".pm-item-kind {" in text
     assert "padding: 0;" in text

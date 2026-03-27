@@ -76,6 +76,8 @@ CREATE TABLE "TB_TA_PM_USERS" (
 
 -- Table: TB_TA_PM_CHANGE_LOG
 
+-- Audit values must remain CLOB because project/solution descriptions and
+-- success criteria can exceed VARCHAR2 limits.
 CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
 	change_id VARCHAR2(255 CHAR) NOT NULL, 
 	entity_type VARCHAR2(255 CHAR) NOT NULL, 
@@ -165,106 +167,6 @@ CREATE TABLE "TB_TA_PM_TEAMS" (
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
--- Table: TB_TA_PM_CHECKLIST_ITEMS
-
-CREATE TABLE "TB_TA_PM_CHECKLIST_ITEMS" (
-	checklist_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	month_key VARCHAR2(255 CHAR) NOT NULL, 
-	title CLOB NOT NULL, 
-	status VARCHAR2(255 CHAR) NOT NULL, 
-	created_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (checklist_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(created_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
--- Table: TB_TA_PM_PROJECT_CARD_DIGESTS
-
-CREATE TABLE "TB_TA_PM_PROJECT_CARD_DIGESTS" (
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	tenant_id VARCHAR2(255 CHAR), 
-	project_name VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR2(255 CHAR), 
-	priority INTEGER, 
-	sponsor VARCHAR2(255 CHAR), 
-	open_solution_count INTEGER NOT NULL, 
-	open_task_count INTEGER NOT NULL, 
-	top_risks_json CLOB, 
-	short_summary CLOB, 
-	source_updated_at DATE, 
-	refreshed_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (project_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
-);
-
--- Table: TB_TA_PM_PROJECT_CHARTERS
-
-CREATE TABLE "TB_TA_PM_PROJECT_CHARTERS" (
-	charter_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	title VARCHAR2(255 CHAR), 
-	content CLOB NOT NULL, 
-	state VARCHAR2(255 CHAR) NOT NULL, 
-	created_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (charter_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(created_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
--- Table: TB_TA_PM_PROJECT_DECISION_LOGS
-
-CREATE TABLE "TB_TA_PM_PROJECT_DECISION_LOGS" (
-	decision_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	title VARCHAR2(255 CHAR), 
-	decision CLOB NOT NULL, 
-	rationale CLOB, 
-	impact CLOB, 
-	created_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (decision_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(created_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
--- Table: TB_TA_PM_PROJECT_PLANS
-
-CREATE TABLE "TB_TA_PM_PROJECT_PLANS" (
-	plan_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	title VARCHAR2(255 CHAR), 
-	content CLOB NOT NULL, 
-	state VARCHAR2(255 CHAR) NOT NULL, 
-	created_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (plan_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(created_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
 -- Table: TB_TA_PM_RESOURCE_ALLOCATIONS
 
 CREATE TABLE "TB_TA_PM_RESOURCE_ALLOCATIONS" (
@@ -307,6 +209,7 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 	description CLOB, 
 	success_criteria CLOB, 
 	problem_statement CLOB, 
+	github_repo_url VARCHAR2(1024 CHAR), 
 	owner VARCHAR2(255 CHAR) NOT NULL, 
 	owner_user_soeid VARCHAR2(255 CHAR), 
 	assignee VARCHAR2(255 CHAR) NOT NULL, 
@@ -352,56 +255,6 @@ CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
 	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id)
 );
 
--- Table: TB_TA_PM_EXTERNAL_DOCUMENTS
-
-CREATE TABLE "TB_TA_PM_EXTERNAL_DOCUMENTS" (
-	document_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR), 
-	solution_id VARCHAR2(255 CHAR), 
-	filename VARCHAR2(255 CHAR) NOT NULL, 
-	content_type VARCHAR2(255 CHAR), 
-	storage_path VARCHAR2(255 CHAR) NOT NULL, 
-	uploaded_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (document_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
-	FOREIGN KEY(uploaded_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
--- Table: TB_TA_PM_SOLUTION_CARD_DIGESTS
-
-CREATE TABLE "TB_TA_PM_SOLUTION_CARD_DIGESTS" (
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	tenant_id VARCHAR2(255 CHAR), 
-	solution_name VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR2(255 CHAR), 
-	rag_status VARCHAR2(255 CHAR), 
-	priority INTEGER, 
-	current_phase VARCHAR2(255 CHAR), 
-	due_date DATE, 
-	owner VARCHAR2(255 CHAR), 
-	assignee VARCHAR2(255 CHAR), 
-	open_task_count INTEGER NOT NULL, 
-	blocked_task_count INTEGER NOT NULL, 
-	top_risks_json CLOB, 
-	short_summary CLOB, 
-	source_updated_at DATE, 
-	refreshed_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (solution_id), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
-);
-
 -- Table: TB_TA_PM_SOLUTION_PHASES
 
 CREATE TABLE "TB_TA_PM_SOLUTION_PHASES" (
@@ -438,35 +291,6 @@ CREATE TABLE "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (
 	FOREIGN KEY(owner_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
 );
 
--- Table: TB_TA_PM_SOW_DOCUMENTS
-
-CREATE TABLE "TB_TA_PM_SOW_DOCUMENTS" (
-	sow_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_id VARCHAR2(255 CHAR), 
-	title VARCHAR2(255 CHAR), 
-	content CLOB NOT NULL, 
-	state VARCHAR2(255 CHAR) NOT NULL, 
-	approval_state VARCHAR2(255 CHAR) NOT NULL, 
-	approval_requested_at DATE, 
-	approval_requested_by_user_id VARCHAR2(255 CHAR), 
-	approval_decided_at DATE, 
-	approval_decided_by_user_id VARCHAR2(255 CHAR), 
-	approval_note CLOB, 
-	created_by_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (sow_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
-	FOREIGN KEY(approval_requested_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id), 
-	FOREIGN KEY(approval_decided_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id), 
-	FOREIGN KEY(created_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
 -- Table: TB_TA_PM_SUBCOMPONENTS
 
 CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
@@ -481,6 +305,7 @@ CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
 	completed_at DATE, 
 	assignee_user_soeid VARCHAR2(255 CHAR), 
 	assignee VARCHAR2(255 CHAR) NOT NULL, 
+	github_repo_url VARCHAR2(1024 CHAR), 
 	estimate_hours INTEGER, 
 	blocked SMALLINT NOT NULL, 
 	blocker_note VARCHAR2(255 CHAR), 
@@ -494,34 +319,6 @@ CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
 	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
 	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id)
-);
-
--- Table: TB_TA_PM_TASK_CARD_DIGESTS
-
-CREATE TABLE "TB_TA_PM_TASK_CARD_DIGESTS" (
-	subcomponent_id VARCHAR2(255 CHAR) NOT NULL, 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	tenant_id VARCHAR2(255 CHAR), 
-	subcomponent_name VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR2(255 CHAR), 
-	priority INTEGER, 
-	assignee VARCHAR2(255 CHAR), 
-	due_date DATE, 
-	blocked SMALLINT NOT NULL, 
-	blocker_note CLOB, 
-	estimate_hours INTEGER, 
-	short_summary CLOB, 
-	source_updated_at DATE, 
-	refreshed_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (subcomponent_id), 
-	FOREIGN KEY(subcomponent_id) REFERENCES "TB_TA_PM_SUBCOMPONENTS" (subcomponent_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
 -- Index: idx_alloc_item
@@ -554,36 +351,6 @@ CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_space_id" ON "TB_TA_PM_CHANGE_LOG" (space_i
 -- Index: ix_TB_TA_PM_CHANGE_LOG_user_id
 CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_user_id" ON "TB_TA_PM_CHANGE_LOG" (user_id);
 
--- Index: ix_TB_TA_PM_CHECKLIST_ITEMS_created_by_user_id
-CREATE INDEX "ix_TB_TA_PM_CHECKLIST_ITEMS_created_by_user_id" ON "TB_TA_PM_CHECKLIST_ITEMS" (created_by_user_id);
-
--- Index: ix_TB_TA_PM_CHECKLIST_ITEMS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_CHECKLIST_ITEMS_deleted_at" ON "TB_TA_PM_CHECKLIST_ITEMS" (deleted_at);
-
--- Index: ix_TB_TA_PM_CHECKLIST_ITEMS_month_key
-CREATE INDEX "ix_TB_TA_PM_CHECKLIST_ITEMS_month_key" ON "TB_TA_PM_CHECKLIST_ITEMS" (month_key);
-
--- Index: ix_TB_TA_PM_CHECKLIST_ITEMS_project_id
-CREATE INDEX "ix_TB_TA_PM_CHECKLIST_ITEMS_project_id" ON "TB_TA_PM_CHECKLIST_ITEMS" (project_id);
-
--- Index: ix_TB_TA_PM_CHECKLIST_ITEMS_space_id
-CREATE INDEX "ix_TB_TA_PM_CHECKLIST_ITEMS_space_id" ON "TB_TA_PM_CHECKLIST_ITEMS" (space_id);
-
--- Index: ix_TB_TA_PM_EXTERNAL_DOCUMENTS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_DOCUMENTS_deleted_at" ON "TB_TA_PM_EXTERNAL_DOCUMENTS" (deleted_at);
-
--- Index: ix_TB_TA_PM_EXTERNAL_DOCUMENTS_project_id
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_DOCUMENTS_project_id" ON "TB_TA_PM_EXTERNAL_DOCUMENTS" (project_id);
-
--- Index: ix_TB_TA_PM_EXTERNAL_DOCUMENTS_solution_id
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_DOCUMENTS_solution_id" ON "TB_TA_PM_EXTERNAL_DOCUMENTS" (solution_id);
-
--- Index: ix_TB_TA_PM_EXTERNAL_DOCUMENTS_space_id
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_DOCUMENTS_space_id" ON "TB_TA_PM_EXTERNAL_DOCUMENTS" (space_id);
-
--- Index: ix_TB_TA_PM_EXTERNAL_DOCUMENTS_uploaded_by_user_id
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_DOCUMENTS_uploaded_by_user_id" ON "TB_TA_PM_EXTERNAL_DOCUMENTS" (uploaded_by_user_id);
-
 -- Index: ix_TB_TA_PM_EXTERNAL_REF_deleted_at
 CREATE INDEX "ix_TB_TA_PM_EXTERNAL_REF_deleted_at" ON "TB_TA_PM_EXTERNAL_REF" (deleted_at);
 
@@ -610,66 +377,6 @@ CREATE INDEX "ix_TB_TA_PM_PROJECTS_sponsor_user_soeid" ON "TB_TA_PM_PROJECTS" (s
 
 -- Index: ix_TB_TA_PM_PROJECTS_status
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_status" ON "TB_TA_PM_PROJECTS" (status);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_project_name
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_project_name" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (project_name);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_refreshed_at
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_refreshed_at" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (refreshed_at);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_source_updated_at
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_source_updated_at" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (source_updated_at);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_space_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_space_id" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (space_id);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_status
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_status" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (status);
-
--- Index: ix_TB_TA_PM_PROJECT_CARD_DIGESTS_tenant_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CARD_DIGESTS_tenant_id" ON "TB_TA_PM_PROJECT_CARD_DIGESTS" (tenant_id);
-
--- Index: ix_TB_TA_PM_PROJECT_CHARTERS_created_by_user_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CHARTERS_created_by_user_id" ON "TB_TA_PM_PROJECT_CHARTERS" (created_by_user_id);
-
--- Index: ix_TB_TA_PM_PROJECT_CHARTERS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CHARTERS_deleted_at" ON "TB_TA_PM_PROJECT_CHARTERS" (deleted_at);
-
--- Index: ix_TB_TA_PM_PROJECT_CHARTERS_project_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CHARTERS_project_id" ON "TB_TA_PM_PROJECT_CHARTERS" (project_id);
-
--- Index: ix_TB_TA_PM_PROJECT_CHARTERS_space_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CHARTERS_space_id" ON "TB_TA_PM_PROJECT_CHARTERS" (space_id);
-
--- Index: ix_TB_TA_PM_PROJECT_CHARTERS_state
-CREATE INDEX "ix_TB_TA_PM_PROJECT_CHARTERS_state" ON "TB_TA_PM_PROJECT_CHARTERS" (state);
-
--- Index: ix_TB_TA_PM_PROJECT_DECISION_LOGS_created_by_user_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_DECISION_LOGS_created_by_user_id" ON "TB_TA_PM_PROJECT_DECISION_LOGS" (created_by_user_id);
-
--- Index: ix_TB_TA_PM_PROJECT_DECISION_LOGS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_PROJECT_DECISION_LOGS_deleted_at" ON "TB_TA_PM_PROJECT_DECISION_LOGS" (deleted_at);
-
--- Index: ix_TB_TA_PM_PROJECT_DECISION_LOGS_project_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_DECISION_LOGS_project_id" ON "TB_TA_PM_PROJECT_DECISION_LOGS" (project_id);
-
--- Index: ix_TB_TA_PM_PROJECT_DECISION_LOGS_space_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_DECISION_LOGS_space_id" ON "TB_TA_PM_PROJECT_DECISION_LOGS" (space_id);
-
--- Index: ix_TB_TA_PM_PROJECT_PLANS_created_by_user_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_PLANS_created_by_user_id" ON "TB_TA_PM_PROJECT_PLANS" (created_by_user_id);
-
--- Index: ix_TB_TA_PM_PROJECT_PLANS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_PROJECT_PLANS_deleted_at" ON "TB_TA_PM_PROJECT_PLANS" (deleted_at);
-
--- Index: ix_TB_TA_PM_PROJECT_PLANS_project_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_PLANS_project_id" ON "TB_TA_PM_PROJECT_PLANS" (project_id);
-
--- Index: ix_TB_TA_PM_PROJECT_PLANS_space_id
-CREATE INDEX "ix_TB_TA_PM_PROJECT_PLANS_space_id" ON "TB_TA_PM_PROJECT_PLANS" (space_id);
-
--- Index: ix_TB_TA_PM_PROJECT_PLANS_state
-CREATE INDEX "ix_TB_TA_PM_PROJECT_PLANS_state" ON "TB_TA_PM_PROJECT_PLANS" (state);
 
 -- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_assignee_user_soeid
 CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_assignee_user_soeid" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (assignee_user_soeid);
@@ -728,33 +435,6 @@ CREATE INDEX "ix_TB_TA_PM_SOLUTIONS_space_id" ON "TB_TA_PM_SOLUTIONS" (space_id)
 -- Index: ix_TB_TA_PM_SOLUTIONS_status
 CREATE INDEX "ix_TB_TA_PM_SOLUTIONS_status" ON "TB_TA_PM_SOLUTIONS" (status);
 
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_due_date
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_due_date" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (due_date);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_project_id
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_project_id" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (project_id);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_rag_status
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_rag_status" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (rag_status);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_refreshed_at
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_refreshed_at" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (refreshed_at);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_solution_name
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_solution_name" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (solution_name);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_source_updated_at
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_source_updated_at" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (source_updated_at);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_space_id
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_space_id" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (space_id);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_status
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_status" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (status);
-
--- Index: ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_tenant_id
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_CARD_DIGESTS_tenant_id" ON "TB_TA_PM_SOLUTION_CARD_DIGESTS" (tenant_id);
-
 -- Index: ix_TB_TA_PM_SOLUTION_PHASES_sequence_override
 CREATE INDEX "ix_TB_TA_PM_SOLUTION_PHASES_sequence_override" ON "TB_TA_PM_SOLUTION_PHASES" (sequence_override);
 
@@ -772,33 +452,6 @@ CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_solution_id" ON "TB_TA_PM_SOL
 
 -- Index: ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_week_start
 CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_week_start" ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (week_start);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_approval_decided_by_user_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_approval_decided_by_user_id" ON "TB_TA_PM_SOW_DOCUMENTS" (approval_decided_by_user_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_approval_requested_by_user_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_approval_requested_by_user_id" ON "TB_TA_PM_SOW_DOCUMENTS" (approval_requested_by_user_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_approval_state
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_approval_state" ON "TB_TA_PM_SOW_DOCUMENTS" (approval_state);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_created_by_user_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_created_by_user_id" ON "TB_TA_PM_SOW_DOCUMENTS" (created_by_user_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_deleted_at" ON "TB_TA_PM_SOW_DOCUMENTS" (deleted_at);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_project_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_project_id" ON "TB_TA_PM_SOW_DOCUMENTS" (project_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_solution_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_solution_id" ON "TB_TA_PM_SOW_DOCUMENTS" (solution_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_space_id
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_space_id" ON "TB_TA_PM_SOW_DOCUMENTS" (space_id);
-
--- Index: ix_TB_TA_PM_SOW_DOCUMENTS_state
-CREATE INDEX "ix_TB_TA_PM_SOW_DOCUMENTS_state" ON "TB_TA_PM_SOW_DOCUMENTS" (state);
 
 -- Index: ix_TB_TA_PM_SPACES_archived_at
 CREATE INDEX "ix_TB_TA_PM_SPACES_archived_at" ON "TB_TA_PM_SPACES" (archived_at);
@@ -850,36 +503,6 @@ CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_space_id" ON "TB_TA_PM_SUBCOMPONENTS" (s
 
 -- Index: ix_TB_TA_PM_SUBCOMPONENTS_status
 CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_status" ON "TB_TA_PM_SUBCOMPONENTS" (status);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_blocked
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_blocked" ON "TB_TA_PM_TASK_CARD_DIGESTS" (blocked);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_due_date
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_due_date" ON "TB_TA_PM_TASK_CARD_DIGESTS" (due_date);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_project_id
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_project_id" ON "TB_TA_PM_TASK_CARD_DIGESTS" (project_id);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_refreshed_at
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_refreshed_at" ON "TB_TA_PM_TASK_CARD_DIGESTS" (refreshed_at);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_solution_id
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_solution_id" ON "TB_TA_PM_TASK_CARD_DIGESTS" (solution_id);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_source_updated_at
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_source_updated_at" ON "TB_TA_PM_TASK_CARD_DIGESTS" (source_updated_at);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_space_id
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_space_id" ON "TB_TA_PM_TASK_CARD_DIGESTS" (space_id);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_status
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_status" ON "TB_TA_PM_TASK_CARD_DIGESTS" (status);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_subcomponent_name
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_subcomponent_name" ON "TB_TA_PM_TASK_CARD_DIGESTS" (subcomponent_name);
-
--- Index: ix_TB_TA_PM_TASK_CARD_DIGESTS_tenant_id
-CREATE INDEX "ix_TB_TA_PM_TASK_CARD_DIGESTS_tenant_id" ON "TB_TA_PM_TASK_CARD_DIGESTS" (tenant_id);
 
 -- Index: ix_TB_TA_PM_TEAMS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_TEAMS_deleted_at" ON "TB_TA_PM_TEAMS" (deleted_at);

@@ -5,6 +5,7 @@ from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
 from backend.app.models import Project
 from backend.app.routes import projects as projects_module
+from backend.app.services import audit_log as audit_log_module
 from backend.app.services.spaces import SpaceContext
 
 
@@ -226,6 +227,27 @@ async def test_project_create_and_update_support_long_text_fields(client):
     updated = update_resp.json()
     assert updated["description"] == update_description
     assert updated["success_criteria"] == update_success_criteria
+
+
+@pytest.mark.anyio
+async def test_create_project_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
+    description = _long_text("Project description")
+
+    def _broken_log_changes(*args, **kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr(audit_log_module, "log_changes", _broken_log_changes)
+
+    create_resp = await client.post(
+        "/project-manager/api/projects/",
+        json={
+            "project_name": "Long Text Audit Fallback Project",
+            "description": description,
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["description"] == description
 
 
 @pytest.mark.anyio

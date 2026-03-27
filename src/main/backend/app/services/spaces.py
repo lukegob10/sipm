@@ -36,6 +36,14 @@ def _normalize_space_role(value: str | None) -> str:
     return normalized or "member"
 
 
+def normalize_global_role(value: str | None) -> str:
+    return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def is_global_admin_role(value: str | None) -> bool:
+    return normalize_global_role(value) == "global_admin"
+
+
 def get_or_create_default_space(session: Session) -> Space:
     space = (
         session.query(Space)
@@ -115,7 +123,7 @@ def ensure_space_membership(
 
 
 def list_user_spaces(session: Session, user: User) -> Iterable[Space]:
-    if (user.role or "").strip().lower() == "global_admin":
+    if is_global_admin_role(user.role):
         return (
             session.query(Space)
             .filter(Space.deleted_at.is_(None))
@@ -144,7 +152,7 @@ def resolve_active_space_context(
     requested_space_id: Optional[str],
 ) -> SpaceContext:
     default_space = get_or_create_default_space(session)
-    is_global_admin = (user.role or "").strip().lower() == "global_admin"
+    is_global_admin = is_global_admin_role(user.role)
 
     if is_global_admin:
         target = None

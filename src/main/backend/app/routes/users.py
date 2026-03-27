@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.auth import hash_bootstrap_password
@@ -19,8 +20,15 @@ from ..models import SpaceMembership, User
 from ..schemas import PasswordResetIssueRequest, PasswordResetIssueResponse, UserRead, UserUpdate
 from ..services.audit_log import log_changes
 from ..services.password_reset import issue_temp_password
-from ..services.spaces import SpaceContext
+from ..services.spaces import SpaceContext, is_global_admin_role
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
+from ..services.user_admin_guards import (
+    count_active_global_admins as _count_active_global_admins,
+    ensure_actor_can_modify_user,
+    ensure_user_can_be_deactivated,
+    is_global_admin_user as _is_global_admin,
+    normalized_global_role_expr as _normalized_global_role_expr,
+)
 from ..utils import read_csv
 
 router = APIRouter()
@@ -33,19 +41,6 @@ def _role_scope(space_ctx: SpaceContext) -> str:
     if space_ctx.is_global_admin:
         return "global_admin"
     return space_ctx.space_role or "member"
-
-
-def _is_global_admin(user: User) -> bool:
-    return (user.role or "").strip().lower() == "global_admin"
-
-
-def _count_active_global_admins(session: Session) -> int:
-    return (
-        session.query(User)
-        .filter(User.is_active == True)
-        .filter(User.role == "global_admin")
-        .count()
-    )
 
 
 def _active_space_user_query(session: Session, space_ctx: SpaceContext):
@@ -207,7 +202,7 @@ def list_global_admin_users(
     session: Session = Depends(get_db),
     _admin: User = Depends(require_global_admin),
 ) -> List[UserRead]:
-    query = session.query(User).filter(User.role == "global_admin")
+    query = session.query(User).filter(_normalized_global_role_expr() == "global_admin")
     if active_only:
         query = query.filter(User.is_active == True)
     return query.order_by(User.display_name.asc()).all()
@@ -329,11 +324,7 @@ def update_user(
     user = _active_space_user_query(session, space_ctx).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in active space")
-    if _is_global_admin(user) and not _is_global_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only global admin can modify global admin accounts",
-        )
+    ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
         user.display_name = payload.display_name
     if payload.team_tag is not None:
@@ -343,17 +334,13 @@ def update_user(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active and _is_global_admin(user):
-            if _count_active_global_admins(session) <= 1:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="At least one active global_admin is required",
-                )
+        if user.is_active and not payload.is_active:
+            ensure_user_can_be_deactivated(session, user)
         user.is_active = bool(payload.is_active)
     session.add(user)
     session.commit()
     session.refresh(user)
-    invalidate_space(space_ctx.space_id, ["users"])
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -370,11 +357,7 @@ def update_user_by_soeid(
     user = _active_space_user_query(session, space_ctx).filter(User.soeid == soeid_norm).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in active space")
-    if _is_global_admin(user) and not _is_global_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only global admin can modify global admin accounts",
-        )
+    ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
         user.display_name = payload.display_name
     if payload.team_tag is not None:
@@ -384,17 +367,13 @@ def update_user_by_soeid(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active and _is_global_admin(user):
-            if _count_active_global_admins(session) <= 1:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="At least one active global_admin is required",
-                )
+        if user.is_active and not payload.is_active:
+            ensure_user_can_be_deactivated(session, user)
         user.is_active = bool(payload.is_active)
     session.add(user)
     session.commit()
     session.refresh(user)
-    invalidate_space(space_ctx.space_id, ["users"])
+    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -403,6 +382,7 @@ def import_users(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
+    current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ):
     rows, errors = read_csv(csv_bytes)
@@ -410,6 +390,7 @@ def import_users(
         return {"count": 0, "errors": errors}
     created = 0
     updated = 0
+    affected_user_ids: set[str] = set()
     for idx, row in enumerate(rows, start=2):
         soeid = (row.get("soeid") or "").strip().lower()
         display_name = (row.get("display_name") or "").strip()
@@ -434,6 +415,11 @@ def import_users(
                 continue
         user = session.query(User).filter(User.soeid == soeid).first()
         if user:
+            try:
+                ensure_actor_can_modify_user(actor=current_user, target=user)
+            except HTTPException:
+                errors.append(f"Row {idx}: only global admin can modify global admin accounts")
+                continue
             user.display_name = display_name
             user.team_tag = team_tag or None
             _set_user_capacity_fields(user, capacity_fte_month=capacity_fte)
@@ -457,8 +443,10 @@ def import_users(
             session.flush()
             created += 1
         _ensure_active_membership_for_user(session, user.user_id, space_ctx.space_id)
+        affected_user_ids.add(user.user_id)
     session.commit()
-    invalidate_space(space_ctx.space_id, ["users"])
+    for user_id in affected_user_ids:
+        _invalidate_user_caches_for_user_memberships(session, user_id)
     return {"count": created + updated, "created": created, "updated": updated, "errors": errors}
 
 

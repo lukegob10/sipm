@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import current_space, get_db, require_global_admin, require_user
@@ -19,6 +20,7 @@ from ..schemas import (
     SpaceUpdate,
 )
 from ..services.spaces import build_space_slug, list_user_spaces
+from ..services.smart_cache import invalidate_space
 
 router = APIRouter()
 
@@ -62,9 +64,11 @@ def _count_active_space_admins(session: Session, space_id: str, exclude_membersh
     )
     query = (
         session.query(SpaceMembership)
+        .join(User, User.user_id == SpaceMembership.user_id)
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
+        .filter(User.is_active == True)
         .filter(normalized_role == "space_admin")
     )
     if exclude_membership_id:
@@ -82,7 +86,13 @@ def _ensure_space_retains_admin(
 ) -> None:
     current_role = _normalize_space_role(row.role)
     current_status = (row.status or "").strip().lower()
-    currently_active_admin = row.deleted_at is None and current_role == "space_admin" and current_status == "active"
+    current_user = session.query(User.is_active).filter(User.user_id == row.user_id).scalar()
+    currently_active_admin = (
+        row.deleted_at is None
+        and current_role == "space_admin"
+        and current_status == "active"
+        and bool(current_user)
+    )
     if not currently_active_admin:
         return
 
@@ -123,6 +133,41 @@ def _validate_membership_status(raw_status: str | None) -> str:
     return status_val
 
 
+def _space_conflict_detail(exc: IntegrityError) -> str | None:
+    orig_text = str(getattr(exc, "orig", "")).lower()
+    text = " ".join(
+        [
+            str(exc),
+            orig_text,
+            str(getattr(exc, "statement", "")),
+        ]
+    ).lower()
+    if "tb_ta_pm_spaces.name" in orig_text or ".name" in orig_text:
+        return "Space name already exists"
+    if "tb_ta_pm_spaces.slug" in orig_text or ".slug" in orig_text:
+        return "Space slug already exists"
+    if "uix_space_slug" in text:
+        return "Space slug already exists"
+    if "uix_space_name" in text:
+        return "Space name already exists"
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    if not has_unique_marker or ("tb_ta_pm_spaces" not in text and "space" not in text):
+        return None
+    if "slug" in text:
+        return "Space slug already exists"
+    if "name" in text:
+        return "Space name already exists"
+    return "Space already exists"
+
+
 def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> list[SpaceMembershipRead]:
     if not rows:
         return []
@@ -155,6 +200,10 @@ def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> lis
 
 def _serialize_membership(session: Session, row: SpaceMembership) -> SpaceMembershipRead:
     return _serialize_memberships(session, [row])[0]
+
+
+def _invalidate_space_membership_views(space_id: str) -> None:
+    invalidate_space(space_id, ["users"])
 
 
 def _create_or_restore_membership(
@@ -226,9 +275,16 @@ def create_space(
         created_at=now,
         updated_at=now,
     )
-    session.add(space)
-    session.commit()
-    session.refresh(space)
+    try:
+        session.add(space)
+        session.commit()
+        session.refresh(space)
+    except IntegrityError as exc:
+        session.rollback()
+        detail = _space_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+        raise
     return space
 
 
@@ -249,9 +305,16 @@ def update_space(
         else:
             space.archived_at = None
     space.updated_at = datetime.now(timezone.utc)
-    session.add(space)
-    session.commit()
-    session.refresh(space)
+    try:
+        session.add(space)
+        session.commit()
+        session.refresh(space)
+    except IntegrityError as exc:
+        session.rollback()
+        detail = _space_conflict_detail(exc)
+        if detail:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+        raise
     return space
 
 
@@ -294,6 +357,7 @@ def create_space_member(
         role=role,
         status_val=status_val,
     )
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -321,6 +385,7 @@ def create_space_member_by_soeid(
         role=role,
         status_val=status_val,
     )
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -353,6 +418,7 @@ def update_space_member(
     session.add(row)
     session.commit()
     session.refresh(row)
+    _invalidate_space_membership_views(space_id)
     return _serialize_membership(session, row)
 
 
@@ -372,4 +438,5 @@ def delete_space_member(
     row.deleted_at = datetime.now(timezone.utc)
     session.add(row)
     session.commit()
+    _invalidate_space_membership_views(space_id)
     return None

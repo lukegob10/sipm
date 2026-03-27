@@ -1,10 +1,15 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 SPACES_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces.js"
+SPACES_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "interactions.js"
+SPACES_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "render.js"
 ACCESS_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "access.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
@@ -33,22 +38,30 @@ def test_space_governance_hub_and_modals_exist_in_html():
 
 
 def test_space_governance_app_logic_tracks_recents_and_access_alias():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert 'const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";' in text
-    assert "function viewDomIdForRoute(view)" in text
-    assert 'return normalized === "access" ? "spaces" : normalized;' in text
-    assert 'if (normalized === "access") return userCanAccessAdminViews();' in text
-    assert "recordRecentSpace(spaceId)" in text
-    assert "renderGovernanceHub(preferredSection = \"\")" in text
-    assert "Issue Password Reset" in text
-    assert 'data-space-action="issue-password-reset"' in text
-    assert 'data-space-action="copy-temp-password"' in text
-    assert 'data-space-action="copy-reset-link"' in text
-    assert 'event.composedPath()' in text
-    assert 'classList.contains("space-member-actions")' in text
-    assert "Workspace atlas" in text
-    assert "space-directory-card-fact" in text
-    assert 'data-space-action="open-directory-space"' in text
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
+    render_text = SPACES_RENDER.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    assert 'const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";' in app_text
+    assert "const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });" in app_text
+    assert "const normalizedRecent = recent" in app_text
+    assert "if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {" in app_text
+    assert "function viewDomIdForRoute(view)" in router_text
+    assert 'return normalized === "access" ? "spaces" : normalized;' in router_text
+    assert 'if (normalized === "access") return userCanAccessAdminViews();' in router_text
+    assert "recordRecentSpace(spaceId)" in app_text
+    assert "renderGovernanceHub(preferredSection = \"\")" in app_text
+    assert "Issue Password Reset" in render_text
+    assert 'data-space-action="issue-password-reset"' in render_text
+    assert 'data-space-action="copy-temp-password"' in render_text
+    assert 'data-space-action="copy-reset-link"' in render_text
+    assert 'from "./routes/spaces/interactions.js";' in app_text
+    assert 'from "./routes/spaces/render.js";' in app_text
+    assert 'event.composedPath()' in interactions_text
+    assert 'classList.contains("space-member-actions")' in interactions_text
+    assert "Workspace atlas" in render_text
+    assert "space-directory-card-fact" in render_text
+    assert 'data-space-action="open-directory-space"' in render_text
 
 
 def test_spaces_and_access_routes_share_the_same_governance_hub():
@@ -58,8 +71,38 @@ def test_spaces_and_access_routes_share_the_same_governance_hub():
     assert 'renderGovernanceHub("platform-access")' in access_text
 
 
+def test_space_governance_controls_move_into_route_local_module():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
+    render_text = SPACES_RENDER.read_text(encoding="utf-8")
+
+    assert 'from "./routes/spaces/interactions.js";' in app_text
+    assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
+    assert "function closeSpaceDirectoryModal() {" in app_text
+    assert "return spaceGovernanceController.closeSpaceDirectoryModal();" in app_text
+    assert "async function refreshGlobalAdmins() {" in app_text
+    assert "return spaceGovernanceController.refreshGlobalAdmins();" in app_text
+    assert "async function refreshSpaceMembers(spaceId, options = {}) {" in app_text
+    assert "return spaceGovernanceController.refreshSpaceMembers(spaceId, options);" in app_text
+    assert "function bindSpaceAdminControls() {" in app_text
+    assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
+    assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
+    assert "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "function renderSpaceDirectoryModal() {" in app_text
+    assert "return spaceGovernanceRenderer.renderSpaceDirectoryModal();" in app_text
+    assert "export function createSpaceGovernanceController({" in interactions_text
+    assert "async function handleSpaceGovernanceAction(button) {" in interactions_text
+    assert "function bindSpaceAdminControls() {" in interactions_text
+    assert 'title: "Issue Password Reset"' in interactions_text
+    assert "document._spaceGovernanceEscapeBound = true;" in interactions_text
+    assert "export function createSpaceGovernanceRenderer({" in render_text
+    assert "function renderPlatformAccessSection() {" in render_text
+    assert "function renderDirectorySection() {" in render_text
+    assert "function renderCurrentSpaceSection() {" in render_text
+
+
 def test_space_governance_styles_cover_compact_switcher_and_hub():
-    css = STYLES_CSS.read_text(encoding="utf-8")
+    css = read_ui_styles(STYLES_CSS)
     for selector in [
         ".space-switcher-trigger",
         ".space-switcher-trigger-main",

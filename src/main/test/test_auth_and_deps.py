@@ -10,9 +10,8 @@ from fastapi import HTTPException, Response
 from starlette.requests import Request
 
 from backend.app import deps as deps_module
+from backend.app.auth import auth as auth_module
 from backend.app.auth.auth import (
-    ALGORITHM,
-    SECRET_KEY,
     clear_auth_cookies,
     create_token,
     decode_token,
@@ -20,9 +19,13 @@ from backend.app.auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from backend.app.models import User
+from backend.app.models import Space, User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
+
+
+def _encode_test_token(payload: dict[str, object]) -> str:
+    return jwt.encode(payload, auth_module.SECRET_KEY, algorithm=auth_module.ALGORITHM)
 
 
 @pytest.fixture
@@ -68,8 +71,8 @@ def test_decode_token_errors_and_type_check():
             "type": "access",
             "exp": datetime.now(timezone.utc) - timedelta(seconds=1),
         },
-        SECRET_KEY,
-        algorithm=ALGORITHM,
+        auth_module.SECRET_KEY,
+        algorithm=auth_module.ALGORITHM,
     )
     with pytest.raises(HTTPException) as exc:
         decode_token(expired, expected_type="access")
@@ -81,15 +84,13 @@ def test_decode_token_errors_and_type_check():
     assert exc.value.status_code == 401
     assert exc.value.detail == "Invalid token"
 
-    wrong_type = jwt.encode(
+    wrong_type = _encode_test_token(
         {
             "sub": "user-1",
             "role": "user",
             "type": "refresh",
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-        },
-        SECRET_KEY,
-        algorithm=ALGORITHM,
+        }
     )
     with pytest.raises(HTTPException) as exc:
         decode_token(wrong_type, expected_type="access")
@@ -129,6 +130,22 @@ def test_access_token_ttl_supports_explicit_zero_minutes(monkeypatch):
     importlib.reload(auth_module)
 
 
+def test_validate_auth_configuration_rejects_negative_access_minutes(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_ACCESS_MINUTES", "-1")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_ACCESS_MINUTES must be greater than or equal to 0.",
+            ):
+                reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
 def test_refresh_token_ttl_supports_days_env(monkeypatch):
     import backend.app.auth.auth as auth_module
 
@@ -148,6 +165,63 @@ def test_refresh_token_ttl_supports_days_env(monkeypatch):
         assert expected - 60 <= ttl_seconds <= expected + 60
 
     importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_negative_refresh_days(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.delenv("SIPM_REFRESH_MINUTES", raising=False)
+            env.setenv("SIPM_REFRESH_DAYS", "-7")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_REFRESH_DAYS must be greater than or equal to 0.",
+            ):
+                reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_auth_module_rejects_invalid_access_minutes(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_ACCESS_MINUTES", "sixty")
+            with pytest.raises(RuntimeError, match="SIPM_ACCESS_MINUTES must be an integer."):
+                importlib.reload(auth_module)
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_auth_module_rejects_invalid_bcrypt_rounds(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_BCRYPT_ROUNDS", "twelve")
+            with pytest.raises(RuntimeError, match="SIPM_BCRYPT_ROUNDS must be an integer."):
+                importlib.reload(auth_module)
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_invalid_bcrypt_rounds_value(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_BCRYPT_ROUNDS", "0")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value.",
+            ):
+                reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
 
 
 def test_auth_cookie_helpers_set_lifetimes_and_clear(monkeypatch):
@@ -198,6 +272,85 @@ def test_auth_cookie_helpers_set_lifetimes_and_clear(monkeypatch):
         )
 
     importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_invalid_cookie_samesite(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_COOKIE_SAMESITE", "sideways")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_COOKIE_SAMESITE must be one of: lax, strict, none.",
+            ):
+                reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("ENV", "prod")
+            env.setenv("SIPM_SECRET_KEY", "x" * 40)
+            env.setenv("SIPM_SECURE_COOKIES", "yes")
+            reloaded = importlib.reload(auth_module)
+            assert reloaded.SECURE_COOKIES is True
+            reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_unknown_env_defaults_to_non_dev_auth_safety(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("ENV", "stage")
+            env.setenv("SIPM_SECRET_KEY", "x" * 40)
+            env.delenv("SIPM_SECURE_COOKIES", raising=False)
+            env.delenv("SIPM_ALLOW_SELF_REGISTER", raising=False)
+            reloaded = importlib.reload(auth_module)
+            assert reloaded.DEPLOYMENT_ENV == "stage"
+            assert reloaded.IS_NON_DEV is True
+            assert reloaded.SECURE_COOKIES is True
+            assert reloaded.ALLOW_SELF_REGISTER is False
+            reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_auth_module_rejects_invalid_secure_cookie_boolean(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_SECURE_COOKIES", "sometimes")
+            with pytest.raises(RuntimeError, match="SIPM_SECURE_COOKIES must be a boolean value."):
+                importlib.reload(auth_module)
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_requires_secure_cookies_for_samesite_none(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_COOKIE_SAMESITE", "none")
+            env.setenv("SIPM_SECURE_COOKIES", "false")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true.",
+            ):
+                reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
 
 
 def test_require_space_role_normalizes_space_admin_aliases():
@@ -262,6 +415,27 @@ async def test_register_refresh_logout_and_me(auth_client):
 
 
 @pytest.mark.anyio
+async def test_register_uses_reloaded_self_registration_setting(monkeypatch, override_db_only):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
+            importlib.reload(auth_module)
+            async with fastapi_app.router.lifespan_context(fastapi_app):
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=fastapi_app),
+                    base_url="http://test",
+                ) as client:
+                    resp = await client.post(
+                        "/project-manager/api/auth/register",
+                        json={"soeid": "blocked1", "display_name": "Blocked", "password": "Password123"},
+                    )
+            assert resp.status_code == 403
+            assert resp.json()["detail"] == "Self-registration is disabled"
+    finally:
+        importlib.reload(auth_module)
+
+
+@pytest.mark.anyio
 async def test_global_admin_can_issue_temp_password_and_user_reset_with_it(auth_client, db_sessionmaker):
     register = await auth_client.post(
         "/project-manager/api/auth/register",
@@ -313,6 +487,48 @@ async def test_global_admin_can_issue_temp_password_and_user_reset_with_it(auth_
 
 
 @pytest.mark.anyio
+async def test_reset_password_rejects_short_new_password(auth_client, db_sessionmaker):
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "GA3", "display_name": "Global Admin", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    with db_sessionmaker() as session:
+        admin = session.query(User).filter(User.soeid == "ga3").first()
+        assert admin is not None
+        admin.role = "global_admin"
+        target = User(
+            soeid="resettargetshort1",
+            email="resettargetshort1@example.com",
+            display_name="Reset Target Short",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+        )
+        session.add_all([admin, target])
+        session.commit()
+
+    issued = await auth_client.post(
+        "/project-manager/api/users/by-soeid/resettargetshort1/password-reset-request",
+        json={"expires_minutes": 30},
+    )
+    assert issued.status_code == 201, issued.text
+    payload = issued.json()
+
+    reset = await auth_client.post(
+        "/project-manager/api/auth/reset-password",
+        json={
+            "soeid": "resettargetshort1",
+            "temp_password": payload["temp_password"],
+            "new_password": "short",
+            "confirm_password": "short",
+        },
+    )
+    assert reset.status_code == 422, reset.text
+
+
+@pytest.mark.anyio
 async def test_refresh_preserves_active_space_selection(auth_client, db_sessionmaker):
     register = await auth_client.post(
         "/project-manager/api/auth/register",
@@ -346,6 +562,36 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
     after = await auth_client.get("/project-manager/api/auth/active-space")
     assert after.status_code == 200, after.text
     assert after.json()["space_id"] == ops_space_id
+
+
+@pytest.mark.anyio
+async def test_active_space_accepts_legacy_global_admin_role_format(auth_client, db_sessionmaker):
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "LEGACYGA1", "display_name": "Legacy Global Admin", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "legacyga1").first()
+        assert user is not None
+        user.role = "Global Admin"
+        session.add_all(
+            [
+                user,
+                Space(space_id="legacy-space-a", name="Legacy Space A", slug="legacy-space-a", is_active=True),
+                Space(space_id="legacy-space-b", name="Legacy Space B", slug="legacy-space-b", is_active=True),
+            ]
+        )
+        session.commit()
+
+    auth_client.cookies.set("active_space_id", "legacy-space-b")
+
+    active_space = await auth_client.get("/project-manager/api/auth/active-space")
+    assert active_space.status_code == 200, active_space.text
+    payload = active_space.json()
+    assert payload["space_id"] == "legacy-space-b"
+    assert payload["is_global_admin"] is True
 
 
 @pytest.mark.anyio
@@ -401,6 +647,25 @@ async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
     set_cookies = resp.headers.get_list("set-cookie")
     assert any(f"active_space_id={active_space_id}" in cookie for cookie in set_cookies)
     assert all("active_space_id=stale-space-id" not in cookie for cookie in set_cookies)
+
+
+@pytest.mark.anyio
+async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(auth_client):
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "SPACEFAIL1", "display_name": "Space Fail", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    ok = await auth_client.get("/project-manager/api/projects/")
+    assert ok.status_code == 200, ok.text
+
+    denied = await auth_client.get(
+        "/project-manager/api/projects/",
+        headers={"X-Space-Id": "stale-space-id"},
+    )
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"] == "Space is not accessible"
 
 
 @pytest.mark.anyio
@@ -463,15 +728,13 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {
                 "sub": "missing-user",
                 "role": "user",
                 "type": "access",
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-            },
-            SECRET_KEY,
-            algorithm=ALGORITHM,
+            }
         ),
     )
     missing_user = await auth_client.get("/project-manager/api/auth/me")
@@ -481,10 +744,8 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {"role": "user", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
-            SECRET_KEY,
-            algorithm=ALGORITHM,
         ),
     )
     no_subject = await auth_client.get("/project-manager/api/auth/me")
@@ -502,15 +763,13 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.clear()
     auth_client.cookies.set(
         "access_token",
-        jwt.encode(
+        _encode_test_token(
             {
                 "sub": user_id,
                 "role": "user",
                 "type": "access",
                 "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
-            },
-            SECRET_KEY,
-            algorithm=ALGORITHM,
+            }
         ),
     )
     locked = await auth_client.get("/project-manager/api/auth/me")

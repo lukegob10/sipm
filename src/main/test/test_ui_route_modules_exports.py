@@ -3,19 +3,19 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 ROUTES_DIR = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes"
-APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 
 EXPECTED_ROUTE_EXPORTS = {
-    "access.js": ["renderAccess"],
-    "master.js": ["renderMasterFilters", "renderMasterTable"],
-    "subcomponents-workbench.js": ["renderSubcomponentsWorkbench"],
-    "dashboard.js": ["renderDashboard"],
-    "pm-dashboard.js": ["renderPMDashboard"],
-    "kanban.js": ["renderKanban"],
-    "calendar.js": ["renderCalendar", "openCalendarModal"],
-    "planning.js": ["renderPlanning"],
-    "team-capacity.js": ["renderTeamCapacity"],
-    "spaces.js": ["renderSpaces"],
+    "access.js": ["renderAccess", "render"],
+    "master.js": ["renderMasterFilters", "renderMasterTable", "render"],
+    "subcomponents-workbench.js": ["renderSubcomponentsWorkbench", "render"],
+    "dashboard.js": ["renderDashboard", "render"],
+    "pm-dashboard.js": ["renderPMDashboard", "render"],
+    "kanban.js": ["renderKanban", "render"],
+    "calendar.js": ["renderCalendar", "openCalendarModal", "render"],
+    "planning.js": ["renderPlanning", "render"],
+    "team-capacity.js": ["renderTeamCapacity", "render"],
+    "spaces.js": ["renderSpaces", "render"],
 }
 
 EXPECTED_ROUTE_LOADERS = {
@@ -44,15 +44,12 @@ def test_route_modules_export_expected_entrypoints():
 
 
 def test_app_route_loader_registry_includes_split_views():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    app_text = ROUTER_JS.read_text(encoding="utf-8")
     for view_name, import_path in EXPECTED_ROUTE_LOADERS.items():
         candidates = [
-            f'{view_name}: () => import("{import_path}")',
-            f'"{view_name}": () => import("{import_path}")',
-            f"'{view_name}': () => import(\"{import_path}\")",
-            f'{view_name}: () => import(`{import_path}?v=${{APP_ASSET_VERSION}}`)',
-            f'"{view_name}": () => import(`{import_path}?v=${{APP_ASSET_VERSION}}`)',
-            f"'{view_name}': () => import(`{import_path}?v=${{APP_ASSET_VERSION}}`)",
+            f'{view_name}: () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
+            f'"{view_name}": () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
+            f"'{view_name}': () => import(`../routes/{import_path.split('/')[-1]}?v=${{APP_ASSET_VERSION}}`)",
         ]
         assert any(candidate in app_text for candidate in candidates), (
             f"Missing lazy route loader mapping for {view_name}"

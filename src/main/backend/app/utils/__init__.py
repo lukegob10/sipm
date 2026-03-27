@@ -4,7 +4,7 @@ import os
 import re
 from datetime import date
 from io import StringIO
-from typing import Optional, Sequence, Tuple, Type, TypeVar
+from typing import Any, Optional, Sequence, Tuple, Type, TypeVar
 
 from .enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 
@@ -25,6 +25,30 @@ def get_default_user_id() -> str:
         return getpass.getuser()
     except Exception:
         return "unknown"
+
+
+def read_text_value(value: Any) -> Optional[str]:
+    """Coerce Oracle-style text/LOB values into plain strings."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+
+    reader = getattr(value, "read", None)
+    if callable(reader):
+        try:
+            loaded = reader()
+        except Exception:
+            return str(value)
+        if loaded is None:
+            return None
+        if isinstance(loaded, bytes):
+            return loaded.decode("utf-8")
+        return loaded if isinstance(loaded, str) else str(loaded)
+
+    return str(value)
 
 
 def normalize_str(value: Optional[str]) -> str:
@@ -120,4 +144,3 @@ def enable_all_phases(session, solution_id: str) -> None:
             )
     for row in now_phases:
         session.add(row)
-    session.commit()

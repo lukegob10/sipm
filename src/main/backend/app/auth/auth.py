@@ -32,11 +32,30 @@ def _int_env(name: str) -> int | None:
     raw = str(os.getenv(name, "")).strip()
     if not raw:
         return None
-    return int(raw)
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+def _int_env_with_default(name: str, default: int) -> int:
+    value = _int_env(name)
+    return default if value is None else value
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, "")).strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name} must be a boolean value.")
 
 
 DEPLOYMENT_ENV = _deployment_env()
-IS_NON_DEV = DEPLOYMENT_ENV in {"prod", "uat"}
+IS_NON_DEV = DEPLOYMENT_ENV not in {"dev", "test"}
 
 SECRET_KEY = os.getenv("SIPM_SECRET_KEY", DEFAULT_DEV_SECRET)
 ALGORITHM = "HS256"
@@ -50,30 +69,54 @@ elif _refresh_days is not None:
     REFRESH_TOKEN_EXPIRE_MINUTES = _refresh_days * 24 * 60
 else:
     REFRESH_TOKEN_EXPIRE_MINUTES = 60
-RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_RESET_MINUTES", "30"))
-ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("SIPM_ONE_TIME_RESET_MINUTES", "30"))
+RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_RESET_MINUTES", 30)
+ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_ONE_TIME_RESET_MINUTES", 30)
 ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS = max(ACCESS_TOKEN_EXPIRE_MINUTES, 0) * 60
 REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS = max(REFRESH_TOKEN_EXPIRE_MINUTES, 0) * 60
 
-SECURE_COOKIES = os.getenv("SIPM_SECURE_COOKIES", "true" if IS_NON_DEV else "false").lower() == "true"
+SECURE_COOKIES = _bool_env("SIPM_SECURE_COOKIES", IS_NON_DEV)
 COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax").lower()
 ACTIVE_SPACE_COOKIE = "active_space_id"
+_VALID_COOKIE_SAMESITE = {"lax", "strict", "none"}
 
-BCRYPT_ROUNDS = int(os.getenv("SIPM_BCRYPT_ROUNDS", "12"))
+BCRYPT_ROUNDS = _int_env_with_default("SIPM_BCRYPT_ROUNDS", 12)
 
 
 # Keep local/dev/test environments usable without extra auth bootstrapping.
-ALLOW_SELF_REGISTER = os.getenv(
-    "SIPM_ALLOW_SELF_REGISTER",
-    "false" if IS_NON_DEV else "true",
-).strip().lower() in {"1", "true", "yes", "on"}
+ALLOW_SELF_REGISTER = _bool_env("SIPM_ALLOW_SELF_REGISTER", not IS_NON_DEV)
+
+
+def allow_self_register() -> bool:
+    return ALLOW_SELF_REGISTER
 
 
 def validate_auth_configuration() -> None:
+    duration_settings = [
+        ("SIPM_ACCESS_MINUTES", ACCESS_TOKEN_EXPIRE_MINUTES),
+        ("SIPM_RESET_MINUTES", RESET_TOKEN_EXPIRE_MINUTES),
+        ("SIPM_ONE_TIME_RESET_MINUTES", ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES),
+    ]
+    if _refresh_minutes is not None:
+        duration_settings.append(("SIPM_REFRESH_MINUTES", _refresh_minutes))
+    elif _refresh_days is not None:
+        duration_settings.append(("SIPM_REFRESH_DAYS", _refresh_days))
+    else:
+        duration_settings.append(("SIPM_REFRESH_MINUTES", REFRESH_TOKEN_EXPIRE_MINUTES))
+    for setting_name, setting_value in duration_settings:
+        if setting_value < 0:
+            raise RuntimeError(f"{setting_name} must be greater than or equal to 0.")
     if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
+    if COOKIE_SAMESITE not in _VALID_COOKIE_SAMESITE:
+        raise RuntimeError("SIPM_COOKIE_SAMESITE must be one of: lax, strict, none.")
+    if COOKIE_SAMESITE == "none" and not SECURE_COOKIES:
+        raise RuntimeError("SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true.")
+    try:
+        bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
+    except ValueError as exc:
+        raise RuntimeError("SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value.") from exc
 
 
 def _password_bytes_for_bcrypt(password: str) -> bytes:

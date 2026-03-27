@@ -1,9 +1,12 @@
 from pathlib import Path
 
+from ui_style_contract import read_ui_styles
+
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 KANBAN_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban.js"
+KANBAN_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban" / "interactions.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -39,52 +42,59 @@ def test_kanban_route_handles_solution_drilldown_clicks():
 
 
 def test_kanban_drilldown_helper_reuses_existing_solution_modal():
-    text = APP_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "function openKanbanProjectDrilldown(projectId) {" in text
-    assert "openProjectForm(project);" in text
-    assert "function openKanbanSolutionDrilldown(solutionId) {" in text
-    assert 'openSolutionModal(solution, "details");' in text
-    assert "openKanbanProjectDrilldown," in text
-    assert "openKanbanSolutionDrilldown," in text
+    assert 'from "./routes/kanban/interactions.js";' in app_text
+    assert "function openKanbanProjectDrilldown(projectId) {" in app_text
+    assert "return kanbanRouteController.openKanbanProjectDrilldown(projectId);" in app_text
+    assert "function openKanbanSolutionDrilldown(solutionId) {" in app_text
+    assert "return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);" in app_text
+    assert "openProjectForm(project);" in interactions_text
+    assert 'openSolutionModal(solution, "details");' in interactions_text
+    assert "openKanbanProjectDrilldown," in app_text
+    assert "openKanbanSolutionDrilldown," in app_text
 
 
 def test_kanban_solution_filtering_is_independent_from_deliverables_master_filters():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
     assert "function filteredSolutionsForKanban() {" in text
-    assert "return (state.solutions || []).filter((s) => {" in text
-    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;" in text
-    assert "const base = filteredSolutions();" not in text[text.index("function filteredSolutionsForKanban() {"):text.index("function filteredSolutionsForCalendar() {")]
+    assert "return (state.solutions || []).filter((solution) => {" in text
+    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(solution.status)) return false;" in text
+    assert "const base = filteredSolutions();" not in text
 
 
 def test_kanban_filter_state_is_restored_and_persisted_per_space():
-    text = APP_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";' in text
-    assert "function persistKanbanViewState() {" in text
-    assert "activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX)" in text
-    assert "function restoreKanbanViewState() {" in text
-    assert "state.kanbanFilters = {" in text
-    assert "restoreKanbanViewState();" in text
-    assert "persistKanbanViewState();" in text
+    assert 'const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";' in app_text
+    assert "function persistKanbanViewState() {" in app_text
+    assert "return kanbanRouteController.persistKanbanViewState();" in app_text
+    assert "function restoreKanbanViewState() {" in app_text
+    assert "return kanbanRouteController.restoreKanbanViewState();" in app_text
+    assert "activeSpaceScopedStorageKey(kanbanViewStateKey)" in interactions_text
+    assert "state.kanbanFilters = {" in interactions_text
+    assert "restoreKanbanViewState();" in app_text
+    assert "persistKanbanViewState();" in app_text
 
 
 def test_kanban_corrupt_scoped_view_state_is_rewritten_to_defaults():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX), {});" in text
+    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(kanbanViewStateKey), {});" in text
     assert 'project: String(stored.filters?.project || ""),' in text
     assert 'owner: String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistKanbanViewState();" in text
 
 
 def test_kanban_owner_filter_control_is_restored_from_persisted_state():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
     assert 'owner: String(stored.filters?.owner || ""),' in text
-    assert "if (els.kanbanFilterOwner) {" in text
-    assert 'els.kanbanFilterOwner.value = state.kanbanFilters.owner || "";' in text
+    assert "bindDebouncedInput(els.kanbanFilterOwner, (value) => {" in text
+    assert "state.kanbanFilters.owner = value;" in text
 
 
 def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
@@ -109,7 +119,7 @@ def test_kanban_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_
 
 
 def test_kanban_uses_dense_title_link_style():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".kanban-card {" in text
     assert "background: var(--panel);" in text
@@ -134,7 +144,7 @@ def test_kanban_uses_dense_title_link_style():
 
 
 def test_light_theme_preserves_subtle_kanban_project_surface():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".theme-light .kanban-project {" in text
     assert "background: var(--panel);" in text
@@ -142,7 +152,7 @@ def test_light_theme_preserves_subtle_kanban_project_surface():
 
 
 def test_kanban_solution_container_uses_quieter_chrome():
-    text = STYLES_CSS.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
 
     assert ".kanban-solution {" in text
     assert "padding: 0;" in text

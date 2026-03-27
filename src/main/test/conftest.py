@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -14,7 +15,10 @@ MAIN_DIR = Path(__file__).resolve().parents[1]
 if str(MAIN_DIR) not in sys.path:
     sys.path.insert(0, str(MAIN_DIR))
 
+os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
+
 from backend.app.deps import current_user, get_db, require_user
+from backend.app.services import coordination
 from backend.main import app as fastapi_app
 from backend.app.models import Base
 
@@ -22,6 +26,13 @@ from backend.app.models import Base
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def reset_coordination_runtime():
+    asyncio.run(coordination.reset_backend_for_tests())
+    yield
+    asyncio.run(coordination.reset_backend_for_tests())
 
 
 @pytest.fixture

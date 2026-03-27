@@ -238,3 +238,7 @@ export function openCalendarModal(day, ctx) {
 
   els.calendarModal.classList.remove("hidden");
 }
+
+export function render(ctx) {
+  renderCalendar(ctx);
+}

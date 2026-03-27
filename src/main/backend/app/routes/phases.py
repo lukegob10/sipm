@@ -6,13 +6,24 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_space_role
-from ..models import Phase, Solution, SolutionPhase, User
+from ..models import Phase, Project, Solution, SolutionPhase, User
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
-from ..services.realtime import schedule_broadcast
 from ..services.audit_log import log_changes
 from ..services.spaces import SpaceContext
+from ._mutations import publish_space_mutation
 
 router = APIRouter()
+
+
+def _active_solution_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+    )
 
 
 @router.get("/phases", response_model=List[PhaseRead])
@@ -95,16 +106,10 @@ def set_solution_phases(
             },
         )
         updated_items.append(sp)
-        session.commit()
 
     # If the solution's current_phase is now disabled, clear it to avoid invalid states.
-    solution = (
-        session.query(Solution)
-        .filter(Solution.solution_id == solution_id)
-        .filter(Solution.deleted_at.is_(None))
-        .filter(Solution.space_id == space_ctx.space_id)
-        .first()
-    )
+    session.flush()
+    solution = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
     if solution and solution.current_phase:
         enabled_ids = {
             row[0]
@@ -127,8 +132,12 @@ def set_solution_phases(
                 space_id=space_ctx.space_id,
                 changes={"current_phase": (before_phase, solution.current_phase)},
             )
-            session.commit()
-    schedule_broadcast("solutions", space_id=space_ctx.space_id)
+    session.commit()
+    publish_space_mutation(
+        space_ctx.space_id,
+        ["solutions"],
+        broadcast_channel="solutions",
+    )
     return _ordered_solution_phases(session, solution_id, space_ctx)
 
 
@@ -146,13 +155,7 @@ def list_solution_phases(
 
 
 def _ensure_solution_exists(session: Session, solution_id: str, space_ctx: SpaceContext) -> None:
-    exists = (
-        session.query(Solution)
-        .filter(Solution.solution_id == solution_id)
-        .filter(Solution.deleted_at.is_(None))
-        .filter(Solution.space_id == space_ctx.space_id)
-        .first()
-    )
+    exists = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
     if not exists:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
 
@@ -162,10 +165,13 @@ def _ordered_solution_phases(session: Session, solution_id: str, space_ctx: Spac
     items = (
         session.query(SolutionPhase)
         .join(Solution, Solution.solution_id == SolutionPhase.solution_id)
+        .join(Project, Project.project_id == Solution.project_id)
         .join(Phase, Phase.phase_id == SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
         .order_by(sort_key.asc(), Phase.sequence.asc(), SolutionPhase.solution_phase_id.asc())
         .all()
     )

@@ -1,9 +1,39 @@
 from datetime import datetime, date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, constr
+from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
 
+from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from .planning import (
+    WorkAllocationAssignmentCreate,
+    WorkAllocationAssignmentRead,
+    WorkAllocationAssignmentUpdate,
+    WorkAllocationPersonCreate,
+    WorkAllocationPersonRead,
+    WorkAllocationPersonUpdate,
+    WorkAllocationTaskCreate,
+    WorkAllocationTaskRead,
+    WorkAllocationTaskUpdate,
+    WorkAllocationTeamCreate,
+    WorkAllocationTeamRead,
+    WorkAllocationTeamUpdate,
+)
+
+
+class TextLikeReadModel(BaseModel):
+    @field_validator(
+        "old_value",
+        "new_value",
+        "description",
+        "success_criteria",
+        "problem_statement",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def _coerce_text_like_values(cls, value):
+        return read_text_value(value)
 
 
 class UserBase(BaseModel):
@@ -32,12 +62,12 @@ class VerifyTempPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     soeid: str
     temp_password: str
-    new_password: str
-    confirm_password: str
+    new_password: constr(min_length=8)  # type: ignore[type-arg]
+    confirm_password: constr(min_length=8)  # type: ignore[type-arg]
 
 
 class PasswordResetIssueRequest(BaseModel):
-    expires_minutes: Optional[int] = None
+    expires_minutes: Optional[int] = Field(default=None, ge=5, le=24 * 60)
 
 
 class PasswordResetIssueResponse(BaseModel):
@@ -135,7 +165,7 @@ class ActiveSpaceResponse(BaseModel):
     is_global_admin: bool
 
 
-class ChangeLogRead(BaseModel):
+class ChangeLogRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     change_id: str
@@ -146,6 +176,7 @@ class ChangeLogRead(BaseModel):
     old_value: Optional[str] = None
     new_value: Optional[str] = None
     user_id: str
+    space_id: Optional[str] = None
     request_id: Optional[str] = None
     created_at: datetime
 
@@ -171,7 +202,7 @@ class ProjectUpdate(ProjectBase):
     pass
 
 
-class ProjectRead(BaseModel):
+class ProjectRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: str
@@ -190,6 +221,7 @@ class ProjectRead(BaseModel):
 class SolutionBase(BaseModel):
     solution_name: Optional[str] = None
     version: Optional[str] = None
+    github_repo_url: Optional[str] = None
     status: Optional[SolutionStatus] = None
     rag_status: Optional[RagStatus] = None
     rag_reason: Optional[str] = None
@@ -227,13 +259,14 @@ class SolutionUpdate(SolutionBase):
     pass
 
 
-class SolutionRead(BaseModel):
+class SolutionRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     solution_id: str
     project_id: str
     solution_name: str
     version: str
+    github_repo_url: Optional[str] = None
     status: SolutionStatus
     rag_status: RagStatus
     rag_reason: Optional[str] = None
@@ -292,6 +325,7 @@ class SolutionPhaseRead(BaseModel):
 
 class SubcomponentBase(BaseModel):
     subcomponent_name: Optional[str] = None
+    github_repo_url: Optional[str] = None
     status: Optional[SubcomponentStatus] = None
     priority: Optional[int] = None
     due_date: Optional[date] = None
@@ -334,6 +368,9 @@ class SubcomponentRead(BaseModel):
     project_id: str
     solution_id: str
     subcomponent_name: str
+    github_repo_url: Optional[str] = None
+    effective_github_repo_url: Optional[str] = None
+    repo_source: str = "none"
     status: SubcomponentStatus
     priority: int
     due_date: Optional[date] = None

@@ -6,14 +6,17 @@ from ui_style_contract import read_ui_styles
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 CALENDAR_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar.js"
+CALENDAR_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar" / "interactions.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_calendar_view_passes_solution_and_subcomponent_filters_to_route_module():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert "filteredSolutionsForCalendar," in text
-    assert "filteredSubcomponentsForCalendar," in text
-    assert "mod.openCalendarModal(day, {" in text
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert "filteredSolutionsForCalendar," in app_text
+    assert "filteredSubcomponentsForCalendar," in app_text
+    assert "mod.openCalendarModal(day, {" in interactions_text
 
 
 def test_calendar_solution_filtering_is_independent_from_deliverables_master_filters():
@@ -26,37 +29,40 @@ def test_calendar_solution_filtering_is_independent_from_deliverables_master_fil
 
 
 def test_calendar_month_state_is_restored_and_persisted_per_space():
-    text = APP_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";' in text
-    assert "function persistCalendarViewState() {" in text
-    assert "activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX)" in text
-    assert 'month: formatMonthInputValue(state.calendarMonth || new Date()),' in text
-    assert "filters: {" in text
-    assert 'project: state.calendarFilters?.project || "",' in text
-    assert 'owner: state.calendarFilters?.owner || "",' in text
-    assert "function restoreCalendarViewState() {" in text
-    assert 'const parsedMonth = parseMonthInputValue(stored.month || "");' in text
-    assert "state.calendarFilters = {" in text
-    assert "restoreCalendarViewState();" in text
-    assert "persistCalendarViewState();" in text
+    assert 'const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";' in app_text
+    assert "function persistCalendarViewState() {" in app_text
+    assert "return calendarRouteController.persistCalendarViewState();" in app_text
+    assert "function restoreCalendarViewState() {" in app_text
+    assert "return calendarRouteController.restoreCalendarViewState();" in app_text
+    assert "activeSpaceScopedStorageKey(calendarViewStateKey)" in interactions_text
+    assert 'month: formatMonthInputValue(state.calendarMonth || new Date()),' in interactions_text
+    assert "filters: {" in interactions_text
+    assert 'project: state.calendarFilters?.project || "",' in interactions_text
+    assert 'owner: state.calendarFilters?.owner || "",' in interactions_text
+    assert 'const parsedMonth = parseMonthInputValue(stored.month || "");' in interactions_text
+    assert "state.calendarFilters = {" in interactions_text
+    assert "restoreCalendarViewState();" in app_text
+    assert "persistCalendarViewState();" in app_text
 
 
 def test_calendar_corrupt_scoped_view_state_is_rewritten_to_defaults():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX), {});" in text
+    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(calendarViewStateKey), {});" in text
     assert 'project: String(stored.filters?.project || ""),' in text
     assert 'owner: String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistCalendarViewState();" in text
 
 
 def test_calendar_owner_filter_control_is_restored_from_persisted_state():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
     assert 'owner: String(stored.filters?.owner || ""),' in text
-    assert "if (els.calendarFilterOwner) {" in text
-    assert 'els.calendarFilterOwner.value = state.calendarFilters.owner || "";' in text
+    assert "bindDebouncedInput(els.calendarFilterOwner, (value) => {" in text
+    assert "state.calendarFilters.owner = value;" in text
 
 
 def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh():
@@ -104,18 +110,22 @@ def test_calendar_route_renders_drilldown_actions_for_modal_items():
 
 
 def test_calendar_modal_actions_reuse_existing_detail_surfaces():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert "function openCalendarProjectDrilldown(projectId)" in text
-    assert "openProjectForm(project)" in text
-    assert "function openCalendarSolutionDrilldown(solutionId)" in text
-    assert 'openSolutionModal(solution, "details")' in text
-    assert "function openCalendarSubcomponentDrilldown(subcomponentId)" in text
-    assert 'openSolutionModal(solution, "subcomponents")' in text
-    assert "fillSubcomponentForm(subcomponent)" in text
-    assert 'const previewActionEl = e.target.closest("[data-calendar-preview-action]")' in text
-    assert 'if (action === "open-solution") {' in text
-    assert 'closest("[data-calendar-action]")' in text
-    assert 'if (action === "open-project") {' in text
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/calendar/interactions.js";' in app_text
+    assert "calendarRouteController.bindCalendarRouteControls();" in app_text
+    assert "function openCalendarProjectDrilldown(projectId)" in interactions_text
+    assert "openProjectForm(project)" in interactions_text
+    assert "function openCalendarSolutionDrilldown(solutionId)" in interactions_text
+    assert 'openSolutionModal(solution, "details")' in interactions_text
+    assert "function openCalendarSubcomponentDrilldown(subcomponentId)" in interactions_text
+    assert 'openSolutionModal(solution, "subcomponents")' in interactions_text
+    assert "fillSubcomponentForm(subcomponent)" in interactions_text
+    assert 'const previewActionEl = e.target.closest("[data-calendar-preview-action]")' in interactions_text
+    assert 'if (action === "open-solution") {' in interactions_text
+    assert 'closest("[data-calendar-action]")' in interactions_text
+    assert 'if (action === "open-project") {' in interactions_text
 
 
 def test_calendar_preview_link_uses_text_first_styling():

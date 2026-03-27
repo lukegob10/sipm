@@ -47,6 +47,56 @@ SURFACE_ORDER = (
 
 SAMPLE_LIMIT = 5
 MAX_SCAN_BYTES = 1_000_000
+QUALITY_GATE_REQUIRED_ARTIFACTS = (
+    ".editorconfig",
+    ".env.example",
+    "CONTRIBUTING.md",
+    ".github/CODEOWNERS",
+    "docs/codebase-review/05-enterprise-roadmap.md",
+    "docs/codebase-review/06-quality-gates.md",
+    "docs/codebase-review/07-repo-operability.md",
+)
+QUALITY_GATE_DOC_SENTINELS = {
+    "docs/codebase-review/03-fix-queue.md": (
+        "historical record only",
+        "05-enterprise-roadmap.md",
+        "06-quality-gates.md",
+    ),
+    "docs/codebase-review/04-review-required.md": (
+        "risk and architecture register",
+        "decision needed",
+        "recommended choice",
+    ),
+    "docs/codebase-review/05-enterprise-roadmap.md": (
+        "epic 1",
+        "epic 5",
+        "app.js",
+        "<= 4000",
+    ),
+    "docs/codebase-review/06-quality-gates.md": (
+        "report-only",
+        "soft then hard",
+    ),
+    "docs/codebase-review/07-repo-operability.md": (
+        "runtime modes",
+        "readiness",
+        "redis",
+        "oracle",
+        "incident triage",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class QualityGateFinding:
+    category: str
+    subject: str
+    status: str
+    detail: str
+
+    @property
+    def is_violation(self) -> bool:
+        return self.status == "fail"
 
 
 @dataclass
@@ -79,13 +129,18 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "command",
-        choices=("inventory", "stale-scripts"),
+        choices=("inventory", "stale-scripts", "quality-gates"),
         help="Which review helper to run.",
     )
     parser.add_argument(
         "--root",
         default=".",
         help="Repository root. Defaults to the current directory.",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Return a non-zero exit code when quality-gate violations are present.",
     )
     return parser.parse_args()
 
@@ -291,6 +346,151 @@ def render_stale_scripts(root: Path) -> str:
     return "\n".join(lines).rstrip()
 
 
+def count_lines(path: Path) -> int:
+    try:
+        with path.open("r", encoding="utf-8", errors="ignore") as handle:
+            return sum(1 for _ in handle)
+    except OSError:
+        return 0
+
+
+def _line_budget_findings(root: Path) -> list[QualityGateFinding]:
+    findings: list[QualityGateFinding] = []
+
+    def append_budget_finding(rel_path: str, budget: int, category: str) -> None:
+        abs_path = root / rel_path
+        if not abs_path.exists():
+            findings.append(
+                QualityGateFinding(
+                    category=category,
+                    subject=rel_path,
+                    status="fail",
+                    detail="missing required file",
+                )
+            )
+            return
+        line_count = count_lines(abs_path)
+        status = "pass" if line_count <= budget else "fail"
+        findings.append(
+            QualityGateFinding(
+                category=category,
+                subject=rel_path,
+                status=status,
+                detail=f"{line_count} lines (budget <= {budget})",
+            )
+        )
+
+    append_budget_finding("src/main/ui/js/app.js", 4000, "file-size-budgets")
+
+    backend_route_root = root / "src" / "main" / "backend" / "app" / "routes"
+    if backend_route_root.exists():
+        for path in sorted(backend_route_root.rglob("*.py")):
+            if path.name == "__init__.py":
+                continue
+            append_budget_finding(path.relative_to(root).as_posix(), 500, "file-size-budgets")
+
+    route_root = root / "src" / "main" / "ui" / "js" / "routes"
+    if route_root.exists():
+        for path in sorted(route_root.rglob("*.js")):
+            rel = path.relative_to(root)
+            if len(rel.parts) <= 6:
+                continue
+            append_budget_finding(rel.as_posix(), 700, "file-size-budgets")
+
+    route_styles_root = root / "src" / "main" / "ui" / "styles" / "routes"
+    if route_styles_root.exists():
+        for path in sorted(route_styles_root.glob("*.css")):
+            append_budget_finding(path.relative_to(root).as_posix(), 900, "file-size-budgets")
+
+    return findings
+
+
+def _required_artifact_findings(root: Path) -> list[QualityGateFinding]:
+    findings: list[QualityGateFinding] = []
+    for rel_path in QUALITY_GATE_REQUIRED_ARTIFACTS:
+        exists = (root / rel_path).exists()
+        findings.append(
+            QualityGateFinding(
+                category="required-artifacts",
+                subject=rel_path,
+                status="pass" if exists else "fail",
+                detail="present" if exists else "missing required artifact",
+            )
+        )
+    return findings
+
+
+def _doc_drift_findings(root: Path) -> list[QualityGateFinding]:
+    findings: list[QualityGateFinding] = []
+    for rel_path, sentinels in QUALITY_GATE_DOC_SENTINELS.items():
+        abs_path = root / rel_path
+        if not abs_path.exists():
+            findings.append(
+                QualityGateFinding(
+                    category="code-review-doc-drift",
+                    subject=rel_path,
+                    status="fail",
+                    detail="missing review doc",
+                )
+            )
+            continue
+        content = abs_path.read_text(encoding="utf-8", errors="ignore").lower()
+        missing = [token for token in sentinels if token.lower() not in content]
+        findings.append(
+            QualityGateFinding(
+                category="code-review-doc-drift",
+                subject=rel_path,
+                status="pass" if not missing else "fail",
+                detail="sentinel content present" if not missing else f"missing sentinels: {', '.join(missing)}",
+            )
+        )
+    return findings
+
+
+def collect_quality_gate_findings(root: Path) -> list[QualityGateFinding]:
+    findings: list[QualityGateFinding] = []
+    findings.extend(_line_budget_findings(root))
+    findings.extend(_required_artifact_findings(root))
+    findings.extend(_doc_drift_findings(root))
+    return findings
+
+
+def quality_gate_exit_code(findings: list[QualityGateFinding], *, strict: bool) -> int:
+    if not strict:
+        return 0
+    return 1 if any(finding.is_violation for finding in findings) else 0
+
+
+def render_quality_gates(root: Path, *, strict: bool = False) -> tuple[str, int]:
+    findings = collect_quality_gate_findings(root)
+    violation_count = sum(1 for finding in findings if finding.is_violation)
+    pass_count = len(findings) - violation_count
+    mode = "strict" if strict else "report-only"
+
+    grouped: dict[str, list[QualityGateFinding]] = defaultdict(list)
+    for finding in findings:
+        grouped[finding.category].append(finding)
+
+    lines = [
+        f"Repo quality gates for {root.resolve()}",
+        f"Rollout mode: {mode}",
+        "Wave-1 behavior: report only by default; use --strict when the repo is ready to block on violations.",
+        "",
+        "SUMMARY",
+        f"- pass={pass_count}",
+        f"- fail={violation_count}",
+        "",
+    ]
+
+    for category in ("file-size-budgets", "required-artifacts", "code-review-doc-drift"):
+        lines.append(category.upper())
+        for finding in grouped.get(category, []):
+            lines.append(f"- {finding.status} | {finding.subject} | {finding.detail}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip(), quality_gate_exit_code(findings, strict=strict)
+
+
 def main() -> int:
     args = parse_args()
     root = Path(args.root).resolve()
@@ -301,6 +501,10 @@ def main() -> int:
         if args.command == "stale-scripts":
             print(render_stale_scripts(root))
             return 0
+        if args.command == "quality-gates":
+            report, exit_code = render_quality_gates(root, strict=args.strict)
+            print(report)
+            return exit_code
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2

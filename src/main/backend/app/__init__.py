@@ -1,1 +1,1 @@
-# Jira-lite application package
+# SIPM application package

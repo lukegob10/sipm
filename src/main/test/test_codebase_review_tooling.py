@@ -55,3 +55,32 @@ def test_inventory_and_stale_script_reports_are_noise_filtered():
     stale_report = module.render_stale_scripts(REPO_ROOT)
     assert "src/main/ui/js/app.js" not in stale_report
     assert "scripts/check_requirements_lock.py" in stale_report
+
+
+def test_quality_gates_report_known_report_only_violations_and_required_artifacts():
+    module = _load_module()
+
+    report, exit_code = module.render_quality_gates(REPO_ROOT)
+
+    assert exit_code == 0
+    assert "Rollout mode: report-only" in report
+    assert "src/main/ui/js/app.js" in report
+    assert "src/main/backend/app/routes/projects/common.py" in report
+    assert "src/main/backend/app/routes/projects.py" not in report
+    assert "src/main/backend/app/routes/planning/work_allocation.py" in report
+    assert "src/main/ui/styles/routes/workbench-planning-admin.css" in report
+    assert "src/main/ui/styles/routes/subcomponents-workbench.css" in report
+    assert "src/main/ui/styles/routes/planning-work-allocation.css" in report
+    assert "src/main/ui/styles/routes/team-capacity.css" in report
+    assert "src/main/ui/styles/routes/space-governance.css" in report
+    assert ".editorconfig" in report
+    assert "docs/codebase-review/05-enterprise-roadmap.md" in report
+
+
+def test_quality_gates_only_fail_in_strict_mode():
+    module = _load_module()
+    findings = module.collect_quality_gate_findings(REPO_ROOT)
+
+    assert any(finding.is_violation for finding in findings)
+    assert module.quality_gate_exit_code(findings, strict=False) == 0
+    assert module.quality_gate_exit_code(findings, strict=True) == 1

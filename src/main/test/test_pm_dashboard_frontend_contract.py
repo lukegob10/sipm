@@ -10,6 +10,7 @@ PM_DASHBOARD_ANALYTICS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "
 PM_DASHBOARD_STORAGE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "storage.js"
 PM_DASHBOARD_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "interactions.js"
 PM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "render.js"
+PM_DASHBOARD_SECTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "sections.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -17,6 +18,7 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     route_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
     analytics_text = PM_DASHBOARD_ANALYTICS.read_text(encoding="utf-8")
     render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
 
     assert 'import { createPMDashboardState, renderPMDashboardView } from "./pm-dashboard/render.js";' in route_text
     assert "function normalizePMDashboardIdentity(value) {" in analytics_text
@@ -34,11 +36,12 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     assert 'renderPMDashboardRowLink(label, "open-solution"' in analytics_text
     assert 'renderPMDashboardRowLink(row.name, "open-subcomponent"' in analytics_text
     assert 'renderPMDashboardRowLink(row.label, "open-capacity-allocations"' in analytics_text
-    assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in render_text
-    assert "renderPMDashboardSolutionLink(row.solutionName, row.solutionId)" in render_text
-    assert "renderPMDashboardTimelineLink(row)" in render_text
-    assert "renderPMDashboardCapacityLink(row)" in render_text
-    assert "renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)" in render_text
+    assert 'from "./sections.js";' in render_text
+    assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in sections_text
+    assert "renderPMDashboardSolutionLink(row.solutionName, row.solutionId)" in sections_text
+    assert "renderPMDashboardTimelineLink(row)" in sections_text
+    assert "renderPMDashboardCapacityLink(row)" in sections_text
+    assert "renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)" in sections_text
     assert "const ownerDirectory = buildPMDashboardOwnerDirectory(users);" in render_text
     assert 'if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;' in analytics_text
     assert "projectId: project.project_id" in render_text
@@ -74,6 +77,7 @@ def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown
     assert 'persistCapacityMonth(pmDashboardState.capacitySpaceId, nextMonth);' in interactions_text
     assert "rerender();" in interactions_text
     assert "pmDashboardState.ctx = ctx;" in render_text
+    assert "renderPMDashboardCapacitySection({" in render_text
     assert "function ensureCapacityMonth(pmDashboardState, spaceId) {" in storage_text
 
 

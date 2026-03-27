@@ -41,6 +41,8 @@ Desktop.ini
 node_modules/
 dist/
 build/
+test-results/
+playwright-report/
 
 # Local environment / secret files
 .env

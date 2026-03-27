@@ -9,6 +9,8 @@ DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
+MASTER_ROUTE_FILTERS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "filters.js"
+MASTER_ROUTE_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "interactions.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -32,14 +34,14 @@ def test_master_route_entry_delegates_to_route_local_table_helper():
 
 
 def test_master_project_name_links_reuse_existing_project_modal_path():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const actionBtn = e.target.closest("[data-action]");' in text
+    assert 'const actionBtn = event.target.closest("[data-action]");' in text
     assert 'if (action === "edit") {' in text
     assert 'if (type === "project") {' in text
-    assert "openProjectForm(proj);" in text
+    assert "openProjectForm(project);" in text
     assert '} else if (type === "solution") {' in text
-    assert 'openSolutionModal(sol, "details");' in text
+    assert 'openSolutionModal(solution, "details");' in text
 
 
 def test_master_name_links_use_flat_text_link_styling():
@@ -76,16 +78,17 @@ def test_master_type_chip_uses_colored_chip_styling():
 
 def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
-    app_text = APP_JS.read_text(encoding="utf-8")
     dom_text = DOM_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
+    interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
     route_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
     styles_text = read_ui_styles(STYLES_CSS)
 
     assert 'id="preset-engineering"' in html_text
     assert 'presetEngineering: document.getElementById("preset-engineering")' in dom_text
-    assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in app_text
-    assert 'const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in app_text
-    assert 'els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset("engineering"));' in app_text
+    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in filters_text
+    assert 'export const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in filters_text
+    assert 'els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset(ctx, "engineering"));' in interactions_text
     assert "const isEngineeringPreset = (state.deliverablesPreset || \"\") === \"engineering\";" in route_text
     assert 'id="filter-repo-presence"' in route_text
     assert 'Missing Repo' in route_text

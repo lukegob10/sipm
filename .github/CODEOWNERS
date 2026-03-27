@@ -1,0 +1,7 @@
+# Default repository ownership. Replace or extend these rules if the team map changes.
+
+* @lukegob10
+/docs/codebase-review/ @lukegob10
+/scripts/ @lukegob10
+/src/main/backend/ @lukegob10
+/src/main/ui/ @lukegob10

@@ -39,6 +39,7 @@ def test_dark_mode_tokens_exist_and_light_theme_values_remain_pinned():
 
 def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hacks():
     text = read_ui_styles(STYLES_CSS)
+    compact = "".join(text.split())
 
     assert "body:not(.theme-light)" not in text
 
@@ -55,11 +56,15 @@ def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hack
         "background: var(--hero-surface);",
         ".space-inline-callout {",
         "background: var(--callout-bg);",
-        ".wab-task-chip.is-selected {",
-        "background: var(--backlog-bg-strong);",
     ]
     for snippet in shared_token_snippets:
         assert snippet in text
+
+    for snippet in [
+        ".wab-task-chip.is-selected{",
+        "background:var(--backlog-bg-strong);",
+    ]:
+        assert snippet in compact
 
 
 def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved_look():
@@ -74,9 +79,9 @@ def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved
         ".theme-light .capacity-badge.ok {",
         ".theme-light .capacity-badge.warn {",
         ".theme-light .capacity-badge.over {",
-        ".theme-light .wab-legend-swatch.team {",
-        ".theme-light .wab-legend-swatch.person {",
         ".theme-light .space-directory-card.is-selected {",
+        ".theme-light .space-directory-overview {",
+        ".theme-light .space-directory-preview {",
         ".theme-light .auth-tab.active {",
     ]
     for snippet in fidelity_snippets:

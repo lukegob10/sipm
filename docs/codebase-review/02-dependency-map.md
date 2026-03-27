@@ -85,7 +85,15 @@ HTTP mutation route
   - Uses `src/main/backend/app/utils/read_text_value()` to coerce Oracle-style LOB values
 
 ### Route Clusters
-- `projects.py`
+- `projects/`
+  - `common.py`
+    - Owns shared query, payload, delete-name, integrity-error, audit-change, and publish helpers
+  - `read.py`
+    - Owns list/detail read paths and cache-scoped list/detail shaping
+  - `write.py`
+    - Owns create/update/delete mutations and direct audit/cache publication
+  - `import_export.py`
+    - Owns CSV import/export behavior and scoped export serialization
   - Depends on: `Project`, `User`, utils parsing helpers, `safe_log_changes`, `smart_cache`, `realtime`
   - Touches: list/create/update/delete/import/export of projects, including descendant `solutions`/`subcomponents` cache invalidation and broadcasts on project delete
 - `solutions/`
@@ -207,6 +215,7 @@ HTTP mutation route
 - `scripts/codebase_review.py`
   - `inventory` -> repo-local active surface inventory based on `git ls-files --cached --others --exclude-standard`
   - `stale-scripts` -> repo-local stale-script scan limited to actual `scripts/` candidates
+  - `quality-gates` -> report-only enterprise gate summary for file-size budgets, required repo artifacts, and code-review doc drift
 - Local run path in `src/main/README.md`
   - `python3 -m venv .venv`
   - `pip install -r src/main/requirements.txt`
@@ -217,3 +226,46 @@ HTTP mutation route
 - `src/main/ui/styles/routes/workbench-planning-admin.css` (`3061` lines)
 - `src/main/ui/js/routes/pm-dashboard/render.js` (`785` lines)
 - `src/main/ui/js/routes/planning/api.js` (`627` lines)
+
+## Extraction Boundaries For Enterprise Roadmap
+
+### `src/main/ui/js/app.js`
+- Keep in shell ownership only:
+  - global state bootstrap
+  - route dispatch and view switching
+  - shell controller composition
+  - cross-route coordination callbacks
+- Extract out of shell ownership:
+  - deliverables filters, render, and bulk actions into `src/main/ui/js/routes/master/`
+  - subcomponents workbench filters, drawer, activity, render, and interactions into `src/main/ui/js/routes/subcomponents-workbench/`
+  - shared project/solution/subcomponent modal workflows into `src/main/ui/js/entities/`
+  - route-only calendar, kanban, spaces, and team-capacity interactions into route-local modules
+
+### `src/main/ui/styles/routes/workbench-planning-admin.css`
+- Keep only truly shared route chrome in the compatibility surface.
+- Split route-owned rules into:
+  - `subcomponents-workbench.css`
+  - `planning-work-allocation.css`
+  - `team-capacity.css`
+  - `space-governance.css`
+- Preserve selector contracts while the split is in progress; contract tests remain the source of truth for shared selectors that survive the split.
+
+### `src/main/backend/app/routes/planning/work_allocation.py`
+- Preserve the existing route package root and public wire contracts.
+- Split implementation by behavior/resource:
+  - `common`
+  - `teams`
+  - `people`
+  - `tasks`
+  - `allocations`
+  - `report`
+- Keep shared query helpers, request guards, and cache/realtime publishing behavior in package-local common code instead of duplicating them across route modules.
+
+### `src/main/ui/js/routes/pm-dashboard/render.js`
+- Keep orchestration, state handoff, and high-level section ordering only.
+- Move section renderers into route-local modules for:
+  - summary cards
+  - health/risk/timeline/status cards
+  - capacity section
+  - action renderers and drilldown markup
+- Keep cross-route drilldown callbacks owned by shell context so PM dashboard rendering does not reacquire shell responsibility.

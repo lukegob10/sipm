@@ -3,3 +3,7 @@
 @import "./styles/routes/pm-dashboard.css";
 @import "./styles/routes/kanban-calendar.css";
 @import "./styles/routes/workbench-planning-admin.css";
+@import "./styles/routes/subcomponents-workbench.css";
+@import "./styles/routes/planning-work-allocation.css";
+@import "./styles/routes/team-capacity.css";
+@import "./styles/routes/space-governance.css";

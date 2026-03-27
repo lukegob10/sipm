@@ -1,1 +1,1 @@
-# Jira-lite backend package
+# SIPM backend package

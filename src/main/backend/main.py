@@ -195,7 +195,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Jira-lite API",
+    title="SIPM API",
     version="0.1.0",
     lifespan=lifespan,
     openapi_url=OPENAPI_PATH,

@@ -13,8 +13,19 @@ LIVE_SYNC_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "live-sync.j
 DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 MODAL_SHELL_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "modal-shell.js"
 TOPBAR_CREATE_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "topbar-create.js"
+PROJECT_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "projects.js"
+SUBCOMPONENT_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "subcomponents.js"
+SOLUTION_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "solutions.js"
+CALENDAR_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar" / "interactions.js"
+KANBAN_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban" / "interactions.js"
+TEAM_CAPACITY_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "team-capacity" / "interactions.js"
+SPACES_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "interactions.js"
+SPACES_RENDER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "render.js"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
+MASTER_ROUTE_FILTERS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "filters.js"
+MASTER_ROUTE_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "interactions.js"
+MASTER_ROUTE_QUICKSTART = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "quickstart.js"
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
 PLANNING_STATE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "state.js"
 PLANNING_COMMON = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "common.js"
@@ -26,6 +37,11 @@ PLANNING_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "plannin
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
 PM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "render.js"
 SUBCOMPONENTS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
+SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "bulk-actions.js"
+SUBCOMPONENTS_WORKBENCH_DRAWER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "drawer.js"
+SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "saved-views.js"
+SUBCOMPONENTS_WORKBENCH_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "interactions.js"
+SUBCOMPONENTS_WORKBENCH_OPTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "options.js"
 
 
 def test_master_remains_default_view_and_fallback():
@@ -148,6 +164,122 @@ def test_topbar_create_menu_reuses_existing_create_modals_and_keyboard_menu_patt
     assert "closeTopbarCreateMenu({ restoreFocus: false });" in topbar_text
 
 
+def test_project_modal_workflow_moves_into_shared_entities_layer():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    project_text = PROJECT_ENTITIES_JS.read_text(encoding="utf-8")
+
+    assert 'from "./entities/projects.js";' in app_text
+    assert "const projectEntityController = createProjectEntityController({" in app_text
+    assert "function openProjectForm(project = null) {" in app_text
+    assert "return projectEntityController.openProjectForm(project);" in app_text
+    assert "function closeProjectForm() {" in app_text
+    assert "return projectEntityController.closeProjectForm();" in app_text
+    assert "function bindProjectForm() {" in app_text
+    assert "return projectEntityController.bindProjectForm();" in app_text
+    assert "function setProjectFormVisibility(show) {" not in app_text
+    assert "function setProjectActionButtonLabel(isEditing) {" not in app_text
+    assert "function fillProjectForm(project = null) {" not in app_text
+    assert "export function createProjectEntityController({" in project_text
+    assert "function bindProjectForm() {" in project_text
+    assert "function fillProjectForm(project = null) {" in project_text
+    assert "function setProjectActionButtonLabel(isEditing) {" in project_text
+
+
+def test_solution_modal_workflow_moves_into_shared_entities_layer():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
+
+    assert 'from "./entities/solutions.js";' in app_text
+    assert "const solutionEntityController = createSolutionEntityController({" in app_text
+    assert "function bindSolutionForm() {" in app_text
+    assert "return solutionEntityController.bindSolutionForm();" in app_text
+    assert "function setSubcomponentCreateAvailability(solutionId) {" in app_text
+    assert "return solutionEntityController.setSubcomponentCreateAvailability(solutionId);" in app_text
+    assert 'function openSolutionModal(solution = null, tab = "details") {' in app_text
+    assert "return solutionEntityController.openSolutionModal(solution, tab);" in app_text
+    assert "function closeSolutionModal() {" in app_text
+    assert "return solutionEntityController.closeSolutionModal();" in app_text
+    assert "function buildSolutionPayload(data) {" not in app_text
+    assert "function fillSolutionForm(solution = null) {" not in app_text
+    assert "function setSolutionActionButtonLabel(isEditing) {" not in app_text
+    assert "export function createSolutionEntityController({" in solution_text
+    assert "function buildSolutionPayload(data) {" in solution_text
+    assert "function fillSolutionForm(solution = null) {" in solution_text
+    assert "function setSolutionActionButtonLabel(isEditing) {" in solution_text
+    assert "function setSubcomponentCreateAvailability(solutionId) {" in solution_text
+
+
+def test_subcomponent_modal_workflow_moves_into_shared_entities_layer():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    subcomponent_text = SUBCOMPONENT_ENTITIES_JS.read_text(encoding="utf-8")
+
+    assert 'from "./entities/subcomponents.js";' in app_text
+    assert "const subcomponentEntityController = createSubcomponentEntityController({" in app_text
+    assert "function setSubcomponentActionButtonLabel(isEditing) {" in app_text
+    assert "return subcomponentEntityController.setSubcomponentActionButtonLabel(isEditing);" in app_text
+    assert "function setSubcomponentFormVisibility(show) {" in app_text
+    assert "return subcomponentEntityController.setSubcomponentFormVisibility(show);" in app_text
+    assert "function showSubcomponentForm(solution) {" in app_text
+    assert "return subcomponentEntityController.showSubcomponentForm(solution);" in app_text
+    assert "function fillSubcomponentForm(sub) {" in app_text
+    assert "return subcomponentEntityController.fillSubcomponentForm(sub);" in app_text
+    assert "function bindSubcomponentForm() {" in app_text
+    assert "return subcomponentEntityController.bindSubcomponentForm();" in app_text
+    assert "function buildSubcomponentPayload(data) {" not in app_text
+    assert "function prepareSubcomponentCreateForm(solution, options = {}) {" not in app_text
+    assert "export function createSubcomponentEntityController({" in subcomponent_text
+    assert "function buildSubcomponentPayload(data) {" in subcomponent_text
+    assert "function prepareSubcomponentCreateForm(solution, options = {}) {" in subcomponent_text
+    assert "function fillSubcomponentForm(sub) {" in subcomponent_text
+    assert "function bindSubcomponentForm() {" in subcomponent_text
+
+
+def test_calendar_controls_and_persistence_move_into_route_local_module():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    calendar_text = CALENDAR_INTERACTIONS_JS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/calendar/interactions.js";' in app_text
+    assert "const calendarRouteController = createCalendarRouteController({" in app_text
+    assert "function persistCalendarViewState() {" in app_text
+    assert "return calendarRouteController.persistCalendarViewState();" in app_text
+    assert "function restoreCalendarViewState() {" in app_text
+    assert "return calendarRouteController.restoreCalendarViewState();" in app_text
+    assert "calendarRouteController.bindCalendarRouteControls();" in app_text
+    assert "function formatMonthInputValue(date) {" not in app_text
+    assert "function parseMonthInputValue(value) {" not in app_text
+    assert "function openCalendarProjectDrilldown(projectId)" not in app_text
+    assert "function openCalendarModal(day)" not in app_text
+    assert "export function createCalendarRouteController({" in calendar_text
+    assert "function formatMonthInputValue(date) {" in calendar_text
+    assert "function parseMonthInputValue(value) {" in calendar_text
+    assert "function openCalendarProjectDrilldown(projectId) {" in calendar_text
+    assert "function openCalendarModal(day) {" in calendar_text
+
+
+def test_kanban_controls_and_persistence_move_into_route_local_module():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    kanban_text = KANBAN_INTERACTIONS_JS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/kanban/interactions.js";' in app_text
+    assert "const kanbanRouteController = createKanbanRouteController({" in app_text
+    assert "function filteredSolutionsForKanban() {" in app_text
+    assert "return kanbanRouteController.filteredSolutionsForKanban();" in app_text
+    assert "function persistKanbanViewState() {" in app_text
+    assert "return kanbanRouteController.persistKanbanViewState();" in app_text
+    assert "function restoreKanbanViewState() {" in app_text
+    assert "return kanbanRouteController.restoreKanbanViewState();" in app_text
+    assert "kanbanRouteController.bindKanbanRouteControls();" in app_text
+    assert "function openKanbanProjectDrilldown(projectId) {" in app_text
+    assert "return kanbanRouteController.openKanbanProjectDrilldown(projectId);" in app_text
+    assert "function openKanbanSolutionDrilldown(solutionId) {" in app_text
+    assert "return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);" in app_text
+    assert "export function createKanbanRouteController({" in kanban_text
+    assert "function filteredSolutionsForKanban() {" in kanban_text
+    assert "function persistKanbanViewState() {" in kanban_text
+    assert "function restoreKanbanViewState() {" in kanban_text
+    assert "function bindKanbanRouteControls() {" in kanban_text
+
+
 def test_topbar_subcomponent_create_uses_solution_context_or_picker():
     topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
@@ -193,8 +325,9 @@ def test_topbar_create_menu_uses_compact_topbar_menu_styling():
 
 def test_master_invalid_preset_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in app_text
+    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in filters_text
     assert 'state.deliverablesPreset = String(stored.deliverablesPreset || "");' in app_text
     assert "if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {" in app_text
     assert 'state.deliverablesPreset = "";' in app_text
@@ -205,67 +338,73 @@ def test_master_invalid_preset_is_auto_cleared_and_persisted():
 
 def test_master_invalid_type_filter_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);' in app_text
+    assert 'export const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);' in filters_text
     assert 'const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};' in app_text
-    assert "function normalizeMasterFilters(filters = {}, preset = \"\") {" in app_text
-    assert "next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : \"\";" in app_text
+    assert "export function normalizeMasterFilters(filters = {}, preset = \"\") {" in filters_text
+    assert "next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : \"\";" in filters_text
     assert 'state.filters = normalized.filters;' in app_text
     assert "if (changed) persistMasterViewState();" in app_text
 
 
 def test_master_text_filters_self_heal_to_plain_strings():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in app_text
-    assert "MASTER_TEXT_FILTER_KEYS.forEach((key) => {" in app_text
-    assert 'if (typeof value === "string") {' in app_text
-    assert 'next[key] = "";' in app_text
-    assert 'if (value !== null && value !== undefined && value !== "") changed = true;' in app_text
+    assert 'export const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in filters_text
+    assert "MASTER_TEXT_FILTER_KEYS.forEach((key) => {" in filters_text
+    assert 'if (typeof value === "string") {' in filters_text
+    assert 'next[key] = "";' in filters_text
+    assert 'if (value !== null && value !== undefined && value !== "") changed = true;' in filters_text
 
 
 def test_master_priority_and_progress_filters_self_heal_to_valid_ranges():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert "function normalizeMasterPriorityFilter(value) {" in app_text
-    assert "return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : \"\";" in app_text
-    assert "function normalizeMasterProgressFilter(value) {" in app_text
-    assert "return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : \"\";" in app_text
-    assert "const priority = normalizeMasterPriorityFilter(source.priority);" in app_text
-    assert "const progress = normalizeMasterProgressFilter(source.progress);" in app_text
+    assert "export function normalizeMasterPriorityFilter(value) {" in filters_text
+    assert "return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : \"\";" in filters_text
+    assert "export function normalizeMasterProgressFilter(value) {" in filters_text
+    assert "return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : \"\";" in filters_text
+    assert "const priority = normalizeMasterPriorityFilter(source.priority);" in filters_text
+    assert "const progress = normalizeMasterProgressFilter(source.progress);" in filters_text
 
 
 def test_master_engineering_hidden_filters_self_heal_on_restore_and_preset_switch():
     app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
+    interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];' in app_text
-    assert 'if (preset === "engineering") {' in app_text
-    assert "MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {" in app_text
-    assert 'if (next.type === "project") {' in app_text
-    assert 'next.type = "";' in app_text
-    assert "const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);" in app_text
+    assert 'export const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];' in filters_text
+    assert 'if (preset === "engineering") {' in filters_text
+    assert "MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {" in filters_text
+    assert 'if (next.type === "project") {' in filters_text
+    assert 'next.type = "";' in filters_text
+    assert "const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);" in interactions_text
     assert 'state.filters = normalized.filters;' in app_text
 
 
 def test_master_repo_presence_filter_self_heals_when_engineering_preset_is_not_active():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in app_text
-    assert 'next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";' in app_text
-    assert "} else if (next.repo_presence) {" in app_text
-    assert 'next.repo_presence = "";' in app_text
-    assert "changed = true;" in app_text
+    assert 'export const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in filters_text
+    assert 'next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";' in filters_text
+    assert "} else if (next.repo_presence) {" in filters_text
+    assert 'next.repo_presence = "";' in filters_text
+    assert "changed = true;" in filters_text
 
 
 def test_solution_and_subcomponent_forms_include_github_repo_fields():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
+    solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
+    subcomponent_text = SUBCOMPONENT_ENTITIES_JS.read_text(encoding="utf-8")
 
     assert 'Primary GitHub Repo' in html_text
     assert 'name="github_repo_url"' in html_text
     assert 'GitHub Repo Override' in html_text
     assert 'id="subcomponent-repo-preview"' in html_text
-    assert 'github_repo_url: data.get("github_repo_url") || null,' in app_text
+    assert 'github_repo_url: data.get("github_repo_url") || null,' in solution_text
+    assert 'github_repo_url: data.get("github_repo_url") || null,' in subcomponent_text
     assert "function updateSubcomponentRepoPreview(solutionId, overrideUrl) {" in app_text
 
 
@@ -467,17 +606,21 @@ def test_app_shell_confirm_modal_is_required_and_never_falls_back_to_browser_con
 
 
 def test_subcomponents_workbench_saved_view_delete_uses_shared_confirm_modal():
-    text = APP_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    saved_views_text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'title: "Delete Saved View?"' in text
-    assert 'message: `Delete saved view "${saved.name}"?`' in text
-    assert 'confirmLabel: "Delete Saved View"' in text
-    assert 'if (!confirm(`Delete saved view "${saved.name}"?`)) return;' not in text
+    assert 'from "./routes/subcomponents-workbench/saved-views.js";' in app_text
+    assert 'title: "Delete Saved View?"' in saved_views_text
+    assert 'message: `Delete saved view "${saved.name}"?`' in saved_views_text
+    assert 'confirmLabel: "Delete Saved View"' in saved_views_text
+    assert 'if (!confirm(`Delete saved view "${saved.name}"?`)) return;' not in saved_views_text
 
 
 def test_team_capacity_member_deactivate_uses_shared_confirm_modal():
-    text = APP_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    text = TEAM_CAPACITY_INTERACTIONS_JS.read_text(encoding="utf-8")
 
+    assert 'from "./routes/team-capacity/interactions.js";' in app_text
     assert 'title: "Deactivate Member?"' in text
     assert 'message: "Deactivate this member? They will be hidden from the roster."' in text
     assert 'confirmLabel: "Deactivate Member"' in text
@@ -485,95 +628,146 @@ def test_team_capacity_member_deactivate_uses_shared_confirm_modal():
 
 
 def test_subcomponents_workbench_saved_view_delete_without_selection_uses_inline_status():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'setSubcomponentsWorkbenchSavedStatus("Select a saved view to delete.");' in text
+    assert 'setSubcomponentsWorkbenchSavedStatus(ctx, "Select a saved view to delete.");' in text
     assert 'alert("Select a saved view to delete.");' not in text
 
 
 def test_subcomponents_workbench_saved_view_save_without_name_uses_inline_status():
-    text = APP_JS.read_text(encoding="utf-8")
+    text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'setSubcomponentsWorkbenchSavedStatus("Enter a view name before saving.");' in text
+    assert 'setSubcomponentsWorkbenchSavedStatus(ctx, "Enter a view name before saving.");' in text
     assert 'alert("Enter a view name before saving.");' not in text
 
 
 def test_subcomponents_workbench_bulk_actions_use_inline_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
+    bulk_text = SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'id="subcomponents-workbench-bulk-feedback"' in html_text
     assert "function setSubcomponentsWorkbenchBulkFeedback(message, tone = \"info\", autoClearMs = 0)" in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Choose a bulk action.", "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Select at least one subcomponent.", "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Select a status value.", "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Unsupported bulk action.", "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Updated ${selectedIds.length} subcomponent${selectedIds.length === 1 ? "" : "s"}.`,' in app_text
-    assert 'alert("Choose a bulk action.");' not in app_text
-    assert 'alert("Select at least one subcomponent.");' not in app_text
-    assert 'alert("Select a status value.");' not in app_text
-    assert 'alert("Enter a due date shift in whole days (e.g. 3 or -2).");' not in app_text
-    assert 'alert("Unsupported bulk action.");' not in app_text
-    assert 'alert(`Bulk update failed: ${err.message || err}`);' not in app_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback("Choose a bulk action.", "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback("Select at least one subcomponent.", "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback("Select a status value.", "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback("Unsupported bulk action.", "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Updated ${selectedIds.length} subcomponent${selectedIds.length === 1 ? "" : "s"}.`,' in bulk_text
+    assert 'alert("Choose a bulk action.");' not in bulk_text
+    assert 'alert("Select at least one subcomponent.");' not in bulk_text
+    assert 'alert("Select a status value.");' not in bulk_text
+    assert 'alert("Enter a due date shift in whole days (e.g. 3 or -2).");' not in bulk_text
+    assert 'alert("Unsupported bulk action.");' not in bulk_text
+    assert 'alert(`Bulk update failed: ${err.message || err}`);' not in bulk_text
 
 
 def test_subcomponents_workbench_delete_outcomes_use_inline_feedback():
-    app_text = APP_JS.read_text(encoding="utf-8")
+    bulk_text = SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
 
-    assert 'deleteTargets.length === 1 ? "Deleting subcomponent…" : `Deleting ${deleteTargets.length} subcomponents…`' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,\n        "error"\n      );' in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,\n      "success",\n      3200\n    );' in app_text
-    assert 'setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");' not in app_text
-    assert 'setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");' not in app_text
+    assert 'deleteTargets.length === 1 ? "Deleting subcomponent…" : `Deleting ${deleteTargets.length} subcomponents…`' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback(\n        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,\n        "error"\n      );' in bulk_text
+    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,\n      "success",\n      3200\n    );' in bulk_text
+    assert 'setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");' not in bulk_text
+    assert 'setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");' not in bulk_text
+
+
+def test_subcomponents_workbench_drawer_editor_behaviors_are_route_local():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    drawer_text = SUBCOMPONENTS_WORKBENCH_DRAWER.read_text(encoding="utf-8")
+    interactions_text = SUBCOMPONENTS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/subcomponents-workbench/drawer.js";' in app_text
+    assert "function syncSubcomponentsWorkbenchDrawer(ctx) {" in drawer_text
+    assert "function fillSubcomponentsWorkbenchForm(ctx, subcomponent) {" in drawer_text
+    assert "async function saveSubcomponentsWorkbenchForm(ctx) {" in drawer_text
+    assert "async function deleteActiveSubcomponentsWorkbenchItem(ctx) {" in drawer_text
+    assert "async function handleSubcomponentsWorkbenchShortcut(ctx, event) {" in drawer_text
+    assert "syncSubcomponentsWorkbenchDrawer(workbenchCtx);" in app_text
+    assert "fillSubcomponentsWorkbenchForm(workbenchCtx, active);" in app_text
+    assert "await saveSubcomponentsWorkbenchForm(ctx);" in interactions_text
+    assert "await deleteActiveSubcomponentsWorkbenchItem(ctx);" in interactions_text
+    assert "await handleSubcomponentsWorkbenchShortcut(ctx, event);" in interactions_text
+
+
+def test_subcomponents_workbench_control_bindings_are_route_local():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = SUBCOMPONENTS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/subcomponents-workbench/interactions.js";' in app_text
+    assert "bindWorkbenchControls(createSubcomponentsWorkbenchContext());" in app_text
+    assert "function bindSubcomponentsWorkbenchControls(ctx) {" in interactions_text
+    assert 'const presetButtons = document.querySelectorAll(".scwb-preset[data-preset]");' in interactions_text
+    assert 'bindDebouncedInput(els.subcomponentsWorkbenchSearch, (value) => {' in interactions_text
+    assert 'els.subcomponentsWorkbenchProject.addEventListener("change", () => {' in interactions_text
+    assert "updateSubcomponentsWorkbenchSolutionOptions(ctx, wb.filters.project_id);" in interactions_text
+    assert 'els.subcomponentsWorkbenchTable.addEventListener("change", (event) => {' in interactions_text
+    assert 'const rowCheck = event.target.closest(".scwb-select-row");' in interactions_text
+    assert "bindSubcomponentsWorkbenchSavedViewControls(ctx);" in interactions_text
+
+
+def test_subcomponents_workbench_option_population_is_route_local():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    options_text = SUBCOMPONENTS_WORKBENCH_OPTIONS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/subcomponents-workbench/options.js";' in app_text
+    assert "function populateSubcomponentsWorkbenchOptions(ctx, { projectOptionsHtml = \"\" } = {}) {" in options_text
+    assert 'const users = state.users' in options_text
+    assert 'els.subcomponentsWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;' in options_text
+    assert 'els.subcomponentsWorkbenchBulkAssignee.innerHTML = `<option value="">Unassigned</option>${userOptions}`;' in options_text
+    assert "normalizeSubcomponentsWorkbenchUiState({ persist: true });" in options_text
+    assert "populateSubcomponentsWorkbenchOptions(createSubcomponentsWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
 
 
 def test_deliverables_bulk_actions_use_inline_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'id="bulk-feedback"' in html_text
     assert "function setBulkFeedback(message, tone = \"info\", autoClearMs = 0)" in app_text
-    assert 'setBulkFeedback("Updating deliverables…");' in app_text
-    assert 'setBulkFeedback("Select a status first.", "error");' in app_text
-    assert 'setBulkFeedback("Enter an owner name.", "error");' in app_text
-    assert 'setBulkFeedback("Deliverables updated.", "success", 3200);' in app_text
-    assert 'setBulkFeedback(`Bulk update failed: ${err.message}`, "error");' in app_text
+    assert 'setBulkFeedback("Updating deliverables…");' in interactions_text
+    assert 'setBulkFeedback("Select a status first.", "error");' in interactions_text
+    assert 'setBulkFeedback("Enter an owner name.", "error");' in interactions_text
+    assert 'setBulkFeedback("Deliverables updated.", "success", 3200);' in interactions_text
+    assert 'setBulkFeedback(`Bulk update failed: ${err.message}`, "error");' in interactions_text
     assert 'setStatus("Updating deliverables…");' not in app_text
     assert 'setStatus("Deliverables updated", "positive");' not in app_text
-    assert 'alert("Select a status first.");' not in app_text
-    assert 'alert("Enter an owner name.");' not in app_text
-    assert 'alert(`Bulk update failed: ${err.message}`);' not in app_text
+    assert 'alert("Select a status first.");' not in interactions_text
+    assert 'alert("Enter an owner name.");' not in interactions_text
+    assert 'alert(`Bulk update failed: ${err.message}`);' not in interactions_text
 
 
 def test_deliverables_inline_field_updates_use_inline_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "async function updateDeliverableField(type, id, field, value) {" in app_text
-    assert "clearBulkFeedback();" in app_text
-    assert 'setBulkFeedback("Saving deliverable change…");' in app_text
-    assert 'setBulkFeedback("Deliverable updated.", "success", 2200);' in app_text
-    assert 'setBulkFeedback(`Update failed: ${err.message}`, "error");' in app_text
+    assert "async function updateDeliverableField(ctx, type, id, field, value) {" in interactions_text
+    assert "clearBulkFeedback();" in interactions_text
+    assert 'setBulkFeedback("Saving deliverable change…");' in interactions_text
+    assert 'setBulkFeedback("Deliverable updated.", "success", 2200);' in interactions_text
+    assert 'setBulkFeedback(`Update failed: ${err.message}`, "error");' in interactions_text
     assert 'setStatus("Deliverable updated", "positive");' not in app_text
     assert 'setStatus("Deliverable update failed", "danger");' not in app_text
-    assert 'alert(`Update failed: ${err.message}`);' not in app_text
+    assert 'alert(`Update failed: ${err.message}`);' not in interactions_text
 
 
 def test_team_capacity_member_form_uses_inline_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
+    interactions_text = TEAM_CAPACITY_INTERACTIONS_JS.read_text(encoding="utf-8")
 
     assert 'id="capacity-user-form-status"' in html_text
     assert "function setCapacityUserFormStatus(message, tone = \"info\", autoClearMs = 0)" in app_text
-    assert 'setCapacityUserFormStatus("Select a member from the roster (or type an exact SOEID/name match) first.", "error");' in app_text
-    assert 'setCapacityUserFormStatus(`Save failed: ${err.message}`, "error");' in app_text
-    assert 'setCapacityUserFormStatus("Select a member first.", "error");' in app_text
-    assert 'setCapacityUserFormStatus(`Delete failed: ${err.message}`, "error");' in app_text
-    assert 'setCapacityUserFormStatus(`Saved member at ${timestampLabel()}.`, "success", 3200);' in app_text
-    assert 'setCapacityUserFormStatus(`Member deactivated at ${timestampLabel()}.`, "success", 3200);' in app_text
-    assert 'alert("Select a member from the roster (or type an exact SOEID/name match) first.");' not in app_text
-    assert 'alert("Select a member first.");' not in app_text
+    assert 'setCapacityUserFormStatus("Select a member from the roster (or type an exact SOEID/name match) first.", "error");' in interactions_text
+    assert 'setCapacityUserFormStatus(`Save failed: ${err.message}`, "error");' in interactions_text
+    assert 'setCapacityUserFormStatus("Select a member first.", "error");' in interactions_text
+    assert 'setCapacityUserFormStatus(`Delete failed: ${err.message}`, "error");' in interactions_text
+    assert 'setCapacityUserFormStatus(`Saved member at ${timestampLabel()}.`, "success", 3200);' in interactions_text
+    assert 'setCapacityUserFormStatus(`Member deactivated at ${timestampLabel()}.`, "success", 3200);' in interactions_text
+    assert 'alert("Select a member from the roster (or type an exact SOEID/name match) first.");' not in interactions_text
+    assert 'alert("Select a member first.");' not in interactions_text
 
 
 def test_planning_allocation_delete_failure_uses_inline_feedback():
@@ -619,6 +813,7 @@ def test_planning_dragging_assigned_task_moves_existing_allocation_instead_of_cr
 def test_operational_views_can_hide_completed_work_across_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
     planning_common_text = PLANNING_COMMON.read_text(encoding="utf-8")
     planning_render_text = PLANNING_RENDER.read_text(encoding="utf-8")
     workbench_text = SUBCOMPONENTS_WORKBENCH_ROUTE.read_text(encoding="utf-8")
@@ -628,8 +823,8 @@ def test_operational_views_can_hide_completed_work_across_space():
     assert 'workspacePrefs: { showCompleted: false },' in app_text
     assert "function renderCompletedVisibilityToggle()" in app_text
     assert "function showCompletedOperationalWork()" in app_text
-    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;" in app_text
-    assert "if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;" in app_text
+    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(solution.status)) return false;" in filters_text
+    assert "if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;" in filters_text
     assert "if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;" in app_text
     assert "Completed items are hidden here. Use Show Completed in the top bar" in app_text
     assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_common_text
@@ -649,11 +844,59 @@ def test_workspace_prefs_corrupt_or_empty_state_is_rewritten_to_defaults():
 
 def test_calendar_kanban_and_team_capacity_seed_default_scoped_state():
     app_text = APP_JS.read_text(encoding="utf-8")
+    calendar_text = CALENDAR_INTERACTIONS_JS.read_text(encoding="utf-8")
+    kanban_text = KANBAN_INTERACTIONS_JS.read_text(encoding="utf-8")
+    team_capacity_text = TEAM_CAPACITY_INTERACTIONS_JS.read_text(encoding="utf-8")
 
     assert "function restoreCalendarViewState() {" in app_text
-    assert "state.calendarMonth = parsedMonth || state.calendarMonth || new Date();" in app_text
-    assert "if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();" in app_text
+    assert "return calendarRouteController.restoreCalendarViewState();" in app_text
+    assert "state.calendarMonth = parsedMonth || state.calendarMonth || new Date();" in calendar_text
+    assert "if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();" in calendar_text
     assert "function restoreKanbanViewState() {" in app_text
-    assert "if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();" in app_text
+    assert "return kanbanRouteController.restoreKanbanViewState();" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();" in kanban_text
     assert "function restoreTeamCapacityViewState() {" in app_text
-    assert "if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();" in app_text
+    assert "return teamCapacityRouteController.restoreTeamCapacityViewState();" in app_text
+    assert "if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();" in team_capacity_text
+
+
+def test_team_capacity_controls_and_persistence_move_into_route_local_module():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = TEAM_CAPACITY_INTERACTIONS_JS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/team-capacity/interactions.js";' in app_text
+    assert "const teamCapacityRouteController = createTeamCapacityRouteController({" in app_text
+    assert "function bindCapacityUsers() {" in app_text
+    assert "return teamCapacityRouteController.bindTeamCapacityControls();" in app_text
+    assert "function restoreTeamCapacityViewState() {" in app_text
+    assert "return teamCapacityRouteController.restoreTeamCapacityViewState();" in app_text
+    assert "async function loadTeamCapacityData(options = {}) {" in app_text
+    assert "return teamCapacityRouteController.loadTeamCapacityData(options);" in app_text
+    assert "export function createTeamCapacityRouteController({" in interactions_text
+    assert "function bindTeamCapacityControls() {" in interactions_text
+    assert "async function loadTeamCapacityData(options = {}) {" in interactions_text
+    assert "function persistTeamCapacityViewState() {" in interactions_text
+    assert "function restoreTeamCapacityViewState() {" in interactions_text
+
+
+def test_space_governance_modal_and_action_bindings_move_into_route_local_module():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    interactions_text = SPACES_INTERACTIONS_JS.read_text(encoding="utf-8")
+    render_text = SPACES_RENDER_JS.read_text(encoding="utf-8")
+
+    assert 'from "./routes/spaces/interactions.js";' in app_text
+    assert 'from "./routes/spaces/render.js";' in app_text
+    assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
+    assert "const spaceGovernanceRenderer = createSpaceGovernanceRenderer({" in app_text
+    assert "function bindSpaceAdminControls() {" in app_text
+    assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
+    assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
+    assert "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "export function createSpaceGovernanceController({" in interactions_text
+    assert "function openSpaceCreateModal() {" in interactions_text
+    assert "async function handleSpaceGovernanceAction(button) {" in interactions_text
+    assert 'els.spaceGovernanceShell.addEventListener("submit", async (event) => {' in interactions_text
+    assert 'data-space-action="copy-temp-password"' not in interactions_text
+    assert "export function createSpaceGovernanceRenderer({" in render_text
+    assert "function renderPlatformPasswordResetResult() {" in render_text
+    assert 'data-space-action="copy-temp-password"' in render_text

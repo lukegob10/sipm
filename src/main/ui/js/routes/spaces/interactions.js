@@ -1,0 +1,545 @@
+export function createSpaceGovernanceController({
+  state,
+  els,
+  api,
+  normalize,
+  normalizeGovernanceSection,
+  userIsGlobalAdmin,
+  activeSpaceId,
+  canManageSpaceMembership,
+  effectiveDirectorySpaces,
+  spaceNameForId,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  setSpaceGovernanceNotice,
+  renderGovernanceHub,
+  renderSpaceDirectoryModal,
+  isSpaceGovernanceView,
+  refreshSpaceContext,
+  refreshFromServer,
+  switchActiveSpace,
+  showConfirmModal,
+  copyText,
+  buildResetPageUrl,
+}) {
+  let globalAdminsInFlight = null;
+  const spaceMembersInFlight = {};
+
+  function openSpaceCreateModal() {
+    if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
+    els.spaceCreateModal.classList.remove("hidden");
+    els.spaceCreateModalForm?.reset();
+    clearDeliverableFormNotice(els.spaceCreateStatus);
+    window.setTimeout(() => {
+      els.spaceCreateModalForm?.querySelector('[name="name"]')?.focus();
+    }, 0);
+  }
+
+  function closeSpaceCreateModal() {
+    els.spaceCreateModal?.classList.add("hidden");
+  }
+
+  function openSpaceMemberModal(spaceId = activeSpaceId()) {
+    const targetSpaceId = String(spaceId || "").trim();
+    if (!targetSpaceId || !canManageSpaceMembership(targetSpaceId) || !els.spaceMemberModalForm) return;
+    const targetSpace = effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId) || null;
+    els.spaceMemberModalForm.reset();
+    els.spaceMemberModalForm.querySelector('[name="space_id"]').value = targetSpaceId;
+    if (els.spaceMemberModalContext) {
+      els.spaceMemberModalContext.textContent = `Adding a member to ${targetSpace?.name || targetSpaceId}.`;
+    }
+    clearDeliverableFormNotice(els.spaceMemberStatus);
+    els.spaceMemberModal.classList.remove("hidden");
+    window.setTimeout(() => {
+      els.spaceMemberModalForm?.querySelector('[name="soeid"]')?.focus();
+    }, 0);
+  }
+
+  function closeSpaceMemberModal() {
+    els.spaceMemberModal?.classList.add("hidden");
+  }
+
+  function openSpaceDirectoryModal(spaceId) {
+    const targetSpaceId = String(spaceId || state.spaceMembershipSpaceId || "").trim();
+    if (!targetSpaceId || !els.spaceDirectoryModal) return;
+    state.spaceMembershipSpaceId = targetSpaceId;
+    state.spaceDirectoryModalOpen = true;
+    renderSpaceDirectoryModal();
+    els.spaceDirectoryModal.classList.remove("hidden");
+    window.setTimeout(() => {
+      els.spaceDirectoryModalClose?.focus();
+    }, 0);
+  }
+
+  function closeSpaceDirectoryModal() {
+    state.spaceDirectoryModalOpen = false;
+    els.spaceDirectoryModal?.classList.add("hidden");
+  }
+
+  async function refreshGlobalAdmins() {
+    if (!userIsGlobalAdmin()) {
+      state.globalAdmins = [];
+      state.globalAdminsLoaded = false;
+      return;
+    }
+    if (globalAdminsInFlight) return globalAdminsInFlight;
+    globalAdminsInFlight = api("/users/global-admins?active_only=false")
+      .then((rows) => {
+        state.globalAdmins = Array.isArray(rows) ? rows : [];
+        state.globalAdminsLoaded = true;
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.globalAdmins;
+      })
+      .finally(() => {
+        globalAdminsInFlight = null;
+      });
+    return globalAdminsInFlight;
+  }
+
+  async function issuePasswordResetForSoeid(soeid, expiresMinutes = null) {
+    const soeidNorm = String(soeid || "").trim().toLowerCase();
+    if (!soeidNorm) {
+      throw new Error("SOEID is required.");
+    }
+    const body = {};
+    if (expiresMinutes !== null && expiresMinutes !== undefined && String(expiresMinutes).trim() !== "") {
+      body.expires_minutes = Number(expiresMinutes);
+    }
+    const issued = await api(`/users/by-soeid/${encodeURIComponent(soeidNorm)}/password-reset-request`, {
+      method: "POST",
+      ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
+    });
+    state.platformPasswordReset = {
+      soeid: soeidNorm,
+      temp_password: issued?.temp_password || "",
+      expires_at: issued?.expires_at || "",
+      reset_url: buildResetPageUrl(),
+    };
+    if (isSpaceGovernanceView(state.currentView)) {
+      renderGovernanceHub();
+    }
+    return state.platformPasswordReset;
+  }
+
+  async function refreshSpaceMembers(spaceId, options = {}) {
+    const targetSpaceId = String(spaceId || "").trim();
+    if (!targetSpaceId) return [];
+    const force = !!options.force;
+    if (!force && state.spaceMembersLoadedBySpace[targetSpaceId]) {
+      return state.spaceMembersBySpace[targetSpaceId] || [];
+    }
+    if (spaceMembersInFlight[targetSpaceId]) {
+      return spaceMembersInFlight[targetSpaceId];
+    }
+    spaceMembersInFlight[targetSpaceId] = api(`/spaces/${encodeURIComponent(targetSpaceId)}/members`)
+      .then((rows) => {
+        state.spaceMembersBySpace[targetSpaceId] = Array.isArray(rows) ? rows : [];
+        state.spaceMembersLoadedBySpace[targetSpaceId] = true;
+        if (isSpaceGovernanceView(state.currentView) && state.spaceMembershipSpaceId === targetSpaceId) {
+          renderGovernanceHub();
+        } else if (isSpaceGovernanceView(state.currentView) && targetSpaceId === activeSpaceId()) {
+          renderGovernanceHub();
+        }
+        return state.spaceMembersBySpace[targetSpaceId];
+      })
+      .finally(() => {
+        delete spaceMembersInFlight[targetSpaceId];
+      });
+    return spaceMembersInFlight[targetSpaceId];
+  }
+
+  async function handleSpaceGovernanceAction(button) {
+    if (!button) return false;
+    const action = button.getAttribute("data-space-action") || "";
+    const spaceId = button.getAttribute("data-space-id") || "";
+    const membershipId = button.getAttribute("data-membership-id") || "";
+    const soeid = button.getAttribute("data-soeid") || "";
+    const launchedFromDirectoryModal = !!button.closest("#space-directory-modal");
+    if (action !== "toggle-member-menu") {
+      state.spaceMembershipActionMenuId = "";
+    }
+    if (action === "select-section") {
+      state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
+      renderGovernanceHub();
+      return true;
+    }
+    if (action === "open-directory-space") {
+      openSpaceDirectoryModal(spaceId);
+      return true;
+    }
+    if (action === "close-directory-space-modal") {
+      closeSpaceDirectoryModal();
+      return true;
+    }
+    if (action === "preview-space") {
+      state.spaceMembershipSpaceId = spaceId;
+      renderGovernanceHub();
+      return true;
+    }
+    if (action === "open-create-space-modal") {
+      openSpaceCreateModal();
+      return true;
+    }
+    if (action === "open-member-modal") {
+      if (launchedFromDirectoryModal) {
+        closeSpaceDirectoryModal();
+      }
+      openSpaceMemberModal(spaceId || activeSpaceId());
+      return true;
+    }
+    if (action === "switch-space") {
+      if (launchedFromDirectoryModal) {
+        closeSpaceDirectoryModal();
+      }
+      await switchActiveSpace(spaceId);
+      return true;
+    }
+    if (action === "toggle-member-menu") {
+      state.spaceMembershipActionMenuId = state.spaceMembershipActionMenuId === membershipId ? "" : membershipId;
+      renderGovernanceHub();
+      return true;
+    }
+    if (action === "toggle-space-active" && userIsGlobalAdmin()) {
+      const nextActive = normalize(button.getAttribute("data-next-active")) === "true";
+      const targetName = spaceNameForId(spaceId) || "this space";
+      const confirmed = await showConfirmModal({
+        title: nextActive ? "Reactivate Space" : "Archive Space",
+        message: nextActive
+          ? `Reactivate ${targetName}?`
+          : `Archive ${targetName}? It will stop appearing in active space lists until reactivated.`,
+        confirmLabel: nextActive ? "Reactivate" : "Archive",
+      });
+      if (!confirmed) return true;
+      try {
+        const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: nextActive }),
+        });
+        if (updated?.is_active === false) {
+          state.archivedSpacesById[updated.space_id] = updated;
+        } else if (updated?.space_id) {
+          delete state.archivedSpacesById[updated.space_id];
+        }
+        await refreshSpaceContext();
+        state.spaceMembershipSpaceId = updated?.space_id || state.spaceMembershipSpaceId;
+        state.spaceAdminSection = "space-directory";
+        if (launchedFromDirectoryModal) {
+          closeSpaceDirectoryModal();
+        }
+        setSpaceGovernanceNotice(
+          `${nextActive ? "Reactivated" : "Archived"} ${updated?.name || targetName}.`,
+          "success",
+          4500
+        );
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Space update failed.", "error", 7000);
+      }
+      return true;
+    }
+    if (action === "toggle-space-member-role" || action === "toggle-space-member-status" || action === "delete-space-member") {
+      if (!membershipId || !spaceId || !canManageSpaceMembership(spaceId)) {
+        setSpaceGovernanceNotice("Switch into this space to manage its memberships.", "error", 7000);
+        return true;
+      }
+      try {
+        if (action === "toggle-space-member-role") {
+          const nextRole = (button.getAttribute("data-next-role") || "").trim();
+          await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ role: nextRole }),
+          });
+        } else if (action === "toggle-space-member-status") {
+          const nextStatus = (button.getAttribute("data-next-status") || "").trim();
+          await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+            method: "PATCH",
+            body: JSON.stringify({ status: nextStatus }),
+          });
+        } else {
+          const confirmed = await showConfirmModal({
+            title: "Remove Space Member",
+            message: "Remove this member from the selected space?",
+            confirmLabel: "Remove",
+          });
+          if (!confirmed) return true;
+          await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
+            method: "DELETE",
+          });
+        }
+        state.spaceMembersLoadedBySpace[spaceId] = false;
+        await refreshSpaceMembers(spaceId, { force: true });
+        setSpaceGovernanceNotice("Membership updated.", "success", 3500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Membership update failed.", "error", 7000);
+      }
+      return true;
+    }
+    if (action === "issue-password-reset" && userIsGlobalAdmin()) {
+      const confirmed = await showConfirmModal({
+        title: "Issue Password Reset",
+        message: `Issue a one-time password reset for ${soeid}? This will invalidate their active sessions.`,
+        confirmLabel: "Issue Reset",
+      });
+      if (!confirmed) return true;
+      try {
+        await issuePasswordResetForSoeid(soeid);
+        setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
+      }
+      return true;
+    }
+    if (action === "copy-temp-password" || action === "copy-reset-link") {
+      const issued = state.platformPasswordReset;
+      const text = action === "copy-temp-password" ? issued?.temp_password : issued?.reset_url;
+      try {
+        await copyText(text);
+        setSpaceGovernanceNotice(action === "copy-temp-password" ? "Temporary password copied." : "Reset page copied.", "success", 3000);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
+      }
+      return true;
+    }
+    if (action === "clear-reset-result") {
+      state.platformPasswordReset = null;
+      renderGovernanceHub();
+      return true;
+    }
+    if (action === "revoke-global-admin" && userIsGlobalAdmin()) {
+      const confirmed = await showConfirmModal({
+        title: "Revoke Global Admin",
+        message: `Revoke global admin from ${soeid}?`,
+        confirmLabel: "Revoke",
+      });
+      if (!confirmed) return true;
+      try {
+        await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "DELETE" });
+        state.globalAdminsLoaded = false;
+        await refreshGlobalAdmins();
+        await refreshFromServer("users");
+        setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Revoke failed.", "error", 7000);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function bindSpaceAdminControls() {
+    if (els.spaceCreateModalClose && !els.spaceCreateModalClose._bound) {
+      els.spaceCreateModalClose.addEventListener("click", closeSpaceCreateModal);
+      els.spaceCreateModalClose._bound = true;
+    }
+    if (els.spaceCreateModal && !els.spaceCreateModal._bound) {
+      els.spaceCreateModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceCreateModal);
+      els.spaceCreateModal._bound = true;
+    }
+    if (els.spaceCreateModalForm && !els.spaceCreateModalForm._bound) {
+      els.spaceCreateModalForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!userIsGlobalAdmin()) return;
+        const data = new FormData(els.spaceCreateModalForm);
+        const name = String(data.get("name") || "").trim();
+        const slug = String(data.get("slug") || "").trim();
+        if (!name) {
+          setDeliverableFormNotice(els.spaceCreateStatus, "Space name is required.", "error");
+          return;
+        }
+        try {
+          const created = await api("/spaces", {
+            method: "POST",
+            body: JSON.stringify({ name, slug: slug || null }),
+          });
+          clearDeliverableFormNotice(els.spaceCreateStatus);
+          closeSpaceCreateModal();
+          setSpaceGovernanceNotice(`Created ${created?.name || name}.`, "success", 4500);
+          await refreshSpaceContext();
+          state.spaceMembershipSpaceId = created?.space_id || state.spaceMembershipSpaceId;
+          state.spaceAdminSection = "space-directory";
+          renderGovernanceHub();
+        } catch (err) {
+          setDeliverableFormNotice(els.spaceCreateStatus, err?.message || "Space create failed.", "error");
+        }
+      });
+      els.spaceCreateModalForm._bound = true;
+    }
+
+    if (els.spaceMemberModalClose && !els.spaceMemberModalClose._bound) {
+      els.spaceMemberModalClose.addEventListener("click", closeSpaceMemberModal);
+      els.spaceMemberModalClose._bound = true;
+    }
+    if (els.spaceMemberModal && !els.spaceMemberModal._bound) {
+      els.spaceMemberModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceMemberModal);
+      els.spaceMemberModal._bound = true;
+    }
+    if (els.spaceMemberModalForm && !els.spaceMemberModalForm._bound) {
+      els.spaceMemberModalForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const data = new FormData(els.spaceMemberModalForm);
+        const spaceId = String(data.get("space_id") || "").trim();
+        const soeid = String(data.get("soeid") || "").trim().toLowerCase();
+        const role = String(data.get("role") || "member");
+        const status = String(data.get("status") || "active");
+        if (!spaceId) {
+          setDeliverableFormNotice(els.spaceMemberStatus, "Select a space first.", "error");
+          return;
+        }
+        if (!canManageSpaceMembership(spaceId)) {
+          setDeliverableFormNotice(els.spaceMemberStatus, "Switch into this space to manage its memberships.", "error");
+          return;
+        }
+        if (!soeid) {
+          setDeliverableFormNotice(els.spaceMemberStatus, "SOEID is required.", "error");
+          return;
+        }
+        try {
+          await api(`/spaces/${encodeURIComponent(spaceId)}/members/by-soeid`, {
+            method: "POST",
+            body: JSON.stringify({ soeid, role, status }),
+          });
+          state.spaceMembersLoadedBySpace[spaceId] = false;
+          await refreshSpaceMembers(spaceId, { force: true });
+          closeSpaceMemberModal();
+          setSpaceGovernanceNotice(`Added ${soeid} to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
+        } catch (err) {
+          setDeliverableFormNotice(els.spaceMemberStatus, err?.message || "Add member failed.", "error");
+        }
+      });
+      els.spaceMemberModalForm._bound = true;
+    }
+
+    if (els.spaceDirectoryModalClose && !els.spaceDirectoryModalClose._bound) {
+      els.spaceDirectoryModalClose.addEventListener("click", closeSpaceDirectoryModal);
+      els.spaceDirectoryModalClose._bound = true;
+    }
+    if (els.spaceDirectoryModal && !els.spaceDirectoryModal._bound) {
+      els.spaceDirectoryModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceDirectoryModal);
+      els.spaceDirectoryModal.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-space-action]");
+        if (!button) return;
+        await handleSpaceGovernanceAction(button);
+      });
+      els.spaceDirectoryModal._bound = true;
+    }
+
+    if (els.spaceGovernanceShell && !els.spaceGovernanceShell._bound) {
+      els.spaceGovernanceShell.addEventListener("click", async (event) => {
+        const button = event.target.closest("button[data-space-action]");
+        if (!button) return;
+        await handleSpaceGovernanceAction(button);
+      });
+      els.spaceGovernanceShell.addEventListener("submit", async (event) => {
+        const form = event.target.closest("form");
+        if (!form) return;
+        if (form.id === "space-platform-access-form") {
+          event.preventDefault();
+          if (!userIsGlobalAdmin()) return;
+          const data = new FormData(form);
+          const soeid = String(data.get("soeid") || "").trim().toLowerCase();
+          if (!soeid) {
+            setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
+            return;
+          }
+          try {
+            await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "POST" });
+            state.globalAdminsLoaded = false;
+            await refreshGlobalAdmins();
+            await refreshFromServer("users");
+            form.reset();
+            setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
+          } catch (err) {
+            setSpaceGovernanceNotice(err?.message || "Grant failed.", "error", 7000);
+          }
+          return;
+        }
+        if (form.id === "space-password-reset-form") {
+          event.preventDefault();
+          if (!userIsGlobalAdmin()) return;
+          const data = new FormData(form);
+          const soeid = String(data.get("soeid") || "").trim().toLowerCase();
+          const expiresMinutesRaw = String(data.get("expires_minutes") || "").trim();
+          if (!soeid) {
+            setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
+            return;
+          }
+          if (expiresMinutesRaw) {
+            const expiresMinutes = Number(expiresMinutesRaw);
+            if (!Number.isInteger(expiresMinutes) || expiresMinutes < 5 || expiresMinutes > 1440) {
+              setSpaceGovernanceNotice("Expiration must be a whole number between 5 and 1440 minutes.", "error", 6000);
+              return;
+            }
+          }
+          try {
+            await issuePasswordResetForSoeid(soeid, expiresMinutesRaw || null);
+            form.reset();
+            setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
+          } catch (err) {
+            setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
+          }
+        }
+      });
+      els.spaceGovernanceShell.addEventListener("input", (event) => {
+        if (event.target.id === "space-directory-search") {
+          const nextValue = event.target.value || "";
+          state.spaceDirectoryQuery = nextValue;
+          renderGovernanceHub();
+          const input = els.spaceGovernanceShell?.querySelector("#space-directory-search");
+          if (input) {
+            input.focus();
+            input.value = nextValue;
+            input.setSelectionRange(nextValue.length, nextValue.length);
+          }
+        }
+      });
+      els.spaceGovernanceShell.addEventListener("change", (event) => {
+        if (event.target.id === "space-directory-show-archived") {
+          state.spaceDirectoryShowArchived = !!event.target.checked;
+          renderGovernanceHub();
+        }
+      });
+      els.spaceGovernanceShell._bound = true;
+    }
+
+    if (!document._spaceGovernanceEscapeBound) {
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (els.spaceCreateModal && !els.spaceCreateModal.classList.contains("hidden")) {
+          closeSpaceCreateModal();
+          return;
+        }
+        if (els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden")) {
+          closeSpaceDirectoryModal();
+          return;
+        }
+        if (els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
+          closeSpaceMemberModal();
+        }
+      });
+      document.addEventListener("click", (event) => {
+        if (!state.spaceMembershipActionMenuId) return;
+        const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
+        const clickedInsideMemberActions = eventPath.some((node) => (
+          node
+          && node.classList
+          && (node.classList.contains("space-member-actions") || node.classList.contains("space-action-menu"))
+        ));
+        if (clickedInsideMemberActions) return;
+        state.spaceMembershipActionMenuId = "";
+        renderGovernanceHub();
+      });
+      document._spaceGovernanceEscapeBound = true;
+    }
+  }
+
+  return {
+    bindSpaceAdminControls,
+    closeSpaceCreateModal,
+    closeSpaceDirectoryModal,
+    closeSpaceMemberModal,
+    openSpaceCreateModal,
+    openSpaceDirectoryModal,
+    openSpaceMemberModal,
+    refreshGlobalAdmins,
+    refreshSpaceMembers,
+  };
+}

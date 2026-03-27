@@ -1,0 +1,433 @@
+.sub-workbench-kpis {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+.sub-workbench-layout {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  gap: 16px;
+  align-items: start;
+  position: relative;
+  isolation: isolate;
+}
+.sub-workbench-layout.sub-workbench-layout-drawer-hidden {
+  grid-template-columns: minmax(0, 1fr);
+}
+.sub-workbench-layout > * {
+  min-width: 0;
+}
+.sub-workbench-main {
+  min-width: 0;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+.sub-workbench-filters-wrap {
+  margin-top: 0;
+  overflow-x: visible;
+  overflow-y: visible;
+}
+.sub-workbench-filters-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 0;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-search {
+  width: 34%;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-project {
+  width: 16%;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-solution {
+  width: 16%;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-assignee {
+  width: 14%;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-status {
+  width: 10%;
+}
+.sub-workbench-filters-table col.sub-workbench-filter-priority {
+  width: 10%;
+}
+.sub-workbench-filters-table th,
+.sub-workbench-filters-table td {
+  text-align: center;
+}
+.sub-workbench-main .panel-toolbar.compact {
+  margin-top: 8px;
+}
+.sub-workbench-main .table {
+  margin-top: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  position: relative;
+  z-index: 1;
+}
+.sub-workbench-drawer {
+  min-width: 0;
+  position: relative;
+  z-index: 3;
+}
+.sub-workbench-table {
+  min-width: 0;
+  width: 100%;
+  table-layout: fixed;
+  margin: 0;
+}
+.sub-workbench-table th:nth-child(1),
+.sub-workbench-table td:nth-child(1) {
+  width: 40px;
+  text-align: center;
+}
+.sub-workbench-table th:nth-child(2),
+.sub-workbench-table td:nth-child(2) {
+  width: 42%;
+  white-space: normal;
+}
+.sub-workbench-table th:nth-child(3),
+.sub-workbench-table td:nth-child(3) {
+  width: 14%;
+}
+.sub-workbench-table th:nth-child(4),
+.sub-workbench-table td:nth-child(4) {
+  width: 14%;
+}
+.sub-workbench-table th:nth-child(5),
+.sub-workbench-table td:nth-child(5) {
+  width: 10%;
+}
+.sub-workbench-table th:nth-child(6),
+.sub-workbench-table td:nth-child(6) {
+  width: 8%;
+}
+.sub-workbench-table th:nth-child(7),
+.sub-workbench-table td:nth-child(7) {
+  width: 10%;
+}
+.sub-workbench-context {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.sub-workbench-context-primary,
+.sub-workbench-context-secondary {
+  display: block;
+}
+.sub-workbench-context-source {
+  color: var(--muted);
+  font-size: 11px;
+}
+.sub-workbench-context-link {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline;
+  font: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-decoration: none;
+}
+.sub-workbench-context-link:hover,
+.sub-workbench-context-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+.sub-workbench-status-cell {
+  white-space: nowrap;
+}
+.sub-workbench-urgency {
+  display: inline-flex;
+  min-width: 68px;
+  justify-content: center;
+}
+.sub-workbench-urgency.muted {
+  color: var(--muted);
+}
+#subcomponents-workbench-activity {
+  margin-top: 10px;
+}
+@media (max-width: 1320px) {
+  .sub-workbench-layout {
+    grid-template-columns: 1fr;
+  }
+  .sub-workbench-layout.sub-workbench-layout-drawer-hidden {
+    grid-template-columns: 1fr;
+  }
+  .sub-workbench-main {
+    min-width: 0;
+  }
+}
+
+.drawer-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+#view-subcomponents-workbench .panel {
+  padding: 8px 10px 10px;
+}
+
+#view-subcomponents-workbench .panel-header {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 0;
+}
+
+#view-subcomponents-workbench .panel-header .view-heading {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+#view-subcomponents-workbench .panel-header .panel-actions {
+  margin-left: auto;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+#view-subcomponents-workbench .panel-toolbar {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+#view-subcomponents-workbench .panel-toolbar.compact {
+  margin-top: 4px;
+  padding: 4px 6px;
+}
+
+#view-subcomponents-workbench #subcomponents-workbench-saved-select,
+#view-subcomponents-workbench #subcomponents-workbench-saved-name,
+#view-subcomponents-workbench #subcomponents-workbench-saved-save,
+#view-subcomponents-workbench #subcomponents-workbench-saved-delete {
+  min-height: 34px;
+  height: 34px;
+}
+
+#view-subcomponents-workbench #subcomponents-workbench-saved-name {
+  min-width: 170px;
+}
+
+#view-subcomponents-workbench .sub-workbench-kpis {
+  margin-top: 8px;
+  gap: 8px;
+}
+
+#view-subcomponents-workbench .sub-workbench-layout {
+  margin-top: 8px;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  align-items: stretch;
+}
+
+#view-subcomponents-workbench .sub-workbench-main {
+  padding: 8px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#view-subcomponents-workbench .sub-workbench-filters-table th,
+#view-subcomponents-workbench .sub-workbench-filters-table td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+#view-subcomponents-workbench .sub-workbench-filters-table .table-filter,
+#view-subcomponents-workbench .sub-workbench-filters-table select {
+  min-height: 26px;
+  height: 26px;
+  padding: 4px 6px;
+  font-family: inherit;
+  font-size: var(--sub-workbench-row-font-size);
+  font-weight: var(--sub-workbench-control-font-weight);
+  letter-spacing: 0.005em;
+}
+
+#view-subcomponents-workbench .sub-workbench-main .panel-toolbar.compact {
+  margin-top: 6px;
+}
+
+#view-subcomponents-workbench .sub-workbench-main .sub-workbench-filters-wrap {
+  overflow-x: visible;
+  overflow-y: visible;
+}
+
+#view-subcomponents-workbench .sub-workbench-main .sub-workbench-filters-table {
+  min-width: 0;
+}
+
+#view-subcomponents-workbench .sub-workbench-main .table {
+  margin-top: 6px;
+}
+
+#view-subcomponents-workbench {
+  --sub-workbench-row-font-size: 13px;
+  --sub-workbench-row-font-weight: 500;
+  --sub-workbench-control-font-weight: 600;
+  height: calc(100dvh - 122px);
+  overflow: hidden;
+}
+
+#view-subcomponents-workbench .panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#view-subcomponents-workbench #subcomponents-workbench-table {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+#view-subcomponents-workbench .sub-workbench-drawer {
+  min-height: 0;
+  max-height: 100%;
+  overflow: auto;
+}
+
+#view-subcomponents-workbench .sub-workbench-table th,
+#view-subcomponents-workbench .sub-workbench-table td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  line-height: 1.2;
+}
+
+#view-subcomponents-workbench .sub-workbench-table tbody td {
+  font-family: inherit;
+  font-size: var(--sub-workbench-row-font-size);
+  font-weight: var(--sub-workbench-row-font-weight);
+  letter-spacing: 0.005em;
+  color: var(--text);
+}
+
+#view-subcomponents-workbench .sub-workbench-table tbody td:nth-child(2) {
+  text-align: left;
+}
+
+#view-subcomponents-workbench .sub-workbench-table tbody tr[data-id] {
+  cursor: pointer;
+}
+
+#view-subcomponents-workbench .sub-workbench-table td strong {
+  display: block;
+  line-height: 1.2;
+  font-size: var(--sub-workbench-row-font-size);
+  font-weight: var(--sub-workbench-control-font-weight);
+  letter-spacing: 0.005em;
+}
+
+#view-subcomponents-workbench .sub-workbench-table tbody td:nth-child(2) strong {
+  font-size: calc(var(--sub-workbench-row-font-size) + 1px);
+}
+
+#view-subcomponents-workbench .sub-workbench-context {
+  margin-top: 1px;
+  font-size: var(--sub-workbench-row-font-size);
+  font-weight: var(--sub-workbench-row-font-weight);
+  letter-spacing: 0.005em;
+  line-height: 1.15;
+}
+
+#view-subcomponents-workbench .sub-workbench-table tbody td:nth-child(2) .sub-workbench-context {
+  margin-left: 2ch;
+}
+
+#view-subcomponents-workbench .sub-workbench-table .pill {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 10px;
+  line-height: 1;
+  font-family: inherit;
+  font-size: var(--sub-workbench-row-font-size);
+  font-weight: var(--sub-workbench-control-font-weight);
+  letter-spacing: 0.005em;
+}
+
+#view-subcomponents-workbench .sub-workbench-urgency {
+  display: inline-flex;
+  min-width: 56px;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 1024px) {
+  #view-subcomponents-workbench {
+    height: auto;
+    overflow: visible;
+  }
+
+  #view-subcomponents-workbench .panel {
+    height: auto;
+    overflow: visible;
+  }
+
+  #view-subcomponents-workbench #subcomponents-workbench-table {
+    max-height: 60vh;
+  }
+
+  #view-subcomponents-workbench .view-route-hint {
+    display: none;
+  }
+
+  #view-subcomponents-workbench .view-breadcrumb {
+    display: none;
+  }
+
+  #view-subcomponents-workbench .panel-toolbar,
+  #view-subcomponents-workbench .sub-workbench-main .panel-toolbar.compact {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+
+  #view-subcomponents-workbench .panel-toolbar .toolbar-group,
+  #view-subcomponents-workbench .sub-workbench-main .panel-toolbar.compact .toolbar-group {
+    flex-wrap: wrap;
+  }
+
+  #view-subcomponents-workbench .panel-toolbar .inline-field {
+    white-space: normal;
+  }
+}

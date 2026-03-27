@@ -2,6 +2,14 @@
 
 Date: 2026-03-20
 Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
+Status: historical record only as of 2026-03-25
+
+## Historical Record Notice
+- This file is frozen as the batch-by-batch execution history for the initial cleanup program.
+- Forward-looking roadmap ownership now lives in `docs/codebase-review/05-enterprise-roadmap.md`.
+- Quality policy and merge expectations now live in `docs/codebase-review/06-quality-gates.md`.
+- Open architectural risks and decisions now live in `docs/codebase-review/04-review-required.md`.
+- Do not add new `BATCH-*` items here unless the repo explicitly re-enters batch mode in a later review program.
 
 ## Operating Rules
 - One batch equals one logical issue set or one tightly related subsystem path.
@@ -12,7 +20,7 @@ Queue type: micro-batch cleanup plan for iterative `clean-code-review` passes
 - Medium+, DB-related, and contract-changing items go to `docs/codebase-review/04-review-required.md` and do not block low-risk execution.
 
 ## Ranked Next Batches
-- none currently queued; broad rescan and reprioritization is next because the ranked micro-batch queue is closed on current evidence
+- none; forward planning has moved to the enterprise roadmap and this queue is intentionally frozen
 
 ## Completed Batches
 

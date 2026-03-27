@@ -17,7 +17,7 @@ api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 
 protected_router = APIRouter(dependencies=[Depends(require_user)])
-protected_router.include_router(projects_router, prefix="/projects", tags=["projects"])
+protected_router.include_router(projects_router, tags=["projects"])
 protected_router.include_router(solutions_router, tags=["solutions"])
 protected_router.include_router(phases_router, tags=["phases"])
 protected_router.include_router(subcomponents_router, tags=["subcomponents"])

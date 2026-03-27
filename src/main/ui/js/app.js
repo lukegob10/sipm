@@ -17,6 +17,53 @@ import {
 import { createModalShellController } from "./shell/modal-shell.js";
 import { createSpaceSwitcherController } from "./shell/space-switcher.js";
 import { createTopbarCreateController } from "./shell/topbar-create.js";
+import { createProjectEntityController } from "./entities/projects.js";
+import { createSubcomponentEntityController } from "./entities/subcomponents.js";
+import { createSolutionEntityController } from "./entities/solutions.js";
+import {
+  filteredDeliverables as filteredMasterDeliverables,
+  normalizeMasterFilters,
+  VALID_DELIVERABLE_PRESETS,
+} from "./routes/master/filters.js";
+import { renderMasterQuickstart as renderMasterQuickstartView } from "./routes/master/quickstart.js";
+import {
+  bindDeliverablesControls as bindMasterDeliverablesControls,
+  bindDeliverablesTable as bindMasterDeliverablesTable,
+  clearDeliverablesFilters as clearMasterDeliverablesFilters,
+  setDeliverablesPreset as setMasterDeliverablesPreset,
+  updateBulkSelectionCount as updateMasterBulkSelectionCount,
+} from "./routes/master/interactions.js";
+import {
+  clearSubcomponentsWorkbenchFilters as clearWorkbenchFilters,
+  normalizeSubcomponentsWorkbenchUiState as normalizeWorkbenchUiState,
+  subcomponentsWorkbenchRows as buildSubcomponentsWorkbenchRows,
+  subcomponentsWorkbenchSummary as buildSubcomponentsWorkbenchSummary,
+  updateSubcomponentsWorkbenchPresetButtons as updateWorkbenchPresetButtons,
+  updateSubcomponentsWorkbenchSelectionCount as updateWorkbenchSelectionCount,
+} from "./routes/subcomponents-workbench/filters.js";
+import {
+  applySubcomponentsWorkbenchBulkAction as applyWorkbenchBulkAction,
+  syncSubcomponentsWorkbenchBulkInputs as syncWorkbenchBulkInputs,
+} from "./routes/subcomponents-workbench/bulk-actions.js";
+import {
+  fillSubcomponentsWorkbenchForm,
+  scrollActiveSubcomponentIntoView,
+  syncSubcomponentsWorkbenchDrawer,
+} from "./routes/subcomponents-workbench/drawer.js";
+import {
+  loadSubcomponentsWorkbenchSavedViews,
+  updateSubcomponentsWorkbenchSavedViewsUI,
+} from "./routes/subcomponents-workbench/saved-views.js";
+import {
+  bindSubcomponentsWorkbenchControls as bindWorkbenchControls,
+  updateSubcomponentsWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
+} from "./routes/subcomponents-workbench/interactions.js";
+import { populateSubcomponentsWorkbenchOptions } from "./routes/subcomponents-workbench/options.js";
+import { createCalendarRouteController } from "./routes/calendar/interactions.js";
+import { createKanbanRouteController } from "./routes/kanban/interactions.js";
+import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
+import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
+import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
@@ -262,20 +309,6 @@ const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
 const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
-const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);
-const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);
-const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);
-const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];
-const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];
-const VALID_SUBCOMPONENTS_WORKBENCH_PRESETS = new Set([
-  "all",
-  "my",
-  "due_soon",
-  "overdue",
-  "blocked",
-  "unassigned",
-  "stale",
-]);
 const RECENT_SPACES_LIMIT = 5;
 let idleLastActive = Date.now();
 let idleWarned = false;
@@ -295,6 +328,172 @@ const ignoreNextRefresh = {
     return dataStoreController.clearIgnoredRefresh(entity);
   },
 };
+const projectEntityController = createProjectEntityController({
+  state,
+  els,
+  api,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  removeById,
+  populateSelects,
+  renderMasterTable,
+  renderDashboard,
+  renderKanban,
+  renderCalendar,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  timestampLabel,
+  showConfirmModal,
+});
+const solutionEntityController = createSolutionEntityController({
+  state,
+  els,
+  api,
+  numberOr,
+  hoursFromFteInput,
+  fteFromHoursForInput,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  removeById,
+  populateSelects,
+  renderActiveView,
+  renderMasterTable,
+  renderDashboard,
+  renderKanban,
+  renderCalendar,
+  renderSolutionPhases,
+  renderSolutionSubcomponents,
+  renderSolutionActivity,
+  setSubcomponentFormVisibility,
+  setSubcomponentActionButtonLabel,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  updateCurrentPhaseOptions,
+  updateSubcomponentRepoPreview,
+  setSolutionTab,
+  timestampLabel,
+  showConfirmModal,
+});
+const subcomponentEntityController = createSubcomponentEntityController({
+  state,
+  els,
+  api,
+  findUserBySoeid,
+  resolveAssigneeSelectValue,
+  numberOr,
+  hoursFromFteInput,
+  hoursFromNullableFteInput,
+  fteFromHoursForInput,
+  updateSubcomponentRepoPreview,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  deleteSubcomponentsById,
+  renderSolutionSubcomponents,
+  renderDashboard,
+  timestampLabel,
+});
+const calendarRouteController = createCalendarRouteController({
+  state,
+  els,
+  calendarViewStateKey: CALENDAR_VIEW_STATE_KEY_PREFIX,
+  writeStoredJson,
+  readStoredJsonState,
+  activeSpaceScopedStorageKey,
+  bindDebouncedInput,
+  renderCalendar,
+  openProjectForm,
+  openSolutionModal,
+  fillSubcomponentForm,
+  getRouteModule,
+  ensureRouteModule,
+  filteredSolutionsForCalendar,
+  filteredSubcomponentsForCalendar,
+  formatStatus,
+});
+const kanbanRouteController = createKanbanRouteController({
+  state,
+  els,
+  kanbanViewStateKey: KANBAN_VIEW_STATE_KEY_PREFIX,
+  writeStoredJson,
+  readStoredJsonState,
+  activeSpaceScopedStorageKey,
+  bindDebouncedInput,
+  renderKanban,
+  openProjectForm,
+  openSolutionModal,
+  hideClosedDeliverables,
+  isClosedSolutionStatus,
+});
+const teamCapacityRouteController = createTeamCapacityRouteController({
+  state,
+  els,
+  teamCapacityViewStateKey: TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX,
+  writeStoredJson,
+  readStoredJsonState,
+  activeSpaceScopedStorageKey,
+  bindDebouncedInput,
+  renderTeamCapacity,
+  api,
+  applyEntityData,
+  handleAuthError,
+  populateSelects,
+  clearCapacityUserFormStatus,
+  setCapacityUserFormStatus,
+  userCapacityFteMonth,
+  formatFte,
+  numberOr,
+  timestampLabel,
+  showConfirmModal,
+});
+const spaceGovernanceController = createSpaceGovernanceController({
+  state,
+  els,
+  api,
+  normalize,
+  normalizeGovernanceSection,
+  userIsGlobalAdmin,
+  activeSpaceId,
+  canManageSpaceMembership,
+  effectiveDirectorySpaces,
+  spaceNameForId,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  setSpaceGovernanceNotice,
+  renderGovernanceHub,
+  renderSpaceDirectoryModal,
+  isSpaceGovernanceView,
+  refreshSpaceContext,
+  refreshFromServer,
+  switchActiveSpace,
+  showConfirmModal,
+  copyText,
+  buildResetPageUrl,
+});
+const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
+  state,
+  els,
+  normalize,
+  normalizeSpaceRole,
+  activeSpaceId,
+  userIsGlobalAdmin,
+  currentSpaceRoleLabel,
+  canManageSpaceMembership,
+  esc,
+  escapeAttr,
+  formatDateTime,
+  effectiveDirectorySpaces,
+  governanceSections,
+  resolveGovernanceSection,
+  refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
+  refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
+  closeSpaceDirectoryModal,
+  setSpaceGovernanceNotice,
+});
 
 const topbarCreateController = createTopbarCreateController({
   state,
@@ -710,7 +909,7 @@ async function refreshSpaceContext(options = {}) {
     closeSpaceMemberModal();
     closeSpaceDirectoryModal();
     renderSpaceSwitcher();
-    updateSubcomponentsWorkbenchSavedViewsUI();
+    updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
     return;
   }
   const [spaces, activeSpace] = await Promise.all([
@@ -747,8 +946,8 @@ async function refreshSpaceContext(options = {}) {
   restorePlanningWindowViewState();
   restoreSubcomponentsWorkbenchUiState();
   renderSpaceSwitcher();
-  loadSubcomponentsWorkbenchSavedViews();
-  updateSubcomponentsWorkbenchSavedViewsUI();
+  loadSubcomponentsWorkbenchSavedViews(createSubcomponentsWorkbenchContext());
+  updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
   const nextActiveSpaceId = state.activeSpace?.space_id || "";
   if (
     !suppressLiveSyncRestart
@@ -818,7 +1017,7 @@ function setAuthed(user) {
   }
   renderSpaceSwitcher();
   renderCompletedVisibilityToggle();
-  updateSubcomponentsWorkbenchSavedViewsUI();
+  updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
   renderTopbarStatus();
 }
 
@@ -937,7 +1136,7 @@ async function handleLiveSyncVisibilityChange() {
 }
 
 function initSubcomponentsWorkbench() {
-  bindSubcomponentsWorkbenchControls();
+  bindWorkbenchControls(createSubcomponentsWorkbenchContext());
 }
 
 async function bootstrapAuth() {
@@ -1171,94 +1370,92 @@ function deliverableKey(type, id) {
   return `${type}:${id}`;
 }
 
-function updatePresetButtons() {
-  const preset = state.deliverablesPreset || "";
-  [els.presetMy, els.presetOverdue, els.presetBlocked, els.presetEngineering].forEach((btn) => {
-    if (!btn) return;
-    const match = btn.id === `preset-${preset}`;
-    btn.classList.toggle("active", match);
+function createMasterRouteContext(overrides = {}) {
+  const base = createShellContext({
+    state,
+    els,
+    api,
+    upsertById,
+    clearBulkFeedback,
+    setBulkFeedback,
+    deliverableKey,
+    phaseDisplayName,
+    solutionProgress,
+    formatStatus,
+    repoDisplayUrl,
+    hideClosedDeliverables,
+    isClosedProjectStatus,
+    isClosedSolutionStatus,
+    showCompletedOperationalWork,
+    persistMasterViewState,
+    persistWorkspaceViewPreferences,
+    renderCompletedVisibilityToggle,
+    renderMasterFilters,
+    renderMasterTable,
+    renderDashboard,
+    renderKanban,
+    renderCalendar,
+    renderActiveView,
+    openProjectForm,
+    openSolutionModal,
+    showSubcomponentForm,
+  }, { view: "master" });
+  return createShellContext(base, {
+    filteredDeliverables: () => filteredMasterDeliverables(base),
+    renderMasterQuickstart: (rowCount = 0) => renderMasterQuickstartView(base, rowCount),
+    updateBulkSelectionCount: () => updateMasterBulkSelectionCount(base),
+    clearDeliverablesFilters: () => clearMasterDeliverablesFilters(base),
+    setDeliverablesPreset: (preset) => setMasterDeliverablesPreset(base, preset),
+    ...overrides,
   });
 }
 
-function normalizeMasterPriorityFilter(value) {
-  if (value === null || value === undefined) return "";
-  const raw = String(value).trim();
-  if (!raw) return "";
-  const n = Number(raw);
-  return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : "";
-}
-
-function normalizeMasterProgressFilter(value) {
-  if (value === null || value === undefined) return "";
-  const raw = String(value).trim();
-  if (!raw) return "";
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : "";
-}
-
-function normalizeMasterFilters(filters = {}, preset = "") {
-  const source = filters && typeof filters === "object" ? filters : {};
-  const next = {};
-  let changed = filters !== source;
-  MASTER_TEXT_FILTER_KEYS.forEach((key) => {
-    const value = source[key];
-    if (typeof value === "string") {
-      next[key] = value;
-      return;
-    }
-    next[key] = "";
-    if (value !== null && value !== undefined && value !== "") changed = true;
+function createSubcomponentsWorkbenchContext(overrides = {}) {
+  const base = createShellContext({
+    state,
+    els,
+    api,
+    upsertById,
+    normalize,
+    numberOr,
+    ignoreNextRefresh,
+    deriveSubcomponentActionability,
+    isCompletedSubcomponentStatus,
+    showCompletedOperationalWork,
+    requestsClosedStatuses,
+    persistSubcomponentsWorkbenchUiState,
+    renderSubcomponentsWorkbench,
+    clearSubcomponentsWorkbenchBulkFeedback,
+    setSubcomponentsWorkbenchBulkFeedback,
+    deleteSubcomponentsById,
+    markIgnoreRefresh,
+    renderSolutionSubcomponents,
+    renderDashboard,
+    findUserBySoeid,
+    escapeHtml,
+    effectiveSubcomponentRepoInfo,
+    renderExternalRepoLink,
+    openProjectForm,
+    openSolutionModal,
+    clearDeliverableFormNotice,
+    setDeliverableFormNotice,
+    timestampLabel,
+    resolveAssigneeSelectValue,
+    activeSpaceId,
+    subcomponentsWorkbenchSavedViewsKeyPrefix: SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX,
+    showConfirmModal,
+    bindDebouncedInput,
+  }, { view: "subcomponents-workbench" });
+  return createShellContext(base, {
+    updateSubcomponentsWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(base),
+    updateSubcomponentsWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(base),
+    clearSubcomponentsWorkbenchFilters: () => clearWorkbenchFilters(base),
+    syncSubcomponentsWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(base),
+    applySubcomponentsWorkbenchBulkAction: () => applyWorkbenchBulkAction(base),
+    normalizeSubcomponentsWorkbenchUiState: (options) => normalizeWorkbenchUiState(base, options),
+    updateSubcomponentsWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(base, projectId),
+    ...overrides,
   });
-  const type = String(source.type || "");
-  next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : "";
-  if (next.type !== type) changed = true;
-  const repoPresence = String(source.repo_presence || "");
-  next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";
-  if (next.repo_presence !== repoPresence) changed = true;
-  const priority = normalizeMasterPriorityFilter(source.priority);
-  const progress = normalizeMasterProgressFilter(source.progress);
-  if (priority !== String(source.priority || "")) changed = true;
-  if (progress !== String(source.progress || "")) changed = true;
-  next.priority = priority;
-  next.progress = progress;
-
-  if (preset === "engineering") {
-    MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {
-      if (!next[key]) return;
-      next[key] = "";
-      changed = true;
-    });
-    if (next.type === "project") {
-      next.type = "";
-      changed = true;
-    }
-  } else if (next.repo_presence) {
-    next.repo_presence = "";
-    changed = true;
-  }
-
-  return { filters: next, changed };
-}
-
-function clearDeliverablesFilters() {
-  state.filters = {};
-  state.deliverablesPreset = "";
-  state.deliverableSelection.clear();
-  persistMasterViewState();
-  updatePresetButtons();
-  renderMasterFilters();
-  renderMasterTable();
-  renderKanban();
-  renderCalendar();
-}
-
-function setDeliverablesPreset(preset) {
-  state.deliverablesPreset = preset || "";
-  const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);
-  state.filters = normalized.filters;
-  persistMasterViewState();
-  updatePresetButtons();
-  renderMasterTable();
 }
 
 function renderMasterFilters() {
@@ -1269,17 +1466,7 @@ function renderMasterFilters() {
     });
     return;
   }
-  mod.renderMasterFilters(createShellContext({
-    state,
-    els,
-    escapeAttr,
-    deliverableKey,
-    updateBulkSelectionCount,
-    renderMasterTable,
-    renderKanban,
-    renderCalendar,
-    clearDeliverablesFilters,
-  }, { view: "master" }));
+  mod.renderMasterFilters(createMasterRouteContext());
 }
 
 function isClosedLifecycleStatus(statusValue) {
@@ -1311,10 +1498,6 @@ function requestsClosedStatuses(filterValue) {
 
 function hideClosedDeliverables() {
   return !showCompletedOperationalWork() && !requestsClosedStatuses(state.filters?.status);
-}
-
-function hideClosedSubcomponentsWorkbench() {
-  return !showCompletedOperationalWork() && !requestsClosedStatuses(state.subcomponentsWorkbench?.filters?.status);
 }
 
 function deriveSubcomponentActionability(subcomponent) {
@@ -1363,133 +1546,6 @@ function deriveSubcomponentActionability(subcomponent) {
     is_stale,
     urgency_score: urgency,
   };
-}
-
-function subcomponentsWorkbenchRows() {
-  const wb = state.subcomponentsWorkbench;
-  const rows = (state.subcomponents || []).map((subcomponent) => {
-    const project = state.projects.find((p) => p.project_id === subcomponent.project_id);
-    const solution = state.solutions.find((s) => s.solution_id === subcomponent.solution_id);
-    return {
-      ...subcomponent,
-      ...deriveSubcomponentActionability(subcomponent),
-      project_name: project?.project_name || "",
-      solution_name: solution?.solution_name || "",
-    };
-  });
-
-  const filters = wb.filters || {};
-  const search = normalize(filters.search);
-  const userName = normalize(state.user?.display_name);
-  const userSoeid = normalize(state.user?.soeid);
-
-  const visible = rows.filter((row) => {
-    if (hideClosedSubcomponentsWorkbench() && isCompletedSubcomponentStatus(row.status)) return false;
-    if (filters.project_id && row.project_id !== filters.project_id) return false;
-    if (filters.solution_id && row.solution_id !== filters.solution_id) return false;
-    if (filters.status && row.status !== filters.status) return false;
-    if (filters.priority_max && Number(row.priority || 999) > Number(filters.priority_max)) return false;
-    if (filters.assignee) {
-      if (filters.assignee === "__unassigned__") {
-        if ((row.assignee || "").trim() || row.assignee_user_soeid) return false;
-      } else {
-        const assigneeId = normalize(row.assignee_user_soeid);
-        const assigneeName = normalize(row.assignee);
-        if (assigneeId !== normalize(filters.assignee) && assigneeName !== normalize(filters.assignee_name)) return false;
-      }
-    }
-
-    if (search) {
-      const blob = [
-        row.subcomponent_name,
-        row.project_name,
-        row.solution_name,
-        row.assignee,
-        row.status,
-      ]
-        .map((val) => normalize(val))
-        .join(" ");
-      if (!blob.includes(search)) return false;
-    }
-
-    switch (wb.preset) {
-      case "my": {
-        const assigneeId = normalize(row.assignee_user_soeid);
-        const assigneeName = normalize(row.assignee);
-        const matchesSelf = (userSoeid && assigneeId === userSoeid) || (userName && assigneeName === userName);
-        if (!matchesSelf) return false;
-        break;
-      }
-      case "due_soon":
-        if (!row.is_due_soon) return false;
-        break;
-      case "overdue":
-        if (!row.is_overdue) return false;
-        break;
-      case "blocked":
-        if (!row.blocked) return false;
-        break;
-      case "unassigned":
-        if ((row.assignee || "").trim() || row.assignee_user_soeid) return false;
-        break;
-      case "stale":
-        if (!row.is_stale) return false;
-        break;
-      default:
-        break;
-    }
-    return true;
-  });
-
-  visible.sort((a, b) => {
-    const urgencyDiff = numberOr(b.urgency_score, 0) - numberOr(a.urgency_score, 0);
-    if (urgencyDiff !== 0) return urgencyDiff;
-    const dueA = a.due_date ? new Date(`${a.due_date}T00:00:00`).getTime() : Number.POSITIVE_INFINITY;
-    const dueB = b.due_date ? new Date(`${b.due_date}T00:00:00`).getTime() : Number.POSITIVE_INFINITY;
-    if (dueA !== dueB) return dueA - dueB;
-    const priorityDiff = numberOr(a.priority, 99) - numberOr(b.priority, 99);
-    if (priorityDiff !== 0) return priorityDiff;
-    return (a.subcomponent_name || "").localeCompare(b.subcomponent_name || "");
-  });
-
-  wb.visibleIds = visible.map((row) => row.subcomponent_id);
-  return { allRows: rows, visibleRows: visible };
-}
-
-function subcomponentsWorkbenchSummary(allRows, visibleRows) {
-  const rows = allRows || [];
-  return {
-    total: rows.length,
-    visible: (visibleRows || []).length,
-    hiddenClosed: hideClosedSubcomponentsWorkbench()
-      ? rows.filter((row) => isCompletedSubcomponentStatus(row.status)).length
-      : 0,
-    overdue: rows.filter((row) => row.is_overdue).length,
-    dueSoon: rows.filter((row) => row.is_due_soon).length,
-    blocked: rows.filter((row) => row.blocked).length,
-    unassigned: rows.filter((row) => !(row.assignee || "").trim() && !row.assignee_user_soeid).length,
-  };
-}
-
-function updateSubcomponentsWorkbenchPresetButtons() {
-  const wb = state.subcomponentsWorkbench;
-  document.querySelectorAll(".scwb-preset").forEach((btn) => {
-    const preset = btn.getAttribute("data-preset") || "";
-    const active = preset === wb.preset;
-    btn.classList.toggle("active", active);
-    btn.setAttribute("aria-pressed", active ? "true" : "false");
-  });
-}
-
-function updateSubcomponentsWorkbenchSelectionCount() {
-  if (!els.subcomponentsWorkbenchSelectionCount) return;
-  const count = state.subcomponentsWorkbench.selected.size;
-  els.subcomponentsWorkbenchSelectionCount.textContent = `${count} selected`;
-  if (els.subcomponentsWorkbenchBulkApply) {
-    const action = els.subcomponentsWorkbenchBulkAction?.value || "";
-    const hasActiveDeleteTarget = action === "delete" && !!state.subcomponentsWorkbench.activeSubcomponentId;
-    els.subcomponentsWorkbenchBulkApply.disabled = !action || (!count && !hasActiveDeleteTarget);
-  }
 }
 
 function describeSubcomponentsForDelete(subcomponentIds) {
@@ -1553,335 +1609,12 @@ async function deleteSubcomponentsById(subcomponentIds, options = {}) {
   return { cancelled: false, deletedIds, failed };
 }
 
-function syncSubcomponentsWorkbenchDrawer() {
-  const wb = state.subcomponentsWorkbench;
-  const drawerOpen = wb.drawerOpen !== false;
-  if (els.subcomponentsWorkbenchDrawer) {
-    els.subcomponentsWorkbenchDrawer.classList.toggle("hidden", !drawerOpen);
-  }
-  if (els.subcomponentsWorkbenchLayout) {
-    els.subcomponentsWorkbenchLayout.classList.toggle("sub-workbench-layout-drawer-hidden", !drawerOpen);
-  }
-}
-
-function openSubcomponentsWorkbenchDrawer(preferredSubcomponentId = "") {
-  const wb = state.subcomponentsWorkbench;
-  if (wb.drawerOpen === false) {
-    const anchorId =
-      preferredSubcomponentId || wb.activeSubcomponentId || (Array.isArray(wb.visibleIds) ? wb.visibleIds[0] : "") || "";
-    wb.drawerReturnSubcomponentId = anchorId;
-    wb.drawerReturnScrollY = window.scrollY || window.pageYOffset || 0;
-  }
-  if (preferredSubcomponentId) {
-    wb.activeSubcomponentId = preferredSubcomponentId;
-  } else if (!wb.activeSubcomponentId && Array.isArray(wb.visibleIds) && wb.visibleIds.length) {
-    wb.activeSubcomponentId = wb.visibleIds[0];
-  }
-  wb.drawerOpen = true;
-  persistSubcomponentsWorkbenchUiState();
-  renderSubcomponentsWorkbench();
-}
-
-function closeSubcomponentsWorkbenchDrawer() {
-  const wb = state.subcomponentsWorkbench;
-  const returnSubcomponentId = wb.activeSubcomponentId || wb.drawerReturnSubcomponentId || "";
-  wb.activeSubcomponentId = returnSubcomponentId;
-  wb.drawerOpen = false;
-  wb.drawerReturnSubcomponentId = "";
-  wb.drawerReturnScrollY = null;
-  wb.suppressAutoScrollOnce = true;
-  persistSubcomponentsWorkbenchUiState();
-  renderSubcomponentsWorkbench();
-  window.requestAnimationFrame(() => {
-    if (!returnSubcomponentId || !els.subcomponentsWorkbenchTable) return;
-    const row = Array.from(els.subcomponentsWorkbenchTable.querySelectorAll("tr[data-id]")).find(
-      (node) => node.getAttribute("data-id") === returnSubcomponentId
-    );
-    if (row && typeof row.scrollIntoView === "function") {
-      row.scrollIntoView({ block: "nearest" });
-    }
-    const target = row || row?.querySelector(".scwb-select-row");
-    if (!target || typeof target.focus !== "function") return;
-    try {
-      target.focus({ preventScroll: true });
-    } catch {
-      target.focus();
-    }
-  });
-}
-
-function subcomponentsWorkbenchStorageKey() {
-  const userKey = normalize(state.user?.soeid || state.user?.user_id || "anon");
-  const spaceKey = normalize(activeSpaceId() || "no-space");
-  return `${SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX}:${userKey}:${spaceKey}`;
-}
-
-function setSubcomponentsWorkbenchSavedStatus(text) {
-  if (!els.subcomponentsWorkbenchSavedStatus) return;
-  els.subcomponentsWorkbenchSavedStatus.textContent = text || "";
-}
-
 function clearSubcomponentsWorkbenchBulkFeedback() {
   clearDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback);
 }
 
 function setSubcomponentsWorkbenchBulkFeedback(message, tone = "info", autoClearMs = 0) {
   setDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback, message, tone, autoClearMs);
-}
-
-function loadSubcomponentsWorkbenchSavedViews() {
-  const wb = state.subcomponentsWorkbench;
-  wb.savedViews = [];
-  wb.selectedSavedViewId = "";
-  if (!state.authed) return;
-  let recovered = false;
-  let parsed = [];
-  try {
-    const raw = localStorage.getItem(subcomponentsWorkbenchStorageKey()) || "[]";
-    const candidate = JSON.parse(raw);
-    if (Array.isArray(candidate)) {
-      parsed = candidate;
-    } else {
-      recovered = true;
-    }
-  } catch (err) {
-    recovered = true;
-    console.warn("Unable to load subcomponent workbench saved views", err);
-  }
-  const normalizedViews = parsed
-      .filter((row) => row && typeof row === "object" && typeof row.name === "string")
-      .map((row) => ({
-        view_id: String(row.view_id || `sv_${Math.random().toString(36).slice(2, 10)}`),
-        name: String(row.name || "").trim(),
-        preset: VALID_SUBCOMPONENTS_WORKBENCH_PRESETS.has(String(row.preset || "all"))
-          ? String(row.preset || "all")
-          : "all",
-        filters: {
-          search: String(row.filters?.search || ""),
-          project_id: String(row.filters?.project_id || ""),
-          solution_id: String(row.filters?.solution_id || ""),
-          assignee: String(row.filters?.assignee || ""),
-          assignee_name: String(row.filters?.assignee_name || ""),
-          status: String(row.filters?.status || ""),
-          priority_max: String(row.filters?.priority_max || ""),
-        },
-        updated_at: String(row.updated_at || ""),
-      }))
-      .filter((row) => row.name);
-  wb.savedViews = normalizedViews;
-  if (recovered || JSON.stringify(parsed) !== JSON.stringify(normalizedViews)) {
-    persistSubcomponentsWorkbenchSavedViews();
-  }
-}
-
-function persistSubcomponentsWorkbenchSavedViews() {
-  if (!state.authed) return;
-  try {
-    localStorage.setItem(
-      subcomponentsWorkbenchStorageKey(),
-      JSON.stringify(state.subcomponentsWorkbench.savedViews || [])
-    );
-  } catch (err) {
-    console.warn("Unable to persist subcomponent workbench saved views", err);
-  }
-}
-
-function updateSubcomponentsWorkbenchSavedViewsUI() {
-  const wb = state.subcomponentsWorkbench;
-  if (!els.subcomponentsWorkbenchSavedSelect) return;
-  const options = (wb.savedViews || [])
-    .slice()
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-    .map((row) => `<option value="${row.view_id}">${escapeHtml(row.name)}</option>`)
-    .join("");
-  els.subcomponentsWorkbenchSavedSelect.innerHTML = `<option value="">Select</option>${options}`;
-  let selectionChanged = false;
-  if (wb.selectedSavedViewId && wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId)) {
-    els.subcomponentsWorkbenchSavedSelect.value = wb.selectedSavedViewId;
-  } else if (wb.selectedSavedViewId) {
-    wb.selectedSavedViewId = "";
-    els.subcomponentsWorkbenchSavedSelect.value = "";
-    selectionChanged = true;
-  } else if (els.subcomponentsWorkbenchSavedSelect.value) {
-    wb.selectedSavedViewId = els.subcomponentsWorkbenchSavedSelect.value;
-    selectionChanged = true;
-  }
-  if (
-    els.subcomponentsWorkbenchSavedName &&
-    wb.selectedSavedViewId &&
-    document.activeElement !== els.subcomponentsWorkbenchSavedName
-  ) {
-    const saved = wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId);
-    if (saved) els.subcomponentsWorkbenchSavedName.value = saved.name || "";
-  }
-  if (selectionChanged) persistSubcomponentsWorkbenchUiState();
-}
-
-function captureSubcomponentsWorkbenchCurrentView(name) {
-  const wb = state.subcomponentsWorkbench;
-  return {
-    view_id: `sv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    name: String(name || "").trim(),
-    preset: wb.preset || "all",
-    filters: {
-      search: wb.filters.search || "",
-      project_id: wb.filters.project_id || "",
-      solution_id: wb.filters.solution_id || "",
-      assignee: wb.filters.assignee || "",
-      assignee_name: wb.filters.assignee_name || "",
-      status: wb.filters.status || "",
-      priority_max: wb.filters.priority_max || "",
-    },
-    updated_at: new Date().toISOString(),
-  };
-}
-
-function applySubcomponentsWorkbenchSavedView(savedView) {
-  if (!savedView) return;
-  const wb = state.subcomponentsWorkbench;
-  wb.selectedSavedViewId = savedView.view_id || wb.selectedSavedViewId || "";
-  wb.preset = savedView.preset || "all";
-  wb.filters = {
-    search: savedView.filters?.search || "",
-    project_id: savedView.filters?.project_id || "",
-    solution_id: savedView.filters?.solution_id || "",
-    assignee: savedView.filters?.assignee || "",
-    assignee_name: savedView.filters?.assignee_name || "",
-    status: savedView.filters?.status || "",
-    priority_max: savedView.filters?.priority_max || "",
-  };
-  wb.selected.clear();
-  wb.activeSubcomponentId = "";
-  normalizeSubcomponentsWorkbenchUiState({ persist: true });
-  renderSubcomponentsWorkbench();
-}
-
-function isTypingInputTarget(target) {
-  if (!target) return false;
-  const tag = (target.tagName || "").toLowerCase();
-  if (["input", "textarea", "select", "button"].includes(tag)) return true;
-  if (target.isContentEditable) return true;
-  return false;
-}
-
-function setActiveSubcomponentByOffset(offset) {
-  const wb = state.subcomponentsWorkbench;
-  const ids = wb.visibleIds || [];
-  if (!ids.length) return;
-  const rawIndex = ids.indexOf(wb.activeSubcomponentId);
-  if (rawIndex === -1) {
-    wb.activeSubcomponentId = offset >= 0 ? ids[0] : ids[ids.length - 1];
-    renderSubcomponentsWorkbench();
-    return;
-  }
-  const currentIndex = rawIndex;
-  const nextIndex = Math.min(ids.length - 1, Math.max(0, currentIndex + offset));
-  const nextId = ids[nextIndex];
-  if (!nextId) return;
-  wb.activeSubcomponentId = nextId;
-  renderSubcomponentsWorkbench();
-}
-
-function scrollActiveSubcomponentIntoView() {
-  const wb = state.subcomponentsWorkbench;
-  if (!wb.activeSubcomponentId || !els.subcomponentsWorkbenchTable) return;
-  const row = els.subcomponentsWorkbenchTable.querySelector(`tr[data-id="${wb.activeSubcomponentId}"]`);
-  if (row && typeof row.scrollIntoView === "function") {
-    row.scrollIntoView({ block: "nearest" });
-  }
-}
-
-async function renderSubcomponentsWorkbenchActivity(subcomponentId) {
-  const activityEl = els.subcomponentsWorkbenchActivity;
-  const wb = state.subcomponentsWorkbench;
-  if (!activityEl) return;
-  const reqId = (wb.activityRequestId || 0) + 1;
-  wb.activityRequestId = reqId;
-  if (!subcomponentId) {
-    activityEl.innerHTML = "<p class='muted'>Select a subcomponent to see activity.</p>";
-    return;
-  }
-  activityEl.innerHTML = "<p class='muted'>Loading activity…</p>";
-  try {
-    const rows = await api(`/subcomponents/${encodeURIComponent(subcomponentId)}/activity?limit=12`);
-    if (wb.activityRequestId !== reqId) return;
-    if (!rows?.length) {
-      activityEl.innerHTML = "<p class='muted'>No activity yet.</p>";
-      return;
-    }
-    activityEl.innerHTML = rows
-      .map((row) => {
-        const action = escapeHtml(row.action || "update");
-        const field = row.field ? ` • ${escapeHtml(row.field)}` : "";
-        const change = row.new_value ? ` → ${escapeHtml(String(row.new_value).slice(0, 90))}` : "";
-        const when = row.created_at ? new Date(row.created_at).toLocaleString() : "";
-        return `<div class="activity-item">
-          <div class="activity-title">${action}${field}${change}</div>
-          <div class="activity-meta">${escapeHtml(row.user_id || "system")} • ${escapeHtml(when)}</div>
-        </div>`;
-      })
-      .join("");
-  } catch (_err) {
-    if (wb.activityRequestId !== reqId) return;
-    activityEl.innerHTML = "<p class='muted'>Activity unavailable for this role.</p>";
-  }
-}
-
-function fillSubcomponentsWorkbenchForm(subcomponent) {
-  if (!els.subcomponentsWorkbenchForm) return;
-  const form = els.subcomponentsWorkbenchForm;
-  const idInput = form.querySelector('[name="subcomponent_id"]');
-  const saveButton = form.querySelector('button[type="submit"]');
-  const deleteButton = els.subcomponentsWorkbenchDelete;
-  const previousId = form.dataset.activeSubcomponentId || "";
-  const setValue = (name, value) => {
-    const el = form.querySelector(`[name="${name}"]`);
-    if (el) el.value = value == null ? "" : value;
-  };
-  if (!subcomponent) {
-    form.dataset.activeSubcomponentId = "";
-    form.reset();
-    if (idInput) idInput.value = "";
-    if (els.subcomponentsWorkbenchContext) {
-      els.subcomponentsWorkbenchContext.textContent = "Select a subcomponent to edit.";
-    }
-    if (saveButton) saveButton.disabled = true;
-    if (deleteButton) deleteButton.disabled = true;
-    clearDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus);
-    renderSubcomponentsWorkbenchActivity("");
-    return;
-  }
-  const currentId = subcomponent.subcomponent_id || "";
-  if (previousId !== currentId) {
-    clearDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus);
-  }
-  form.dataset.activeSubcomponentId = currentId;
-  if (saveButton) saveButton.disabled = false;
-  if (deleteButton) deleteButton.disabled = !currentId;
-  if (idInput) idInput.value = subcomponent.subcomponent_id || "";
-  setValue("subcomponent_name", subcomponent.subcomponent_name || "");
-  setValue("status", subcomponent.status || "to_do");
-  setValue("priority", subcomponent.priority ?? "");
-  setValue("due_date", subcomponent.due_date || "");
-  setValue("blocker_note", subcomponent.blocker_note || "");
-  const blocked = form.querySelector('[name="blocked"]');
-  if (blocked) blocked.checked = !!subcomponent.blocked;
-
-  const assigneeSelect = form.querySelector('[name="assignee"]');
-  const assigneeUserInput = form.querySelector('[name="assignee_user_soeid"]');
-  const assigneeValue = resolveAssigneeSelectValue(subcomponent.assignee_user_soeid, subcomponent.assignee);
-  if (assigneeSelect) assigneeSelect.value = assigneeValue || "";
-  if (assigneeUserInput) assigneeUserInput.value = assigneeValue || "";
-
-  if (els.subcomponentsWorkbenchContext) {
-    const project = state.projects.find((p) => p.project_id === subcomponent.project_id)?.project_name || "Unknown project";
-    const solution = state.solutions.find((s) => s.solution_id === subcomponent.solution_id)?.solution_name || "Unknown solution";
-    els.subcomponentsWorkbenchContext.innerHTML = `
-      <span class="sub-workbench-context-primary">${renderSubcomponentsWorkbenchDrawerProjectLink(project, subcomponent.project_id)} / ${renderSubcomponentsWorkbenchDrawerSolutionLink(solution, subcomponent.solution_id)}</span>
-      ${renderSubcomponentsWorkbenchDrawerRepoContext(subcomponent)}
-    `;
-  }
-  renderSubcomponentsWorkbenchActivity(subcomponent.subcomponent_id);
 }
 
 function renderSubcomponentsWorkbench() {
@@ -1897,7 +1630,8 @@ function renderSubcomponentsWorkbench() {
   }
 
   const wb = state.subcomponentsWorkbench;
-  const { allRows, visibleRows } = subcomponentsWorkbenchRows();
+  const workbenchCtx = createSubcomponentsWorkbenchContext();
+  const { allRows, visibleRows } = buildSubcomponentsWorkbenchRows(workbenchCtx);
   const allIds = new Set((state.subcomponents || []).map((row) => row.subcomponent_id));
   Array.from(wb.selected).forEach((subId) => {
     if (!allIds.has(subId)) wb.selected.delete(subId);
@@ -1918,139 +1652,26 @@ function renderSubcomponentsWorkbench() {
     activeSubcomponentId: wb.activeSubcomponentId,
     selectedIds: wb.selected,
     formatStatus,
-    summary: subcomponentsWorkbenchSummary(allRows, visibleRows),
+    summary: buildSubcomponentsWorkbenchSummary(workbenchCtx, allRows, visibleRows),
   });
 
   const active = wb.drawerOpen !== false && wb.activeSubcomponentId
     ? (state.subcomponents || []).find((row) => row.subcomponent_id === wb.activeSubcomponentId) || null
     : null;
-  syncSubcomponentsWorkbenchDrawer();
-  fillSubcomponentsWorkbenchForm(active);
-  updateSubcomponentsWorkbenchPresetButtons();
-  updateSubcomponentsWorkbenchSelectionCount();
-  updateSubcomponentsWorkbenchSavedViewsUI();
+  syncSubcomponentsWorkbenchDrawer(workbenchCtx);
+  fillSubcomponentsWorkbenchForm(workbenchCtx, active);
+  updateWorkbenchPresetButtons(workbenchCtx);
+  updateWorkbenchSelectionCount(workbenchCtx);
+  updateSubcomponentsWorkbenchSavedViewsUI(workbenchCtx);
   if (wb.suppressAutoScrollOnce) {
     wb.suppressAutoScrollOnce = false;
   } else {
-    window.setTimeout(scrollActiveSubcomponentIntoView, 0);
+    window.setTimeout(() => scrollActiveSubcomponentIntoView(workbenchCtx), 0);
   }
-}
-
-function filteredSolutions() {
-  const f = state.filters || {};
-  if (f.type && f.type !== "solution") return [];
-  const preset = state.deliverablesPreset || "";
-  const userName = (state.user?.display_name || state.user?.soeid || "").toLowerCase();
-  return state.solutions.filter((s) => {
-    if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;
-    // Deliverables filters for every column
-    const project = state.projects.find((p) => p.project_id === s.project_id);
-    if (f.project && !(project?.project_name || "").toLowerCase().includes(f.project.toLowerCase())) return false;
-    if (f.sponsor && !(project?.sponsor || "").toLowerCase().includes(f.sponsor.toLowerCase())) return false;
-    if (f.solution && !(s.solution_name || "").toLowerCase().includes(f.solution.toLowerCase())) return false;
-    if (f.version && !(s.version || "").toLowerCase().includes(f.version.toLowerCase())) return false;
-    if (f.owner && !(s.owner || "").toLowerCase().includes(f.owner.toLowerCase())) return false;
-    if (f.current_phase && !(s.current_phase || "").toLowerCase().includes(f.current_phase.toLowerCase())) return false;
-    if (f.priority && Number(s.priority) > Number(f.priority)) return false;
-    if (f.due && !(s.due_date || "").toLowerCase().includes(f.due.toLowerCase())) return false;
-    if (f.rag && !(s.rag_status || "").toLowerCase().includes(f.rag.toLowerCase())) return false;
-    if (f.status && !(s.status || "").toLowerCase().includes(f.status.toLowerCase())) return false;
-    if (f.progress && solutionProgress(s) > Number(f.progress)) return false;
-    if (preset === "engineering") {
-      const hasRepo = !!repoDisplayUrl(s.github_repo_url);
-      if (f.repo_presence === "has_repo" && !hasRepo) return false;
-      if (f.repo_presence === "missing_repo" && hasRepo) return false;
-    }
-    if (preset === "my") {
-      const ownerMatch = (s.owner || "").toLowerCase().includes(userName);
-      const assigneeMatch = (s.assignee || "").toLowerCase().includes(userName);
-      if (!ownerMatch && !assigneeMatch) return false;
-    }
-    if (preset === "overdue") {
-      if (!s.due_date) return false;
-      if (s.status === "complete" || s.status === "abandoned") return false;
-      if (new Date(s.due_date) >= new Date()) return false;
-    }
-    if (preset === "blocked") {
-      const hasBlockers = (s.blockers || "").trim().length > 0;
-      const hasRisks = (s.risks || "").trim().length > 0;
-      if (!hasBlockers && !hasRisks && s.status !== "on_hold") return false;
-    }
-    return true;
-  });
-}
-
-function projectMatchesDeliverablesFilters(project, filters, preset) {
-  const f = filters || {};
-  if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;
-  if (f.project && !(project?.project_name || "").toLowerCase().includes(f.project.toLowerCase())) return false;
-  if (f.sponsor && !(project?.sponsor || "").toLowerCase().includes(f.sponsor.toLowerCase())) return false;
-  if (f.priority && Number(project?.priority) > Number(f.priority)) return false;
-  if (f.status && !formatStatus(project?.status).toLowerCase().includes(f.status.toLowerCase())) return false;
-  if (preset === "my") {
-    const userName = (state.user?.display_name || state.user?.soeid || "").toLowerCase();
-    if (!userName || !(project?.sponsor || "").toLowerCase().includes(userName)) return false;
-  }
-  if (preset === "overdue" || preset === "blocked") return false;
-  return true;
-}
-
-function filteredDeliverables() {
-  const f = state.filters || {};
-  const preset = state.deliverablesPreset || "";
-  const rows = [];
-  const includeProjectRows = preset !== "engineering" && f.type !== "solution";
-  const includeSolutionRows = f.type !== "project";
-  const hasSolutionColumnFilters = Boolean(
-    f.solution || f.version || f.owner || f.current_phase || f.due || f.rag || f.progress
-  );
-  const projectById = new Map((state.projects || []).map((project) => [project.project_id, project]));
-  const groupedSolutions = new Map();
-  const orphanSolutions = [];
-
-  if (includeSolutionRows) {
-    filteredSolutions().forEach((solution) => {
-      const project = projectById.get(solution.project_id) || null;
-      if (!project || !project.project_id) {
-        orphanSolutions.push({ type: "solution", project: null, solution });
-        return;
-      }
-      const bucket = groupedSolutions.get(project.project_id) || [];
-      bucket.push({ type: "solution", project, solution });
-      groupedSolutions.set(project.project_id, bucket);
-    });
-  }
-
-  const sortedProjects = [...(state.projects || [])].sort((a, b) =>
-    (a.project_name || "").localeCompare(b.project_name || "")
-  );
-
-  sortedProjects.forEach((project) => {
-    const solutionRows = (groupedSolutions.get(project.project_id) || []).sort((a, b) =>
-      (a.solution?.solution_name || "").localeCompare(b.solution?.solution_name || "")
-    );
-    const projectMatches = projectMatchesDeliverablesFilters(project, f, preset);
-    const showProjectRow = includeProjectRows && projectMatches && (!hasSolutionColumnFilters || solutionRows.length > 0);
-    if (showProjectRow) rows.push({ type: "project", project, solution: null });
-    solutionRows.forEach((row) => rows.push(row));
-  });
-
-  orphanSolutions
-    .sort((a, b) => (a.solution?.solution_name || "").localeCompare(b.solution?.solution_name || ""))
-    .forEach((row) => rows.push(row));
-
-  return rows;
 }
 
 function filteredSolutionsForKanban() {
-  const { project, owner } = state.kanbanFilters || {};
-  const ownerNorm = (owner || "").toLowerCase();
-  return (state.solutions || []).filter((s) => {
-    if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;
-    if (project && s.project_id !== project) return false;
-    if (ownerNorm && !(s.owner || "").toLowerCase().includes(ownerNorm)) return false;
-    return true;
-  });
+  return kanbanRouteController.filteredSolutionsForKanban();
 }
 
 function filteredSolutionsForCalendar() {
@@ -2143,94 +1764,6 @@ function phaseDisplayName(phaseId) {
   return name;
 }
 
-function hasActiveDeliverableFilters() {
-  const filterValues = Object.values(state.filters || {});
-  const hasFieldFilters = filterValues.some((value) => {
-    if (value == null) return false;
-    if (typeof value === "number") return !Number.isNaN(value);
-    return String(value).trim() !== "";
-  });
-  return hasFieldFilters || Boolean(state.deliverablesPreset);
-}
-
-function renderMasterQuickstart(rowCount = 0) {
-  if (!els.masterQuickstart) return;
-
-  const hasRows = Number(rowCount) > 0;
-  const hasDeliverableData = (state.projects?.length || 0) > 0 || (state.solutions?.length || 0) > 0;
-  const hasFilters = hasActiveDeliverableFilters();
-  const hiddenClosedDeliverables = !showCompletedOperationalWork()
-    ? (state.projects || []).filter((project) => isClosedProjectStatus(project.status)).length
-      + (state.solutions || []).filter((solution) => isClosedSolutionStatus(solution.status)).length
-    : 0;
-
-  if (hasRows) {
-    els.masterQuickstart.classList.add("hidden");
-    els.masterQuickstart.innerHTML = "";
-    return;
-  }
-
-  if (!hasDeliverableData) {
-    els.masterQuickstart.classList.remove("hidden");
-    els.masterQuickstart.innerHTML = `
-      <div class="quickstart-head">
-        <h3>Quick Start</h3>
-        <p class="muted">No deliverables in this space yet. Start with one project, then add solutions.</p>
-      </div>
-      <div class="quickstart-actions">
-        <button type="button" class="primary" data-quick-action="create-project">Create first project</button>
-        <button type="button" class="secondary" data-quick-action="create-solution">Create first solution</button>
-      </div>
-      <ol class="quickstart-steps">
-        <li>Create a project with sponsor and objective.</li>
-        <li>Add 1-3 solutions, then assign owners and due dates.</li>
-        <li>Use Planning to allocate work and Dashboard to track progress.</li>
-      </ol>
-    `;
-    return;
-  }
-
-  if (hasFilters) {
-    els.masterQuickstart.classList.remove("hidden");
-    els.masterQuickstart.innerHTML = `
-      <div class="quickstart-head">
-        <h3>No Matches</h3>
-        <p class="muted">Current filters returned zero deliverables in this space.</p>
-      </div>
-      <div class="quickstart-actions">
-        <button type="button" class="secondary" data-quick-action="clear-filters">Clear filters</button>
-      </div>
-    `;
-    return;
-  }
-
-  if (hiddenClosedDeliverables > 0) {
-    els.masterQuickstart.classList.remove("hidden");
-    els.masterQuickstart.innerHTML = `
-      <div class="quickstart-head">
-        <h3>Completed Work Hidden</h3>
-        <p class="muted">${hiddenClosedDeliverables} completed or abandoned deliverable${hiddenClosedDeliverables === 1 ? "" : "s"} are hidden from the workspace.</p>
-      </div>
-      <div class="quickstart-actions">
-        <button type="button" class="secondary" data-quick-action="show-completed">Show completed work</button>
-      </div>
-    `;
-    return;
-  }
-
-  els.masterQuickstart.classList.remove("hidden");
-  els.masterQuickstart.innerHTML = `
-    <div class="quickstart-head">
-      <h3>No Deliverables Yet</h3>
-      <p class="muted">This space is ready, but no projects or solutions have been added.</p>
-    </div>
-    <div class="quickstart-actions">
-      <button type="button" class="primary" data-quick-action="create-project">Create project</button>
-      <button type="button" class="secondary" data-quick-action="create-solution">Create solution</button>
-    </div>
-  `;
-}
-
 function renderMasterTable() {
   const mod = getRouteModule("master");
   if (!mod || typeof mod.renderMasterTable !== "function") {
@@ -2239,177 +1772,7 @@ function renderMasterTable() {
     });
     return;
   }
-  mod.renderMasterTable({
-    state,
-    els,
-    filteredDeliverables,
-    deliverableKey,
-    phaseDisplayName,
-    solutionProgress,
-    updateBulkSelectionCount,
-    renderMasterQuickstart,
-    renderKanban,
-    renderCalendar,
-    clearDeliverablesFilters,
-    persistMasterViewState,
-  });
-}
-
-function updateBulkSelectionCount() {
-  if (!els.bulkSelectedCount) return;
-  els.bulkSelectedCount.textContent = `${state.deliverableSelection.size} selected`;
-  if (els.bulkApply) {
-    els.bulkApply.disabled = !state.deliverableSelection.size || !els.bulkAction?.value;
-  }
-  syncSelectAllCheckbox();
-}
-
-function syncBulkInputs() {
-  clearBulkFeedback();
-  const action = els.bulkAction?.value || "";
-  if (els.bulkStatus) els.bulkStatus.classList.toggle("hidden", action !== "status");
-  if (els.bulkOwner) els.bulkOwner.classList.toggle("hidden", action !== "owner");
-  updateBulkSelectionCount();
-}
-
-async function applyBulkAction() {
-  const action = els.bulkAction?.value || "";
-  if (!action || !state.deliverableSelection.size) return;
-  const status = els.bulkStatus?.value || "";
-  const owner = (els.bulkOwner?.value || "").trim();
-  if (action === "status" && !status) {
-    setBulkFeedback("Select a status first.", "error");
-    return;
-  }
-  if (action === "owner" && !owner) {
-    setBulkFeedback("Enter an owner name.", "error");
-    return;
-  }
-  const updates = Array.from(state.deliverableSelection);
-  try {
-    setBulkFeedback("Updating deliverables…");
-    for (const key of updates) {
-      const [type, id] = key.split(":");
-      if (action === "status") {
-        if (type === "project") {
-          const updated = await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-          upsertById(state.projects, updated, "project_id");
-        } else if (type === "solution") {
-          const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-          upsertById(state.solutions, updated, "solution_id");
-        }
-      } else if (action === "owner" && type === "solution") {
-        const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify({ owner }) });
-        upsertById(state.solutions, updated, "solution_id");
-      }
-    }
-    state.deliverableSelection.clear();
-    renderMasterTable();
-    renderDashboard();
-    renderKanban();
-    renderCalendar();
-    setBulkFeedback("Deliverables updated.", "success", 3200);
-  } catch (err) {
-    setBulkFeedback(`Bulk update failed: ${err.message}`, "error");
-  }
-}
-
-async function updateDeliverableField(type, id, field, value) {
-  clearBulkFeedback();
-  setBulkFeedback("Saving deliverable change…");
-  try {
-    if (type === "project") {
-      const payload = { [field]: field === "priority" ? Number(value) : value };
-      const updated = await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.projects, updated, "project_id");
-    } else {
-      const payload = { [field]: field === "priority" ? Number(value) : value };
-      if (field === "rag_status") {
-        payload.rag_reason = "";
-      }
-      const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.solutions, updated, "solution_id");
-    }
-    renderMasterTable();
-    renderDashboard();
-    renderKanban();
-    renderCalendar();
-    setBulkFeedback("Deliverable updated.", "success", 2200);
-  } catch (err) {
-    setBulkFeedback(`Update failed: ${err.message}`, "error");
-  }
-}
-
-function setRagSelectVisualState(fieldEl, value) {
-  if (!fieldEl || !fieldEl.classList?.contains("rag-select")) return;
-  const normalized = String(value || "").toLowerCase();
-  const rag = normalized === "red" || normalized === "amber" ? normalized : "green";
-  fieldEl.dataset.ragState = rag;
-  fieldEl.classList.remove("rag-red", "rag-amber", "rag-green");
-  fieldEl.classList.add(`rag-${rag}`);
-}
-
-function bindDeliverablesTable() {
-  if (!els.masterTable || els.masterTable._bound) return;
-  els.masterTable.addEventListener("change", (e) => {
-    const select = e.target.closest(".deliverable-select");
-    if (select) {
-      const type = select.getAttribute("data-type");
-      const id = select.getAttribute("data-id");
-      const key = deliverableKey(type, id);
-      if (select.checked) state.deliverableSelection.add(key);
-      else state.deliverableSelection.delete(key);
-      clearBulkFeedback();
-      updateBulkSelectionCount();
-      return;
-    }
-    const fieldEl = e.target.closest("[data-field]");
-    if (fieldEl) {
-      const type = fieldEl.getAttribute("data-type");
-      const id = fieldEl.getAttribute("data-id");
-      const field = fieldEl.getAttribute("data-field");
-      const value = fieldEl.value;
-      if (field === "rag_status") setRagSelectVisualState(fieldEl, value);
-      updateDeliverableField(type, id, field, value);
-    }
-  });
-  els.masterTable.addEventListener("click", (e) => {
-    const actionBtn = e.target.closest("[data-action]");
-    if (!actionBtn) return;
-    const action = actionBtn.getAttribute("data-action");
-    const type = actionBtn.getAttribute("data-type");
-    const id = actionBtn.getAttribute("data-id");
-    if (action === "edit") {
-      if (type === "project") {
-        const proj = state.projects.find((p) => p.project_id === id);
-        openProjectForm(proj);
-      } else if (type === "solution") {
-        const sol = state.solutions.find((s) => s.solution_id === id);
-        openSolutionModal(sol, "details");
-      }
-    }
-    if (action === "add-subcomponent" && type === "solution") {
-      const sol = state.solutions.find((s) => s.solution_id === id);
-      openSolutionModal(sol, "subcomponents");
-      showSubcomponentForm(sol);
-    }
-  });
-  els.masterTable._bound = true;
-}
-
-function syncSelectAllCheckbox() {
-  const selectAll = document.getElementById("deliverables-select-all");
-  if (!selectAll) return;
-  const boxes = els.masterTable?.querySelectorAll('input.deliverable-select') || [];
-  const total = boxes.length;
-  if (!total) {
-    selectAll.checked = false;
-    selectAll.indeterminate = false;
-    return;
-  }
-  const checkedCount = Array.from(boxes).filter((box) => box.checked).length;
-  selectAll.checked = checkedCount === total;
-  selectAll.indeterminate = checkedCount > 0 && checkedCount < total;
+  mod.renderMasterTable(createMasterRouteContext());
 }
 
 function bindDebouncedInput(element, onChange, delayMs = 180) {
@@ -2421,183 +1784,6 @@ function bindDebouncedInput(element, onChange, delayMs = 180) {
       onChange(element.value || "");
     }, delayMs);
   });
-}
-
-function bindDeliverablesControls() {
-  els.presetMy?.addEventListener("click", () => setDeliverablesPreset("my"));
-  els.presetOverdue?.addEventListener("click", () => setDeliverablesPreset("overdue"));
-  els.presetBlocked?.addEventListener("click", () => setDeliverablesPreset("blocked"));
-  els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset("engineering"));
-  els.presetClear?.addEventListener("click", clearDeliverablesFilters);
-  els.bulkAction?.addEventListener("change", syncBulkInputs);
-  els.bulkApply?.addEventListener("click", applyBulkAction);
-  els.bulkStatus?.addEventListener("change", clearBulkFeedback);
-  els.bulkOwner?.addEventListener("input", clearBulkFeedback);
-  if (els.masterQuickstart && !els.masterQuickstart._bound) {
-    els.masterQuickstart.addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-quick-action]");
-      if (!btn) return;
-      const action = (btn.getAttribute("data-quick-action") || "").trim();
-      if (action === "create-project") {
-        openProjectForm(null);
-      } else if (action === "create-solution") {
-        openSolutionModal(null, "details");
-      } else if (action === "clear-filters") {
-        clearDeliverablesFilters();
-      } else if (action === "show-completed") {
-        state.workspacePrefs.showCompleted = true;
-        persistWorkspaceViewPreferences();
-        renderCompletedVisibilityToggle();
-        renderActiveView();
-      }
-    });
-    els.masterQuickstart._bound = true;
-  }
-  syncBulkInputs();
-  updatePresetButtons();
-}
-
-function clearSubcomponentsWorkbenchFilters() {
-  const wb = state.subcomponentsWorkbench;
-  wb.preset = "all";
-  wb.filters = {
-    search: "",
-    project_id: "",
-    solution_id: "",
-    assignee: "",
-    assignee_name: "",
-    status: "",
-    priority_max: "",
-  };
-  wb.selected.clear();
-  wb.activeSubcomponentId = "";
-  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = "";
-  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = "";
-  if (els.subcomponentsWorkbenchSolution) {
-    updateSubcomponentsWorkbenchSolutionOptions("");
-    els.subcomponentsWorkbenchSolution.value = "";
-  }
-  if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = "";
-  if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = "";
-  if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = "";
-  persistSubcomponentsWorkbenchUiState();
-  renderSubcomponentsWorkbench();
-}
-
-function syncSubcomponentsWorkbenchBulkInputs() {
-  clearSubcomponentsWorkbenchBulkFeedback();
-  if (!els.subcomponentsWorkbenchBulkAction) return;
-  const action = els.subcomponentsWorkbenchBulkAction.value || "";
-  if (els.subcomponentsWorkbenchBulkStatus) {
-    els.subcomponentsWorkbenchBulkStatus.classList.toggle("hidden", action !== "status");
-  }
-  if (els.subcomponentsWorkbenchBulkAssignee) {
-    els.subcomponentsWorkbenchBulkAssignee.classList.toggle("hidden", action !== "assignee");
-  }
-  if (els.subcomponentsWorkbenchBulkShift) {
-    els.subcomponentsWorkbenchBulkShift.classList.toggle("hidden", action !== "shift_due");
-  }
-  updateSubcomponentsWorkbenchSelectionCount();
-}
-
-async function applySubcomponentsWorkbenchBulkAction() {
-  const wb = state.subcomponentsWorkbench;
-  const selectedIds = Array.from(wb.selected);
-  const action = els.subcomponentsWorkbenchBulkAction?.value || "";
-  if (!action) {
-    setSubcomponentsWorkbenchBulkFeedback("Choose a bulk action.", "error");
-    return;
-  }
-  const activeId = wb.activeSubcomponentId || "";
-  const allowActiveDelete = action === "delete" && !selectedIds.length && !!activeId;
-  if (!selectedIds.length && !allowActiveDelete) {
-    setSubcomponentsWorkbenchBulkFeedback("Select at least one subcomponent.", "error");
-    return;
-  }
-  if (action === "delete") {
-    const deleteTargets = selectedIds.length ? selectedIds : [activeId];
-    setSubcomponentsWorkbenchBulkFeedback(
-      deleteTargets.length === 1 ? "Deleting subcomponent…" : `Deleting ${deleteTargets.length} subcomponents…`
-    );
-    markIgnoreRefresh("subcomponents");
-    const result = await deleteSubcomponentsById(deleteTargets, {
-      title: deleteTargets.length === 1 ? "Delete Subcomponent?" : "Delete Selected Subcomponents?",
-      confirmLabel: deleteTargets.length === 1 ? "Delete Subcomponent" : `Delete ${deleteTargets.length} Subcomponents`,
-    });
-    if (result.cancelled) return;
-    if (!result.deletedIds.length) {
-      ignoreNextRefresh.delete("subcomponents");
-    }
-    renderSubcomponentsWorkbench();
-    const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
-      renderSolutionSubcomponents(openSolutionId);
-    }
-    renderDashboard();
-    if (result.failed.length) {
-      setSubcomponentsWorkbenchBulkFeedback(
-        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,
-        "error"
-      );
-      return;
-    }
-    setSubcomponentsWorkbenchBulkFeedback(
-      `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,
-      "success",
-      3200
-    );
-    return;
-  }
-
-  const payload = { subcomponent_ids: selectedIds };
-  if (action === "status") {
-    payload.status = els.subcomponentsWorkbenchBulkStatus?.value || "";
-    if (!payload.status) {
-      setSubcomponentsWorkbenchBulkFeedback("Select a status value.", "error");
-      return;
-    }
-  } else if (action === "assignee") {
-    const assigneeUserId = els.subcomponentsWorkbenchBulkAssignee?.value || "";
-    if (assigneeUserId) {
-      const user = findUserBySoeid(assigneeUserId);
-      payload.assignee_user_soeid = assigneeUserId;
-      payload.assignee = user?.display_name || assigneeUserId;
-    } else {
-      payload.clear_assignee = true;
-    }
-  } else if (action === "shift_due") {
-    const shift = Number(els.subcomponentsWorkbenchBulkShift?.value || "");
-    if (!Number.isFinite(shift) || Math.abs(shift) < 1) {
-      setSubcomponentsWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");
-      return;
-    }
-    payload.due_date_shift_days = Math.trunc(shift);
-  } else {
-    setSubcomponentsWorkbenchBulkFeedback("Unsupported bulk action.", "error");
-    return;
-  }
-
-  try {
-    const updated = await api("/subcomponents/actions/batch", {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    });
-    (Array.isArray(updated) ? updated : []).forEach((row) => {
-      upsertById(state.subcomponents, row, "subcomponent_id");
-    });
-    renderSubcomponentsWorkbench();
-    const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
-      renderSolutionSubcomponents(openSolutionId);
-    }
-    setSubcomponentsWorkbenchBulkFeedback(
-      `Updated ${selectedIds.length} subcomponent${selectedIds.length === 1 ? "" : "s"}.`,
-      "success",
-      3200
-    );
-  } catch (err) {
-    setSubcomponentsWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");
-  }
 }
 
 function clearBulkFeedback() {
@@ -2614,413 +1800,6 @@ function clearCapacityUserFormStatus() {
 
 function setCapacityUserFormStatus(message, tone = "info", autoClearMs = 0) {
   setDeliverableFormNotice(els.capacityUserFormStatus, message, tone, autoClearMs);
-}
-
-function bindSubcomponentsWorkbenchControls() {
-  const wb = state.subcomponentsWorkbench;
-  const presetButtons = document.querySelectorAll(".scwb-preset[data-preset]");
-  presetButtons.forEach((btn) => {
-    if (btn._bound) return;
-    btn.addEventListener("click", () => {
-      wb.preset = btn.getAttribute("data-preset") || "all";
-      wb.selected.clear();
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    btn._bound = true;
-  });
-
-  if (els.subcomponentsWorkbenchSavedSelect && !els.subcomponentsWorkbenchSavedSelect._bound) {
-    els.subcomponentsWorkbenchSavedSelect.addEventListener("change", () => {
-      const nextId = els.subcomponentsWorkbenchSavedSelect.value || "";
-      wb.selectedSavedViewId = nextId;
-      if (!nextId) {
-        setSubcomponentsWorkbenchSavedStatus("");
-        persistSubcomponentsWorkbenchUiState();
-        return;
-      }
-      const saved = wb.savedViews.find((row) => row.view_id === nextId);
-      if (!saved) return;
-      if (els.subcomponentsWorkbenchSavedName) {
-        els.subcomponentsWorkbenchSavedName.value = saved.name || "";
-      }
-      setSubcomponentsWorkbenchSavedStatus(`Applied "${saved.name}"`);
-      persistSubcomponentsWorkbenchUiState();
-      applySubcomponentsWorkbenchSavedView(saved);
-    });
-    els.subcomponentsWorkbenchSavedSelect._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchSavedSave && !els.subcomponentsWorkbenchSavedSave._bound) {
-    els.subcomponentsWorkbenchSavedSave.addEventListener("click", () => {
-      const rawName = (els.subcomponentsWorkbenchSavedName?.value || "").trim();
-      if (!rawName) {
-        setSubcomponentsWorkbenchSavedStatus("Enter a view name before saving.");
-        return;
-      }
-      let existing = null;
-      if (wb.selectedSavedViewId) {
-        existing = wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId) || null;
-      }
-      if (!existing) {
-        existing = wb.savedViews.find((row) => normalize(row.name) === normalize(rawName)) || null;
-      }
-      const captured = captureSubcomponentsWorkbenchCurrentView(rawName);
-      if (existing) {
-        existing.name = captured.name;
-        existing.preset = captured.preset;
-        existing.filters = captured.filters;
-        existing.updated_at = captured.updated_at;
-        wb.selectedSavedViewId = existing.view_id;
-      } else {
-        wb.savedViews.push(captured);
-        wb.selectedSavedViewId = captured.view_id;
-      }
-      persistSubcomponentsWorkbenchSavedViews();
-      persistSubcomponentsWorkbenchUiState();
-      updateSubcomponentsWorkbenchSavedViewsUI();
-      setSubcomponentsWorkbenchSavedStatus(`Saved "${rawName}"`);
-    });
-    els.subcomponentsWorkbenchSavedSave._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchSavedDelete && !els.subcomponentsWorkbenchSavedDelete._bound) {
-    els.subcomponentsWorkbenchSavedDelete.addEventListener("click", async () => {
-      const selectedId = wb.selectedSavedViewId || els.subcomponentsWorkbenchSavedSelect?.value || "";
-      if (!selectedId) {
-        setSubcomponentsWorkbenchSavedStatus("Select a saved view to delete.");
-        return;
-      }
-      const saved = wb.savedViews.find((row) => row.view_id === selectedId);
-      if (!saved) return;
-      const confirmed = await showConfirmModal({
-        title: "Delete Saved View?",
-        message: `Delete saved view "${saved.name}"?`,
-        confirmLabel: "Delete Saved View",
-      });
-      if (!confirmed) return;
-      wb.savedViews = wb.savedViews.filter((row) => row.view_id !== selectedId);
-      wb.selectedSavedViewId = "";
-      persistSubcomponentsWorkbenchSavedViews();
-      persistSubcomponentsWorkbenchUiState();
-      updateSubcomponentsWorkbenchSavedViewsUI();
-      setSubcomponentsWorkbenchSavedStatus(`Deleted "${saved.name}"`);
-    });
-    els.subcomponentsWorkbenchSavedDelete._bound = true;
-  }
-
-  bindDebouncedInput(els.subcomponentsWorkbenchSearch, (value) => {
-    wb.filters.search = value || "";
-    persistSubcomponentsWorkbenchUiState();
-    renderSubcomponentsWorkbench();
-  });
-
-  if (els.subcomponentsWorkbenchProject && !els.subcomponentsWorkbenchProject._bound) {
-    els.subcomponentsWorkbenchProject.addEventListener("change", () => {
-      wb.filters.project_id = els.subcomponentsWorkbenchProject.value || "";
-      wb.filters.solution_id = "";
-      updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id);
-      if (els.subcomponentsWorkbenchSolution) {
-        els.subcomponentsWorkbenchSolution.value = "";
-      }
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchProject._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchSolution && !els.subcomponentsWorkbenchSolution._bound) {
-    els.subcomponentsWorkbenchSolution.addEventListener("change", () => {
-      wb.filters.solution_id = els.subcomponentsWorkbenchSolution.value || "";
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchSolution._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchAssignee && !els.subcomponentsWorkbenchAssignee._bound) {
-    els.subcomponentsWorkbenchAssignee.addEventListener("change", () => {
-      const value = els.subcomponentsWorkbenchAssignee.value || "";
-      wb.filters.assignee = value;
-      const user = findUserBySoeid(value);
-      wb.filters.assignee_name = user?.display_name || "";
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchAssignee._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchStatus && !els.subcomponentsWorkbenchStatus._bound) {
-    els.subcomponentsWorkbenchStatus.addEventListener("change", () => {
-      wb.filters.status = els.subcomponentsWorkbenchStatus.value || "";
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchStatus._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchPriority && !els.subcomponentsWorkbenchPriority._bound) {
-    bindDebouncedInput(els.subcomponentsWorkbenchPriority, (value) => {
-      wb.filters.priority_max = value || "";
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchPriority._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchClearFilters && !els.subcomponentsWorkbenchClearFilters._bound) {
-    els.subcomponentsWorkbenchClearFilters.addEventListener("click", clearSubcomponentsWorkbenchFilters);
-    els.subcomponentsWorkbenchClearFilters._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchBulkAction && !els.subcomponentsWorkbenchBulkAction._bound) {
-    els.subcomponentsWorkbenchBulkAction.addEventListener("change", syncSubcomponentsWorkbenchBulkInputs);
-    els.subcomponentsWorkbenchBulkAction._bound = true;
-  }
-  if (els.subcomponentsWorkbenchBulkApply && !els.subcomponentsWorkbenchBulkApply._bound) {
-    els.subcomponentsWorkbenchBulkApply.addEventListener("click", () => {
-      applySubcomponentsWorkbenchBulkAction();
-    });
-    els.subcomponentsWorkbenchBulkApply._bound = true;
-  }
-  syncSubcomponentsWorkbenchBulkInputs();
-
-  if (els.subcomponentsWorkbenchTable && !els.subcomponentsWorkbenchTable._bound) {
-    els.subcomponentsWorkbenchTable.addEventListener("change", (e) => {
-      const rowCheck = e.target.closest(".scwb-select-row");
-      if (rowCheck) {
-        const subId = rowCheck.getAttribute("data-id") || "";
-        if (!subId) return;
-        if (rowCheck.checked) wb.selected.add(subId);
-        else wb.selected.delete(subId);
-        clearSubcomponentsWorkbenchBulkFeedback();
-        updateSubcomponentsWorkbenchSelectionCount();
-        return;
-      }
-      if (e.target.id === "scwb-select-all") {
-        const checked = !!e.target.checked;
-        (wb.visibleIds || []).forEach((subId) => {
-          if (checked) wb.selected.add(subId);
-          else wb.selected.delete(subId);
-        });
-        clearSubcomponentsWorkbenchBulkFeedback();
-        persistSubcomponentsWorkbenchUiState();
-        renderSubcomponentsWorkbench();
-      }
-    });
-    els.subcomponentsWorkbenchTable.addEventListener("click", (e) => {
-      const actionEl = e.target.closest("[data-scwb-action]");
-      if (actionEl) {
-        const action = actionEl.getAttribute("data-scwb-action") || "";
-        if (action === "open-project") {
-          openSubcomponentsWorkbenchProjectDrilldown(actionEl.getAttribute("data-project-id"));
-        }
-        if (action === "open-solution") {
-          openSubcomponentsWorkbenchSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
-        }
-        return;
-      }
-      const row = e.target.closest("tr[data-id]");
-      if (!row) return;
-      if (e.target.closest("button,input,select,textarea,label")) return;
-      const subId = row.getAttribute("data-id") || "";
-      if (!subId) return;
-      openSubcomponentsWorkbenchDrawer(subId);
-    });
-    els.subcomponentsWorkbenchTable._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchForm && !els.subcomponentsWorkbenchForm._bound) {
-    els.subcomponentsWorkbenchForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const data = new FormData(els.subcomponentsWorkbenchForm);
-      const subId = data.get("subcomponent_id");
-      if (!subId) {
-        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Select a subcomponent first.", "error");
-        return;
-      }
-      const assigneeUserId = data.get("assignee") || "";
-      const assigneeUser = findUserBySoeid(assigneeUserId);
-      const payload = {
-        subcomponent_name: data.get("subcomponent_name") || "",
-        status: data.get("status") || "to_do",
-        priority: Number(data.get("priority") || 3),
-        due_date: data.get("due_date") || null,
-        assignee: assigneeUser?.display_name || "",
-        assignee_user_soeid: assigneeUserId || null,
-        blocked: !!data.get("blocked"),
-        blocker_note: data.get("blocker_note") || null,
-      };
-      try {
-        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Saving subcomponent...");
-        const updated = await api(`/subcomponents/${subId}`, {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        });
-        upsertById(state.subcomponents, updated, "subcomponent_id");
-        wb.activeSubcomponentId = updated.subcomponent_id;
-        persistSubcomponentsWorkbenchUiState();
-        renderSubcomponentsWorkbench();
-        const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-        if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
-          renderSolutionSubcomponents(openSolutionId);
-        }
-        setDeliverableFormNotice(
-          els.subcomponentsWorkbenchFormStatus,
-          `Saved subcomponent at ${timestampLabel()}.`,
-          "success",
-          3200
-        );
-      } catch (err) {
-        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, `Save failed: ${err.message || err}`, "error");
-      }
-    });
-    els.subcomponentsWorkbenchForm._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchContext && !els.subcomponentsWorkbenchContext._bound) {
-    els.subcomponentsWorkbenchContext.addEventListener("click", (event) => {
-      const actionEl = event.target.closest("[data-scwb-context-action]");
-      if (!actionEl) return;
-      const action = actionEl.getAttribute("data-scwb-context-action") || "";
-      if (action === "open-project") {
-        openSubcomponentsWorkbenchProjectDrilldown(actionEl.getAttribute("data-project-id"));
-      }
-      if (action === "open-solution") {
-        openSubcomponentsWorkbenchSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
-      }
-    });
-    els.subcomponentsWorkbenchContext._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchDelete && !els.subcomponentsWorkbenchDelete._bound) {
-    els.subcomponentsWorkbenchDelete.addEventListener("click", async () => {
-      const subId = els.subcomponentsWorkbenchForm?.querySelector('[name="subcomponent_id"]')?.value || "";
-      if (!subId) {
-        setDeliverableFormNotice(els.subcomponentsWorkbenchFormStatus, "Select a subcomponent first.", "error");
-        return;
-      }
-      markIgnoreRefresh("subcomponents");
-      const result = await deleteSubcomponentsById([subId], {
-        title: "Delete Subcomponent?",
-      });
-      if (result.cancelled) return;
-      if (!result.deletedIds.length) {
-        ignoreNextRefresh.delete("subcomponents");
-      }
-      renderSubcomponentsWorkbench();
-      const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-      if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
-        renderSolutionSubcomponents(openSolutionId);
-      }
-      renderDashboard();
-      if (result.failed.length) {
-        setDeliverableFormNotice(
-          els.subcomponentsWorkbenchFormStatus,
-          `Delete failed for ${result.failed.length} subcomponent(s).`,
-          "error"
-        );
-        return;
-      }
-      setDeliverableFormNotice(
-        els.subcomponentsWorkbenchFormStatus,
-        `Deleted subcomponent at ${timestampLabel()}.`,
-        "success",
-        3200
-      );
-    });
-    els.subcomponentsWorkbenchDelete._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchReset && !els.subcomponentsWorkbenchReset._bound) {
-    els.subcomponentsWorkbenchReset.addEventListener("click", () => {
-      wb.activeSubcomponentId = "";
-      persistSubcomponentsWorkbenchUiState();
-      renderSubcomponentsWorkbench();
-    });
-    els.subcomponentsWorkbenchReset._bound = true;
-  }
-
-  if (els.subcomponentsWorkbenchClose && !els.subcomponentsWorkbenchClose._bound) {
-    els.subcomponentsWorkbenchClose.addEventListener("click", () => closeSubcomponentsWorkbenchDrawer());
-    els.subcomponentsWorkbenchClose._bound = true;
-  }
-
-  if (!document._scwbShortcutsBound) {
-    document.addEventListener("keydown", async (event) => {
-      if (state.currentView !== "subcomponents-workbench") return;
-      if (event.altKey || event.ctrlKey || event.metaKey) return;
-      const key = (event.key || "").toLowerCase();
-      const inWorkbenchTable = !!event.target?.closest?.("#subcomponents-workbench-table");
-      const typingContext = isTypingInputTarget(event.target) && !inWorkbenchTable;
-
-      if (key === "/" && !typingContext) {
-        event.preventDefault();
-        els.subcomponentsWorkbenchSearch?.focus();
-        return;
-      }
-      if (key === "escape") {
-        const isDrawerOpen = wb.drawerOpen !== false;
-        if (isDrawerOpen) {
-          event.preventDefault();
-          closeSubcomponentsWorkbenchDrawer();
-        }
-        return;
-      }
-      if (typingContext) return;
-
-      if (key === "arrowdown" || key === "arrowup") {
-        event.preventDefault();
-        setActiveSubcomponentByOffset(key === "arrowdown" ? 1 : -1);
-        return;
-      }
-      if (key === "e") {
-        event.preventDefault();
-        openSubcomponentsWorkbenchDrawer();
-        window.setTimeout(() => {
-          const target = els.subcomponentsWorkbenchForm?.querySelector('[name="subcomponent_name"]');
-          if (target) target.focus();
-        }, 0);
-        return;
-      }
-      if (key === "delete") {
-        const selectedIds = Array.from(wb.selected);
-        const targetIds = selectedIds.length
-          ? selectedIds
-          : (wb.activeSubcomponentId ? [wb.activeSubcomponentId] : []);
-        if (!targetIds.length) return;
-        event.preventDefault();
-        markIgnoreRefresh("subcomponents");
-        const result = await deleteSubcomponentsById(targetIds, {
-          title: targetIds.length === 1 ? "Delete Subcomponent?" : "Delete Selected Subcomponents?",
-        });
-        if (result.cancelled) return;
-        if (!result.deletedIds.length) {
-          ignoreNextRefresh.delete("subcomponents");
-        }
-        renderSubcomponentsWorkbench();
-        const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-        if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
-          renderSolutionSubcomponents(openSolutionId);
-        }
-        renderDashboard();
-        if (result.failed.length) {
-          setSubcomponentsWorkbenchBulkFeedback(
-            `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,
-            "error"
-          );
-        } else {
-          setSubcomponentsWorkbenchBulkFeedback(
-            `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,
-            "success",
-            3200
-          );
-        }
-        return;
-      }
-    });
-    document._scwbShortcutsBound = true;
-  }
 }
 
 function renderDashboard() {
@@ -3218,64 +1997,11 @@ function openPMDashboardSolutionDrilldown(solutionId) {
 }
 
 function openKanbanProjectDrilldown(projectId) {
-  const targetId = String(projectId || "").trim();
-  if (!targetId) return;
-  const project = state.projects.find((row) => row.project_id === targetId);
-  if (!project) return;
-  openProjectForm(project);
-}
-
-function openSubcomponentsWorkbenchProjectDrilldown(projectId) {
-  const targetId = String(projectId || "").trim();
-  if (!targetId) return;
-  const project = state.projects.find((row) => row.project_id === targetId);
-  if (!project) return;
-  openProjectForm(project);
-}
-
-function openSubcomponentsWorkbenchSolutionDrilldown(solutionId) {
-  const targetId = String(solutionId || "").trim();
-  if (!targetId) return;
-  const solution = state.solutions.find((row) => row.solution_id === targetId);
-  if (!solution) return;
-  openSolutionModal(solution, "details");
-}
-
-function renderSubcomponentsWorkbenchDrawerProjectLink(label, projectId) {
-  const text = String(label || "").trim() || "Unknown project";
-  const targetId = String(projectId || "").trim();
-  if (!targetId) return escapeHtml(text);
-  return `<button type="button" class="sub-workbench-context-link" data-scwb-context-action="open-project" data-project-id="${escapeHtml(targetId)}">${escapeHtml(text)}</button>`;
-}
-
-function renderSubcomponentsWorkbenchDrawerSolutionLink(label, solutionId) {
-  const text = String(label || "").trim() || "Unknown solution";
-  const targetId = String(solutionId || "").trim();
-  if (!targetId) return escapeHtml(text);
-  return `<button type="button" class="sub-workbench-context-link" data-scwb-context-action="open-solution" data-solution-id="${escapeHtml(targetId)}">${escapeHtml(text)}</button>`;
-}
-
-function renderSubcomponentsWorkbenchDrawerRepoContext(subcomponent) {
-  const { url, source } = effectiveSubcomponentRepoInfo(
-    subcomponent?.solution_id,
-    subcomponent?.github_repo_url
-  );
-  if (!url) {
-    return `<span class="sub-workbench-context-secondary">Repo: <span class="muted">Not set</span></span>`;
-  }
-  const sourceLabel = source === "override" ? "override" : "inherited";
-  return `<span class="sub-workbench-context-secondary">Repo: ${renderExternalRepoLink(url, {
-    label: url,
-    className: "repo-external-link-inline",
-  })} <span class="sub-workbench-context-source">(${escapeHtml(sourceLabel)})</span></span>`;
+  return kanbanRouteController.openKanbanProjectDrilldown(projectId);
 }
 
 function openKanbanSolutionDrilldown(solutionId) {
-  const targetId = String(solutionId || "").trim();
-  if (!targetId) return;
-  const solution = state.solutions.find((row) => row.solution_id === targetId);
-  if (!solution) return;
-  openSolutionModal(solution, "details");
+  return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);
 }
 
 function openPMDashboardSubcomponentDrilldown(subcomponentId) {
@@ -3301,413 +2027,40 @@ function bindConfirmModal() {
   return modalShellController.bindConfirmModal();
 }
 
-function setProjectFormVisibility(show) {
-  if (!els.projectModal) return;
-  els.projectModal.classList.toggle("hidden", !show);
-}
-
-function setProjectActionButtonLabel(isEditing) {
-  if (els.projectModalTitle) {
-    els.projectModalTitle.textContent = isEditing ? "Edit Project" : "Create Project";
-  }
-  if (els.projectSubmitBtn) {
-    els.projectSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Project";
-  }
-}
-
-function fillProjectForm(project = null) {
-  if (!els.projectForm) return;
-  els.projectForm.reset();
-  clearDeliverableFormNotice(els.projectFormStatus);
-  const setVal = (name, value = "") => {
-    const field = els.projectForm.querySelector(`[name="${name}"]`);
-    if (field) field.value = value ?? "";
-  };
-  setVal("project_id", project?.project_id || "");
-  setVal("project_name", project?.project_name || "");
-  setVal("status", project?.status || "not_started");
-  setVal("description", project?.description || "");
-  setVal("success_criteria", project?.success_criteria || "");
-  setVal("sponsor", project?.sponsor || "");
-  setVal("sponsor_user_soeid", project?.sponsor_user_soeid || "");
-  setVal("strategic_objective", project?.strategic_objective || "");
-  setVal("priority", project?.priority ?? 3);
-  if (els.deleteProjectBtn) {
-    els.deleteProjectBtn.disabled = !project?.project_id;
-  }
-}
-
 function openProjectForm(project = null) {
-  fillProjectForm(project);
-  setProjectFormVisibility(true);
-  setProjectActionButtonLabel(!!project?.project_id);
+  return projectEntityController.openProjectForm(project);
 }
 
 function closeProjectForm() {
-  fillProjectForm(null);
-  setProjectFormVisibility(false);
-  setProjectActionButtonLabel(false);
+  return projectEntityController.closeProjectForm();
 }
 
 function bindProjectForm() {
-  if (!els.projectForm) return;
-  els.projectModalClose?.addEventListener("click", () => closeProjectForm());
-  els.projectModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => closeProjectForm());
-  els.projectForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = new FormData(els.projectForm);
-    const id = (data.get("project_id") || "").toString().trim();
-    const isEditing = !!id;
-    const payload = {
-      project_name: data.get("project_name"),
-      status: data.get("status"),
-      description: data.get("description"),
-      success_criteria: data.get("success_criteria") || null,
-      sponsor: data.get("sponsor"),
-      sponsor_user_soeid: data.get("sponsor_user_soeid") || null,
-      strategic_objective: data.get("strategic_objective") || null,
-      priority: Number(data.get("priority") || 3),
-    };
-    try {
-      if (isEditing) {
-        setDeliverableFormNotice(els.projectFormStatus, "Saving project...");
-      } else {
-        setDeliverableFormNotice(els.projectFormStatus, "Creating project...");
-      }
-      markIgnoreRefresh("projects");
-      const saved = isEditing
-        ? await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
-        : await api("/projects", { method: "POST", body: JSON.stringify(payload) });
-      upsertById(state.projects, saved, "project_id");
-      fillProjectForm(saved);
-      setProjectActionButtonLabel(true);
-      populateSelects();
-      renderMasterTable();
-      renderDashboard();
-      renderKanban();
-      renderCalendar();
-      const successMessage = isEditing
-        ? `Saved project at ${timestampLabel()}.`
-        : `Created project at ${timestampLabel()}.`;
-      setDeliverableFormNotice(
-        els.projectFormStatus,
-        successMessage,
-        "success",
-        3200
-      );
-    } catch (err) {
-      ignoreNextRefresh.delete("projects");
-      setDeliverableFormNotice(
-        els.projectFormStatus,
-        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-        "error"
-      );
-    }
-  });
-  els.projectForm.addEventListener("reset", () => {
-    clearDeliverableFormNotice(els.projectFormStatus);
-    fillProjectForm(null);
-    setProjectActionButtonLabel(false);
-  });
-  if (els.deleteProjectBtn) {
-    els.deleteProjectBtn.addEventListener("click", async () => {
-      const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
-      if (!id) return;
-      const projectName = els.projectForm?.querySelector('[name="project_name"]')?.value || "this project";
-      const confirmed = await showConfirmModal({
-        title: "Delete Project?",
-        message: `Delete project "${projectName}"? This cannot be undone.`,
-        confirmLabel: "Delete Project",
-      });
-      if (!confirmed) return;
-      try {
-        setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");
-        markIgnoreRefresh("projects");
-        await api(`/projects/${id}`, { method: "DELETE" });
-        removeById(state.projects, id, "project_id");
-        closeProjectForm();
-        populateSelects();
-        renderMasterTable();
-        renderDashboard();
-        renderKanban();
-        renderCalendar();
-      } catch (err) {
-        ignoreNextRefresh.delete("projects");
-        setDeliverableFormNotice(
-          els.projectFormStatus,
-          `Delete failed: ${err.message}`,
-          "error"
-        );
-      }
-    });
-  }
+  return projectEntityController.bindProjectForm();
 }
 
 function bindSolutionForm() {
-  if (!els.solutionForm) return;
-  els.solutionModalClose?.addEventListener("click", () => closeSolutionModal());
-  els.solutionModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => closeSolutionModal());
-
-  const saveHandler = async () => {
-    const data = new FormData(els.solutionForm);
-    const id = (data.get("solution_id") || "").toString().trim();
-    const isEditing = !!id;
-    const projectId = (data.get("project_id") || "").toString().trim();
-    if (!isEditing && !projectId) {
-      setDeliverableFormNotice(
-        els.solutionFormStatus,
-        "Select a project before creating a solution.",
-        "error"
-      );
-      return;
-    }
-    const payload = buildSolutionPayload(data);
-    try {
-      if (isEditing) {
-        setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");
-      } else {
-        setDeliverableFormNotice(els.solutionFormStatus, "Creating solution...");
-      }
-      markIgnoreRefresh("solutions");
-      const saved = isEditing
-        ? await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
-        : await api(`/projects/${projectId}/solutions`, { method: "POST", body: JSON.stringify(payload) });
-      upsertById(state.solutions, saved, "solution_id");
-      populateSelects();
-      fillSolutionForm(saved);
-      if (els.subcomponentForm && !els.subcomponentForm.classList.contains("hidden")) {
-        const activeOverride = els.subcomponentForm.querySelector('[name="github_repo_url"]')?.value || "";
-        updateSubcomponentRepoPreview(saved.solution_id, activeOverride);
-      }
-      setSolutionActionButtonLabel(true);
-      renderActiveView();
-      renderSolutionPhases(saved.solution_id);
-      renderSolutionSubcomponents(saved.solution_id);
-      renderSolutionActivity(saved.solution_id);
-      const successMessage = isEditing
-        ? `Saved solution at ${timestampLabel()}.`
-        : `Created solution at ${timestampLabel()}.`;
-      setDeliverableFormNotice(
-        els.solutionFormStatus,
-        successMessage,
-        "success",
-        3200
-      );
-    } catch (err) {
-      ignoreNextRefresh.delete("solutions");
-      setDeliverableFormNotice(
-        els.solutionFormStatus,
-        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-        "error"
-      );
-    }
-  };
-
-  els.solutionForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    saveHandler();
-  });
-  els.solutionForm.addEventListener("reset", () => {
-    clearDeliverableFormNotice(els.solutionFormStatus);
-    fillSolutionForm(null);
-    setSolutionActionButtonLabel(false);
-    updateCurrentPhaseOptions("");
-    renderSolutionPhases();
-  });
-  if (els.deleteSolutionBtn) {
-    els.deleteSolutionBtn.addEventListener("click", async () => {
-      const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-      if (!id) return;
-      const solutionName = els.solutionForm?.querySelector('[name="solution_name"]')?.value || "this solution";
-      const confirmed = await showConfirmModal({
-        title: "Delete Solution?",
-        message: `Delete solution "${solutionName}"? This cannot be undone.`,
-        confirmLabel: "Delete Solution",
-      });
-      if (!confirmed) return;
-      try {
-        setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");
-        markIgnoreRefresh("solutions");
-        await api(`/solutions/${id}`, { method: "DELETE" });
-        removeById(state.solutions, id, "solution_id");
-        delete state.solutionPhases[id];
-        closeSolutionModal();
-        populateSelects();
-        renderMasterTable();
-        renderDashboard();
-        renderKanban();
-        renderCalendar();
-      } catch (err) {
-        ignoreNextRefresh.delete("solutions");
-        setDeliverableFormNotice(
-          els.solutionFormStatus,
-          `Delete failed: ${err.message}`,
-          "error"
-        );
-      }
-    });
-  }
-}
-
-function buildSolutionPayload(data) {
-  const payload = {
-    solution_name: data.get("solution_name"),
-    github_repo_url: data.get("github_repo_url") || null,
-    version: data.get("version"),
-    status: data.get("status"),
-    priority: Number(data.get("priority") || 3),
-    due_date: data.get("due_date") || null,
-    planned_start_date: data.get("planned_start_date") || null,
-    current_phase: data.get("current_phase") || null,
-    description: data.get("description"),
-    problem_statement: data.get("problem_statement") || null,
-    success_criteria: data.get("success_criteria") || null,
-    impact_confidence: data.get("impact_confidence") || null,
-    owner: data.get("owner"),
-    owner_user_soeid: data.get("owner_user_soeid") || null,
-    assignee: data.get("assignee") || "",
-    assignee_user_soeid: data.get("assignee_user_soeid") || (data.get("assignee") || null),
-    approver: data.get("approver") || null,
-    approver_user_soeid: data.get("approver_user_soeid") || null,
-    key_stakeholder: data.get("key_stakeholder"),
-    rag_confidence: data.get("rag_confidence") ? Number(data.get("rag_confidence")) : null,
-    blockers: data.get("blockers") || null,
-    risks: data.get("risks") || null,
-    capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-    capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-    rag_status: data.get("rag_status") || "green",
-    rag_reason: data.get("rag_reason") || null,
-  };
-  return payload;
-}
-
-function buildSubcomponentPayload(data) {
-  const assigneeUserId = (data.get("assignee") || "").toString().trim();
-  const assigneeUser = findUserBySoeid(assigneeUserId);
-  return {
-    subcomponent_name: data.get("subcomponent_name"),
-    github_repo_url: data.get("github_repo_url") || null,
-    status: data.get("status"),
-    priority: Number(data.get("priority") || 3),
-    due_date: data.get("due_date") || null,
-    assignee: assigneeUser?.display_name || "",
-    assignee_user_soeid: assigneeUserId || null,
-    estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
-    estimate_fte_months: numberOr(data.get("estimate_hours"), 0),
-    blocked: data.get("blocked") ? true : false,
-    blocker_note: data.get("blocker_note") || null,
-    done_criteria: data.get("done_criteria") || null,
-    capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-    capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-  };
-}
-
-function fillSolutionForm(solution = null) {
-  if (!els.solutionForm) return;
-  els.solutionForm.reset();
-  clearDeliverableFormNotice(els.solutionFormStatus);
-  els.solutionForm.querySelector('[name="solution_id"]').value = solution?.solution_id || "";
-  els.solutionForm.querySelector('[name="project_id"]').value = solution?.project_id || "";
-  els.solutionForm.querySelector('[name="solution_name"]').value = solution?.solution_name || "";
-  els.solutionForm.querySelector('[name="github_repo_url"]').value = solution?.github_repo_url || "";
-  els.solutionForm.querySelector('[name="version"]').value = solution?.version || "0.1.0";
-  els.solutionForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(solution?.capacity_hours, 0);
-  els.solutionForm.querySelector('[name="status"]').value = solution?.status || "not_started";
-  els.solutionForm.querySelector('[name="rag_status"]').value = solution?.rag_status || "green";
-  els.solutionForm.querySelector('[name="rag_reason"]').value = solution?.rag_reason || "";
-  els.solutionForm.querySelector('[name="priority"]').value = solution?.priority ?? 3;
-  els.solutionForm.querySelector('[name="due_date"]').value = solution?.due_date || "";
-  els.solutionForm.querySelector('[name="planned_start_date"]').value = solution?.planned_start_date || "";
-  els.solutionForm.querySelector('[name="description"]').value = solution?.description || "";
-  els.solutionForm.querySelector('[name="problem_statement"]').value = solution?.problem_statement || "";
-  els.solutionForm.querySelector('[name="success_criteria"]').value = solution?.success_criteria || "";
-  els.solutionForm.querySelector('[name="impact_confidence"]').value = solution?.impact_confidence || "";
-  els.solutionForm.querySelector('[name="owner"]').value = solution?.owner || "";
-  els.solutionForm.querySelector('[name="owner_user_soeid"]').value = solution?.owner_user_soeid || "";
-  els.solutionForm.querySelector('[name="assignee"]').value = solution?.assignee || "";
-  els.solutionForm.querySelector('[name="assignee_user_soeid"]').value = solution?.assignee_user_soeid || "";
-  els.solutionForm.querySelector('[name="approver"]').value = solution?.approver || "";
-  els.solutionForm.querySelector('[name="approver_user_soeid"]').value = solution?.approver_user_soeid || "";
-  els.solutionForm.querySelector('[name="key_stakeholder"]').value = solution?.key_stakeholder || "";
-  els.solutionForm.querySelector('[name="rag_confidence"]').value = solution?.rag_confidence ?? "";
-  els.solutionForm.querySelector('[name="blockers"]').value = solution?.blockers || "";
-  els.solutionForm.querySelector('[name="risks"]').value = solution?.risks || "";
-  updateCurrentPhaseOptions(solution?.solution_id || "");
-  els.solutionForm.querySelector('[name="current_phase"]').value = solution?.current_phase || "";
-  if (els.deleteSolutionBtn) {
-    els.deleteSolutionBtn.disabled = !solution?.solution_id;
-  }
-}
-
-function setSolutionActionButtonLabel(isEditing) {
-  if (els.solutionModalTitle) {
-    els.solutionModalTitle.textContent = isEditing ? "Edit Solution" : "Create Solution";
-  }
-  if (els.solutionSubmitBtn) {
-    els.solutionSubmitBtn.textContent = isEditing ? "Save Solution" : "Create Solution";
-  }
+  return solutionEntityController.bindSolutionForm();
 }
 
 function setSubcomponentActionButtonLabel(isEditing) {
-  if (els.subcomponentSubmitBtn) {
-    els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";
-  }
+  return subcomponentEntityController.setSubcomponentActionButtonLabel(isEditing);
 }
 
 function setSubcomponentFormVisibility(show) {
-  if (els.subcomponentForm) {
-    els.subcomponentForm.classList.toggle("hidden", !show);
-  }
-  if (els.subcomponentFormFooter) {
-    els.subcomponentFormFooter.classList.toggle("hidden", !show);
-  }
+  return subcomponentEntityController.setSubcomponentFormVisibility(show);
 }
 
 function setSubcomponentCreateAvailability(solutionId) {
-  if (!els.showSubcomponentFormBtn) return;
-  const hasSolution = !!String(solutionId || "").trim();
-  els.showSubcomponentFormBtn.disabled = !hasSolution;
-  els.showSubcomponentFormBtn.title = hasSolution
-    ? "Add a task to this solution"
-    : "Save the solution before adding subcomponents.";
+  return solutionEntityController.setSubcomponentCreateAvailability(solutionId);
 }
 
 function openSolutionModal(solution = null, tab = "details") {
-  if (!els.solutionModal) return;
-  fillSolutionForm(solution);
-  setSolutionActionButtonLabel(!!solution?.solution_id);
-  setSubcomponentCreateAvailability(solution?.solution_id || "");
-  if (els.subcomponentForm) {
-    setSubcomponentFormVisibility(false);
-    setSubcomponentActionButtonLabel(false);
-  }
-  els.solutionModal.classList.remove("hidden");
-  if (els.subcomponentViewToggle) {
-    els.subcomponentViewToggle.textContent = state.subcomponentView === "table" ? "Swimlane View" : "Table View";
-  }
-  setSolutionTab(tab);
-  if (solution?.solution_id) {
-    renderSolutionPhases(solution.solution_id);
-    renderSolutionSubcomponents(solution.solution_id);
-    renderSolutionActivity(solution.solution_id);
-  } else {
-    if (els.phasesTable) els.phasesTable.innerHTML = "<p class='muted'>Save the solution to manage phases.</p>";
-    if (els.solutionSubcomponentTable) els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Save the solution to add subcomponents.</p>";
-    if (els.solutionActivity) els.solutionActivity.innerHTML = "<p class='muted'>Save the solution to see activity.</p>";
-  }
+  return solutionEntityController.openSolutionModal(solution, tab);
 }
 
 function closeSolutionModal() {
-  if (!els.solutionModal) return;
-  fillSolutionForm(null);
-  setSolutionActionButtonLabel(false);
-  setSubcomponentCreateAvailability("");
-  els.solutionModal.classList.add("hidden");
-  setSolutionTab("details");
-  if (els.subcomponentForm) {
-    setSubcomponentFormVisibility(false);
-    setSubcomponentActionButtonLabel(false);
-  }
+  return solutionEntityController.closeSolutionModal();
 }
 
 function setSolutionTab(tab) {
@@ -3741,58 +2094,12 @@ function bindSolutionTabs() {
   tabs._bound = true;
 }
 
-function prepareSubcomponentCreateForm(solution, options = {}) {
-  if (!els.subcomponentForm) return;
-  const { resetForm = true } = options;
-  const sol = solution || state.solutions.find((s) => s.solution_id === els.solutionForm?.querySelector('[name="solution_id"]')?.value);
-  if (!sol) return;
-  setSubcomponentFormVisibility(true);
-  if (resetForm) els.subcomponentForm.reset();
-  clearDeliverableFormNotice(els.subcomponentFormStatus);
-  els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
-  els.subcomponentForm.querySelector('[name="project_id"]').value = sol.project_id;
-  els.subcomponentForm.querySelector('[name="solution_id"]').value = sol.solution_id;
-  els.subcomponentForm.querySelector('[name="github_repo_url"]').value = "";
-  els.subcomponentForm.querySelector('[name="priority"]').value = 3;
-  els.subcomponentForm.querySelector('[name="status"]').value = "to_do";
-  els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(0, 0);
-  updateSubcomponentRepoPreview(sol.solution_id, "");
-  if (els.deleteSubcomponentBtn) {
-    els.deleteSubcomponentBtn.disabled = true;
-  }
-  setSubcomponentActionButtonLabel(false);
-}
-
 function showSubcomponentForm(solution) {
-  prepareSubcomponentCreateForm(solution);
+  return subcomponentEntityController.showSubcomponentForm(solution);
 }
 
 function fillSubcomponentForm(sub) {
-  if (!els.subcomponentForm || !sub) return;
-  setSubcomponentFormVisibility(true);
-  els.subcomponentForm.reset();
-  clearDeliverableFormNotice(els.subcomponentFormStatus);
-  els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = sub.subcomponent_id;
-  els.subcomponentForm.querySelector('[name="project_id"]').value = sub.project_id;
-  els.subcomponentForm.querySelector('[name="solution_id"]').value = sub.solution_id;
-  els.subcomponentForm.querySelector('[name="subcomponent_name"]').value = sub.subcomponent_name || "";
-  els.subcomponentForm.querySelector('[name="github_repo_url"]').value = sub.github_repo_url || "";
-  els.subcomponentForm.querySelector('[name="priority"]').value = sub.priority ?? "";
-  els.subcomponentForm.querySelector('[name="due_date"]').value = sub.due_date || "";
-  els.subcomponentForm.querySelector('[name="status"]').value = sub.status || "to_do";
-  els.subcomponentForm.querySelector('[name="assignee"]').value = resolveAssigneeSelectValue(sub.assignee_user_soeid, sub.assignee);
-  els.subcomponentForm.querySelector('[name="assignee_user_soeid"]').value = sub.assignee_user_soeid || "";
-  els.subcomponentForm.querySelector('[name="estimate_hours"]').value =
-    sub.estimate_hours != null ? fteFromHoursForInput(sub.estimate_hours, 0) : "";
-  els.subcomponentForm.querySelector('[name="blocked"]').checked = !!sub.blocked;
-  els.subcomponentForm.querySelector('[name="blocker_note"]').value = sub.blocker_note || "";
-  els.subcomponentForm.querySelector('[name="done_criteria"]').value = sub.done_criteria || "";
-  els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(sub.capacity_hours, 0);
-  updateSubcomponentRepoPreview(sub.solution_id, sub.github_repo_url || "");
-  if (els.deleteSubcomponentBtn) {
-    els.deleteSubcomponentBtn.disabled = !sub.subcomponent_id;
-  }
-  setSubcomponentActionButtonLabel(!!sub.subcomponent_id);
+  return subcomponentEntityController.fillSubcomponentForm(sub);
 }
 
 function renderSolutionSubcomponents(solutionId) {
@@ -4037,130 +2344,7 @@ async function renderSolutionPhases(selectedId) {
 }
 
 function bindSubcomponentForm() {
-  if (!els.subcomponentForm) return;
-  if (!els.subcomponentForm._repoPreviewBound) {
-    els.subcomponentForm.addEventListener("input", (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLElement)) return;
-      const repoInput = target.closest('[name="github_repo_url"]');
-      if (!repoInput) return;
-      const solutionId = els.subcomponentForm?.querySelector('[name="solution_id"]')?.value || "";
-      updateSubcomponentRepoPreview(solutionId, repoInput.value || "");
-    });
-    els.subcomponentForm._repoPreviewBound = true;
-  }
-  if (els.showSubcomponentFormBtn) {
-    els.showSubcomponentFormBtn.onclick = () => {
-      if (els.subcomponentForm.classList.contains("hidden")) {
-        const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-        if (!solutionId) {
-          renderSolutionSubcomponents("");
-          return;
-        }
-        const solution = state.solutions.find((s) => s.solution_id === solutionId);
-        showSubcomponentForm(solution);
-      } else {
-        setSubcomponentFormVisibility(false);
-      }
-    };
-  }
-  els.subcomponentForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const data = new FormData(els.subcomponentForm);
-    const id = (data.get("subcomponent_id") || "").toString().trim();
-    const solutionId = (data.get("solution_id") || "").toString().trim();
-    const isEditing = !!id;
-    if (!solutionId) {
-      setDeliverableFormNotice(els.subcomponentFormStatus, "Save the solution before adding subcomponents.", "error");
-      return;
-    }
-    const payload = buildSubcomponentPayload(data);
-    try {
-      if (isEditing) {
-        setDeliverableFormNotice(els.subcomponentFormStatus, "Saving subcomponent...");
-      } else {
-        setDeliverableFormNotice(els.subcomponentFormStatus, "Creating subcomponent...");
-      }
-      markIgnoreRefresh("subcomponents");
-      const saved = isEditing
-        ? await api(`/subcomponents/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
-        : await api(`/solutions/${solutionId}/subcomponents`, { method: "POST", body: JSON.stringify(payload) });
-      upsertById(state.subcomponents, saved, "subcomponent_id");
-      fillSubcomponentForm(saved);
-      renderSolutionSubcomponents(saved.solution_id);
-      renderDashboard();
-      const successMessage = isEditing
-        ? `Saved subcomponent at ${timestampLabel()}.`
-        : `Created subcomponent at ${timestampLabel()}.`;
-      setDeliverableFormNotice(
-        els.subcomponentFormStatus,
-        successMessage,
-        "success",
-        3200
-      );
-    } catch (err) {
-      ignoreNextRefresh.delete("subcomponents");
-      setDeliverableFormNotice(
-        els.subcomponentFormStatus,
-        `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-        "error"
-      );
-    }
-  });
-  els.subcomponentForm.addEventListener("reset", () => {
-    clearDeliverableFormNotice(els.subcomponentFormStatus);
-    const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
-    if (solution) {
-      prepareSubcomponentCreateForm(solution, { resetForm: false });
-      return;
-    }
-    els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
-    if (els.deleteSubcomponentBtn) {
-      els.deleteSubcomponentBtn.disabled = true;
-    }
-    setSubcomponentActionButtonLabel(false);
-  });
-  if (els.deleteSubcomponentBtn) {
-    els.deleteSubcomponentBtn.addEventListener("click", async () => {
-      const id = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
-      if (!id) return;
-      const solutionId = els.subcomponentForm?.querySelector('[name="solution_id"]')?.value || "";
-      markIgnoreRefresh("subcomponents");
-      const result = await deleteSubcomponentsById([id], {
-        title: "Delete Subcomponent?",
-      });
-      if (result.cancelled) return;
-      if (!result.deletedIds.length) {
-        ignoreNextRefresh.delete("subcomponents");
-      }
-      const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
-      if (solution) {
-        showSubcomponentForm(solution);
-      } else {
-        els.subcomponentForm.reset();
-        els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = "";
-        if (els.deleteSubcomponentBtn) els.deleteSubcomponentBtn.disabled = true;
-        setSubcomponentActionButtonLabel(false);
-      }
-      renderSolutionSubcomponents(solutionId);
-      renderDashboard();
-      if (result.failed.length) {
-        setDeliverableFormNotice(
-          els.subcomponentFormStatus,
-          `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete subcomponent."}`,
-          "error"
-        );
-        return;
-      }
-      setDeliverableFormNotice(
-        els.subcomponentFormStatus,
-        `Deleted subcomponent at ${timestampLabel()}.`,
-        "success",
-        3200
-      );
-    });
-  }
+  return subcomponentEntityController.bindSubcomponentForm();
 }
 
 function populateSelects() {
@@ -4212,9 +2396,6 @@ function populateSelects() {
   }
   if (calendarOwnerFilterChanged) {
     persistCalendarViewState();
-  }
-  if (els.subcomponentsWorkbenchProject) {
-    els.subcomponentsWorkbenchProject.innerHTML = `<option value="">All Projects</option>${projectOpts}`;
   }
   const teamOpts = state.teams.map((t) => `<option value="${t.team_id}">${t.name}</option>`).join("");
   const teamSelects = [els.teamMemberForm?.querySelector('[name="team_id"]')].filter(Boolean);
@@ -4270,38 +2451,7 @@ function populateSelects() {
       if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
     }
   }
-  if (els.subcomponentsWorkbenchAssignee || els.subcomponentsWorkbenchBulkAssignee || els.subcomponentsWorkbenchForm) {
-    const users = state.users
-      .filter((u) => u.display_name && u.soeid)
-      .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
-    const userOptions = users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("");
-
-    if (els.subcomponentsWorkbenchAssignee) {
-      els.subcomponentsWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;
-    }
-    if (els.subcomponentsWorkbenchBulkAssignee) {
-      const prior = els.subcomponentsWorkbenchBulkAssignee.value || "";
-      els.subcomponentsWorkbenchBulkAssignee.innerHTML = `<option value="">Unassigned</option>${userOptions}`;
-      if (prior && users.find((u) => u.soeid === prior)) {
-        els.subcomponentsWorkbenchBulkAssignee.value = prior;
-      }
-    }
-    if (els.subcomponentsWorkbenchForm) {
-      const assigneeSel = els.subcomponentsWorkbenchForm.querySelector('[name="assignee"]');
-      const assigneeUserInput = els.subcomponentsWorkbenchForm.querySelector('[name="assignee_user_soeid"]');
-      if (assigneeSel) {
-        const prior = assigneeSel.value || "";
-        assigneeSel.innerHTML = `<option value="">Unassigned</option>${userOptions}`;
-        if (prior && users.find((u) => u.soeid === prior)) {
-          assigneeSel.value = prior;
-        }
-        assigneeSel.onchange = () => {
-          if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
-        };
-      }
-    }
-  }
-  normalizeSubcomponentsWorkbenchUiState({ persist: true });
+  populateSubcomponentsWorkbenchOptions(createSubcomponentsWorkbenchContext(), { projectOptionsHtml: projectOpts });
   if (els.allocationForm) {
     const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
     const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
@@ -4379,130 +2529,6 @@ function updateSubcomponentSolutionOptions(projectId) {
   solSel.innerHTML = `<option value="">Select</option>${solutionOpts}`;
 }
 
-function updateSubcomponentsWorkbenchSolutionOptions(projectId) {
-  if (!els.subcomponentsWorkbenchSolution) return;
-  const prior = els.subcomponentsWorkbenchSolution.value || "";
-  const filteredSolutions = projectId
-    ? state.solutions.filter((s) => s.project_id === projectId)
-    : state.solutions;
-  const opts = filteredSolutions
-    .sort((a, b) => (a.solution_name || "").localeCompare(b.solution_name || ""))
-    .map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`)
-    .join("");
-  els.subcomponentsWorkbenchSolution.innerHTML = `<option value="">All Solutions</option>${opts}`;
-  if (prior && filteredSolutions.find((s) => s.solution_id === prior)) {
-    els.subcomponentsWorkbenchSolution.value = prior;
-  }
-}
-
-const VALID_SUBCOMPONENTS_WORKBENCH_STATUSES = new Set([
-  "",
-  "to_do",
-  "in_progress",
-  "on_hold",
-  "complete",
-  "abandoned",
-]);
-
-function normalizeSubcomponentsWorkbenchPriorityFilter(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) return "";
-  return String(parsed);
-}
-
-function normalizeSubcomponentsWorkbenchFilters(filters = {}) {
-  const next = {
-    search: String(filters.search || ""),
-    project_id: String(filters.project_id || ""),
-    solution_id: String(filters.solution_id || ""),
-    assignee: String(filters.assignee || ""),
-    assignee_name: String(filters.assignee_name || ""),
-    status: String(filters.status || ""),
-    priority_max: normalizeSubcomponentsWorkbenchPriorityFilter(filters.priority_max),
-  };
-  let changed = next.priority_max !== String(filters.priority_max || "");
-
-  if (!VALID_SUBCOMPONENTS_WORKBENCH_STATUSES.has(next.status)) {
-    next.status = "";
-    changed = true;
-  }
-
-  if (state.loadedEntities?.has("projects")) {
-    const validProjectIds = new Set((state.projects || []).map((project) => project.project_id));
-    if (next.project_id && !validProjectIds.has(next.project_id)) {
-      next.project_id = "";
-      changed = true;
-    }
-  }
-
-  if (state.loadedEntities?.has("solutions")) {
-    const filteredSolutions = next.project_id
-      ? (state.solutions || []).filter((solution) => solution.project_id === next.project_id)
-      : (state.solutions || []);
-    const validSolutionIds = new Set(filteredSolutions.map((solution) => solution.solution_id));
-    if (next.solution_id && !validSolutionIds.has(next.solution_id)) {
-      next.solution_id = "";
-      changed = true;
-    }
-  }
-
-  if (state.loadedEntities?.has("users")) {
-    const usersBySoeid = new Map(
-      (state.users || [])
-        .filter((user) => user?.soeid && user?.display_name)
-        .map((user) => [String(user.soeid), String(user.display_name)])
-    );
-    if (next.assignee === "__unassigned__") {
-      if (next.assignee_name) {
-        next.assignee_name = "";
-        changed = true;
-      }
-    } else if (next.assignee) {
-      const displayName = usersBySoeid.get(next.assignee) || "";
-      if (!displayName) {
-        next.assignee = "";
-        next.assignee_name = "";
-        changed = true;
-      } else if (next.assignee_name !== displayName) {
-        next.assignee_name = displayName;
-        changed = true;
-      }
-    } else if (next.assignee_name) {
-      next.assignee_name = "";
-      changed = true;
-    }
-  }
-
-  return { filters: next, changed };
-}
-
-function syncSubcomponentsWorkbenchFilterControls() {
-  const wb = state.subcomponentsWorkbench;
-  if (els.subcomponentsWorkbenchSearch) els.subcomponentsWorkbenchSearch.value = wb.filters.search || "";
-  if (els.subcomponentsWorkbenchProject) els.subcomponentsWorkbenchProject.value = wb.filters.project_id || "";
-  updateSubcomponentsWorkbenchSolutionOptions(wb.filters.project_id || "");
-  if (els.subcomponentsWorkbenchSolution) els.subcomponentsWorkbenchSolution.value = wb.filters.solution_id || "";
-  if (els.subcomponentsWorkbenchAssignee) els.subcomponentsWorkbenchAssignee.value = wb.filters.assignee || "";
-  if (els.subcomponentsWorkbenchStatus) els.subcomponentsWorkbenchStatus.value = wb.filters.status || "";
-  if (els.subcomponentsWorkbenchPriority) els.subcomponentsWorkbenchPriority.value = wb.filters.priority_max || "";
-}
-
-function normalizeSubcomponentsWorkbenchUiState({ persist = false } = {}) {
-  const wb = state.subcomponentsWorkbench;
-  let changed = false;
-  if (!VALID_SUBCOMPONENTS_WORKBENCH_PRESETS.has(String(wb.preset || "all"))) {
-    wb.preset = "all";
-    changed = true;
-  }
-  const normalized = normalizeSubcomponentsWorkbenchFilters(wb.filters);
-  wb.filters = normalized.filters;
-  syncSubcomponentsWorkbenchFilterControls();
-  if (persist && (normalized.changed || changed)) persistSubcomponentsWorkbenchUiState();
-  return normalized.changed || changed;
-}
-
 function renderKanban() {
   const mod = getRouteModule("kanban");
   if (!mod || typeof mod.renderKanban !== "function") {
@@ -4564,83 +2590,6 @@ function renderCalendar() {
     return;
   }
   mod.renderCalendar({
-    state,
-    els,
-    filteredSolutionsForCalendar,
-    filteredSubcomponentsForCalendar,
-    formatStatus,
-  });
-}
-
-function formatMonthInputValue(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function parseMonthInputValue(value) {
-  const raw = String(value || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(raw)) return null;
-  const [yearText, monthText] = raw.split("-");
-  const year = Number(yearText);
-  const monthIndex = Number(monthText) - 1;
-  if (!Number.isFinite(year) || !Number.isFinite(monthIndex) || monthIndex < 0 || monthIndex > 11) return null;
-  return new Date(year, monthIndex, 1);
-}
-
-function setCalendarMonth(date) {
-  if (!date || Number.isNaN(date)) return;
-  state.calendarMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-  if (els.calendarMonthInput) {
-    els.calendarMonthInput.value = formatMonthInputValue(state.calendarMonth);
-  }
-  persistCalendarViewState();
-  renderCalendar();
-}
-
-function closeCalendarModal() {
-  els.calendarModal?.classList.add("hidden");
-}
-
-function openCalendarSolutionDrilldown(solutionId) {
-  const targetId = String(solutionId || "").trim();
-  if (!targetId) return;
-  const solution = state.solutions.find((row) => row.solution_id === targetId);
-  if (!solution) return;
-  closeCalendarModal();
-  openSolutionModal(solution, "details");
-}
-
-function openCalendarProjectDrilldown(projectId) {
-  const targetId = String(projectId || "").trim();
-  if (!targetId) return;
-  const project = state.projects.find((row) => row.project_id === targetId);
-  if (!project) return;
-  closeCalendarModal();
-  openProjectForm(project);
-}
-
-function openCalendarSubcomponentDrilldown(subcomponentId) {
-  const targetId = String(subcomponentId || "").trim();
-  if (!targetId) return;
-  const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === targetId);
-  if (!subcomponent) return;
-  const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
-  if (!solution) return;
-  closeCalendarModal();
-  openSolutionModal(solution, "subcomponents");
-  fillSubcomponentForm(subcomponent);
-}
-
-function openCalendarModal(day) {
-  const mod = getRouteModule("calendar");
-  if (!mod || typeof mod.openCalendarModal !== "function") {
-    ensureRouteModule("calendar").then((loaded) => {
-      if (loaded && typeof loaded.openCalendarModal === "function") {
-        openCalendarModal(day);
-      }
-    });
-    return;
-  }
-  mod.openCalendarModal(day, {
     state,
     els,
     filteredSolutionsForCalendar,
@@ -5115,81 +3064,8 @@ function bindNav() {
 }
 
 function bindCalendarControls() {
-  if (els.calendarMonthInput) {
-    els.calendarMonthInput.value = formatMonthInputValue(state.calendarMonth || new Date());
-    els.calendarMonthInput.addEventListener("change", () => {
-      const val = els.calendarMonthInput.value;
-      if (!val) return;
-      const [year, month] = val.split("-").map(Number);
-      setCalendarMonth(new Date(year, (month || 1) - 1, 1));
-    });
-  }
-  const shiftMonth = (delta) => {
-    const base = state.calendarMonth || new Date();
-    const next = new Date(base.getFullYear(), base.getMonth() + delta, 1);
-    setCalendarMonth(next);
-  };
-  els.calendarPrev?.addEventListener("click", () => shiftMonth(-1));
-  els.calendarNext?.addEventListener("click", () => shiftMonth(1));
-  if (els.calendarGrid) {
-    els.calendarGrid.addEventListener("click", (e) => {
-      const previewActionEl = e.target.closest("[data-calendar-preview-action]");
-      if (previewActionEl) {
-        const action = previewActionEl.getAttribute("data-calendar-preview-action") || "";
-        if (action === "open-solution") {
-          openCalendarSolutionDrilldown(previewActionEl.getAttribute("data-solution-id"));
-        }
-        return;
-      }
-      const cell = e.target.closest(".calendar-cell[data-day]");
-      if (!cell) return;
-      const day = Number(cell.getAttribute("data-day"));
-      if (Number.isFinite(day)) openCalendarModal(day);
-    });
-  }
-  els.calendarModalClose?.addEventListener("click", closeCalendarModal);
-  els.calendarModalList?.addEventListener("click", (e) => {
-    const actionEl = e.target.closest("[data-calendar-action]");
-    if (!actionEl) return;
-    const action = actionEl.getAttribute("data-calendar-action") || "";
-    if (action === "open-project") {
-      openCalendarProjectDrilldown(actionEl.getAttribute("data-project-id"));
-      return;
-    }
-    if (action === "open-solution") {
-      openCalendarSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
-      return;
-    }
-    if (action === "open-subcomponent") {
-      openCalendarSubcomponentDrilldown(actionEl.getAttribute("data-subcomponent-id"));
-    }
-  });
-  els.calendarModal?.addEventListener("click", (e) => {
-    if (e.target === els.calendarModal || e.target.classList.contains("modal-backdrop")) {
-      closeCalendarModal();
-    }
-  });
-
-  els.kanbanFilterProject?.addEventListener("change", () => {
-    state.kanbanFilters.project = els.kanbanFilterProject.value || "";
-    persistKanbanViewState();
-    renderKanban();
-  });
-  bindDebouncedInput(els.kanbanFilterOwner, (value) => {
-    state.kanbanFilters.owner = value;
-    persistKanbanViewState();
-    renderKanban();
-  });
-  els.calendarFilterProject?.addEventListener("change", () => {
-    state.calendarFilters.project = els.calendarFilterProject.value || "";
-    persistCalendarViewState();
-    renderCalendar();
-  });
-  bindDebouncedInput(els.calendarFilterOwner, (value) => {
-    state.calendarFilters.owner = value;
-    persistCalendarViewState();
-    renderCalendar();
-  });
+  calendarRouteController.bindCalendarRouteControls();
+  kanbanRouteController.bindKanbanRouteControls();
 
   if (els.planningWindowSelect) {
     els.planningWindowSelect.addEventListener("change", () => {
@@ -5434,243 +3310,12 @@ function bindCalendarControls() {
   }
 }
 
-function normalizeCapacityLookup(value) {
-  return String(value || "").trim().toLowerCase();
-}
-
-function findCapacityUserBySoeid(soeid) {
-  const norm = normalizeCapacityLookup(soeid);
-  if (!norm) return null;
-  return state.users.find((u) => normalizeCapacityLookup(u.soeid) === norm) || null;
-}
-
-function findCapacityUserByValue(value) {
-  const norm = normalizeCapacityLookup(value);
-  if (!norm) return null;
-  return (
-    findCapacityUserBySoeid(norm) ||
-    state.users.find((u) => normalizeCapacityLookup(u.display_name) === norm) ||
-    null
-  );
-}
-
-function selectCapacityUser(user, options = {}) {
-  const form = els.capacityUserForm;
-  if (!form) return;
-  const preserveName = !!options.preserveName;
-  const preserveStatus = !!options.preserveStatus;
-  const shouldRender = options.render !== false;
-  const next = user || null;
-  if (!preserveStatus) clearCapacityUserFormStatus();
-  state.capacitySelectedSoeid = next?.soeid || "";
-  form.querySelector('[name="soeid"]').value = next?.soeid || "";
-  if (!preserveName) {
-    form.querySelector('[name="display_name"]').value = next?.display_name || "";
-  }
-  form.querySelector('[name="team_tag"]').value = next?.team_tag || "";
-  form.querySelector('[name="capacity_fte_month"]').value = formatFte(next ? userCapacityFteMonth(next) : 1);
-  persistTeamCapacityViewState();
-  if (shouldRender && state.currentView === "team-capacity") {
-    renderTeamCapacity();
-  }
-}
-
-function clearCapacityUserForm(options = {}) {
-  if (!els.capacityUserForm) return;
-  const preserveStatus = !!options.preserveStatus;
-  const shouldRender = options.render !== false;
-  if (!preserveStatus) clearCapacityUserFormStatus();
-  els.capacityUserForm.reset();
-  state.capacitySelectedSoeid = "";
-  els.capacityUserForm.querySelector('[name="soeid"]').value = "";
-  const fteField = els.capacityUserForm.querySelector('[name="capacity_fte_month"]');
-  if (fteField) fteField.value = "1.00";
-  persistTeamCapacityViewState();
-  if (shouldRender && state.currentView === "team-capacity") {
-    renderTeamCapacity();
-  }
-}
-
 async function loadTeamCapacityData(options = {}) {
-  if (!state.authed) return;
-  const force = !!options.force;
-  const preserveSelection = options.preserveSelection !== false;
-  if (!force && state.teamCapacity.loading) return;
-  const requestedSpaceId = state.activeSpace?.space_id || "";
-  const requestedSpaceName = state.activeSpace?.space_name || "";
-  if (!requestedSpaceId) {
-    state.teamCapacity.error = "No active space selected.";
-    state.teamCapacity.lastLoadedAt = "";
-    applyEntityData("users", []);
-    applyEntityData("allocations", []);
-    if (state.currentView === "team-capacity") renderTeamCapacity();
-    return;
-  }
-
-  const requestId = (state.teamCapacity.requestId || 0) + 1;
-  state.teamCapacity.requestId = requestId;
-  state.teamCapacity.loading = true;
-  state.teamCapacity.error = "";
-  if (state.currentView === "team-capacity") renderTeamCapacity();
-
-  try {
-    const spaceHeaders = { "X-Space-Id": requestedSpaceId };
-    const [usersResult, allocationsResult] = await Promise.allSettled([
-      api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders }),
-      api("/resource-allocations", { timeoutMs: 45000, headers: spaceHeaders }),
-    ]);
-    if (state.teamCapacity.requestId !== requestId) return;
-    if ((state.activeSpace?.space_id || "") !== requestedSpaceId) return;
-
-    const loadErrors = [];
-    if (usersResult.status === "fulfilled") {
-      applyEntityData("users", usersResult.value);
-    } else {
-      if (handleAuthError(usersResult.reason)) return;
-      loadErrors.push(`roster: ${usersResult.reason?.message || "failed"}`);
-    }
-    if (allocationsResult.status === "fulfilled") {
-      applyEntityData("allocations", allocationsResult.value);
-    } else {
-      if (handleAuthError(allocationsResult.reason)) return;
-      loadErrors.push(`allocations: ${allocationsResult.reason?.message || "failed"}`);
-      // Keep table usable even if allocation fetch fails.
-      applyEntityData("allocations", []);
-    }
-
-    if (loadErrors.length) {
-      state.teamCapacity.error = `Partial load: ${loadErrors.join(" | ")}`;
-    }
-    state.teamCapacity.lastLoadedAt = new Date().toISOString();
-    state.teamCapacity.lastLoadedSpaceId = requestedSpaceId;
-    state.teamCapacity.lastLoadedSpaceName = requestedSpaceName;
-    populateSelects();
-    if (preserveSelection && state.capacitySelectedSoeid) {
-      const selected = findCapacityUserBySoeid(state.capacitySelectedSoeid);
-      if (selected) selectCapacityUser(selected, { render: false });
-      else clearCapacityUserForm({ render: false });
-    }
-    persistTeamCapacityViewState();
-  } catch (err) {
-    if (state.teamCapacity.requestId !== requestId) return;
-    if (handleAuthError(err)) return;
-    state.teamCapacity.error = err?.message || "Failed to load team capacity data.";
-  } finally {
-    if (state.teamCapacity.requestId === requestId) {
-      state.teamCapacity.loading = false;
-      if (state.currentView === "team-capacity") renderTeamCapacity();
-    }
-  }
+  return teamCapacityRouteController.loadTeamCapacityData(options);
 }
 
 function bindCapacityUsers() {
-  if (els.capacityUserForm) {
-    const nameInput = els.capacityUserForm.querySelector('[name="display_name"]');
-    if (nameInput) {
-      nameInput.addEventListener("input", () => {
-        clearCapacityUserFormStatus();
-        const match = findCapacityUserByValue(nameInput.value || "");
-        els.capacityUserForm.querySelector('[name="soeid"]').value = match?.soeid || "";
-        if (match) {
-          state.capacitySelectedSoeid = match.soeid || "";
-          els.capacityUserForm.querySelector('[name="team_tag"]').value = match.team_tag || "";
-          els.capacityUserForm.querySelector('[name="capacity_fte_month"]').value = formatFte(userCapacityFteMonth(match));
-          persistTeamCapacityViewState();
-          if (state.currentView === "team-capacity") renderTeamCapacity();
-        } else if (state.capacitySelectedSoeid) {
-          state.capacitySelectedSoeid = "";
-          persistTeamCapacityViewState();
-          renderTeamCapacity();
-        }
-      });
-      nameInput.addEventListener("blur", () => {
-        const match = findCapacityUserByValue(nameInput.value || "");
-        if (match) {
-          selectCapacityUser(match);
-        }
-      });
-    }
-    els.capacityUserForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const data = new FormData(els.capacityUserForm);
-      const soeid = normalizeCapacityLookup(data.get("soeid")) || normalizeCapacityLookup(findCapacityUserByValue(data.get("display_name"))?.soeid);
-      if (!soeid) {
-        setCapacityUserFormStatus("Select a member from the roster (or type an exact SOEID/name match) first.", "error");
-        return;
-      }
-      const payload = {
-        team_tag: data.get("team_tag") || null,
-        capacity_fte_month: numberOr(data.get("capacity_fte_month"), 0),
-      };
-      try {
-        await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, { method: "PATCH", body: JSON.stringify(payload) });
-        await loadTeamCapacityData({ force: true, preserveSelection: false });
-        const refreshed = findCapacityUserBySoeid(soeid);
-        if (refreshed) selectCapacityUser(refreshed, { preserveStatus: true });
-        else clearCapacityUserForm({ preserveStatus: true });
-        setCapacityUserFormStatus(`Saved member at ${timestampLabel()}.`, "success", 3200);
-      } catch (err) {
-        setCapacityUserFormStatus(`Save failed: ${err.message}`, "error");
-      }
-    });
-    els.capacityUserForm.addEventListener("reset", () => {
-      clearCapacityUserForm();
-    });
-  }
-  if (els.capacityUserDelete) {
-    els.capacityUserDelete.addEventListener("click", async () => {
-      const soeid = els.capacityUserForm?.querySelector('[name="soeid"]')?.value;
-      if (!soeid) {
-        setCapacityUserFormStatus("Select a member first.", "error");
-        return;
-      }
-      const confirmed = await showConfirmModal({
-        title: "Deactivate Member?",
-        message: "Deactivate this member? They will be hidden from the roster.",
-        confirmLabel: "Deactivate Member",
-      });
-      if (!confirmed) return;
-      try {
-        await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, { method: "PATCH", body: JSON.stringify({ is_active: false }) });
-        clearCapacityUserForm({ render: false, preserveStatus: true });
-        await loadTeamCapacityData({ force: true, preserveSelection: false });
-        setCapacityUserFormStatus(`Member deactivated at ${timestampLabel()}.`, "success", 3200);
-      } catch (err) {
-        setCapacityUserFormStatus(`Delete failed: ${err.message}`, "error");
-      }
-    });
-  }
-  if (els.capacityUserList) {
-    els.capacityUserList.addEventListener("click", (e) => {
-      const row = e.target.closest("tr[data-soeid]");
-      if (!row) return;
-      const soeid = row.getAttribute("data-soeid");
-      const user = state.users.find((u) => u.soeid === soeid);
-      if (!user) return;
-      selectCapacityUser(user);
-    });
-  }
-  bindDebouncedInput(els.capacityTeamFilter, () => {
-    persistTeamCapacityViewState();
-    renderTeamCapacity();
-  });
-  bindDebouncedInput(els.capacityNameFilter, () => {
-    persistTeamCapacityViewState();
-    renderTeamCapacity();
-  });
-  if (els.capacityReload) {
-    els.capacityReload.addEventListener("click", async () => {
-      await loadTeamCapacityData({ force: true });
-    });
-  }
-  if (els.capacityClearFilters) {
-    els.capacityClearFilters.addEventListener("click", () => {
-      if (els.capacityTeamFilter) els.capacityTeamFilter.value = "";
-      if (els.capacityNameFilter) els.capacityNameFilter.value = "";
-      persistTeamCapacityViewState();
-      renderTeamCapacity();
-    });
-  }
+  return teamCapacityRouteController.bindTeamCapacityControls();
 }
 
 function userIsGlobalAdmin() {
@@ -5802,73 +3447,23 @@ function restoreMasterViewState() {
 }
 
 function persistCalendarViewState() {
-  writeStoredJson(
-    activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX),
-    {
-      month: formatMonthInputValue(state.calendarMonth || new Date()),
-      filters: {
-        project: state.calendarFilters?.project || "",
-        owner: state.calendarFilters?.owner || "",
-      },
-    }
-  );
+  return calendarRouteController.persistCalendarViewState();
 }
 
 function restoreCalendarViewState() {
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(CALENDAR_VIEW_STATE_KEY_PREFIX), {});
-  const parsedMonth = parseMonthInputValue(stored.month || "");
-  state.calendarMonth = parsedMonth || state.calendarMonth || new Date();
-  state.calendarFilters = {
-    project: String(stored.filters?.project || ""),
-    owner: String(stored.filters?.owner || ""),
-  };
-  if (recovered) persistCalendarViewState();
-  if (recovered) return;
-  if (recovered || !Object.keys(stored || {}).length || !parsedMonth) persistCalendarViewState();
+  return calendarRouteController.restoreCalendarViewState();
 }
 
 function persistKanbanViewState() {
-  writeStoredJson(
-    activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX),
-    {
-      filters: {
-        project: state.kanbanFilters?.project || "",
-        owner: state.kanbanFilters?.owner || "",
-      },
-    }
-  );
+  return kanbanRouteController.persistKanbanViewState();
 }
 
 function restoreKanbanViewState() {
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(KANBAN_VIEW_STATE_KEY_PREFIX), {});
-  state.kanbanFilters = {
-    project: String(stored.filters?.project || ""),
-    owner: String(stored.filters?.owner || ""),
-  };
-  if (recovered) persistKanbanViewState();
-  if (recovered) return;
-  if (recovered || !Object.keys(stored || {}).length) persistKanbanViewState();
-}
-
-function persistTeamCapacityViewState() {
-  writeStoredJson(
-    activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX),
-    {
-      team_filter: String(els.capacityTeamFilter?.value || ""),
-      name_filter: String(els.capacityNameFilter?.value || ""),
-      selected_soeid: String(state.capacitySelectedSoeid || ""),
-    }
-  );
+  return kanbanRouteController.restoreKanbanViewState();
 }
 
 function restoreTeamCapacityViewState() {
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX), {});
-  if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");
-  if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");
-  state.capacitySelectedSoeid = String(stored.selected_soeid || "");
-  if (recovered) persistTeamCapacityViewState();
-  if (recovered) return;
-  if (recovered || !Object.keys(stored || {}).length) persistTeamCapacityViewState();
+  return teamCapacityRouteController.restoreTeamCapacityViewState();
 }
 
 function persistPlanningWindowViewState() {
@@ -5925,7 +3520,7 @@ function restoreSubcomponentsWorkbenchUiState() {
   wb.activeSubcomponentId = String(stored.activeSubcomponentId || "");
   wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
   wb.drawerOpen = stored.drawerOpen !== false;
-  normalizeSubcomponentsWorkbenchUiState();
+  normalizeWorkbenchUiState(createSubcomponentsWorkbenchContext());
   if (recovered || !Object.keys(stored || {}).length) persistSubcomponentsWorkbenchUiState();
 }
 
@@ -5933,23 +3528,6 @@ function canManageSpaceMembership(spaceId) {
   if (!spaceId) return false;
   if (userIsGlobalAdmin()) return true;
   return isSpaceAdminRole(state.activeSpace?.space_role) && activeSpaceId() === spaceId;
-}
-
-function memberLabel(member) {
-  const row = member || {};
-  const userId = row.user_id || "";
-  const soeid = row.user_soeid || "";
-  const displayName = row.user_display_name || "";
-  const email = row.user_email || "";
-  if (displayName && soeid) return `${displayName} (${soeid})`;
-  if (displayName) return displayName;
-  if (soeid) return soeid;
-  if (email) return email;
-  const user = state.users.find((item) => item.user_id === userId);
-  if (!user) return userId;
-  const title = user.display_name || user.soeid || user.user_id;
-  if (user.soeid) return `${title} (${user.soeid})`;
-  return title;
 }
 
 function normalizeGovernanceSection(value) {
@@ -5997,1014 +3575,36 @@ function effectiveDirectorySpaces() {
   return Array.from(merged.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
-function directorySpaceById(spaceId) {
-  const targetSpaceId = String(spaceId || "").trim();
-  if (!targetSpaceId) return null;
-  return effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId)
-    || (state.spaces || []).find((space) => space.space_id === targetSpaceId)
-    || Object.values(state.archivedSpacesById || {}).find((space) => space?.space_id === targetSpaceId)
-    || null;
-}
-
-function ensureSelectedDirectorySpace() {
-  const spaces = effectiveDirectorySpaces();
-  const availableIds = new Set(spaces.map((space) => space.space_id));
-  if (!state.spaceMembershipSpaceId || !availableIds.has(state.spaceMembershipSpaceId)) {
-    state.spaceMembershipSpaceId = activeSpaceId() || spaces[0]?.space_id || "";
-  }
-  return spaces.find((space) => space.space_id === state.spaceMembershipSpaceId) || null;
-}
-
-function roleBadgeLabelForSpace(space) {
-  if (!space) return "";
-  if (space.space_id === activeSpaceId()) return currentSpaceRoleLabel(state.activeSpace);
-  if (userIsGlobalAdmin()) return "Global Admin";
-  return "Accessible";
-}
-
-function roleBadgeClass(label) {
-  const normalized = normalize(label);
-  if (normalized.includes("admin")) return "";
-  if (normalized === "accessible") return "muted";
-  return "muted";
-}
-
-function membershipSummaryForSpace(spaceId) {
-  const members = state.spaceMembersBySpace[spaceId] || [];
-  return {
-    total: members.length,
-    active: members.filter((row) => normalize(row.status) === "active").length,
-    admins: members.filter((row) => normalizeSpaceRole(row.role) === "space_admin" && normalize(row.status) === "active").length,
-    inactive: members.filter((row) => normalize(row.status) === "inactive").length,
-  };
-}
-
-function openSpaceCreateModal() {
-  if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
-  els.spaceCreateModal.classList.remove("hidden");
-  els.spaceCreateModalForm?.reset();
-  clearDeliverableFormNotice(els.spaceCreateStatus);
-  window.setTimeout(() => {
-    els.spaceCreateModalForm?.querySelector('[name="name"]')?.focus();
-  }, 0);
-}
-
 function closeSpaceCreateModal() {
-  els.spaceCreateModal?.classList.add("hidden");
-}
-
-function openSpaceMemberModal(spaceId = activeSpaceId()) {
-  const targetSpaceId = String(spaceId || "").trim();
-  if (!targetSpaceId || !canManageSpaceMembership(targetSpaceId) || !els.spaceMemberModalForm) return;
-  const targetSpace = effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId)
-    || (state.spaces || []).find((space) => space.space_id === targetSpaceId)
-    || null;
-  els.spaceMemberModalForm.reset();
-  els.spaceMemberModalForm.querySelector('[name="space_id"]').value = targetSpaceId;
-  if (els.spaceMemberModalContext) {
-    els.spaceMemberModalContext.textContent = `Adding a member to ${targetSpace?.name || targetSpaceId}.`;
-  }
-  clearDeliverableFormNotice(els.spaceMemberStatus);
-  els.spaceMemberModal.classList.remove("hidden");
-  window.setTimeout(() => {
-    els.spaceMemberModalForm?.querySelector('[name="soeid"]')?.focus();
-  }, 0);
+  return spaceGovernanceController.closeSpaceCreateModal();
 }
 
 function closeSpaceMemberModal() {
-  els.spaceMemberModal?.classList.add("hidden");
-}
-
-function openSpaceDirectoryModal(spaceId) {
-  const targetSpaceId = String(spaceId || state.spaceMembershipSpaceId || "").trim();
-  if (!targetSpaceId || !els.spaceDirectoryModal) return;
-  state.spaceMembershipSpaceId = targetSpaceId;
-  state.spaceDirectoryModalOpen = true;
-  renderSpaceDirectoryModal();
-  els.spaceDirectoryModal.classList.remove("hidden");
-  window.setTimeout(() => {
-    els.spaceDirectoryModalClose?.focus();
-  }, 0);
+  return spaceGovernanceController.closeSpaceMemberModal();
 }
 
 function closeSpaceDirectoryModal() {
-  state.spaceDirectoryModalOpen = false;
-  els.spaceDirectoryModal?.classList.add("hidden");
-}
-
-function renderGovernanceNotice() {
-  if (!state.spaceGovernanceNotice?.text) return "";
-  const toneClass = state.spaceGovernanceNotice.tone === "error"
-    ? " notice-error"
-    : (state.spaceGovernanceNotice.tone === "success" ? " notice-success" : "");
-  return `<p class="form-notice space-governance-notice${toneClass}" role="status" aria-live="polite">${esc(state.spaceGovernanceNotice.text)}</p>`;
-}
-
-function renderMembershipTable(spaceId) {
-  const canManage = canManageSpaceMembership(spaceId) && !state.spaceSwitching;
-  const members = state.spaceMembersBySpace[spaceId] || [];
-  if (!members.length) {
-    return `
-      <div class="space-empty-card">
-        <h3>No members yet</h3>
-        <p class="muted">Add people to this space so ownership, planning, and access can be managed without leaving the governance hub.</p>
-      </div>
-    `;
-  }
-  const rows = members.map((row) => {
-    const nextRole = normalizeSpaceRole(row.role) === "space_admin" ? "member" : "space_admin";
-    const nextStatus = normalize(row.status) === "active" ? "inactive" : "active";
-    const menuOpen = state.spaceMembershipActionMenuId === row.membership_id;
-    const soeid = row.user_soeid ? `<span>${esc(row.user_soeid)}</span>` : "";
-    const email = row.user_email ? `<span>${esc(row.user_email)}</span>` : "";
-    return `<tr data-membership-id="${escapeAttr(row.membership_id)}">
-      <td>
-        <div class="space-member-cell">
-          <strong>${esc(memberLabel(row))}</strong>
-          <div class="space-member-meta">${soeid}${soeid && email ? " • " : ""}${email}</div>
-        </div>
-      </td>
-      <td><span class="pill ${normalizeSpaceRole(row.role) === "space_admin" ? "" : "muted"}">${esc(row.role)}</span></td>
-      <td><span class="pill ${normalize(row.status) === "active" ? "positive" : "muted"}">${esc(row.status)}</span></td>
-      <td>
-        ${canManage ? `
-          <div class="space-member-actions">
-            <button type="button" class="secondary" data-space-action="toggle-member-menu" data-membership-id="${escapeAttr(row.membership_id)}" aria-expanded="${menuOpen ? "true" : "false"}">Manage</button>
-            ${menuOpen ? `
-              <div class="space-action-menu" role="menu">
-                <button type="button" class="secondary" data-space-action="toggle-space-member-role" data-membership-id="${escapeAttr(row.membership_id)}" data-space-id="${escapeAttr(spaceId)}" data-next-role="${escapeAttr(nextRole)}">${nextRole === "space_admin" ? "Promote to space_admin" : "Demote to member"}</button>
-                <button type="button" class="secondary" data-space-action="toggle-space-member-status" data-membership-id="${escapeAttr(row.membership_id)}" data-space-id="${escapeAttr(spaceId)}" data-next-status="${escapeAttr(nextStatus)}">${nextStatus === "active" ? "Activate membership" : "Deactivate membership"}</button>
-                <button type="button" class="secondary danger" data-space-action="delete-space-member" data-membership-id="${escapeAttr(row.membership_id)}" data-space-id="${escapeAttr(spaceId)}">Remove from space</button>
-              </div>
-            ` : ""}
-          </div>
-        ` : "<span class='muted'>Read-only</span>"}
-      </td>
-    </tr>`;
-  }).join("");
-  return `
-    <div class="table">
-      <table>
-        <thead>
-          <tr><th>User</th><th>Role</th><th>Status</th><th>Actions</th></tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
-}
-
-function renderCurrentSpaceSection() {
-  const active = state.activeSpace;
-  const currentSpaceId = activeSpaceId();
-  if (!active || !currentSpaceId) {
-    return "<p class='muted'>Select a space to manage memberships and scoped administration.</p>";
-  }
-  if (!state.spaceMembersLoadedBySpace[currentSpaceId]) {
-    refreshSpaceMembers(currentSpaceId).catch((err) => {
-      console.warn("Failed to load active space memberships", err);
-      setSpaceGovernanceNotice(err?.message || "Failed to load space memberships.", "error", 7000);
-    });
-  }
-  const loading = !state.spaceMembersLoadedBySpace[currentSpaceId];
-  const summary = loading ? { total: 0, active: 0, admins: 0, inactive: 0 } : membershipSummaryForSpace(currentSpaceId);
-  return `
-    <div class="space-section-stack">
-      <div class="space-hero-card">
-        <div>
-          <p class="space-card-kicker">Active workspace</p>
-          <h3>${esc(active.space_name || currentSpaceId)}</h3>
-          <p class="muted">This is the space that powers the data, assignments, and membership edits in the rest of the app.</p>
-        </div>
-        <div class="space-hero-actions">
-          <span class="pill">${esc(currentSpaceRoleLabel(active))}</span>
-          <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(currentSpaceId)}" ${state.spaceSwitching ? "disabled" : ""}>Add Member</button>
-        </div>
-      </div>
-      <div class="space-summary-grid">
-        <div class="panel soft space-summary-card"><span class="muted">Members</span><strong>${loading ? "..." : summary.total}</strong></div>
-        <div class="panel soft space-summary-card"><span class="muted">Active</span><strong>${loading ? "..." : summary.active}</strong></div>
-        <div class="panel soft space-summary-card"><span class="muted">Active Admins</span><strong>${loading ? "..." : summary.admins}</strong></div>
-        <div class="panel soft space-summary-card"><span class="muted">Inactive</span><strong>${loading ? "..." : summary.inactive}</strong></div>
-      </div>
-      <div class="panel soft space-membership-card">
-        <div class="panel-header">
-          <div>
-            <h3>Space Memberships</h3>
-            <p class="muted">Manage the people who can work inside ${esc(active.space_name || currentSpaceId)}.</p>
-          </div>
-        </div>
-        ${loading ? "<p class='muted'>Loading memberships...</p>" : renderMembershipTable(currentSpaceId)}
-      </div>
-    </div>
-  `;
-}
-
-function renderDirectoryDetailSurface(selectedSpace) {
-  if (!selectedSpace) {
-    return `
-      <div class="space-empty-card">
-        <h3>Select a space</h3>
-        <p class="muted">Choose a space from the directory to inspect its status, switch into it, or continue governance work.</p>
-      </div>
-    `;
-  }
-  const isCurrent = selectedSpace.space_id === activeSpaceId();
-  const canManage = canManageSpaceMembership(selectedSpace.space_id);
-  const canSwitchToManage = !userIsGlobalAdmin() && isSpaceAdminRole(state.activeSpace?.space_role) && !isCurrent;
-  const isArchived = selectedSpace.is_active === false;
-  const canToggleActive = userIsGlobalAdmin() && (isArchived || !isCurrent);
-  const archiveLabel = isArchived ? "Reactivate" : "Archive";
-  const previewMode = isCurrent
-    ? "Current workspace"
-    : (canManage ? "Ready to manage" : (canSwitchToManage ? "Switch to manage" : "Read-only preview"));
-  if (!state.spaceMembersLoadedBySpace[selectedSpace.space_id] && (canManage || userIsGlobalAdmin()) && !state.spaceSwitching) {
-    refreshSpaceMembers(selectedSpace.space_id).catch((err) => {
-      console.warn("Failed to load directory space memberships", err);
-      setSpaceGovernanceNotice(err?.message || "Failed to load selected space details.", "error", 7000);
-    });
-  }
-  const summary = state.spaceMembersLoadedBySpace[selectedSpace.space_id]
-    ? membershipSummaryForSpace(selectedSpace.space_id)
-    : null;
-  return `
-    <div class="space-directory-modal-shell">
-      <div class="panel soft space-directory-preview space-directory-modal-preview">
-        <div class="space-directory-preview-hero">
-          <div>
-            <p class="space-card-kicker">Space details</p>
-            <h3>${esc(selectedSpace.name || selectedSpace.space_id)}</h3>
-            <p class="space-directory-preview-id">${esc(selectedSpace.space_id)}</p>
-            <p class="muted">Review the current state first, then take the next action from this layer without cluttering the directory.</p>
-          </div>
-          <div class="space-hero-actions">
-            <span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(selectedSpace))}">${esc(roleBadgeLabelForSpace(selectedSpace))}</span>
-            ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
-            ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
-          </div>
-        </div>
-        <div class="space-directory-preview-grid">
-          <div class="space-summary-card panel">
-            <span class="muted">Slug</span>
-            <strong>${esc(selectedSpace.slug || "Not set")}</strong>
-          </div>
-          <div class="space-summary-card panel">
-            <span class="muted">Members</span>
-            <strong>${summary ? summary.total : "Preview after load"}</strong>
-          </div>
-          <div class="space-summary-card panel">
-            <span class="muted">Active Admins</span>
-            <strong>${summary ? summary.admins : "Preview after load"}</strong>
-          </div>
-          <div class="space-summary-card panel">
-            <span class="muted">Mode</span>
-            <strong>${esc(previewMode)}</strong>
-          </div>
-        </div>
-        ${canSwitchToManage ? `
-          <div class="space-inline-callout">
-            <div>
-              <strong>Read-only preview</strong>
-              <p class="muted">Switch into ${esc(selectedSpace.name || selectedSpace.space_id)} to manage memberships and work with full governance controls.</p>
-            </div>
-            <button type="button" class="primary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}">Switch to manage</button>
-          </div>
-        ` : ""}
-        ${isArchived ? `
-          <p class="muted">Archived spaces remain visible here for review. Reactivate the space before adding or changing memberships.</p>
-        ` : ""}
-        ${(canManage || userIsGlobalAdmin()) ? `
-          <div class="space-directory-preview-actions">
-            <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${isCurrent || state.spaceSwitching ? "disabled" : ""}>${isCurrent ? "Already current" : "Switch to this space"}</button>
-            <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${canManage && !isArchived ? "" : "disabled"}>Add Member</button>
-            ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canToggleActive ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-active="${isArchived ? "true" : "false"}" ${canToggleActive ? "" : "disabled"}>${archiveLabel}</button>` : ""}
-          </div>
-        ` : ""}
-      </div>
-      <div class="form-actions space-directory-modal-footer">
-        <button type="button" class="secondary" data-space-action="close-directory-space-modal">Close</button>
-      </div>
-    </div>
-  `;
+  return spaceGovernanceController.closeSpaceDirectoryModal();
 }
 
 function renderSpaceDirectoryModal() {
-  if (!els.spaceDirectoryModal || !els.spaceDirectoryModalBody) return;
-  if (!state.spaceDirectoryModalOpen) {
-    els.spaceDirectoryModal.classList.add("hidden");
-    els.spaceDirectoryModalBody.innerHTML = "";
-    return;
-  }
-  const selectedSpace = directorySpaceById(state.spaceMembershipSpaceId);
-  if (!selectedSpace) {
-    closeSpaceDirectoryModal();
-    els.spaceDirectoryModalBody.innerHTML = "";
-    return;
-  }
-  els.spaceDirectoryModalBody.innerHTML = renderDirectoryDetailSurface(selectedSpace);
-  els.spaceDirectoryModal.classList.remove("hidden");
-}
-
-function renderDirectorySection() {
-  const allSpaces = effectiveDirectorySpaces();
-  const spaces = allSpaces.filter((space) => {
-    const query = normalize(state.spaceDirectoryQuery);
-    if (!query) return true;
-    return [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query));
-  });
-  const totalSpaces = allSpaces.length;
-  const activeSpaces = allSpaces.filter((space) => space.is_active !== false).length;
-  const archivedSpaces = allSpaces.filter((space) => space.is_active === false).length;
-  const ensuredSelected = ensureSelectedDirectorySpace();
-  const selectedSpace = spaces.length
-    ? (spaces.find((space) => space.space_id === state.spaceMembershipSpaceId) || spaces[0] || ensuredSelected)
-    : null;
-  if (selectedSpace?.space_id && selectedSpace.space_id !== state.spaceMembershipSpaceId) {
-    state.spaceMembershipSpaceId = selectedSpace.space_id;
-  }
-  const cards = spaces.length
-      ? spaces.map((space) => {
-        const isCurrent = space.space_id === activeSpaceId();
-        const isSelected = space.space_id === state.spaceMembershipSpaceId;
-        const isArchived = space.is_active === false;
-        const workspaceState = isArchived ? "Archived" : (isCurrent ? "Current" : "Active");
-        return `<article class="space-directory-card${isSelected ? " is-selected" : ""}${isCurrent ? " is-current" : ""}${isArchived ? " is-archived" : ""}">
-          <div class="space-directory-card-head">
-            <div>
-              <p class="space-card-kicker">${esc(space.slug || "workspace")}</p>
-              <h3>${esc(space.name || space.space_id)}</h3>
-            </div>
-            <div class="space-card-badges">
-              <span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(space))}">${esc(roleBadgeLabelForSpace(space))}</span>
-              ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
-              ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
-            </div>
-          </div>
-          <div class="space-directory-card-body">
-            <p class="space-directory-card-id">${esc(space.space_id)}</p>
-            <p class="space-directory-card-note muted">Open the space sheet to review status, switch workspaces, and handle space-level actions in one layer.</p>
-            <div class="space-directory-card-facts">
-              <div class="space-directory-card-fact">
-                <span>Mode</span>
-                <strong>${esc(workspaceState)}</strong>
-              </div>
-              <div class="space-directory-card-fact">
-                <span>Access</span>
-                <strong>${esc(isCurrent ? "Current workspace" : roleBadgeLabelForSpace(space))}</strong>
-              </div>
-            </div>
-          </div>
-          <div class="space-directory-card-actions space-directory-card-actions-single">
-            <button type="button" class="primary" data-space-action="open-directory-space" data-space-id="${escapeAttr(space.space_id)}">${isSelected ? "Reopen details" : (isCurrent ? "Open current space" : "View details")}</button>
-          </div>
-        </article>`;
-      }).join("")
-    : `
-      <div class="space-empty-card">
-        <h3>No spaces found</h3>
-        <p class="muted">${userIsGlobalAdmin() ? "Try a different search or switch off archived filtering to widen the directory." : "Try a different search to widen the directory."}</p>
-      </div>
-    `;
-  return `
-    <div class="space-section-stack">
-      <div class="panel soft space-directory-overview">
-        <div class="space-directory-overview-copy">
-          <p class="space-card-kicker">Workspace atlas</p>
-          <h3>Space Directory</h3>
-          <p class="muted">Scan every space, inspect the current state, and move into the right workspace without losing your governance context.</p>
-        </div>
-        <div class="space-directory-overview-stats">
-          <div class="space-directory-stat">
-            <span>Total spaces</span>
-            <strong>${totalSpaces}</strong>
-          </div>
-          <div class="space-directory-stat">
-            <span>Active</span>
-            <strong>${activeSpaces}</strong>
-          </div>
-          <div class="space-directory-stat">
-            <span>Archived</span>
-            <strong>${archivedSpaces}</strong>
-          </div>
-          <div class="space-directory-stat">
-            <span>In view</span>
-            <strong>${spaces.length}</strong>
-          </div>
-        </div>
-        <div class="space-directory-toolbar">
-          <label class="space-directory-search-field">Search spaces
-            <input type="search" id="space-directory-search" placeholder="Name, slug, or ID" value="${escapeAttr(state.spaceDirectoryQuery)}" />
-          </label>
-          ${userIsGlobalAdmin() ? `<label class="checkbox-row space-directory-toggle"><input type="checkbox" id="space-directory-show-archived" ${state.spaceDirectoryShowArchived ? "checked" : ""} /> Show archived</label>` : ""}
-          ${userIsGlobalAdmin() ? `<button type="button" class="primary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
-        </div>
-      </div>
-      <div class="space-directory-layout">
-        <div class="space-directory-grid">${cards}</div>
-      </div>
-    </div>
-  `;
-}
-
-function renderPlatformPasswordResetResult() {
-  const issued = state.platformPasswordReset;
-  if (!issued?.temp_password) return "";
-  const expiresText = formatDateTime(issued.expires_at) || "Unknown expiration";
-  return `
-    <div class="panel soft platform-reset-output">
-      <div class="platform-reset-output-head">
-        <div>
-          <p class="space-card-kicker">Temporary password issued</p>
-          <h3>Share the temporary password</h3>
-          <p class="muted">Issued for ${esc(issued.soeid || "user")} and valid until ${esc(expiresText)}. Send them to the reset page with this temporary password.</p>
-        </div>
-        <span class="pill positive">Ready</span>
-      </div>
-      <div class="platform-reset-grid">
-        <label class="wide">Temporary password
-          <input type="text" readonly value="${escapeAttr(issued.temp_password)}" />
-        </label>
-        <label class="wide">Reset page
-          <input type="text" readonly value="${escapeAttr(issued.reset_url || "")}" />
-        </label>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="secondary" data-space-action="copy-temp-password">Copy temp password</button>
-        <button type="button" class="secondary" data-space-action="copy-reset-link">Copy reset page</button>
-        <button type="button" class="secondary" data-space-action="clear-reset-result">Clear</button>
-      </div>
-    </div>
-  `;
-}
-
-function renderPlatformAccessSection() {
-  if (!userIsGlobalAdmin()) {
-    return `
-      <div class="space-empty-card">
-        <h3>Platform Access</h3>
-        <p class="muted">Global admin access is managed centrally and is only visible to global admins.</p>
-      </div>
-    `;
-  }
-  if (!state.globalAdminsLoaded) {
-    refreshGlobalAdmins().catch((err) => {
-      console.warn("Failed to load global admins", err);
-      setSpaceGovernanceNotice(err?.message || "Failed to load platform access.", "error", 7000);
-    });
-  }
-  const rows = state.globalAdminsLoaded
-    ? (state.globalAdmins || []).map((user) => {
-        const statusText = user.is_active ? "active" : "inactive";
-        return `<tr data-user-id="${escapeAttr(user.user_id)}" data-soeid="${escapeAttr(user.soeid)}">
-          <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
-          <td>${esc(user.soeid || "—")}</td>
-          <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
-          <td>
-            <div class="platform-access-actions">
-              <button type="button" class="secondary" data-space-action="issue-password-reset" data-soeid="${escapeAttr(user.soeid)}">Reset Password</button>
-              <button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke</button>
-            </div>
-          </td>
-        </tr>`;
-      }).join("")
-    : "<tr><td colspan='4' class='muted'>Loading global admins...</td></tr>";
-  return `
-    <div class="space-section-stack">
-      <div class="space-hero-card">
-        <div>
-          <p class="space-card-kicker">Platform-wide access</p>
-          <h3>Global Admins</h3>
-          <p class="muted">Grant platform-wide access, revoke it when needed, or issue password resets without leaving the governance hub.</p>
-        </div>
-      </div>
-      <div class="panel soft">
-        <form id="space-platform-access-form" class="form compact inline-form">
-          <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-          <div class="form-actions full-span">
-            <button type="submit">Grant Global Admin</button>
-          </div>
-        </form>
-      </div>
-      <div class="panel soft">
-        <form id="space-password-reset-form" class="form compact inline-form">
-          <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-          <label>Expires in minutes <input type="number" name="expires_minutes" min="5" max="1440" placeholder="30" /></label>
-          <p class="muted full-span">Issuing a reset signs the user out, generates a temporary password on this screen, and requires them to choose a new password on the reset page.</p>
-          <div class="form-actions full-span">
-            <button type="submit">Issue Password Reset</button>
-          </div>
-        </form>
-      </div>
-      ${renderPlatformPasswordResetResult()}
-      <div class="panel soft">
-        <div class="table">
-          <table>
-            <thead><tr><th>Name</th><th>SOEID</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>${rows || "<tr><td colspan='4' class='muted'>No global admins found</td></tr>"}</tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  `;
+  return spaceGovernanceRenderer.renderSpaceDirectoryModal();
 }
 
 function renderGovernanceHub(preferredSection = "") {
-  if (!els.spaceGovernanceShell) return;
-  const activeSection = resolveGovernanceSection(
-    preferredSection || (state.currentView === "access" ? "platform-access" : state.spaceAdminSection || "current-space")
-  );
-  const sectionTabs = governanceSections()
-    .map((section) => `
-      <button
-        type="button"
-        class="secondary${activeSection === section.id ? " active" : ""}"
-        data-space-action="select-section"
-        data-section="${escapeAttr(section.id)}"
-      >${esc(section.label)}</button>
-    `)
-    .join("");
-  let body = "";
-  if (activeSection === "current-space") body = renderCurrentSpaceSection();
-  if (activeSection === "space-directory") body = renderDirectorySection();
-  if (activeSection === "platform-access") body = renderPlatformAccessSection();
-  const introCopy = activeSection === "platform-access"
-    ? "Manage platform-wide admins without leaving the same governance hub."
-    : "Switch spaces quickly, stay oriented, and handle access work without leaving the current admin context.";
-  els.spaceGovernanceShell.innerHTML = `
-    <div class="space-governance-header">
-      <div>
-        <p class="space-card-kicker">Unified admin hub</p>
-        <h3>Manage Current Space, Directory, and Platform Access</h3>
-        <p class="muted">${esc(introCopy)}</p>
-      </div>
-      <div class="space-governance-header-actions">
-        ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
-        ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
-      </div>
-    </div>
-    <div class="space-governance-tabs">${sectionTabs}</div>
-    ${renderGovernanceNotice()}
-    <div class="space-governance-body">${body}</div>
-  `;
-  if (activeSection !== "space-directory") {
-    closeSpaceDirectoryModal();
-  } else {
-    renderSpaceDirectoryModal();
-  }
+  return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
 }
 
 async function refreshGlobalAdmins() {
-  if (!userIsGlobalAdmin()) {
-    state.globalAdmins = [];
-    state.globalAdminsLoaded = false;
-    return;
-  }
-  if (refreshGlobalAdmins._inFlight) return refreshGlobalAdmins._inFlight;
-  refreshGlobalAdmins._inFlight = api("/users/global-admins?active_only=false")
-    .then((rows) => {
-      state.globalAdmins = Array.isArray(rows) ? rows : [];
-      state.globalAdminsLoaded = true;
-      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-      return state.globalAdmins;
-    })
-    .finally(() => {
-      refreshGlobalAdmins._inFlight = null;
-    });
-  return refreshGlobalAdmins._inFlight;
-}
-
-async function issuePasswordResetForSoeid(soeid, expiresMinutes = null) {
-  const soeidNorm = String(soeid || "").trim().toLowerCase();
-  if (!soeidNorm) {
-    throw new Error("SOEID is required.");
-  }
-  const body = {};
-  if (expiresMinutes !== null && expiresMinutes !== undefined && String(expiresMinutes).trim() !== "") {
-    body.expires_minutes = Number(expiresMinutes);
-  }
-  const issued = await api(`/users/by-soeid/${encodeURIComponent(soeidNorm)}/password-reset-request`, {
-    method: "POST",
-    ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
-  });
-  state.platformPasswordReset = {
-    soeid: soeidNorm,
-    temp_password: issued?.temp_password || "",
-    expires_at: issued?.expires_at || "",
-    reset_url: buildResetPageUrl(),
-  };
-  if (isSpaceGovernanceView(state.currentView)) {
-    renderGovernanceHub();
-  }
-  return state.platformPasswordReset;
+  return spaceGovernanceController.refreshGlobalAdmins();
 }
 
 async function refreshSpaceMembers(spaceId, options = {}) {
-  const targetSpaceId = (spaceId || "").toString().trim();
-  if (!targetSpaceId) return [];
-  const force = !!options.force;
-  if (!force && state.spaceMembersLoadedBySpace[targetSpaceId]) {
-    return state.spaceMembersBySpace[targetSpaceId] || [];
-  }
-  refreshSpaceMembers._inFlight = refreshSpaceMembers._inFlight || {};
-  if (refreshSpaceMembers._inFlight[targetSpaceId]) {
-    return refreshSpaceMembers._inFlight[targetSpaceId];
-  }
-  refreshSpaceMembers._inFlight[targetSpaceId] = api(`/spaces/${encodeURIComponent(targetSpaceId)}/members`)
-    .then((rows) => {
-      state.spaceMembersBySpace[targetSpaceId] = Array.isArray(rows) ? rows : [];
-      state.spaceMembersLoadedBySpace[targetSpaceId] = true;
-      if (isSpaceGovernanceView(state.currentView) && state.spaceMembershipSpaceId === targetSpaceId) {
-        renderGovernanceHub();
-      } else if (isSpaceGovernanceView(state.currentView) && targetSpaceId === activeSpaceId()) {
-        renderGovernanceHub();
-      }
-      return state.spaceMembersBySpace[targetSpaceId];
-    })
-    .finally(() => {
-      delete refreshSpaceMembers._inFlight[targetSpaceId];
-    });
-  return refreshSpaceMembers._inFlight[targetSpaceId];
-}
-
-async function handleSpaceGovernanceAction(button) {
-  if (!button) return false;
-  const action = button.getAttribute("data-space-action") || "";
-  const spaceId = button.getAttribute("data-space-id") || "";
-  const membershipId = button.getAttribute("data-membership-id") || "";
-  const soeid = button.getAttribute("data-soeid") || "";
-  const launchedFromDirectoryModal = !!button.closest("#space-directory-modal");
-  if (action !== "toggle-member-menu") {
-    state.spaceMembershipActionMenuId = "";
-  }
-  if (action === "select-section") {
-    state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
-    renderGovernanceHub();
-    return true;
-  }
-  if (action === "open-directory-space") {
-    openSpaceDirectoryModal(spaceId);
-    return true;
-  }
-  if (action === "close-directory-space-modal") {
-    closeSpaceDirectoryModal();
-    return true;
-  }
-  if (action === "preview-space") {
-    state.spaceMembershipSpaceId = spaceId;
-    renderGovernanceHub();
-    return true;
-  }
-  if (action === "open-create-space-modal") {
-    openSpaceCreateModal();
-    return true;
-  }
-  if (action === "open-member-modal") {
-    if (launchedFromDirectoryModal) {
-      closeSpaceDirectoryModal();
-    }
-    openSpaceMemberModal(spaceId || activeSpaceId());
-    return true;
-  }
-  if (action === "switch-space") {
-    if (launchedFromDirectoryModal) {
-      closeSpaceDirectoryModal();
-    }
-    await switchActiveSpace(spaceId);
-    return true;
-  }
-  if (action === "toggle-member-menu") {
-    state.spaceMembershipActionMenuId = state.spaceMembershipActionMenuId === membershipId ? "" : membershipId;
-    renderGovernanceHub();
-    return true;
-  }
-  if (action === "toggle-space-active" && userIsGlobalAdmin()) {
-    const nextActive = normalize(button.getAttribute("data-next-active")) === "true";
-    const targetName = spaceNameForId(spaceId) || "this space";
-    const confirmed = await showConfirmModal({
-      title: nextActive ? "Reactivate Space" : "Archive Space",
-      message: nextActive
-        ? `Reactivate ${targetName}?`
-        : `Archive ${targetName}? It will stop appearing in active space lists until reactivated.`,
-      confirmLabel: nextActive ? "Reactivate" : "Archive",
-    });
-    if (!confirmed) return true;
-    try {
-      const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ is_active: nextActive }),
-      });
-      if (updated?.is_active === false) {
-        state.archivedSpacesById[updated.space_id] = updated;
-      } else if (updated?.space_id) {
-        delete state.archivedSpacesById[updated.space_id];
-      }
-      await refreshSpaceContext();
-      state.spaceMembershipSpaceId = updated?.space_id || state.spaceMembershipSpaceId;
-      state.spaceAdminSection = "space-directory";
-      if (launchedFromDirectoryModal) {
-        closeSpaceDirectoryModal();
-      }
-      setSpaceGovernanceNotice(
-        `${nextActive ? "Reactivated" : "Archived"} ${updated?.name || targetName}.`,
-        "success",
-        4500
-      );
-    } catch (err) {
-      setSpaceGovernanceNotice(err?.message || "Space update failed.", "error", 7000);
-    }
-    return true;
-  }
-  if (action === "toggle-space-member-role" || action === "toggle-space-member-status" || action === "delete-space-member") {
-    if (!membershipId || !spaceId || !canManageSpaceMembership(spaceId)) {
-      setSpaceGovernanceNotice("Switch into this space to manage its memberships.", "error", 7000);
-      return true;
-    }
-    try {
-      if (action === "toggle-space-member-role") {
-        const nextRole = (button.getAttribute("data-next-role") || "").trim();
-        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ role: nextRole }),
-        });
-      } else if (action === "toggle-space-member-status") {
-        const nextStatus = (button.getAttribute("data-next-status") || "").trim();
-        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: nextStatus }),
-        });
-      } else {
-        const confirmed = await showConfirmModal({
-          title: "Remove Space Member",
-          message: "Remove this member from the selected space?",
-          confirmLabel: "Remove",
-        });
-        if (!confirmed) return true;
-        await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
-          method: "DELETE",
-        });
-      }
-      state.spaceMembersLoadedBySpace[spaceId] = false;
-      await refreshSpaceMembers(spaceId, { force: true });
-      setSpaceGovernanceNotice("Membership updated.", "success", 3500);
-    } catch (err) {
-      setSpaceGovernanceNotice(err?.message || "Membership update failed.", "error", 7000);
-    }
-    return true;
-  }
-  if (action === "issue-password-reset" && userIsGlobalAdmin()) {
-    const confirmed = await showConfirmModal({
-      title: "Issue Password Reset",
-      message: `Issue a one-time password reset for ${soeid}? This will invalidate their active sessions.`,
-      confirmLabel: "Issue Reset",
-    });
-    if (!confirmed) return true;
-    try {
-      await issuePasswordResetForSoeid(soeid);
-      setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
-    } catch (err) {
-      setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
-    }
-    return true;
-  }
-  if (action === "copy-temp-password" || action === "copy-reset-link") {
-    const issued = state.platformPasswordReset;
-    const text = action === "copy-temp-password" ? issued?.temp_password : issued?.reset_url;
-    try {
-      await copyText(text);
-      setSpaceGovernanceNotice(action === "copy-temp-password" ? "Temporary password copied." : "Reset page copied.", "success", 3000);
-    } catch (err) {
-      setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
-    }
-    return true;
-  }
-  if (action === "clear-reset-result") {
-    state.platformPasswordReset = null;
-    renderGovernanceHub();
-    return true;
-  }
-  if (action === "revoke-global-admin" && userIsGlobalAdmin()) {
-    const confirmed = await showConfirmModal({
-      title: "Revoke Global Admin",
-      message: `Revoke global admin from ${soeid}?`,
-      confirmLabel: "Revoke",
-    });
-    if (!confirmed) return true;
-    try {
-      await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "DELETE" });
-      state.globalAdminsLoaded = false;
-      await refreshGlobalAdmins();
-      await refreshFromServer("users");
-      setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
-    } catch (err) {
-      setSpaceGovernanceNotice(err?.message || "Revoke failed.", "error", 7000);
-    }
-    return true;
-  }
-  return false;
+  return spaceGovernanceController.refreshSpaceMembers(spaceId, options);
 }
 
 function bindSpaceAdminControls() {
-  if (els.spaceCreateModalClose && !els.spaceCreateModalClose._bound) {
-    els.spaceCreateModalClose.addEventListener("click", closeSpaceCreateModal);
-    els.spaceCreateModalClose._bound = true;
-  }
-  if (els.spaceCreateModal && !els.spaceCreateModal._bound) {
-    els.spaceCreateModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceCreateModal);
-    els.spaceCreateModal._bound = true;
-  }
-  if (els.spaceCreateModalForm && !els.spaceCreateModalForm._bound) {
-    els.spaceCreateModalForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      if (!userIsGlobalAdmin()) return;
-      const data = new FormData(els.spaceCreateModalForm);
-      const name = (data.get("name") || "").toString().trim();
-      const slug = (data.get("slug") || "").toString().trim();
-      if (!name) {
-        setDeliverableFormNotice(els.spaceCreateStatus, "Space name is required.", "error");
-        return;
-      }
-      try {
-        const created = await api("/spaces", {
-          method: "POST",
-          body: JSON.stringify({ name, slug: slug || null }),
-        });
-        clearDeliverableFormNotice(els.spaceCreateStatus);
-        closeSpaceCreateModal();
-        setSpaceGovernanceNotice(`Created ${created?.name || name}.`, "success", 4500);
-        await refreshSpaceContext();
-        state.spaceMembershipSpaceId = created?.space_id || state.spaceMembershipSpaceId;
-        state.spaceAdminSection = "space-directory";
-        renderGovernanceHub();
-      } catch (err) {
-        setDeliverableFormNotice(els.spaceCreateStatus, err?.message || "Space create failed.", "error");
-      }
-    });
-    els.spaceCreateModalForm._bound = true;
-  }
-
-  if (els.spaceMemberModalClose && !els.spaceMemberModalClose._bound) {
-    els.spaceMemberModalClose.addEventListener("click", closeSpaceMemberModal);
-    els.spaceMemberModalClose._bound = true;
-  }
-  if (els.spaceMemberModal && !els.spaceMemberModal._bound) {
-    els.spaceMemberModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceMemberModal);
-    els.spaceMemberModal._bound = true;
-  }
-  if (els.spaceMemberModalForm && !els.spaceMemberModalForm._bound) {
-    els.spaceMemberModalForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const data = new FormData(els.spaceMemberModalForm);
-      const spaceId = String(data.get("space_id") || "").trim();
-      const soeid = String(data.get("soeid") || "").trim().toLowerCase();
-      const role = String(data.get("role") || "member");
-      const status = String(data.get("status") || "active");
-      if (!spaceId) {
-        setDeliverableFormNotice(els.spaceMemberStatus, "Select a space first.", "error");
-        return;
-      }
-      if (!canManageSpaceMembership(spaceId)) {
-        setDeliverableFormNotice(els.spaceMemberStatus, "Switch into this space to manage its memberships.", "error");
-        return;
-      }
-      if (!soeid) {
-        setDeliverableFormNotice(els.spaceMemberStatus, "SOEID is required.", "error");
-        return;
-      }
-      try {
-        await api(`/spaces/${encodeURIComponent(spaceId)}/members/by-soeid`, {
-          method: "POST",
-          body: JSON.stringify({ soeid, role, status }),
-        });
-        state.spaceMembersLoadedBySpace[spaceId] = false;
-        await refreshSpaceMembers(spaceId, { force: true });
-        closeSpaceMemberModal();
-        setSpaceGovernanceNotice(`Added ${soeid} to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
-      } catch (err) {
-        setDeliverableFormNotice(els.spaceMemberStatus, err?.message || "Add member failed.", "error");
-      }
-    });
-    els.spaceMemberModalForm._bound = true;
-  }
-
-  if (els.spaceDirectoryModalClose && !els.spaceDirectoryModalClose._bound) {
-    els.spaceDirectoryModalClose.addEventListener("click", closeSpaceDirectoryModal);
-    els.spaceDirectoryModalClose._bound = true;
-  }
-  if (els.spaceDirectoryModal && !els.spaceDirectoryModal._bound) {
-    els.spaceDirectoryModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSpaceDirectoryModal);
-    els.spaceDirectoryModal.addEventListener("click", async (event) => {
-      const button = event.target.closest("button[data-space-action]");
-      if (!button) return;
-      await handleSpaceGovernanceAction(button);
-    });
-    els.spaceDirectoryModal._bound = true;
-  }
-
-  if (els.spaceGovernanceShell && !els.spaceGovernanceShell._bound) {
-    els.spaceGovernanceShell.addEventListener("click", async (event) => {
-      const button = event.target.closest("button[data-space-action]");
-      if (!button) return;
-      await handleSpaceGovernanceAction(button);
-    });
-    els.spaceGovernanceShell.addEventListener("submit", async (event) => {
-      const form = event.target.closest("form");
-      if (!form) return;
-      if (form.id === "space-platform-access-form") {
-        event.preventDefault();
-        if (!userIsGlobalAdmin()) return;
-        const data = new FormData(form);
-        const soeid = String(data.get("soeid") || "").trim().toLowerCase();
-        if (!soeid) {
-          setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
-          return;
-        }
-        try {
-          await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "POST" });
-          state.globalAdminsLoaded = false;
-          await refreshGlobalAdmins();
-          await refreshFromServer("users");
-          form.reset();
-          setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
-        } catch (err) {
-          setSpaceGovernanceNotice(err?.message || "Grant failed.", "error", 7000);
-        }
-      } else if (form.id === "space-password-reset-form") {
-        event.preventDefault();
-        if (!userIsGlobalAdmin()) return;
-        const data = new FormData(form);
-        const soeid = String(data.get("soeid") || "").trim().toLowerCase();
-        const expiresMinutesRaw = String(data.get("expires_minutes") || "").trim();
-        if (!soeid) {
-          setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
-          return;
-        }
-        if (expiresMinutesRaw) {
-          const expiresMinutes = Number(expiresMinutesRaw);
-          if (!Number.isInteger(expiresMinutes) || expiresMinutes < 5 || expiresMinutes > 1440) {
-            setSpaceGovernanceNotice("Expiration must be a whole number between 5 and 1440 minutes.", "error", 6000);
-            return;
-          }
-        }
-        try {
-          await issuePasswordResetForSoeid(soeid, expiresMinutesRaw || null);
-          form.reset();
-          setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
-        } catch (err) {
-          setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
-        }
-      }
-    });
-    els.spaceGovernanceShell.addEventListener("input", (event) => {
-      if (event.target.id === "space-directory-search") {
-        const nextValue = event.target.value || "";
-        state.spaceDirectoryQuery = nextValue;
-        renderGovernanceHub();
-        const input = els.spaceGovernanceShell?.querySelector("#space-directory-search");
-        if (input) {
-          input.focus();
-          input.value = nextValue;
-          input.setSelectionRange(nextValue.length, nextValue.length);
-        }
-      }
-    });
-    els.spaceGovernanceShell.addEventListener("change", (event) => {
-      if (event.target.id === "space-directory-show-archived") {
-        state.spaceDirectoryShowArchived = !!event.target.checked;
-        renderGovernanceHub();
-      }
-    });
-    els.spaceGovernanceShell._bound = true;
-  }
-
-  if (!document._spaceGovernanceEscapeBound) {
-    document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      if (els.spaceCreateModal && !els.spaceCreateModal.classList.contains("hidden")) {
-        closeSpaceCreateModal();
-        return;
-      }
-      if (els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden")) {
-        closeSpaceDirectoryModal();
-        return;
-      }
-      if (els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
-        closeSpaceMemberModal();
-      }
-    });
-    document.addEventListener("click", (event) => {
-      if (!state.spaceMembershipActionMenuId) return;
-      const eventPath = typeof event.composedPath === "function" ? event.composedPath() : [];
-      const clickedInsideMemberActions = eventPath.some((node) => (
-        node
-        && node.classList
-        && (node.classList.contains("space-member-actions") || node.classList.contains("space-action-menu"))
-      ));
-      if (clickedInsideMemberActions) return;
-      state.spaceMembershipActionMenuId = "";
-      renderGovernanceHub();
-    });
-    document._spaceGovernanceEscapeBound = true;
-  }
+  return spaceGovernanceController.bindSpaceAdminControls();
 }
 
 function renderPlanning() {
@@ -7247,8 +3847,8 @@ function init() {
   modalShellController.bindPlanningModal();
   renderTopbarStatus();
   renderSpaceSwitcher();
-  bindDeliverablesControls();
-  bindDeliverablesTable();
+  bindMasterDeliverablesControls(createMasterRouteContext());
+  bindMasterDeliverablesTable(createMasterRouteContext());
   bindProjectForm();
   bindSolutionForm();
   bindSubcomponentForm();

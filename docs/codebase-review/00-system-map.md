@@ -116,7 +116,7 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 ## Core Backend Domains
 
 ### Deliverables Domain: Projects, Solutions, Subcomponents, Phases
-- Entry points: `src/main/backend/app/routes/projects.py`, `src/main/backend/app/routes/solutions/{common,read,write,import_export}.py`, `src/main/backend/app/routes/subcomponents/{common,read,write,import_export}.py`, `src/main/backend/app/routes/phases.py`
+- Entry points: `src/main/backend/app/routes/projects/{common,read,write,import_export}.py`, `src/main/backend/app/routes/solutions/{common,read,write,import_export}.py`, `src/main/backend/app/routes/subcomponents/{common,read,write,import_export}.py`, `src/main/backend/app/routes/phases.py`
 - Depends on: shared deps, models, schemas, `audit_log`, `github_repo_urls`, `smart_cache`, mutation helpers, enums
 - Used by: master view, dashboard views, import/export workflows, activity feeds
 - Tests: `src/main/test/test_projects.py`, `src/main/test/test_solutions.py`, `src/main/test/test_subcomponents.py`, `src/main/test/test_phases.py`, import/export tests
@@ -185,3 +185,10 @@ Pass intent: broad setup pass with durable audit memory and no runtime-contract 
 ## Not Present Or Minimal
 - Infra/deploy surface: not present in repo
 - Observability surface: lightweight only; request-ID logging and `/health/ready` now exist, but no repo-visible metrics or tracing setup was found
+
+## Remaining Enterprise Gaps
+- Hotspot concentration remains the main maintainability risk. The highest-leverage files are still `src/main/ui/js/app.js`, `src/main/ui/styles/routes/workbench-planning-admin.css`, `src/main/backend/app/routes/planning/work_allocation.py`, and `src/main/ui/js/routes/pm-dashboard/render.js`.
+- Repo governance is still thin. The codebase now has durable audit memory, but it still needs explicit contribution rules, ownership defaults, environment templates, and documented quality gates so repo expectations are not tribal knowledge.
+- The code-review workspace needs a forward-looking operating layer. `01-review-ledger.md` and `03-fix-queue.md` preserve cleanup history well, but enterprise-quality execution now depends on an epic roadmap, a quality-gates definition, and an architecture-decision register.
+- Observability remains repo-light. Request correlation, readiness, and structured logs exist, but there is still no repo-visible metrics, tracing, or production-grade incident documentation surface.
+- Branding drift remains minor but real until the remaining `Jira-lite` metadata/comments are removed from the backend runtime shell.

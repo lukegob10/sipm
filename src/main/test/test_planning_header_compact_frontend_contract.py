@@ -45,6 +45,7 @@ def test_planning_board_uses_unassigned_right_rail_instead_of_virtual_center_col
 
 def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
     text = read_ui_styles(STYLES_CSS)
+    compact = "".join(text.split())
 
     snippets = [
         ".wab-toolbar-main {",
@@ -80,7 +81,7 @@ def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
     for snippet in snippets:
         assert snippet in text
 
-    assert "grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(220px, 260px);" in text
+    assert "grid-template-columns:minmax(240px,280px)minmax(0,1fr)minmax(220px,260px);" in compact
 
 
 def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_person_rows():

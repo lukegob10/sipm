@@ -25,7 +25,7 @@ export function createRouterController({
   ];
   const ADMIN_VIEWS = new Set(["team-capacity", "spaces", "access"]);
   const VIEW_DATA_REQUIREMENTS = {
-    master: ["phases", "projects", "solutions", "subcomponents", "users"],
+    master: ["phases", "projects", "solutions"],
     "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
     dashboard: ["projects", "solutions", "users"],
     "pm-dashboard": ["projects", "solutions", "subcomponents", "users", "allocations", "windows"],

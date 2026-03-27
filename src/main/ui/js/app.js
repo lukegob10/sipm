@@ -640,6 +640,8 @@ function initShellControllers() {
     accessRefreshIntervalMs: ACCESS_REFRESH_INTERVAL_MS,
     buildAppUrl,
     isResetPathname,
+    viewFromLocationPath,
+    setView,
     setAuthMode,
     setAuthed,
     setStatus,
@@ -1446,16 +1448,18 @@ function createSubcomponentsWorkbenchContext(overrides = {}) {
     showConfirmModal,
     bindDebouncedInput,
   }, { view: "subcomponents-workbench" });
-  return createShellContext(base, {
-    updateSubcomponentsWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(base),
-    updateSubcomponentsWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(base),
-    clearSubcomponentsWorkbenchFilters: () => clearWorkbenchFilters(base),
-    syncSubcomponentsWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(base),
-    applySubcomponentsWorkbenchBulkAction: () => applyWorkbenchBulkAction(base),
-    normalizeSubcomponentsWorkbenchUiState: (options) => normalizeWorkbenchUiState(base, options),
-    updateSubcomponentsWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(base, projectId),
+  let ctx = null;
+  ctx = createShellContext(base, {
+    updateSubcomponentsWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(ctx),
+    updateSubcomponentsWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(ctx),
+    clearSubcomponentsWorkbenchFilters: () => clearWorkbenchFilters(ctx),
+    syncSubcomponentsWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(ctx),
+    applySubcomponentsWorkbenchBulkAction: () => applyWorkbenchBulkAction(ctx),
+    normalizeSubcomponentsWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options),
+    updateSubcomponentsWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId),
     ...overrides,
   });
+  return ctx;
 }
 
 function renderMasterFilters() {

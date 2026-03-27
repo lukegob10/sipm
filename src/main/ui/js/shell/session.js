@@ -5,6 +5,8 @@ export function createSessionController({
   accessRefreshIntervalMs,
   buildAppUrl,
   isResetPathname,
+  viewFromLocationPath,
+  setView,
   setAuthMode,
   setAuthed,
   setStatus,
@@ -17,12 +19,16 @@ export function createSessionController({
   resetIdleTimer,
   hideIdleModal,
   refreshSpaceContext,
-  reloadCurrentViewData,
   startLiveSync,
   stopLiveSync,
 }) {
   let sessionRefreshPromise = null;
   let lastSessionRefreshAt = 0;
+
+  function restoreRouteFromLocationAfterAuth() {
+    const nextView = viewFromLocationPath(window.location.pathname);
+    setView(nextView, { fromHistory: true });
+  }
 
   function onAuthedChange(user) {
     lastSessionRefreshAt = user ? Date.now() : 0;
@@ -249,10 +255,10 @@ export function createSessionController({
       try {
         const user = await performLogin(form.get("soeid"), form.get("password"));
         setAuthed(user);
-        setAuthVisible(false);
         await refreshSpaceContext();
         startLiveSync();
-        await reloadCurrentViewData();
+        restoreRouteFromLocationAfterAuth();
+        setAuthVisible(false);
       } catch (err) {
         if (!handleAuthError(err)) showAuthError(err.message || "Login failed");
       }
@@ -265,10 +271,10 @@ export function createSessionController({
       try {
         const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
         setAuthed(user);
-        setAuthVisible(false);
         await refreshSpaceContext();
         startLiveSync();
-        await reloadCurrentViewData();
+        restoreRouteFromLocationAfterAuth();
+        setAuthVisible(false);
       } catch (err) {
         if (!handleAuthError(err)) showAuthError(err.message || "Registration failed");
       }
@@ -345,10 +351,10 @@ export function createSessionController({
     setAuthVisible(true);
     const user = await fetchCurrentUser();
     if (user) {
-      setAuthVisible(false);
       await refreshSpaceContext();
       startLiveSync();
-      await reloadCurrentViewData();
+      restoreRouteFromLocationAfterAuth();
+      setAuthVisible(false);
     } else {
       setStatus("Sign in required", "warn");
     }

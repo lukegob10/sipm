@@ -254,3 +254,13 @@ def test_workbench_options_population_is_route_local():
     assert 'els.subcomponentsWorkbenchBulkAssignee.innerHTML = `<option value="">Unassigned</option>${userOptions}`;' in options_text
     assert "assigneeSel.onchange = () => {" in options_text
     assert "populateSubcomponentsWorkbenchOptions(createSubcomponentsWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
+
+
+def test_workbench_context_wrappers_delegate_through_enriched_context():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "let ctx = null;" in app_text
+    assert "ctx = createShellContext(base, {" in app_text
+    assert "normalizeSubcomponentsWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options)," in app_text
+    assert "updateSubcomponentsWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId)," in app_text
+    assert "clearSubcomponentsWorkbenchFilters: () => clearWorkbenchFilters(ctx)," in app_text

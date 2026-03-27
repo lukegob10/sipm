@@ -41,3 +41,14 @@ def test_shell_keeps_existing_status_surface_for_live_sync_state():
     assert 'id="connection-status"' in html
     assert "function renderTopbarStatus()" in text
     assert "state.liveSync.statusText" in text
+
+
+def test_bootstrap_auth_reapplies_requested_route_from_location_after_session_restore():
+    text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js").read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert "function restoreRouteFromLocationAfterAuth() {" in text
+    assert "const nextView = viewFromLocationPath(window.location.pathname);" in text
+    assert 'setView(nextView, { fromHistory: true });' in text
+    assert "viewFromLocationPath," in app_text
+    assert "setView," in app_text

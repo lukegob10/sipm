@@ -66,6 +66,6 @@ describe("router controller", () => {
     controller.setView("master");
     expect(state.currentView).toBe("master");
     await Promise.resolve();
-    expect(loadData).toHaveBeenCalled();
+    expect(loadData).toHaveBeenCalledWith({ entities: ["phases", "projects", "solutions"] });
   });
 });

@@ -120,6 +120,47 @@ export function createDataStoreController({
     }, 450);
   }
 
+  function syncUiAfterDataLoad({
+    selectedProjectId = "",
+    selectedSolutionId = "",
+    selectedSubcomponentId = "",
+    prefetchView = "",
+  } = {}) {
+    let uiSyncError = null;
+
+    try {
+      populateSelects();
+    } catch (err) {
+      uiSyncError = err;
+      console.error("Post-load select population failed", err);
+    }
+
+    try {
+      restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
+    } catch (err) {
+      if (!uiSyncError) uiSyncError = err;
+      console.error("Post-load selection restore failed", err);
+    }
+
+    try {
+      renderActiveView();
+    } catch (err) {
+      if (!uiSyncError) uiSyncError = err;
+      console.error("Post-load render failed", err);
+    }
+
+    if (prefetchView) {
+      try {
+        scheduleViewPrefetch(prefetchView);
+      } catch (err) {
+        if (!uiSyncError) uiSyncError = err;
+        console.error("Post-load prefetch scheduling failed", err);
+      }
+    }
+
+    return uiSyncError;
+  }
+
   async function refreshFromServer(entity = "all") {
     const ent = (entity || "all").toString();
     if (!state.authed) return;
@@ -160,9 +201,18 @@ export function createDataStoreController({
         }
         console.warn("Refresh failed", errors);
       }
-      if (changed) populateSelects();
+      if (changed) {
+        const uiSyncError = syncUiAfterDataLoad({
+          selectedProjectId,
+          selectedSolutionId,
+          selectedSubcomponentId,
+        });
+        if (uiSyncError) {
+          setStatus(`Refresh partially applied: ${uiSyncError.message || "UI sync failed"}`, "warn");
+        }
+        return;
+      }
       renderActiveView();
-      restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
     } catch (err) {
       console.warn("Refresh failed", err);
       if (handleAuthError(err)) {
@@ -215,9 +265,11 @@ export function createDataStoreController({
       if (!silent) renderActiveView();
       const results = await Promise.allSettled(entitiesToFetch.map((entity) => fetchEntityData(entity)));
       const errors = [];
+      let changed = false;
       results.forEach((result, idx) => {
         if (result.status === "fulfilled") {
           applyEntityData(entitiesToFetch[idx], result.value);
+          changed = true;
         } else {
           errors.push({ key: entitiesToFetch[idx], error: result.reason });
         }
@@ -231,14 +283,31 @@ export function createDataStoreController({
         }
         const labels = errors.map((entry) => entry.key).join(", ");
         console.error("Load failed", errors);
-        setStatus(`Load failed: ${labels}`, "danger");
+        if (!changed) {
+          setStatus(`Load failed: ${labels}`, "danger");
+          return;
+        }
+        const uiSyncError = syncUiAfterDataLoad({
+          selectedProjectId,
+          selectedSolutionId,
+          selectedSubcomponentId,
+          prefetchView: state.currentView,
+        });
+        const suffix = uiSyncError ? `; UI sync issue: ${uiSyncError.message || "render failed"}` : "";
+        setStatus(`Partial load failed: ${labels}${suffix}`, "warn");
         return;
       }
 
-      populateSelects();
-      restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
-      renderActiveView();
-      scheduleViewPrefetch(state.currentView);
+      const uiSyncError = syncUiAfterDataLoad({
+        selectedProjectId,
+        selectedSolutionId,
+        selectedSubcomponentId,
+        prefetchView: state.currentView,
+      });
+      if (uiSyncError) {
+        setStatus(`Loaded with UI sync issue: ${uiSyncError.message || "render failed"}`, "warn");
+        return;
+      }
       if ((requestedEntities == null || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
         && !state.projects.length && !state.solutions.length) {
         setStatus("No data loaded", "warn");

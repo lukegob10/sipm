@@ -27,6 +27,7 @@ export function createSolutionEntityController({
   setSolutionTab,
   timestampLabel,
   showConfirmModal,
+  trackWorkflow = null,
 }) {
   function buildSolutionPayload(data) {
     const payload = {
@@ -197,6 +198,9 @@ export function createSolutionEntityController({
         const successMessage = isEditing
           ? `Saved solution at ${timestampLabel()}.`
           : `Created solution at ${timestampLabel()}.`;
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("solutions", isEditing ? "update" : "create", "success", { source: "solution_form" });
+        }
         setDeliverableFormNotice(
           els.solutionFormStatus,
           successMessage,
@@ -205,6 +209,9 @@ export function createSolutionEntityController({
         );
       } catch (err) {
         ignoreNextRefresh.delete("solutions");
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("solutions", isEditing ? "update" : "create", "failure", { source: "solution_form" });
+        }
         setDeliverableFormNotice(
           els.solutionFormStatus,
           `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
@@ -247,8 +254,14 @@ export function createSolutionEntityController({
           renderDashboard();
           renderKanban();
           renderCalendar();
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("solutions", "delete", "success", { source: "solution_form" });
+          }
         } catch (err) {
           ignoreNextRefresh.delete("solutions");
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("solutions", "delete", "failure", { source: "solution_form" });
+          }
           setDeliverableFormNotice(
             els.solutionFormStatus,
             `Delete failed: ${err.message}`,

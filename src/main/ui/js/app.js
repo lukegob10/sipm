@@ -11,6 +11,7 @@ import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
 import { createDataStoreController } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
+import { createTelemetryController } from "./shell/telemetry.js";
 import {
   createLiveSyncController,
 } from "./shell/live-sync.js";
@@ -323,6 +324,7 @@ let routerController = null;
 let dataStoreController = null;
 let sessionController = null;
 let liveSyncController = null;
+let telemetryController = null;
 const ignoreNextRefresh = {
   delete(entity) {
     return dataStoreController.clearIgnoredRefresh(entity);
@@ -345,6 +347,7 @@ const projectEntityController = createProjectEntityController({
   setDeliverableFormNotice,
   timestampLabel,
   showConfirmModal,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const solutionEntityController = createSolutionEntityController({
   state,
@@ -375,6 +378,7 @@ const solutionEntityController = createSolutionEntityController({
   setSolutionTab,
   timestampLabel,
   showConfirmModal,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const subcomponentEntityController = createSubcomponentEntityController({
   state,
@@ -396,6 +400,7 @@ const subcomponentEntityController = createSubcomponentEntityController({
   renderSolutionSubcomponents,
   renderDashboard,
   timestampLabel,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const calendarRouteController = createCalendarRouteController({
   state,
@@ -449,6 +454,8 @@ const teamCapacityRouteController = createTeamCapacityRouteController({
   numberOr,
   timestampLabel,
   showConfirmModal,
+  onViewDataLoaded: ({ view, durationMs }) => telemetryController?.noteRouteDataLoaded?.(view, durationMs),
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const spaceGovernanceController = createSpaceGovernanceController({
   state,
@@ -473,6 +480,7 @@ const spaceGovernanceController = createSpaceGovernanceController({
   showConfirmModal,
   copyText,
   buildResetPageUrl,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
   state,
@@ -607,6 +615,10 @@ function setStatus(text, type = "") {
   renderTopbarStatus();
 }
 
+function usageAnalyticsEnabled() {
+  return !!state.activeSpace?.usage_analytics_enabled;
+}
+
 function initShellControllers() {
   routerController = createRouterController({
     state,
@@ -614,8 +626,15 @@ function initShellControllers() {
     renderActiveView,
     userIsGlobalAdmin,
     isSpaceAdminRole,
+    usageAnalyticsEnabled,
     loadData: (...args) => dataStoreController.loadData(...args),
     loadTeamCapacityData,
+    onBeforeViewChange: ({ previousView, nextView, expectsData }) => {
+      telemetryController?.syncRuntimeContext?.();
+      telemetryController?.beginRouteTransition?.(nextView, previousView, { expectsData });
+      telemetryController?.trackRouteView?.(nextView, previousView);
+    },
+    onModuleLoadFailure: ({ view }) => telemetryController?.trackModuleLoadFailure?.(view),
   });
   dataStoreController = createDataStoreController({
     state,
@@ -628,6 +647,7 @@ function initShellControllers() {
     restoreSelections,
     handleAuthError: (...args) => sessionController.handleAuthError(...args),
     loadTeamCapacityData,
+    onViewDataLoaded: ({ view, durationMs }) => telemetryController?.noteRouteDataLoaded?.(view, durationMs),
     entitiesForView: (...args) => routerController.entitiesForView(...args),
     isKnownEntity: (...args) => routerController.isKnownEntity(...args),
     dataEntities: routerController.DATA_ENTITIES,
@@ -654,6 +674,7 @@ function initShellControllers() {
     resetIdleTimer,
     hideIdleModal,
     refreshSpaceContext,
+    onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),
     stopLiveSync: (...args) => liveSyncController.stopLiveSync(...args),
@@ -672,6 +693,11 @@ function initShellControllers() {
     setSpaceFeedback,
     spaceNameForId,
     clearDataState: (...args) => dataStoreController.clearDataState(...args),
+  });
+  telemetryController = createTelemetryController({
+    state,
+    apiBase: API_BASE,
+    isEnabled: usageAnalyticsEnabled,
   });
 }
 
@@ -858,6 +884,8 @@ async function switchActiveSpace(targetSpaceId) {
     await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
     startLiveSync({ force: true });
     state.spaceSwitcherOpen = false;
+    telemetryController?.syncRuntimeContext?.();
+    telemetryController?.trackSpaceSwitch?.();
     setSpaceFeedback(`Now working in ${state.activeSpace?.space_name || targetName || target}.`, "success", 4200);
     return true;
   } catch (err) {
@@ -920,6 +948,7 @@ async function refreshSpaceContext(options = {}) {
   ]);
   state.spaces = Array.isArray(spaces) ? spaces : [];
   state.activeSpace = activeSpace || null;
+  telemetryController?.syncRuntimeContext?.();
   if (state.activeSpace?.space_id && !state.spaces.some((s) => s.space_id === state.activeSpace.space_id)) {
     state.spaces.unshift({
       space_id: state.activeSpace.space_id,
@@ -1267,6 +1296,7 @@ function closePlanningDrawer() {
 }
 
 function renderActiveView() {
+  const renderStartedAt = performance.now();
   const routeDispatch = {
     master: () => {
       renderMasterFilters();
@@ -1281,6 +1311,7 @@ function renderActiveView() {
     "team-capacity": () => renderTeamCapacity(),
     spaces: () => renderSpaces(),
     access: () => renderAccess(),
+    analytics: () => renderAnalytics(),
   };
   const renderRoute = routeDispatch[state.currentView] || routeDispatch.master;
   renderRoute();
@@ -1290,6 +1321,7 @@ function renderActiveView() {
     renderSolutionActivity(openSolutionId);
     renderSolutionPhases(openSolutionId);
   }
+  telemetryController?.noteViewRendered?.(state.currentView, performance.now() - renderStartedAt);
 }
 
 function restoreSelections(projectId, solutionId, subcomponentId) {
@@ -1401,6 +1433,7 @@ function createMasterRouteContext(overrides = {}) {
     openProjectForm,
     openSolutionModal,
     showSubcomponentForm,
+    trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
   }, { view: "master" });
   return createShellContext(base, {
     filteredDeliverables: () => filteredMasterDeliverables(base),
@@ -2627,8 +2660,10 @@ async function downloadCsv(kind, filename, resultEl) {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    telemetryController?.trackWorkflow?.("csv", "export", "success", { kind, source: "csv_menu" });
     setImportResult(resultEl, `Downloaded ${filename}`);
   } catch (err) {
+    telemetryController?.trackWorkflow?.("csv", "export", "failure", { kind, source: "csv_menu" });
     setImportResult(resultEl, `Download failed: ${err.message}`, true);
   }
 }
@@ -2795,9 +2830,15 @@ async function uploadCsvFile(kind, file, resultEl) {
     } else {
       await loadData();
     }
+    telemetryController?.trackWorkflow?.("csv", "import", errs.length ? "failure" : "success", {
+      kind,
+      result_kind: errs.length ? "partial" : "complete",
+      source: "csv_menu",
+    });
     return { ok: errs.length === 0, message: detail, partial: errs.length > 0 };
   } catch (err) {
     const msg = `Import failed: ${err.message}`;
+    telemetryController?.trackWorkflow?.("csv", "import", "failure", { kind, source: "csv_menu" });
     setImportResult(resultEl, msg, true);
     return { ok: false, message: msg, partial: false };
   }
@@ -3640,10 +3681,14 @@ function renderPlanning() {
     formatFte,
     renderPlanningWindowSummary,
     renderPlanningRoster,
+    trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
+    noteRouteDataLoaded: (durationMs) => telemetryController?.noteRouteDataLoaded?.("planning", durationMs),
+    noteViewRendered: (renderMs) => telemetryController?.noteViewRendered?.("planning", renderMs),
   }, { view: "planning" }));
 }
 
 function renderTeamCapacity() {
+  const renderStartedAt = performance.now();
   const mod = getRouteModule("team-capacity");
   if (!mod || typeof mod.renderTeamCapacity !== "function") {
     ensureRouteModule("team-capacity").then((loaded) => {
@@ -3660,6 +3705,29 @@ function renderTeamCapacity() {
     teamCapacityState: state.teamCapacity,
     selectedSoeid: state.capacitySelectedSoeid,
   });
+  if (state.currentView === "team-capacity") {
+    telemetryController?.noteViewRendered?.("team-capacity", performance.now() - renderStartedAt);
+  }
+}
+
+function renderAnalytics() {
+  const mod = getRouteModule("analytics");
+  if (!mod || typeof mod.renderAnalytics !== "function") {
+    ensureRouteModule("analytics").then((loaded) => {
+      if (loaded && state.currentView === "analytics") renderAnalytics();
+    });
+    return;
+  }
+  mod.renderAnalytics(createShellContext({
+    state,
+    els,
+    api,
+    setStatus,
+    usageAnalyticsEnabled,
+    trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
+    noteRouteDataLoaded: (durationMs) => telemetryController?.noteRouteDataLoaded?.("analytics", durationMs),
+    noteViewRendered: (renderMs) => telemetryController?.noteViewRendered?.("analytics", renderMs),
+  }, { view: "analytics" }));
 }
 
 function renderSpaces() {

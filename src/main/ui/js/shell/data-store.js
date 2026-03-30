@@ -9,6 +9,7 @@ export function createDataStoreController({
   restoreSelections,
   handleAuthError,
   loadTeamCapacityData,
+  onViewDataLoaded = null,
   entitiesForView,
   isKnownEntity,
   dataEntities,
@@ -233,6 +234,7 @@ export function createDataStoreController({
   }
 
   async function loadData(options = {}) {
+    const loadStartedAt = Date.now();
     const force = !!options.force;
     const silent = !!options.silent;
     const requestedEntities = Array.isArray(options.entities) ? options.entities.filter(isKnownEntity) : null;
@@ -250,6 +252,9 @@ export function createDataStoreController({
     if (!entitiesToFetch.length) {
       renderActiveView();
       scheduleViewPrefetch(state.currentView);
+      if (typeof onViewDataLoaded === "function") {
+        onViewDataLoaded({ view: state.currentView, durationMs: 0, changed: false });
+      }
       return;
     }
     const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
@@ -285,6 +290,9 @@ export function createDataStoreController({
         console.error("Load failed", errors);
         if (!changed) {
           setStatus(`Load failed: ${labels}`, "danger");
+          if (typeof onViewDataLoaded === "function") {
+            onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: false });
+          }
           return;
         }
         const uiSyncError = syncUiAfterDataLoad({
@@ -295,6 +303,9 @@ export function createDataStoreController({
         });
         const suffix = uiSyncError ? `; UI sync issue: ${uiSyncError.message || "render failed"}` : "";
         setStatus(`Partial load failed: ${labels}${suffix}`, "warn");
+        if (typeof onViewDataLoaded === "function") {
+          onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: true });
+        }
         return;
       }
 
@@ -306,6 +317,9 @@ export function createDataStoreController({
       });
       if (uiSyncError) {
         setStatus(`Loaded with UI sync issue: ${uiSyncError.message || "render failed"}`, "warn");
+        if (typeof onViewDataLoaded === "function") {
+          onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: true });
+        }
         return;
       }
       if ((requestedEntities == null || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
@@ -314,10 +328,16 @@ export function createDataStoreController({
       } else if (!silent) {
         setStatus("Online", "positive");
       }
+      if (typeof onViewDataLoaded === "function") {
+        onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: true });
+      }
     } catch (err) {
       console.error("Load failed", err);
       if (!handleAuthError(err)) {
         setStatus(err.message || "Load failed", "danger");
+      }
+      if (typeof onViewDataLoaded === "function") {
+        onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: false });
       }
     } finally {
       state.loading = false;

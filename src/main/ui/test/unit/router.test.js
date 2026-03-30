@@ -7,8 +7,10 @@ function buildRouterHarness() {
   document.body.innerHTML = `
     <button class="nav-btn" data-view="master"></button>
     <button class="nav-btn" data-view="spaces"></button>
+    <button class="nav-btn" data-view="analytics"></button>
     <section class="view" id="view-master"></section>
     <section class="view" id="view-spaces"></section>
+    <section class="view" id="view-analytics"></section>
   `;
 
   const state = {
@@ -31,6 +33,7 @@ function buildRouterHarness() {
     renderActiveView,
     userIsGlobalAdmin: () => false,
     isSpaceAdminRole: (role) => role === "space_admin",
+    usageAnalyticsEnabled: () => false,
     loadData,
     loadTeamCapacityData,
   });
@@ -57,7 +60,36 @@ describe("router controller", () => {
 
     expect(controller.resolveAccessibleView("spaces")).toBe("spaces");
     expect(controller.resolveAccessibleView("access")).toBe("access");
+    expect(controller.resolveAccessibleView("analytics")).toBe("master");
     expect(controller.resolveAccessibleView("unknown")).toBe("master");
+  });
+
+  it("allows analytics for global admins when the feature is enabled", () => {
+    document.body.innerHTML = `
+      <button class="nav-btn" data-view="analytics"></button>
+      <section class="view" id="view-analytics"></section>
+    `;
+    const state = {
+      authed: true,
+      currentView: "master",
+      activeSpace: { space_id: "space-1", space_role: "space_admin" },
+      subcomponentsWorkbench: {},
+    };
+    const controller = createRouterController({
+      state,
+      els: {
+        navButtons: document.querySelectorAll(".nav-btn"),
+        views: document.querySelectorAll(".view"),
+      },
+      renderActiveView: vi.fn(),
+      userIsGlobalAdmin: () => true,
+      isSpaceAdminRole: () => true,
+      usageAnalyticsEnabled: () => true,
+      loadData: vi.fn().mockResolvedValue(undefined),
+      loadTeamCapacityData: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(controller.resolveAccessibleView("analytics")).toBe("analytics");
   });
 
   it("loads route data when authenticated", async () => {

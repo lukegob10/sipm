@@ -5,6 +5,23 @@ from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
 
 from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from .analytics import (
+    AnalyticsDailyPointRead,
+    AnalyticsFailureHotspotRead,
+    AnalyticsPerformanceRouteRead,
+    AnalyticsPerformanceStatsRead,
+    AnalyticsPerformanceSummaryRead,
+    AnalyticsRouteStatsRead,
+    AnalyticsRouteViewRead,
+    AnalyticsScopeRead,
+    AnalyticsSummaryCardsRead,
+    AnalyticsSummaryRead,
+    AnalyticsWorkflowRead,
+    PerformanceSampleIn,
+    TelemetryBatchIn,
+    TelemetryIngestResultRead,
+    UsageEventIn,
+)
 from .planning import (
     WorkAllocationAssignmentCreate,
     WorkAllocationAssignmentRead,
@@ -163,6 +180,7 @@ class ActiveSpaceResponse(BaseModel):
     space_name: str
     space_role: str
     is_global_admin: bool
+    usage_analytics_enabled: bool = False
 
 
 class ChangeLogRead(TextLikeReadModel):

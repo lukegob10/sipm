@@ -16,6 +16,7 @@ EXPECTED_ROUTE_EXPORTS = {
     "planning.js": ["renderPlanning", "render"],
     "team-capacity.js": ["renderTeamCapacity", "render"],
     "spaces.js": ["renderSpaces", "render"],
+    "analytics.js": ["renderAnalytics", "render"],
 }
 
 EXPECTED_ROUTE_LOADERS = {
@@ -29,6 +30,7 @@ EXPECTED_ROUTE_LOADERS = {
     "planning": "./routes/planning.js",
     "team-capacity": "./routes/team-capacity.js",
     "spaces": "./routes/spaces.js",
+    "analytics": "./routes/analytics.js",
 }
 
 

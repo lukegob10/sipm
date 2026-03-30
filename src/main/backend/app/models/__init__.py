@@ -1,4 +1,5 @@
 from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
+from .analytics import PerformanceSample, UsageEvent
 from .identity import (
     ChangeLog,
     Space,
@@ -23,6 +24,7 @@ __all__ = [
     "Base",
     "ChangeLog",
     "ExternalRef",
+    "PerformanceSample",
     "Phase",
     "PlanningWindow",
     "Project",
@@ -37,6 +39,7 @@ __all__ = [
     "Team",
     "TeamMember",
     "TimestampMixin",
+    "UsageEvent",
     "User",
     "_utcnow_naive",
 ]

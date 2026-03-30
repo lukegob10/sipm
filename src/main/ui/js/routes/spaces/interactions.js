@@ -21,6 +21,7 @@ export function createSpaceGovernanceController({
   showConfirmModal,
   copyText,
   buildResetPageUrl,
+  trackWorkflow = null,
 }) {
   let globalAdminsInFlight = null;
   const spaceMembersInFlight = {};
@@ -231,7 +232,13 @@ export function createSpaceGovernanceController({
           "success",
           4500
         );
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "update", "success", { source: "space_governance" });
+        }
       } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "update", "failure", { source: "space_governance" });
+        }
         setSpaceGovernanceNotice(err?.message || "Space update failed.", "error", 7000);
       }
       return true;
@@ -268,7 +275,13 @@ export function createSpaceGovernanceController({
         state.spaceMembersLoadedBySpace[spaceId] = false;
         await refreshSpaceMembers(spaceId, { force: true });
         setSpaceGovernanceNotice("Membership updated.", "success", 3500);
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", action === "delete-space-member" ? "delete" : "update", "success", { source: "space_governance" });
+        }
       } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", action === "delete-space-member" ? "delete" : "update", "failure", { source: "space_governance" });
+        }
         setSpaceGovernanceNotice(err?.message || "Membership update failed.", "error", 7000);
       }
       return true;
@@ -317,7 +330,13 @@ export function createSpaceGovernanceController({
         await refreshGlobalAdmins();
         await refreshFromServer("users");
         setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("users", "update", "success", { source: "space_governance" });
+        }
       } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("users", "update", "failure", { source: "space_governance" });
+        }
         setSpaceGovernanceNotice(err?.message || "Revoke failed.", "error", 7000);
       }
       return true;
@@ -357,7 +376,13 @@ export function createSpaceGovernanceController({
           state.spaceMembershipSpaceId = created?.space_id || state.spaceMembershipSpaceId;
           state.spaceAdminSection = "space-directory";
           renderGovernanceHub();
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("spaces", "create", "success", { source: "space_governance" });
+          }
         } catch (err) {
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("spaces", "create", "failure", { source: "space_governance" });
+          }
           setDeliverableFormNotice(els.spaceCreateStatus, err?.message || "Space create failed.", "error");
         }
       });
@@ -401,7 +426,13 @@ export function createSpaceGovernanceController({
           await refreshSpaceMembers(spaceId, { force: true });
           closeSpaceMemberModal();
           setSpaceGovernanceNotice(`Added ${soeid} to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("spaces", "create", "success", { source: "space_governance" });
+          }
         } catch (err) {
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("spaces", "create", "failure", { source: "space_governance" });
+          }
           setDeliverableFormNotice(els.spaceMemberStatus, err?.message || "Add member failed.", "error");
         }
       });
@@ -447,7 +478,13 @@ export function createSpaceGovernanceController({
             await refreshFromServer("users");
             form.reset();
             setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
+            if (typeof trackWorkflow === "function") {
+              trackWorkflow("users", "update", "success", { source: "space_governance" });
+            }
           } catch (err) {
+            if (typeof trackWorkflow === "function") {
+              trackWorkflow("users", "update", "failure", { source: "space_governance" });
+            }
             setSpaceGovernanceNotice(err?.message || "Grant failed.", "error", 7000);
           }
           return;

@@ -18,6 +18,8 @@ export function createTeamCapacityRouteController({
   numberOr,
   timestampLabel,
   showConfirmModal,
+  onViewDataLoaded = null,
+  trackWorkflow = null,
 }) {
   function normalizeCapacityLookup(value) {
     return String(value || "").trim().toLowerCase();
@@ -98,6 +100,7 @@ export function createTeamCapacityRouteController({
   }
 
   async function loadTeamCapacityData(options = {}) {
+    const startedAt = Date.now();
     if (!state.authed) return;
     const force = !!options.force;
     const preserveSelection = options.preserveSelection !== false;
@@ -110,6 +113,9 @@ export function createTeamCapacityRouteController({
       applyEntityData("users", []);
       applyEntityData("allocations", []);
       if (state.currentView === "team-capacity") renderTeamCapacity();
+      if (typeof onViewDataLoaded === "function") {
+        onViewDataLoaded({ view: "team-capacity", durationMs: Date.now() - startedAt, changed: false });
+      }
       return;
     }
 
@@ -164,6 +170,9 @@ export function createTeamCapacityRouteController({
       if (state.teamCapacity.requestId === requestId) {
         state.teamCapacity.loading = false;
         if (state.currentView === "team-capacity") renderTeamCapacity();
+        if (typeof onViewDataLoaded === "function") {
+          onViewDataLoaded({ view: "team-capacity", durationMs: Date.now() - startedAt, changed: true });
+        }
       }
     }
   }
@@ -213,8 +222,14 @@ export function createTeamCapacityRouteController({
           const refreshed = findCapacityUserBySoeid(soeid);
           if (refreshed) selectCapacityUser(refreshed, { preserveStatus: true });
           else clearCapacityUserForm({ preserveStatus: true });
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("users", "update", "success", { source: "team_capacity" });
+          }
           setCapacityUserFormStatus(`Saved member at ${timestampLabel()}.`, "success", 3200);
         } catch (err) {
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("users", "update", "failure", { source: "team_capacity" });
+          }
           setCapacityUserFormStatus(`Save failed: ${err.message}`, "error");
         }
       });
@@ -239,8 +254,14 @@ export function createTeamCapacityRouteController({
           await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, { method: "PATCH", body: JSON.stringify({ is_active: false }) });
           clearCapacityUserForm({ render: false, preserveStatus: true });
           await loadTeamCapacityData({ force: true, preserveSelection: false });
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("users", "update", "success", { source: "team_capacity" });
+          }
           setCapacityUserFormStatus(`Member deactivated at ${timestampLabel()}.`, "success", 3200);
         } catch (err) {
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("users", "update", "failure", { source: "team_capacity" });
+          }
           setCapacityUserFormStatus(`Delete failed: ${err.message}`, "error");
         }
       });

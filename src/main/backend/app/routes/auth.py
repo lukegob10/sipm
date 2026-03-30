@@ -31,6 +31,7 @@ from ..schemas import (
 from ..security import security_http_exception
 from ..services.password_reset import reset_password_with_temp_password
 from ..services.spaces import resolve_active_space_context
+from ..services.usage_analytics import usage_analytics_enabled
 
 router = APIRouter()
 
@@ -296,6 +297,7 @@ def get_active_space(
         space_name=ctx.space_name,
         space_role=ctx.space_role,
         is_global_admin=ctx.is_global_admin,
+        usage_analytics_enabled=usage_analytics_enabled(),
     )
 
 
@@ -319,4 +321,5 @@ def switch_active_space(
         space_name=ctx.space_name,
         space_role=ctx.space_role,
         is_global_admin=ctx.is_global_admin,
+        usage_analytics_enabled=usage_analytics_enabled(),
     )

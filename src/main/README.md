@@ -52,6 +52,9 @@ Validation highlights:
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
+- Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
+- When usage analytics is enabled, apply [`docs/sql/migrations/2026-03-29_usage_analytics.sql`](/mnt/f/vault/projects/sipm/docs/sql/migrations/2026-03-29_usage_analytics.sql) before exposing the admin dashboard.
+- The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
 
 ## Frontend Validation
 

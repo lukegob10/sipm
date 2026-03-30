@@ -650,6 +650,21 @@ async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
 
 
 @pytest.mark.anyio
+async def test_active_space_reports_usage_analytics_flag(auth_client, monkeypatch):
+    monkeypatch.setenv("SIPM_USAGE_ANALYTICS_ENABLED", "true")
+
+    register = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "ANALYTICSFLAG1", "display_name": "Flag User", "password": "Password123"},
+    )
+    assert register.status_code == 201, register.text
+
+    resp = await auth_client.get("/project-manager/api/auth/active-space")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usage_analytics_enabled"] is True
+
+
+@pytest.mark.anyio
 async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(auth_client):
     register = await auth_client.post(
         "/project-manager/api/auth/register",

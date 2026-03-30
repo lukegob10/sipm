@@ -87,6 +87,7 @@ async function refreshGlobal(ctx, entity) {
 }
 
 export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
+  const startedAt = Date.now();
   if (boardState.loading) return;
   boardState.loading = true;
   boardState.error = "";
@@ -128,6 +129,9 @@ export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
   } finally {
     boardState.loading = false;
     rerenderPlanning();
+    if (typeof ctx?.noteRouteDataLoaded === "function") {
+      ctx.noteRouteDataLoaded(Date.now() - startedAt);
+    }
   }
 }
 
@@ -185,6 +189,12 @@ async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = t
     method: "POST",
     body: JSON.stringify(payload),
   });
+  if (typeof ctx?.trackWorkflow === "function") {
+    ctx.trackWorkflow("planning", "assignment_create", "success", {
+      result_kind: assigneeType,
+      source: "planning_board",
+    });
+  }
   boardState.data.allocations.push(created);
   if (pushUndo) {
     boardState.undoStack.push({ kind: "unassign", allocationId: created.id });
@@ -213,6 +223,12 @@ export async function moveAssignment(allocationId, assigneeType, assigneeId, { p
       fte_months_allocated: existing.fte_months_allocated,
     }),
   });
+  if (typeof ctx?.trackWorkflow === "function") {
+    ctx.trackWorkflow("planning", "assignment_update", "success", {
+      result_kind: assigneeType,
+      source: "planning_board",
+    });
+  }
   boardState.data.allocations = (boardState.data.allocations || [])
     .filter((row) => row.id !== existing.id && row.id !== updated.id);
   boardState.data.allocations.push(updated);
@@ -246,6 +262,11 @@ async function unassignAllocation(
   await callApi(ctx, `/planning/work-allocation/allocations/${encodeURIComponent(existing.id)}`, {
     method: "DELETE",
   });
+  if (typeof ctx?.trackWorkflow === "function") {
+    ctx.trackWorkflow("planning", "assignment_delete", "success", {
+      source: "planning_board",
+    });
+  }
   boardState.data.allocations = (boardState.data.allocations || []).filter((row) => row.id !== existing.id);
   if (pushUndo) {
     boardState.undoStack.push({
@@ -434,6 +455,11 @@ export async function onPlanningAction(action, actionEl = null) {
       link.click();
       link.remove();
       window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("planning", "report_download", "success", {
+          source: "planning_board",
+        });
+      }
       setNotice("Report downloaded", "success");
       rerenderPlanning();
       return;
@@ -458,6 +484,9 @@ export async function onPlanningAction(action, actionEl = null) {
         method: "POST",
         body: JSON.stringify({ name }),
       });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("teams", "create", "success", { source: "planning_board" });
+      }
       boardState.drafts.teamName = "";
       setNotice("Team added", "success");
       await loadBoard(ctx, { allocationsOnly: false });
@@ -493,6 +522,9 @@ export async function onPlanningAction(action, actionEl = null) {
       await callApi(ctx, `/planning/work-allocation/teams/${encodeURIComponent(teamId)}`, {
         method: "DELETE",
       });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("teams", "delete", "success", { source: "planning_board" });
+      }
       setNotice("Team deleted", "success");
       await loadBoard(ctx, { allocationsOnly: false });
       await refreshGlobal(ctx, "teams");
@@ -513,6 +545,9 @@ export async function onPlanningAction(action, actionEl = null) {
         method: "POST",
         body: JSON.stringify({ name, team_id: teamId, capacity_fte_months: cap }),
       });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("users", "create", "success", { source: "planning_board" });
+      }
       boardState.drafts.personName = "";
       boardState.drafts.personCapacity = "1.00";
       boardState.drafts.personTeamId = "";
@@ -570,6 +605,9 @@ export async function onPlanningAction(action, actionEl = null) {
       const personId = String(actionEl?.getAttribute("data-person-id") || "").trim();
       if (!personId) return;
       await movePersonToTeam(personId, UNASSIGNED_TEAM_ID, { pushUndo: true });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("users", "update", "success", { source: "planning_board" });
+      }
       return;
     }
     if (action === "save-task") {
@@ -586,6 +624,9 @@ export async function onPlanningAction(action, actionEl = null) {
         method: "PATCH",
         body: JSON.stringify({ title, fte_months: fte }),
       });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("planning", "update", "success", { source: "planning_board" });
+      }
       setNotice("Task updated", "success");
       flashTargets([{ kind: "task", id: selectedId }], "success");
       await loadBoard(ctx, { allocationsOnly: false });
@@ -604,6 +645,9 @@ export async function onPlanningAction(action, actionEl = null) {
       await callApi(ctx, `/planning/work-allocation/tasks/${encodeURIComponent(selectedId)}`, {
         method: "DELETE",
       });
+      if (typeof ctx?.trackWorkflow === "function") {
+        ctx.trackWorkflow("planning", "delete", "success", { source: "planning_board" });
+      }
       boardState.selectedTaskId = "";
       boardState.detailDraft = defaultDetailDraft();
       persistViewState();
@@ -619,6 +663,26 @@ export async function onPlanningAction(action, actionEl = null) {
       return;
     }
   } catch (err) {
+    if (typeof ctx?.trackWorkflow === "function") {
+      const workflowAction = (
+        action === "download-report" ? "report_download"
+          : action === "add-team" ? "create"
+            : action === "delete-team" ? "delete"
+              : action === "add-person" ? "create"
+                : action === "assign-task" ? "assignment_create"
+                  : action === "remove-assignment" || action === "unassign-task" ? "assignment_delete"
+                    : action === "save-task" || action === "move-person-to-unassigned" ? "update"
+                      : ""
+      );
+      const workflowFeature = (
+        action === "add-team" || action === "delete-team" ? "teams"
+          : action === "add-person" || action === "move-person-to-unassigned" ? "users"
+            : "planning"
+      );
+      if (workflowAction) {
+        ctx.trackWorkflow(workflowFeature, workflowAction, "failure", { source: "planning_board" });
+      }
+    }
     setNotice(err?.message || "Action failed", "error");
     rerenderPlanning();
   }

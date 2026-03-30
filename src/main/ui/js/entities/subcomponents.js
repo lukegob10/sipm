@@ -18,6 +18,7 @@ export function createSubcomponentEntityController({
   renderSolutionSubcomponents,
   renderDashboard,
   timestampLabel,
+  trackWorkflow = null,
 }) {
   function buildSubcomponentPayload(data) {
     const assigneeUserId = (data.get("assignee") || "").toString().trim();
@@ -165,6 +166,9 @@ export function createSubcomponentEntityController({
         const successMessage = isEditing
           ? `Saved subcomponent at ${timestampLabel()}.`
           : `Created subcomponent at ${timestampLabel()}.`;
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("subcomponents", isEditing ? "update" : "create", "success", { source: "subcomponent_form" });
+        }
         setDeliverableFormNotice(
           els.subcomponentFormStatus,
           successMessage,
@@ -173,6 +177,9 @@ export function createSubcomponentEntityController({
         );
       } catch (err) {
         ignoreNextRefresh.delete("subcomponents");
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("subcomponents", isEditing ? "update" : "create", "failure", { source: "subcomponent_form" });
+        }
         setDeliverableFormNotice(
           els.subcomponentFormStatus,
           `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
@@ -219,6 +226,9 @@ export function createSubcomponentEntityController({
         renderSolutionSubcomponents(solutionId);
         renderDashboard();
         if (result.failed.length) {
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("subcomponents", "delete", "failure", { source: "subcomponent_form" });
+          }
           setDeliverableFormNotice(
             els.subcomponentFormStatus,
             `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete subcomponent."}`,
@@ -232,6 +242,9 @@ export function createSubcomponentEntityController({
           "success",
           3200
         );
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("subcomponents", "delete", "success", { source: "subcomponent_form" });
+        }
       });
     }
   }

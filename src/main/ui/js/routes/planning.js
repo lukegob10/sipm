@@ -10,6 +10,7 @@ setPlanningRerender(() => {
 });
 
 export function renderPlanning(ctx) {
+  const renderStartedAt = performance.now();
   boardState.ctx = ctx;
   const root = ctx.els?.planningBoard;
   if (!root) return;
@@ -31,6 +32,9 @@ export function renderPlanning(ctx) {
   }
 
   renderPlanningView(root);
+  if (typeof ctx?.noteViewRendered === "function") {
+    ctx.noteViewRendered(performance.now() - renderStartedAt);
+  }
 }
 
 export function render(ctx) {

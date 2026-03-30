@@ -19,6 +19,7 @@ export function createSessionController({
   resetIdleTimer,
   hideIdleModal,
   refreshSpaceContext,
+  onApiFailure = null,
   startLiveSync,
   stopLiveSync,
 }) {
@@ -152,11 +153,14 @@ export function createSessionController({
       } catch {
         data = text || null;
       }
-      if (!res.ok) {
-        if (res.status === 401 && state.authed && !_retriedAfterRefresh && !skipAuthRefresh) {
-          const refreshed = await refreshSessionTokens({ force: true });
-          if (refreshed) {
-            return api(path, {
+        if (!res.ok) {
+          if (res.status >= 500 && typeof onApiFailure === "function") {
+            onApiFailure({ path, status: res.status, kind: "server_error" });
+          }
+          if (res.status === 401 && state.authed && !_retriedAfterRefresh && !skipAuthRefresh) {
+            const refreshed = await refreshSessionTokens({ force: true });
+            if (refreshed) {
+              return api(path, {
               ...options,
               _retriedAfterRefresh: true,
               skipAuthRefresh: true,
@@ -176,6 +180,9 @@ export function createSessionController({
         const timeoutErr = new Error(`Request timed out: ${path}`);
         timeoutErr.status = 408;
         timeoutErr.path = path;
+        if (typeof onApiFailure === "function") {
+          onApiFailure({ path, status: 408, kind: "timeout" });
+        }
         throw timeoutErr;
       }
       throw err;

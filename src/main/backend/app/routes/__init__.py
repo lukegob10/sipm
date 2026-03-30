@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 
 from ..deps import require_user
 from .audit import router as audit_router
+from .analytics import router as analytics_router
 from .auth import router as auth_router
 from .projects import router as projects_router
 from .phases import router as phases_router
@@ -26,6 +27,7 @@ protected_router.include_router(spaces_router, tags=["spaces"])
 protected_router.include_router(users_router, tags=["users"])
 protected_router.include_router(planning_router, tags=["planning"])
 protected_router.include_router(audit_router, tags=["audit"])
+protected_router.include_router(analytics_router, tags=["analytics"])
 
 api_router.include_router(protected_router)
 api_router.include_router(sync_router, tags=["sync"])

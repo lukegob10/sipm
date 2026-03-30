@@ -120,6 +120,7 @@ export function queryShellElements() {
     pmDashboardCapacity: document.getElementById("pm-dashboard-capacity"),
     pmDashboardStatus: document.getElementById("pm-dashboard-status"),
     pmDashboardActions: document.getElementById("pm-dashboard-actions"),
+    analyticsRoot: document.getElementById("analytics-root"),
     teamForm: document.getElementById("team-form"),
     teamList: document.getElementById("team-list"),
     deleteTeamBtn: document.getElementById("delete-team"),

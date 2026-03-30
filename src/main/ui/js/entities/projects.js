@@ -15,6 +15,7 @@ export function createProjectEntityController({
   setDeliverableFormNotice,
   timestampLabel,
   showConfirmModal,
+  trackWorkflow = null,
 }) {
   function setProjectFormVisibility(show) {
     if (!els.projectModal) return;
@@ -104,6 +105,9 @@ export function createProjectEntityController({
         const successMessage = isEditing
           ? `Saved project at ${timestampLabel()}.`
           : `Created project at ${timestampLabel()}.`;
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("projects", isEditing ? "update" : "create", "success", { source: "project_form" });
+        }
         setDeliverableFormNotice(
           els.projectFormStatus,
           successMessage,
@@ -112,6 +116,9 @@ export function createProjectEntityController({
         );
       } catch (err) {
         ignoreNextRefresh.delete("projects");
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("projects", isEditing ? "update" : "create", "failure", { source: "project_form" });
+        }
         setDeliverableFormNotice(
           els.projectFormStatus,
           `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
@@ -146,8 +153,14 @@ export function createProjectEntityController({
           renderDashboard();
           renderKanban();
           renderCalendar();
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("projects", "delete", "success", { source: "project_form" });
+          }
         } catch (err) {
           ignoreNextRefresh.delete("projects");
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("projects", "delete", "failure", { source: "project_form" });
+          }
           setDeliverableFormNotice(
             els.projectFormStatus,
             `Delete failed: ${err.message}`,

@@ -7,8 +7,11 @@ export function createRouterController({
   renderActiveView,
   userIsGlobalAdmin,
   isSpaceAdminRole,
+  usageAnalyticsEnabled = () => false,
   loadData,
   loadTeamCapacityData,
+  onBeforeViewChange = null,
+  onModuleLoadFailure = null,
 }) {
   const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
   const KNOWN_VIEWS = [
@@ -22,8 +25,10 @@ export function createRouterController({
     "team-capacity",
     "spaces",
     "access",
+    "analytics",
   ];
   const ADMIN_VIEWS = new Set(["team-capacity", "spaces", "access"]);
+  const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
     master: ["phases", "projects", "solutions"],
     "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
@@ -35,6 +40,7 @@ export function createRouterController({
     "team-capacity": ["users", "allocations"],
     spaces: [],
     access: [],
+    analytics: [],
   };
   const VIEW_PREFETCH_TARGET = {
     master: "dashboard",
@@ -46,7 +52,8 @@ export function createRouterController({
     planning: "team-capacity",
     "team-capacity": "spaces",
     spaces: "access",
-    access: "planning",
+    access: "analytics",
+    analytics: "planning",
   };
   const ROUTE_MODULE_LOADERS = {
     master: () => import(`../routes/master.js?v=${APP_ASSET_VERSION}`),
@@ -59,6 +66,7 @@ export function createRouterController({
     "team-capacity": () => import(`../routes/team-capacity.js?v=${APP_ASSET_VERSION}`),
     spaces: () => import(`../routes/spaces.js?v=${APP_ASSET_VERSION}`),
     access: () => import(`../routes/access.js?v=${APP_ASSET_VERSION}`),
+    analytics: () => import(`../routes/analytics.js?v=${APP_ASSET_VERSION}`),
   };
   const routeModuleCache = {};
   const routeModuleInFlight = {};
@@ -87,6 +95,9 @@ export function createRouterController({
       })
       .catch((err) => {
         console.warn(`Failed to load route module '${key}'`, err);
+        if (typeof onModuleLoadFailure === "function") {
+          onModuleLoadFailure({ view: key, error: err });
+        }
         return null;
       })
       .finally(() => {
@@ -96,7 +107,8 @@ export function createRouterController({
   }
 
   function isAdminView(view) {
-    return ADMIN_VIEWS.has(normalizeView(view));
+    const normalized = normalizeView(view);
+    return ADMIN_VIEWS.has(normalized) || GLOBAL_ADMIN_VIEWS.has(normalized);
   }
 
   function userCanAccessAdminViews() {
@@ -107,6 +119,9 @@ export function createRouterController({
 
   function canAccessView(view) {
     const normalized = normalizeView(view);
+    if (normalized === "analytics") {
+      return state.authed && userIsGlobalAdmin() && usageAnalyticsEnabled();
+    }
     if (normalized === "access") return userCanAccessAdminViews();
     if (normalized === "team-capacity" || normalized === "spaces") return userCanAccessAdminViews();
     if (isAdminView(normalized)) return false;
@@ -205,6 +220,18 @@ export function createRouterController({
     const redirected = requestedView !== nextView;
     const nextDomView = viewDomIdForRoute(nextView);
     const nextNavView = navViewForRoute(nextView);
+    if (typeof onBeforeViewChange === "function") {
+      onBeforeViewChange({
+        previousView,
+        nextView,
+        redirected,
+        expectsData: !!state.authed && (
+          nextView === "team-capacity"
+          || nextView === "analytics"
+          || entitiesForView(nextView).length > 0
+        ),
+      });
+    }
     state.currentView = nextView;
     if (nextView === "subcomponents-workbench" && previousView !== nextView && state.subcomponentsWorkbench) {
       state.subcomponentsWorkbench.drawerOpen = false;

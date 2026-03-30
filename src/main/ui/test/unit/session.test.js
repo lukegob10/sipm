@@ -80,8 +80,30 @@ describe("session controller", () => {
     expect(startLiveSync).toHaveBeenCalledTimes(1);
     expect(viewFromLocationPath).toHaveBeenCalledWith("/project-manager/team-capacity");
     expect(setView).toHaveBeenCalledWith("team-capacity", { fromHistory: true });
+    expect(setAuthVisible).not.toHaveBeenCalledWith(true);
     const lastAuthVisibleCall = setAuthVisible.mock.calls.at(-1);
     expect(lastAuthVisibleCall).toEqual([false]);
     expect(setView.mock.invocationCallOrder[0]).toBeLessThan(setAuthVisible.mock.invocationCallOrder.at(-1));
+  });
+
+  it("only shows the login screen after the session check fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/me")) {
+        return jsonResponse({ detail: "Not authenticated" }, { status: 401 });
+      }
+      if (String(url).endsWith("/auth/refresh")) {
+        return jsonResponse({ detail: "Not authenticated" }, { status: 401 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const { controller, setView, refreshSpaceContext, startLiveSync, setAuthVisible } = createHarness();
+    await controller.bootstrapAuth();
+
+    expect(refreshSpaceContext).not.toHaveBeenCalled();
+    expect(startLiveSync).not.toHaveBeenCalled();
+    expect(setView).not.toHaveBeenCalled();
+    expect(setAuthVisible).toHaveBeenCalledTimes(1);
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
   });
 });

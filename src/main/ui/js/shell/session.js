@@ -355,7 +355,6 @@ export function createSessionController({
       return;
     }
     setStatus("Checking session...", "warn");
-    setAuthVisible(true);
     const user = await fetchCurrentUser();
     if (user) {
       await refreshSpaceContext();
@@ -363,6 +362,7 @@ export function createSessionController({
       restoreRouteFromLocationAfterAuth();
       setAuthVisible(false);
     } else {
+      setAuthVisible(true);
       setStatus("Sign in required", "warn");
     }
   }

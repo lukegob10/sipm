@@ -11,25 +11,9 @@
   <div id="auth-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
+      <h3 class="auth-title">Company Portal Sign-In</h3>
+      <p class="auth-note">SIPM access is managed by the company portal. Open this application through the published portal URL to start a session.</p>
       <div id="auth-notice" class="auth-notice hidden" role="status"></div>
-      <div class="auth-tabs" id="auth-tabs">
-        <button id="auth-tab-login" class="auth-tab active" type="button">Log in</button>
-        <button id="auth-tab-register" class="auth-tab" type="button">Create account</button>
-      </div>
-      <form id="login-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
-        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
-        <button type="submit">Log in</button>
-      </form>
-      <div class="auth-links">
-        <button type="button" id="reset-link" class="text-link">Use temporary password</button>
-      </div>
-      <form id="register-form" class="auth-form hidden">
-        <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
-        <label>Password <input type="password" name="password" autocomplete="new-password" required /></label>
-        <button type="submit">Create account</button>
-      </form>
       <div id="auth-error" class="auth-error" role="status"></div>
     </div>
   </div>
@@ -69,24 +53,6 @@
       <p id="csv-upload-status" class="csv-upload-status"></p>
     </div>
   </div>
-
-  <div id="reset-screen" class="auth-screen hidden">
-    <div class="auth-card">
-      <div class="auth-brand">SIPM</div>
-      <h3 class="auth-title">Reset Password</h3>
-      <p class="auth-note">Enter your SOEID and the temporary password from your admin, then choose a new password.</p>
-      <form id="reset-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
-        <label>Temporary Password <input type="password" name="temp_password" autocomplete="one-time-code" required /></label>
-        <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
-        <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
-        <button type="submit">Set new password</button>
-      </form>
-      <div id="reset-error" class="auth-error" role="status"></div>
-      <div id="reset-success" class="auth-note"></div>
-    </div>
-  </div>
-
 
   <div id="app-shell" class="hidden">
     <aside class="sidebar">

@@ -217,7 +217,7 @@ export function createDataStoreController({
     } catch (err) {
       console.warn("Refresh failed", err);
       if (handleAuthError(err)) {
-        setStatus("Sign in required", "warn");
+        setStatus("Portal sign-in required", "warn");
       }
     } finally {
       refreshInFlight = false;
@@ -239,7 +239,7 @@ export function createDataStoreController({
     const silent = !!options.silent;
     const requestedEntities = Array.isArray(options.entities) ? options.entities.filter(isKnownEntity) : null;
     if (!state.authed) {
-      setStatus("Sign in required", "warn");
+      setStatus("Portal sign-in required", "warn");
       setAuthVisible(true);
       return;
     }

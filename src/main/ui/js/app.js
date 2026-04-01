@@ -235,7 +235,7 @@ const state = {
   globalAdmins: [],
   globalAdminsLoaded: false,
   platformPasswordReset: null,
-  authMode: "login",
+  authMode: "portal",
   phases: [],
   projects: [],
   solutions: [],
@@ -1044,7 +1044,7 @@ function setAuthed(user) {
   }
   setAuthVisible(!state.authed);
   if (!state.authed) {
-    setStatus("Sign in required", "warn");
+    setStatus("Portal sign-in required", "warn");
   }
   renderSpaceSwitcher();
   renderCompletedVisibilityToggle();
@@ -2647,7 +2647,7 @@ async function downloadCsv(kind, filename, resultEl) {
     });
     if (res.status === 401) {
       handleAuthError({ status: 401 });
-      setImportResult(resultEl, "Sign in required", true);
+      setImportResult(resultEl, "Portal sign-in required", true);
       return;
     }
     if (!res.ok) throw new Error(await res.text());
@@ -2803,7 +2803,7 @@ async function uploadCsvFile(kind, file, resultEl) {
     });
     if (res.status === 401) {
       handleAuthError({ status: 401 });
-      const msg = "Sign in required";
+      const msg = "Portal sign-in required";
       setImportResult(resultEl, msg, true);
       return { ok: false, message: msg, partial: false };
     }

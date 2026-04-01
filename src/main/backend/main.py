@@ -54,20 +54,22 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-_load_env_file(BASE_DIR / ".env")
-_load_env_file(BASE_DIR / ".env.local")
+REPO_DIR = BASE_DIR.parents[1]
+REPO_ENV = REPO_DIR / ".env"
+REPO_ENV_LOCAL = REPO_DIR / ".env.local"
 
-# Also attempt to load repo-root env files as a fallback, without overriding non-empty values.
-# This helps when running the app from different working directories.
-try:
-    REPO_DIR = BASE_DIR.parents[1]
-    _load_env_file(REPO_DIR / ".env", override_existing=False)
-    _load_env_file(REPO_DIR / ".env.local", override_existing=False)
-except Exception:
-    pass
+# Use the repo-root env files as the single source of truth.
+# Keep `src/main/.env` only as a legacy fallback for older local setups.
+if REPO_ENV.exists() or REPO_ENV_LOCAL.exists():
+    _load_env_file(REPO_ENV)
+    _load_env_file(REPO_ENV_LOCAL)
+else:
+    _load_env_file(BASE_DIR / ".env")
+    _load_env_file(BASE_DIR / ".env.local")
 
 
 from backend.app.auth.auth import validate_auth_configuration
+from backend.app.auth.proxy_auth import maybe_inject_dev_proxy_headers, validate_proxy_auth_configuration
 from backend.app.db.db import check_db_connection, init_db
 from backend.app.paths import (
     API_PREFIX,
@@ -127,6 +129,13 @@ def _readiness_payload() -> tuple[int, dict]:
         ready = False
         checks["auth"] = {"status": "error", "detail": str(exc)}
 
+    try:
+        validate_proxy_auth_configuration()
+        checks["proxy_auth"] = {"status": "ok"}
+    except Exception as exc:
+        ready = False
+        checks["proxy_auth"] = {"status": "error", "detail": str(exc)}
+
     if _startup_db_disabled():
         checks["db"] = {"status": "skipped", "detail": "startup disabled or test mode active"}
     else:
@@ -143,6 +152,7 @@ def _readiness_payload() -> tuple[int, dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_auth_configuration()
+    validate_proxy_auth_configuration()
     coordination.validate_configuration()
     # Avoid touching the on-disk DB during unit tests. Tests create their own in-memory DB
     # and override `get_db`/auth dependencies.
@@ -209,6 +219,7 @@ app.include_router(api_router, prefix=API_PREFIX)
 
 @app.middleware("http")
 async def request_observability_middleware(request: Request, call_next):
+    maybe_inject_dev_proxy_headers(request.scope)
     request_id = _request_id_for(request)
     request.state.request_id = request_id
     request_token = set_request_id(request_id)

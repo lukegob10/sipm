@@ -446,7 +446,6 @@ export function createSpaceGovernanceRenderer({
           <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
           <td>
             <div class="platform-access-actions">
-              <button type="button" class="secondary" data-space-action="issue-password-reset" data-soeid="${escapeAttr(user.soeid)}">Reset Password</button>
               <button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke</button>
             </div>
           </td>
@@ -459,7 +458,7 @@ export function createSpaceGovernanceRenderer({
           <div>
             <p class="space-card-kicker">Platform-wide access</p>
             <h3>Global Admins</h3>
-            <p class="muted">Grant platform-wide access, revoke it when needed, or issue password resets without leaving the governance hub.</p>
+            <p class="muted">Grant platform-wide access and revoke it when needed without leaving the governance hub.</p>
           </div>
         </div>
         <div class="panel soft">

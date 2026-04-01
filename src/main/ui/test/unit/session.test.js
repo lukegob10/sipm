@@ -86,7 +86,7 @@ describe("session controller", () => {
     expect(setView.mock.invocationCallOrder[0]).toBeLessThan(setAuthVisible.mock.invocationCallOrder.at(-1));
   });
 
-  it("only shows the login screen after the session check fails", async () => {
+  it("shows the portal access screen after the session check fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/auth/me")) {
         return jsonResponse({ detail: "Not authenticated" }, { status: 401 });

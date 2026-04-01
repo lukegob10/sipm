@@ -19,6 +19,7 @@ Scope: repo-visible runtime and operator expectations only; vendor-specific depl
 - `GET /health/ready`
   - readiness probe
   - validates auth/runtime configuration
+  - validates required frontend bundle files for the SPA shell
   - validates DB connectivity unless startup is disabled or test mode is active
   - returns `503` when readiness checks fail
 - Every response includes `X-Request-ID`; operators should use it as the first correlation key when tracing a failed request through logs and audit rows.
@@ -59,7 +60,7 @@ Scope: repo-visible runtime and operator expectations only; vendor-specific depl
    - verify Redis coordination state in `uat`/`prod`
    - verify websocket connectivity and recent reconnect behavior
 6. If the issue is startup or readiness related:
-   - validate `ENV`, coordination backend, Redis URL, auth cookie settings, and DB pool values
+   - validate `ENV`, coordination backend, Redis URL, auth cookie settings, frontend bundle presence, and DB pool values
 7. Before escalating to product behavior, reproduce the path with the focused test suite that owns that area.
 
 ## Wave 1 Boundaries

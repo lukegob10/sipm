@@ -58,10 +58,11 @@ Validation highlights:
 ## Ops
 
 - `GET /health` is a shallow liveness check and remains the quick `{"status":"ok"}` endpoint.
-- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
+- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
 - Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
+- The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
 - Reverse-proxy auth is controlled with `SIPM_PROXY_AUTH_ENABLED=true|false`.
 - Configure the trusted identity headers with `SIPM_PROXY_AUTH_SOEID_HEADER` and `SIPM_PROXY_AUTH_NAME_HEADER`.
 - The production proxy contract uses `SM_USER` for the SUID and `name` for the full name. SIPM derives email internally as `<suid>@<DOMAIN_NAME>`.

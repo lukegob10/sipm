@@ -53,8 +53,15 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
             os.environ[key] = value
 
 
+def _repo_dir_for(base_dir: Path) -> Path:
+    # Local source runs from <repo>/src/main, while the Docker image flattens that to /app.
+    if len(base_dir.parents) > 1:
+        return base_dir.parents[1]
+    return base_dir
+
+
 BASE_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = BASE_DIR.parents[1]
+REPO_DIR = _repo_dir_for(BASE_DIR)
 REPO_ENV = REPO_DIR / ".env"
 REPO_ENV_LOCAL = REPO_DIR / ".env.local"
 

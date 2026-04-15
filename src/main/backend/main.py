@@ -26,6 +26,30 @@ def _bool_env(name: str, default: bool) -> bool:
     raise RuntimeError(f"{name} must be a boolean value.")
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+def _require_min(name: str, value: int, minimum: int) -> int:
+    if value < minimum:
+        raise RuntimeError(f"{name} must be >= {minimum}.")
+    return value
+
+
+def _require_min_or_disable(name: str, value: int, disable_value: int, minimum: int) -> int:
+    if value == disable_value:
+        return value
+    if value < minimum:
+        raise RuntimeError(f"{name} must be {disable_value} or >= {minimum}.")
+    return value
+
+
 def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
     if not path.exists():
         return
@@ -77,7 +101,7 @@ else:
 
 from backend.app.auth.auth import validate_auth_configuration
 from backend.app.auth.proxy_auth import maybe_inject_dev_proxy_headers, validate_proxy_auth_configuration
-from backend.app.db.db import check_db_connection, init_db
+from backend.app.db.db import check_db_connection, init_db, warm_db_pool
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -112,6 +136,31 @@ def _running_tests() -> bool:
 
 def _startup_db_disabled() -> bool:
     return _bool_env("SIPM_DISABLE_STARTUP", False) or _running_tests()
+
+
+def _db_prewarm_connection_count() -> int:
+    if not _bool_env("SIPM_DB_PREWARM_ON_STARTUP", False):
+        return 0
+    return _require_min(
+        "SIPM_DB_PREWARM_CONNECTIONS",
+        _int_env("SIPM_DB_PREWARM_CONNECTIONS", 1),
+        1,
+    )
+
+
+def _db_keepwarm_interval_seconds() -> int:
+    return _require_min_or_disable(
+        "SIPM_DB_KEEPWARM_INTERVAL_SECONDS",
+        _int_env("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", 0),
+        0,
+        1,
+    )
+
+
+async def _db_keepwarm_loop(interval_seconds: int) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        check_db_connection()
 
 
 def _request_id_for(request: Request) -> str:
@@ -206,6 +255,7 @@ async def lifespan(app: FastAPI):
             patched_run_sync = run_sync_no_threadpool
 
     keepalive_task = None
+    db_keepwarm_task = None
     try:
         await start_realtime_runtime()
         if running_tests or _bool_env("SIPM_KEEPALIVE_TASK", False):
@@ -217,9 +267,21 @@ async def lifespan(app: FastAPI):
 
         if not disable_startup and not running_tests:
             init_db()
+            prewarm_connection_count = _db_prewarm_connection_count()
+            if prewarm_connection_count:
+                warm_db_pool(connection_count=prewarm_connection_count)
+            keepwarm_interval_seconds = _db_keepwarm_interval_seconds()
+            if keepwarm_interval_seconds:
+                if not prewarm_connection_count:
+                    check_db_connection()
+                db_keepwarm_task = asyncio.create_task(_db_keepwarm_loop(keepwarm_interval_seconds))
         yield
     finally:
         await stop_realtime_runtime()
+        if db_keepwarm_task:
+            db_keepwarm_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await db_keepwarm_task
         if keepalive_task:
             keepalive_task.cancel()
             with suppress(asyncio.CancelledError):

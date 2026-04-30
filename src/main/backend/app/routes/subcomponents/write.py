@@ -20,6 +20,7 @@ from .common import (
     _ensure_solution,
     _get_subcomponent,
     _publish_subcomponent_mutation,
+    _resolve_subcomponent_assignee,
     _solution_repo_map,
     _subcomponent_payload,
     _subcomponent_query,
@@ -64,11 +65,11 @@ def create_subcomponent(
     now = datetime.now(timezone.utc)
     completed_at = now if payload.status == SubcomponentStatus.complete else None
 
-    assignee = normalize_str(payload.assignee) or current_user.display_name or current_user.soeid or ""
-    assignee_user_soeid = normalize_str(payload.assignee_user_soeid) or None
-    if assignee_user_soeid is None and current_user.soeid:
-        if assignee == current_user.display_name or assignee == current_user.soeid:
-            assignee_user_soeid = current_user.soeid
+    assignee, assignee_user_soeid = _resolve_subcomponent_assignee(
+        payload.assignee,
+        payload.assignee_user_soeid,
+        current_user,
+    )
 
     subcomponent = Subcomponent(
         space_id=space_ctx.space_id,

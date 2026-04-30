@@ -17,10 +17,13 @@ from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv
 from ...utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 from .._mutations import commit_session
+from ..projects.common import _resolve_project_sponsor
+from ..solutions.common import _resolve_solution_owner
 from .common import (
     _apply_subcomponent_completion_state,
     _project_query,
     _publish_subcomponent_import,
+    _resolve_subcomponent_assignee,
     _run_enable_all_phases,
     _solution_query,
     _subcomponent_query,
@@ -63,7 +66,7 @@ def import_subcomponents(
         sub_name = normalize_str(row.get("subcomponent_name"))
         version_raw = normalize_str(row.get("version")) or "0.1.0"
         solution_owner_val = normalize_str(row.get("solution_owner")) or normalize_str(row.get("owner"))
-        assignee_val = normalize_str(row.get("assignee"))
+        assignee_input = normalize_str(row.get("assignee"))
         assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
         blocker_note = normalize_str(row.get("blocker_note")) or None
         done_criteria = normalize_str(row.get("done_criteria")) or None
@@ -74,9 +77,9 @@ def import_subcomponents(
             continue
         blocked_raw = normalize_str(row.get("blocked"))
         blocked_val = blocked_raw.lower() in {"true", "1", "yes", "y"} if blocked_raw else False
-        if not project_name or not solution_name or not sub_name or not assignee_val:
+        if not project_name or not solution_name or not sub_name:
             errors.append(
-                f"Row {idx}: project_name, solution_name, subcomponent_name, and assignee are required"
+                f"Row {idx}: project_name, solution_name, and subcomponent_name are required"
             )
             continue
         key = (project_name.lower(), solution_name.lower(), version_raw.lower(), sub_name.lower())
@@ -101,13 +104,18 @@ def import_subcomponents(
         project = projects_by_name.get(project_name.lower())
         project_created_this_row = False
         if not project:
-            sponsor_val = solution_owner_val or "Auto-created"
+            sponsor_val, sponsor_user_soeid = _resolve_project_sponsor(
+                solution_owner_val,
+                None,
+                current_user,
+            )
             project = Project(
                 space_id=space_ctx.space_id,
                 project_name=project_name,
                 status=ProjectStatus.not_started,
                 description=None,
                 sponsor=sponsor_val,
+                sponsor_user_soeid=sponsor_user_soeid,
             )
             session.add(project)
             session.flush()
@@ -124,6 +132,7 @@ def import_subcomponents(
                     "status": (None, project.status),
                     "description": (None, project.description),
                     "sponsor": (None, project.sponsor),
+                    "sponsor_user_soeid": (None, project.sponsor_user_soeid),
                 },
                 request_id=None,
             )
@@ -133,6 +142,11 @@ def import_subcomponents(
         solution_created_this_row = False
         if not solution:
             try:
+                solution_owner, solution_owner_user_soeid = _resolve_solution_owner(
+                    solution_owner_val,
+                    None,
+                    current_user,
+                )
                 solution = Solution(
                     space_id=space_ctx.space_id,
                     project_id=project.project_id,
@@ -143,7 +157,8 @@ def import_subcomponents(
                     due_date=None,
                     current_phase=None,
                     description=None,
-                    owner=solution_owner_val or "Auto-created",
+                    owner=solution_owner,
+                    owner_user_soeid=solution_owner_user_soeid,
                     assignee="",
                     approver=None,
                     key_stakeholder=None,
@@ -171,6 +186,7 @@ def import_subcomponents(
                         "current_phase": (None, solution.current_phase),
                         "description": (None, solution.description),
                         "owner": (None, solution.owner),
+                        "owner_user_soeid": (None, solution.owner_user_soeid),
                         "assignee": (None, solution.assignee),
                         "approver": (None, solution.approver),
                         "key_stakeholder": (None, solution.key_stakeholder),
@@ -196,6 +212,15 @@ def import_subcomponents(
             )
             now = datetime.now(timezone.utc)
             if existing:
+                if assignee_input:
+                    resolved_assignee, resolved_assignee_user_soeid = _resolve_subcomponent_assignee(
+                        assignee_input,
+                        assignee_user_soeid,
+                        current_user,
+                    )
+                else:
+                    resolved_assignee = existing.assignee
+                    resolved_assignee_user_soeid = existing.assignee_user_soeid
                 before = {
                     "status": existing.status,
                     "priority": existing.priority,
@@ -212,8 +237,8 @@ def import_subcomponents(
                 existing.status = status_enum
                 existing.priority = priority_val
                 existing.due_date = due_val
-                existing.assignee = assignee_val
-                existing.assignee_user_soeid = assignee_user_soeid
+                existing.assignee = resolved_assignee
+                existing.assignee_user_soeid = resolved_assignee_user_soeid
                 existing.github_repo_url = github_repo_url
                 existing.estimate_hours = estimate_hours
                 existing.blocked = blocked_val
@@ -253,6 +278,11 @@ def import_subcomponents(
                 commit_session(session)
                 updated += 1
             else:
+                resolved_assignee, resolved_assignee_user_soeid = _resolve_subcomponent_assignee(
+                    assignee_input,
+                    assignee_user_soeid,
+                    current_user,
+                )
                 completed_at = now if status_enum == SubcomponentStatus.complete else None
                 subcomponent = Subcomponent(
                     space_id=space_ctx.space_id,
@@ -262,8 +292,8 @@ def import_subcomponents(
                     status=status_enum,
                     priority=priority_val,
                     due_date=due_val,
-                    assignee=assignee_val,
-                    assignee_user_soeid=assignee_user_soeid,
+                    assignee=resolved_assignee,
+                    assignee_user_soeid=resolved_assignee_user_soeid,
                     github_repo_url=github_repo_url,
                     estimate_hours=estimate_hours,
                     blocked=blocked_val,

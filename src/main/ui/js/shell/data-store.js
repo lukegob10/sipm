@@ -41,6 +41,7 @@ export function createDataStoreController({
     state.users = [];
     state.allocations = [];
     state.planningWindows = [];
+    state.ganttCollapsed = new Set();
     state.loadedEntities = new Set();
     state.capacitySelectedSoeid = "";
     state.teamCapacity = createTeamCapacityState();

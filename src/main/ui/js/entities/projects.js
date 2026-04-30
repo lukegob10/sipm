@@ -11,6 +11,7 @@ export function createProjectEntityController({
   renderDashboard,
   renderKanban,
   renderCalendar,
+  renderGantt,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   timestampLabel,
@@ -102,6 +103,7 @@ export function createProjectEntityController({
         renderDashboard();
         renderKanban();
         renderCalendar();
+        renderGantt();
         const successMessage = isEditing
           ? `Saved project at ${timestampLabel()}.`
           : `Created project at ${timestampLabel()}.`;
@@ -153,6 +155,7 @@ export function createProjectEntityController({
           renderDashboard();
           renderKanban();
           renderCalendar();
+          renderGantt();
           if (typeof trackWorkflow === "function") {
             trackWorkflow("projects", "delete", "success", { source: "project_form" });
           }

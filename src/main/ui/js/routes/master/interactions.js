@@ -43,6 +43,7 @@ export function clearDeliverablesFilters(ctx) {
     renderMasterTable,
     renderKanban,
     renderCalendar,
+    renderGantt,
   } = ctx;
 
   state.filters = {};
@@ -54,6 +55,7 @@ export function clearDeliverablesFilters(ctx) {
   renderMasterTable();
   renderKanban();
   renderCalendar();
+  if (typeof renderGantt === "function") renderGantt();
 }
 
 export function setDeliverablesPreset(ctx, preset) {
@@ -95,6 +97,7 @@ async function applyBulkAction(ctx) {
     renderDashboard,
     renderKanban,
     renderCalendar,
+    renderGantt,
     setBulkFeedback,
   } = ctx;
 
@@ -134,6 +137,7 @@ async function applyBulkAction(ctx) {
     renderDashboard();
     renderKanban();
     renderCalendar();
+    if (typeof renderGantt === "function") renderGantt();
     setBulkFeedback("Deliverables updated.", "success", 3200);
   } catch (err) {
     setBulkFeedback(`Bulk update failed: ${err.message}`, "error");
@@ -151,6 +155,7 @@ async function updateDeliverableField(ctx, type, id, field, value) {
     renderDashboard,
     renderKanban,
     renderCalendar,
+    renderGantt,
   } = ctx;
 
   clearBulkFeedback();
@@ -172,6 +177,7 @@ async function updateDeliverableField(ctx, type, id, field, value) {
     renderDashboard();
     renderKanban();
     renderCalendar();
+    if (typeof renderGantt === "function") renderGantt();
     setBulkFeedback("Deliverable updated.", "success", 2200);
   } catch (err) {
     setBulkFeedback(`Update failed: ${err.message}`, "error");

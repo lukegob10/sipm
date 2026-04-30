@@ -58,4 +58,11 @@ docs/specs/
 
 
 # Skill artifacts
-.auto-research/
+.auto-research/*
+!.auto-research/target.md
+!.auto-research/loop.md
+!.auto-research/config.json
+!.auto-research/memory.md
+!.auto-research/blocked-signatures.md
+!.auto-research/runs/
+!.auto-research/runs/**

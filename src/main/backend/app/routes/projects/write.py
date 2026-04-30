@@ -13,7 +13,6 @@ from ...models import Project, User
 from ...schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_str
 from .common import (
     _active_project_name_conflict_query,
     _deleted_project_name,
@@ -25,6 +24,7 @@ from .common import (
     _project_query,
     _publish_project_deletion,
     _publish_project_mutation,
+    _resolve_project_sponsor,
 )
 
 router = APIRouter()
@@ -65,11 +65,11 @@ def create_project(
         deleted.updated_at = now
         session.add(deleted)
 
-    sponsor = normalize_str(payload.sponsor) or current_user.display_name or current_user.soeid or "Sponsor"
-    sponsor_user_soeid = normalize_str(payload.sponsor_user_soeid) or None
-    if sponsor_user_soeid is None and current_user.soeid:
-        if sponsor == current_user.display_name or sponsor == current_user.soeid:
-            sponsor_user_soeid = current_user.soeid
+    sponsor, sponsor_user_soeid = _resolve_project_sponsor(
+        payload.sponsor,
+        payload.sponsor_user_soeid,
+        current_user,
+    )
 
     project = Project(
         space_id=space_ctx.space_id,

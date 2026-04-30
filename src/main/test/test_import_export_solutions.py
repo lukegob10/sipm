@@ -77,6 +77,41 @@ async def test_solution_import_auto_created_projects_refresh_project_and_solutio
 
 
 @pytest.mark.anyio
+async def test_solution_import_auto_created_project_and_solution_use_current_user_accountability(client):
+    csv_text = "\n".join(
+        [
+            "project_name,solution_name,version,status,owner",
+            "Current User Project,Current User Workstream,0.1.0,not_started,",
+        ]
+    )
+
+    imported = await client.post(
+        "/project-manager/api/solutions/import",
+        content=csv_text.encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert imported.status_code == 200, imported.text
+    payload = imported.json()
+    assert payload["projects_created"] == 1
+    assert payload["created"] == 1
+    assert payload["errors"] == []
+
+    projects = await client.get("/project-manager/api/projects/")
+    assert projects.status_code == 200, projects.text
+    project = next(row for row in projects.json() if row["project_name"] == "Current User Project")
+    assert project["sponsor"] == "Test User"
+    assert project["sponsor_user_soeid"] == "tu12345"
+
+    solutions = await client.get("/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"})
+    assert solutions.status_code == 200, solutions.text
+    solution = next(row for row in solutions.json() if row["solution_name"] == "Current User Workstream")
+    assert solution["owner"] == "Test User"
+    assert solution["owner_user_soeid"] == "tu12345"
+    assert solution["assignee"] == "Test User"
+    assert solution["assignee_user_soeid"] == "tu12345"
+
+
+@pytest.mark.anyio
 async def test_solution_import_repo_update_refreshes_cached_subcomponent_repo_inheritance(
     client,
     db_sessionmaker,
@@ -277,10 +312,10 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["updated"] == 2
-    assert data["created"] == 2
+    assert data["created"] == 3
     assert data["projects_created"] == 1
     assert data["total_rows"] == 7
-    assert len(data["errors"]) == 3
+    assert len(data["errors"]) == 2
 
     updated_phase = (await client.get(f"/project-manager/api/solutions/{sol_phase['solution_id']}")).json()
     assert updated_phase["current_phase"] == "requirements"
@@ -291,6 +326,13 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
     assert updated_complete["status"] == "complete"
     assert updated_complete["completed_at"] is not None
     assert updated_complete["current_phase"] == "requirements"
+
+    fallback_owner = await client.get("/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"})
+    assert fallback_owner.status_code == 200
+    assert [row["solution_name"] for row in fallback_owner.json()] == ["Missing Owner"]
+    assert fallback_owner.json()[0]["owner"] == "Test User"
+    assert fallback_owner.json()[0]["assignee"] == "Test User"
+    assert fallback_owner.json()[0]["assignee_user_soeid"] == "tu12345"
 
     reopen_buf = StringIO()
     reopen_writer = csv.DictWriter(reopen_buf, fieldnames=fieldnames)

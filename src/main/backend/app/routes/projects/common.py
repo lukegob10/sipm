@@ -12,6 +12,7 @@ from ...schemas import ProjectRead
 from ...services.realtime import schedule_broadcast
 from ...services.smart_cache import invalidate_space
 from ...services.spaces import SpaceContext
+from ...utils import normalize_str
 
 _PROJECTS_LIST_TTL_SECONDS = 20
 _PROJECTS_DETAIL_TTL_SECONDS = 30
@@ -110,6 +111,20 @@ def _deleted_project_name(project_name: str, project_id: str, deleted_at: dateti
     return f"{base[:max_base_len]}{suffix}"
 
 
+def _resolve_project_sponsor(
+    sponsor_value: object | None,
+    sponsor_user_soeid_value: object | None,
+    current_user: object,
+) -> tuple[str, str | None]:
+    display_name = normalize_str(getattr(current_user, "display_name", None))
+    current_soeid = normalize_str(getattr(current_user, "soeid", None))
+    sponsor = normalize_str(sponsor_value) or display_name or current_soeid or "Sponsor"
+    sponsor_user_soeid = normalize_str(sponsor_user_soeid_value) or None
+    if sponsor_user_soeid is None and current_soeid and sponsor in {display_name, current_soeid}:
+        sponsor_user_soeid = current_soeid
+    return sponsor, sponsor_user_soeid
+
+
 def _project_create_changes(project: Project) -> dict[str, tuple[object | None, object | None]]:
     return {field: (None, getattr(project, field)) for field in _PROJECT_CREATE_AUDIT_FIELDS}
 
@@ -148,5 +163,6 @@ __all__ = [
     "_project_query",
     "_publish_project_deletion",
     "_publish_project_mutation",
+    "_resolve_project_sponsor",
     "_role_scope",
 ]

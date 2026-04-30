@@ -23,6 +23,14 @@ import {
   renderPMDashboardTimelineSection,
 } from "./sections.js";
 
+const STALE_STATUS_DAYS = 7;
+
+function isStaleStatusRecord(record, today) {
+  if (record?.is_stale === true) return true;
+  const updatedAt = parseDate(record?.updated_at);
+  return !!updatedAt && daysUntil(updatedAt, today) > STALE_STATUS_DAYS;
+}
+
 export function createPMDashboardState() {
   return {
     ctx: null,
@@ -103,7 +111,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     projects.map((project) => [project.project_id, project.project_name || "Unmapped Project"])
   );
   const solutionNameById = new Map(
-    solutions.map((solution) => [solution.solution_id, solution.solution_name || "Unnamed Solution"])
+    solutions.map((solution) => [solution.solution_id, solution.solution_name || "Unnamed Workstream"])
   );
 
   const subcomponentsByProject = new Map();
@@ -150,6 +158,9 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   const unassignedSubcomponents = activeSubcomponents.filter(
     (subcomponent) => !nonEmpty(subcomponent.assignee) && !nonEmpty(subcomponent.assignee_user_soeid)
   );
+  const staleSolutions = activeSolutions.filter((solution) => isStaleStatusRecord(solution, today));
+  const staleSubcomponents = activeSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today));
+  const staleTotal = staleSolutions.length + staleSubcomponents.length;
 
   const projectSummaries = projects
     .map((project) => {
@@ -173,6 +184,9 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       const unassignedCount = openSubcomponents.filter(
         (subcomponent) => !nonEmpty(subcomponent.assignee) && !nonEmpty(subcomponent.assignee_user_soeid)
       ).length;
+      const staleCount =
+        openSolutions.filter((solution) => isStaleStatusRecord(solution, today)).length
+        + openSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today)).length;
       const dueCandidates = [
         ...openSolutions.map((solution) => parseDate(solution.due_date)).filter(Boolean),
         ...openSubcomponents.map((subcomponent) => parseDate(subcomponent.due_date)).filter(Boolean),
@@ -187,6 +201,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
           + onHoldCount * 10
           + overdueSolutionCount * 10
           + overdueSubcomponentCount * 5
+          + staleCount * 4
           + blockedCount * 6
           + unassignedCount * 3,
         0,
@@ -203,6 +218,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         amberCount,
         blockedCount,
         overdueCount: overdueSolutionCount + overdueSubcomponentCount,
+        staleCount,
         riskScore,
         healthScore,
         nearestDue,
@@ -230,6 +246,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       const status = String(solution.status || "").toLowerCase();
       const dueDate = parseDate(solution.due_date);
       const dueDays = dueDate ? daysUntil(today, dueDate) : Number.NaN;
+      const statusIsStale = isStaleStatusRecord(solution, today);
 
       if (rag === "red") {
         riskScore += 50;
@@ -257,23 +274,27 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         riskScore += 12;
         signals.push("Risks noted");
       }
+      if (statusIsStale) {
+        riskScore += 10;
+        signals.push("Status stale");
+      }
       if (!nonEmpty(solution.owner) && !nonEmpty(solution.owner_user_soeid)) {
         riskScore += 8;
         signals.push("No owner");
       }
       if (blockedLinked > 0) {
         riskScore += Math.min(16, blockedLinked * 4);
-        signals.push(`Blocked tasks ${blockedLinked}`);
+        signals.push(`Blocked deliverables ${blockedLinked}`);
       }
       if (overdueLinked > 0) {
         riskScore += Math.min(16, overdueLinked * 4);
-        signals.push(`Overdue tasks ${overdueLinked}`);
+        signals.push(`Overdue deliverables ${overdueLinked}`);
       }
       riskScore = clamp(riskScore, 0, 100);
 
       return {
         solutionId: solution.solution_id,
-        solutionName: solution.solution_name || "Unnamed Solution",
+        solutionName: solution.solution_name || "Unnamed Workstream",
         projectName: projectNameById.get(solution.project_id) || "Unmapped Project",
         owner: solution.owner || solution.owner_user_soeid || "Unassigned",
         ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory),
@@ -292,10 +313,10 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
           itemKind: "solution",
-          kind: "Solution",
+          kind: "Workstream",
           solutionId: solution.solution_id,
           subcomponentId: "",
-          name: solution.solution_name || "Unnamed Solution",
+          name: solution.solution_name || "Unnamed Workstream",
           projectName: projectNameById.get(solution.project_id) || "Unmapped Project",
           solutionName: "",
           owner: solution.owner || solution.owner_user_soeid || "Unassigned",
@@ -311,12 +332,12 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
           itemKind: "subcomponent",
-          kind: "Task",
+          kind: "Deliverable",
           solutionId: subcomponent.solution_id,
           subcomponentId: subcomponent.subcomponent_id,
-          name: subcomponent.subcomponent_name || "Unnamed Task",
+          name: subcomponent.subcomponent_name || "Unnamed Deliverable",
           projectName: projectNameById.get(subcomponent.project_id) || "Unmapped Project",
-          solutionName: solutionNameById.get(subcomponent.solution_id) || "Unmapped Solution",
+          solutionName: solutionNameById.get(subcomponent.solution_id) || "Unmapped Workstream",
           owner: subcomponent.assignee || subcomponent.assignee_user_soeid || "Unassigned",
           ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(
             subcomponent.assignee_user_soeid,
@@ -349,8 +370,8 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   const capacityScopeLabel = planningTaskAllocations.length
     ? allocationScopeLabel
     : scopedAllocations.length
-      ? `${allocationScopeLabel} | No planning task assignments`
-      : "No planning task assignments";
+      ? `${allocationScopeLabel} | No planning deliverable assignments`
+      : "No planning deliverable assignments";
 
   const allocKey = typeof assigneeKeyFromAlloc === "function"
     ? assigneeKeyFromAlloc
@@ -419,7 +440,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       return a.label.localeCompare(b.label);
     });
   pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));
-  pmDashboardState.capacityScopeLabel = `${capacityScopeLabel} | Planning task assignments only`;
+  pmDashboardState.capacityScopeLabel = `${capacityScopeLabel} | Planning deliverable assignments only`;
   const overloadedRows = capacityRows.filter((row) => row.capacity > 0 && row.allocated > row.capacity * 1.05);
   const totalCapacity = Array.from(capacityByKey.values()).reduce((sum, value) => sum + value, 0);
   const totalAllocated = Array.from(allocatedByKey.values()).reduce((sum, value) => sum + value, 0);
@@ -466,7 +487,8 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     + onHoldSolutions.length * 3
     + overdueTotal * 2
     + blockedSubcomponents.length * 2
-    + unassignedSubcomponents.length;
+    + unassignedSubcomponents.length
+    + staleTotal;
   const riskDenominator = Math.max(activeSolutions.length * 7 + activeSubcomponents.length * 2, 1);
   const portfolioHealthScore = Math.round(clamp(100 - (riskUnits / riskDenominator) * 100, 0, 100));
   const atRiskSolutions = solutionRiskRows.filter((row) => row.riskScore >= 45).length;
@@ -475,10 +497,10 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   if (redSolutions.length > 0) {
     actions.push({
       tone: "danger",
-      title: `${redSolutions.length} red solutions need intervention`,
-      detail: "Review RAG reasons and assign recovery owners.",
+      title: `${redSolutions.length} red workstreams need intervention`,
+      detail: "Review health reasons and assign recovery owners.",
       href: hrefFor("master"),
-      cta: "Open Deliverables",
+      cta: "Open Work List",
     });
   }
   if (overdueTotal > 0) {
@@ -493,10 +515,10 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   if (blockedSubcomponents.length > 0) {
     actions.push({
       tone: "warn",
-      title: `${blockedSubcomponents.length} blocked tasks are stalling flow`,
+      title: `${blockedSubcomponents.length} blocked deliverables are stalling flow`,
       detail: "Clear blocker notes and escalate dependency owners.",
       href: hrefFor("subcomponents-workbench"),
-      cta: "Open Subcomponents",
+      cta: "Open Deliverables",
     });
   }
   if (overloadedRows.length > 0) {
@@ -511,10 +533,19 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   if (unassignedSubcomponents.length > 0) {
     actions.push({
       tone: "warn",
-      title: `${unassignedSubcomponents.length} active tasks are unassigned`,
+      title: `${unassignedSubcomponents.length} active deliverables are unassigned`,
       detail: "Assign owners so execution can start and status can move.",
       href: hrefFor("subcomponents-workbench"),
-      cta: "Assign Tasks",
+      cta: "Assign Deliverables",
+    });
+  }
+  if (staleTotal > 0) {
+    actions.push({
+      tone: "warn",
+      title: `${staleTotal} records need status refresh`,
+      detail: "Refresh stale work before leadership review.",
+      href: hrefFor("master"),
+      cta: "Review Status",
     });
   }
   if (!actions.length) {
@@ -538,6 +569,8 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     unassignedSubcomponentsCount: unassignedSubcomponents.length,
     overdueTotal,
     dueSoonTotal,
+    staleTotal,
+    staleStatusDays: STALE_STATUS_DAYS,
     totalGap,
     totalAllocated,
     totalCapacity,

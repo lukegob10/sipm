@@ -6,9 +6,11 @@ import { createRouterController } from "../../js/shell/router.js";
 function buildRouterHarness() {
   document.body.innerHTML = `
     <button class="nav-btn" data-view="master"></button>
+    <button class="nav-btn" data-view="gantt"></button>
     <button class="nav-btn" data-view="spaces"></button>
     <button class="nav-btn" data-view="analytics"></button>
     <section class="view" id="view-master"></section>
+    <section class="view" id="view-gantt"></section>
     <section class="view" id="view-spaces"></section>
     <section class="view" id="view-analytics"></section>
   `;
@@ -51,6 +53,7 @@ describe("router controller", () => {
     const { controller } = buildRouterHarness();
 
     expect(controller.viewFromLocationPath("/")).toBe("master");
+    expect(controller.viewFromLocationPath("/gantt")).toBe("gantt");
     expect(controller.viewFromLocationPath("/spaces")).toBe("spaces");
     expect(controller.appRelativePath("/dashboard")).toBe("/dashboard");
   });
@@ -99,5 +102,14 @@ describe("router controller", () => {
     expect(state.currentView).toBe("master");
     await Promise.resolve();
     expect(loadData).toHaveBeenCalledWith({ entities: ["phases", "projects", "solutions"] });
+  });
+
+  it("loads Gantt route data from existing work entities", async () => {
+    const { controller, state, loadData } = buildRouterHarness();
+
+    controller.setView("gantt");
+    expect(state.currentView).toBe("gantt");
+    await Promise.resolve();
+    expect(loadData).toHaveBeenCalledWith({ entities: ["projects", "solutions", "subcomponents"] });
   });
 });

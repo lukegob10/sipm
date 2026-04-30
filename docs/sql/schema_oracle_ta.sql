@@ -388,6 +388,9 @@ CREATE INDEX idx_change_user_created ON "TB_TA_PM_CHANGE_LOG" (user_id, created_
 -- Index: idx_external_ref_work_item
 CREATE INDEX idx_external_ref_work_item ON "TB_TA_PM_EXTERNAL_REF" (work_item_type, work_item_id);
 
+-- Index: idx_performance_samples_created
+CREATE INDEX idx_performance_samples_created ON "TB_TA_PM_PERFORMANCE_SAMPLES" (occurred_at);
+
 -- Index: idx_performance_samples_kind_created
 CREATE INDEX idx_performance_samples_kind_created ON "TB_TA_PM_PERFORMANCE_SAMPLES" (sample_kind, occurred_at);
 
@@ -402,6 +405,9 @@ CREATE INDEX idx_performance_samples_user_created ON "TB_TA_PM_PERFORMANCE_SAMPL
 
 -- Index: idx_performance_samples_view_created
 CREATE INDEX idx_performance_samples_view_created ON "TB_TA_PM_PERFORMANCE_SAMPLES" (view_key, occurred_at);
+
+-- Index: idx_usage_events_created
+CREATE INDEX idx_usage_events_created ON "TB_TA_PM_USAGE_EVENTS" (occurred_at);
 
 -- Index: idx_usage_events_feature_action_created
 CREATE INDEX idx_usage_events_feature_action_created ON "TB_TA_PM_USAGE_EVENTS" (feature_key, action_key, occurred_at);

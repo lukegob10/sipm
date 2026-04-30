@@ -16,6 +16,7 @@ export function createRouterController({
   const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
   const KNOWN_VIEWS = [
     "master",
+    "gantt",
     "subcomponents-workbench",
     "dashboard",
     "pm-dashboard",
@@ -31,6 +32,7 @@ export function createRouterController({
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
     master: ["phases", "projects", "solutions"],
+    gantt: ["projects", "solutions", "subcomponents"],
     "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
     dashboard: ["projects", "solutions", "users"],
     "pm-dashboard": ["projects", "solutions", "subcomponents", "users", "allocations", "windows"],
@@ -44,6 +46,7 @@ export function createRouterController({
   };
   const VIEW_PREFETCH_TARGET = {
     master: "dashboard",
+    gantt: "subcomponents-workbench",
     "subcomponents-workbench": "planning",
     dashboard: "pm-dashboard",
     "pm-dashboard": "kanban",
@@ -57,6 +60,7 @@ export function createRouterController({
   };
   const ROUTE_MODULE_LOADERS = {
     master: () => import(`../routes/master.js?v=${APP_ASSET_VERSION}`),
+    gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`),
     "subcomponents-workbench": () => import(`../routes/subcomponents-workbench.js?v=${APP_ASSET_VERSION}`),
     dashboard: () => import(`../routes/dashboard.js?v=${APP_ASSET_VERSION}`),
     "pm-dashboard": () => import(`../routes/pm-dashboard.js?v=${APP_ASSET_VERSION}`),

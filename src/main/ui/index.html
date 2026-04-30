@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SIPM</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css?v=6" />
 </head>
 <body>
   <div id="auth-screen" class="auth-screen hidden">
@@ -69,6 +69,7 @@
         <p class="nav-label">Insight</p>
         <button data-view="dashboard" class="nav-btn">Dashboard</button>
         <button data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
+        <button data-view="gantt" class="nav-btn">Gantt</button>
       </div>
       <div id="nav-admin-section" class="nav-group nav-section">
         <p class="nav-label">Admin</p>
@@ -236,6 +237,30 @@
           <div id="master-quickstart" class="quickstart-card hidden" role="status" aria-live="polite"></div>
           <div class="filters" id="master-filters"></div>
           <div id="master-table" class="table"></div>
+        </div>
+      </section>
+
+      <section id="view-gantt" class="view">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Insight / Gantt</p>
+            <h2>Project Roadmap</h2>
+            </div>
+            <div class="gantt-controls filters compact">
+              <label>From
+                <input type="date" id="gantt-from" />
+              </label>
+              <label>To
+                <input type="date" id="gantt-to" />
+              </label>
+              <div class="gantt-controls-buttons">
+                <button type="button" id="gantt-expand-all" class="secondary">Expand All</button>
+                <button type="button" id="gantt-collapse-all" class="secondary">Collapse All</button>
+              </div>
+            </div>
+          </div>
+          <div id="gantt-chart" class="gantt-chart"></div>
         </div>
       </section>
 
@@ -939,6 +964,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/app.js?v=5"></script>
+  <script type="module" src="js/app.js?v=6"></script>
 </body>
 </html>

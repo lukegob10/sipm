@@ -96,6 +96,12 @@ def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and
     assert 'openPMDashboardSubcomponentDrilldown,' in text
     assert 'data-planning-modal-action="open-allocation-work-item"' in text
     assert 'openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);' in text
+    assert 'type === "solution" ? "Open Workstream"' in text
+    assert 'type === "subcomponent" ? "Open Deliverable"' in text
+    assert 'type === "solution" ? "Workstream"' in text
+    assert 'type === "subcomponent" ? "Deliverable"' in text
+    assert "The linked workstream is unavailable." in text
+    assert "The linked deliverable is unavailable." in text
     assert "No allocations in this scope." in text
     assert "openProjectForm(project)" in text
     assert 'openSolutionModal(solution, "details")' in text
@@ -125,6 +131,59 @@ def test_pm_dashboard_immediate_action_links_use_text_first_styling():
     assert "text-underline-offset: 0.12em;" in text
     assert ".pm-action-link:hover {" in text
     assert "color: var(--accent-strong);" in text
+
+
+def test_pm_dashboard_surfaces_status_freshness_for_leadership_trust():
+    render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
+
+    assert "const STALE_STATUS_DAYS = 7;" in render_text
+    assert "function isStaleStatusRecord(record, today) {" in render_text
+    assert "const staleSolutions = activeSolutions.filter((solution) => isStaleStatusRecord(solution, today));" in render_text
+    assert "const staleSubcomponents = activeSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today));" in render_text
+    assert "const staleTotal = staleSolutions.length + staleSubcomponents.length;" in render_text
+    assert "const staleCount =" in render_text
+    assert "+ staleCount * 4" in render_text
+    assert "staleCount," in render_text
+    assert "const statusIsStale = isStaleStatusRecord(solution, today);" in render_text
+    assert 'signals.push("Status stale");' in render_text
+    assert "`${staleTotal} records need status refresh`" in render_text
+    assert 'cta: "Review Status"' in render_text
+    assert "staleTotal," in render_text
+    assert "staleStatusDays: STALE_STATUS_DAYS," in render_text
+    assert "+ staleTotal;" in render_text
+    assert "Status Freshness" in sections_text
+    assert "Records older than ${staleStatusDays} days" in sections_text
+    assert "No stale active records" in sections_text
+    assert "Stale ${summary.staleCount}" in sections_text
+
+
+def test_pm_dashboard_uses_business_led_workstream_and_deliverable_language():
+    render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
+
+    assert "Active Workstreams" in sections_text
+    assert "Open Deliverables" in sections_text
+    assert "Open Workstreams" in sections_text
+    assert "Workstreams by Status" in sections_text
+    assert "Deliverables by Status" in sections_text
+    assert "Active Workstream RAG Mix" in sections_text
+    assert "Work List" in sections_text
+    assert "Planning deliverable assignments only." in sections_text
+    assert "No elevated workstream risks detected." in sections_text
+    assert 'kind: "Workstream"' in render_text
+    assert 'kind: "Deliverable"' in render_text
+    assert "red workstreams need intervention" in render_text
+    assert "blocked deliverables are stalling flow" in render_text
+    assert "active deliverables are unassigned" in render_text
+    assert "Blocked deliverables" in render_text
+    assert "Overdue deliverables" in render_text
+    assert "Active Solutions" not in sections_text
+    assert "Open Tasks" not in sections_text
+    assert "Open Sol." not in sections_text
+    assert "Solutions by Status" not in sections_text
+    assert "Tasks by Status" not in sections_text
+    assert "Subcomponents</a>" not in sections_text
 
 
 def test_pm_dashboard_quick_links_use_text_first_styling():

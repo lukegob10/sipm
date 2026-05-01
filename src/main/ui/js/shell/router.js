@@ -28,7 +28,7 @@ export function createRouterController({
     "access",
     "analytics",
   ];
-  const ADMIN_VIEWS = new Set(["team-capacity", "spaces", "access"]);
+  const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
     master: ["phases", "projects", "solutions"],
@@ -127,7 +127,7 @@ export function createRouterController({
       return state.authed && userIsGlobalAdmin() && usageAnalyticsEnabled();
     }
     if (normalized === "access") return userCanAccessAdminViews();
-    if (normalized === "team-capacity" || normalized === "spaces") return userCanAccessAdminViews();
+    if (normalized === "spaces") return userCanAccessAdminViews();
     if (isAdminView(normalized)) return false;
     return true;
   }

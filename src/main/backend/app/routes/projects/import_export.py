@@ -54,7 +54,7 @@ def import_projects(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:

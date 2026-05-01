@@ -216,7 +216,7 @@ def create_team(
     payload: TeamCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamRead:
     existing = (
         session.query(Team)
@@ -307,7 +307,7 @@ def update_team(
     payload: TeamUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamRead:
     team = _active_team(session, team_id, space_ctx)
     old_name = team.name
@@ -353,7 +353,7 @@ def delete_team(
     team_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     team = _active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -411,7 +411,7 @@ def create_team_member(
     payload: TeamMemberCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamMemberRead:
     _active_team(session, team_id, space_ctx)
     hours_capacity, capacity_fte_month = _member_capacity_fields(payload)
@@ -442,7 +442,7 @@ def update_team_member(
     payload: TeamMemberUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamMemberRead:
     _active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
@@ -475,7 +475,7 @@ def delete_team_member(
     member_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     _active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)

@@ -830,15 +830,15 @@ function setSpaceGovernanceNotice(message, tone = "info", autoClearMs = 5000) {
 }
 
 function syncRoleAwareActions() {
-  const canUseAdminActions = userCanAccessAdminViews();
+  const canUseWorkEditActions = !!state.authed;
   [
     els.deleteProjectBtn,
     els.deleteSolutionBtn,
     els.deleteSubcomponentBtn,
   ].forEach((button) => {
     if (!button) return;
-    button.classList.toggle("hidden", !canUseAdminActions);
-    if (!canUseAdminActions) {
+    button.classList.toggle("hidden", !canUseWorkEditActions);
+    if (!canUseWorkEditActions) {
       button.disabled = true;
     }
   });

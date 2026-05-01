@@ -489,6 +489,39 @@
   background: var(--accent-hover-strong);
 }
 
+.gantt-bar.gantt-health-green,
+.gantt-milestone.gantt-health-green {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+}
+
+.gantt-bar.gantt-health-yellow,
+.gantt-milestone.gantt-health-yellow {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+
+.gantt-bar.gantt-health-red,
+.gantt-milestone.gantt-health-red {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.gantt-bar.gantt-health-complete,
+.gantt-milestone.gantt-health-complete {
+  border-color: var(--info-border);
+  background: var(--info-soft);
+}
+
+.gantt-bar.gantt-health-future,
+.gantt-bar.gantt-health-abandoned,
+.gantt-milestone.gantt-health-future,
+.gantt-milestone.gantt-health-abandoned {
+  border-color: var(--border-strong);
+  background: rgba(157, 171, 191, 0.16);
+  color: var(--muted);
+}
+
 .gantt-row-project .gantt-label-cell {
   background: var(--panel-soft);
   box-shadow: inset 3px 0 0 var(--project-pill-dot);

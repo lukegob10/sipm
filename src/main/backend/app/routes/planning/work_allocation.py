@@ -110,7 +110,7 @@ def create_work_allocation_team(
     payload: WorkAllocationTeamCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTeamRead:
     name = (payload.name or "").strip()
     if not name:
@@ -163,7 +163,7 @@ def update_work_allocation_team(
     payload: WorkAllocationTeamUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTeamRead:
     row = active_team(session, team_id, space_ctx)
     next_name = (payload.name or "").strip() if payload.name is not None else None
@@ -203,7 +203,7 @@ def delete_work_allocation_team(
     team_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     row = active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -245,7 +245,7 @@ def create_work_allocation_person(
     payload: WorkAllocationPersonCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationPersonRead:
     name = (payload.name or "").strip()
     if not name:
@@ -288,7 +288,7 @@ def update_work_allocation_person(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationPersonRead:
     row = active_person_by_soeid(session, person_id, space_ctx)
     ensure_actor_can_modify_user(actor=current_user, target=row)
@@ -330,7 +330,7 @@ def delete_work_allocation_person(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     row = active_person_by_soeid(session, person_id, space_ctx)
     ensure_actor_can_modify_user(actor=current_user, target=row)
@@ -395,7 +395,7 @@ def create_work_allocation_task(
     month: Optional[str] = Query(None),
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTaskRead:
     solution = board_solution(session, space_ctx)
     query = planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
@@ -450,7 +450,7 @@ def update_work_allocation_task(
     payload: WorkAllocationTaskUpdate = ...,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTaskRead:
     query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
@@ -500,7 +500,7 @@ def delete_work_allocation_task(
     task_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
@@ -613,7 +613,7 @@ def create_work_allocation_allocation(
     payload: WorkAllocationAssignmentCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationAssignmentRead:
     month_start = month_from_token(payload.month)
     task_query = planning_task_query(session, space_ctx)
@@ -701,7 +701,7 @@ def update_work_allocation_allocation(
     payload: WorkAllocationAssignmentUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationAssignmentRead:
     row = get_allocation(session, allocation_id, space_ctx)
     if row.work_item_type != "subcomponent":
@@ -792,7 +792,7 @@ def delete_work_allocation_allocation(
     allocation_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     row = get_allocation(session, allocation_id, space_ctx)
     now = datetime.now(timezone.utc)

@@ -5,6 +5,7 @@ const MOBILE_LEFT_RAIL_WIDTH = 560;
 const MIN_TRACK_WIDTH = 520;
 const FIT_WINDOW_MAX_DAYS = 366;
 const MILESTONE_SIZE = 9;
+const GANTT_DUE_SOON_DAYS = 7;
 
 function esc(value) {
   return String(value || "")
@@ -161,6 +162,114 @@ function px(value) {
   return Number(value || 0).toFixed(2).replace(/\.?0+$/, "");
 }
 
+function normalizeGanttStatus(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isClosedGanttStatus(value) {
+  const status = normalizeGanttStatus(value);
+  return status === "complete" || status === "abandoned";
+}
+
+function isNotStartedGanttStatus(value) {
+  const status = normalizeGanttStatus(value);
+  return status === "not_started" || status === "to_do";
+}
+
+function isActiveGanttStatus(value) {
+  const status = normalizeGanttStatus(value);
+  return status === "active" || status === "in_progress";
+}
+
+function isGanttRangeOverdue(range, todayDay) {
+  return !!range && range.endDay < todayDay;
+}
+
+function isGanttItemOverdue(status, range, todayDay) {
+  return !isClosedGanttStatus(status) && isGanttRangeOverdue(range, todayDay);
+}
+
+function healthResult(health, healthLabel, healthReason = "") {
+  return { health, healthLabel, healthReason };
+}
+
+export function resolveGanttHealth(row = {}, { todayDay = todayDayNumber(), dueSoonDays = GANTT_DUE_SOON_DAYS } = {}) {
+  const status = normalizeGanttStatus(row.status);
+  const range = row.scheduleRange || row.range || null;
+  const currentDay = Number.isFinite(Number(todayDay)) ? Number(todayDay) : todayDayNumber();
+  const warningDays = Number.isFinite(Number(dueSoonDays)) ? Number(dueSoonDays) : GANTT_DUE_SOON_DAYS;
+
+  if (status === "complete") {
+    return healthResult("complete", "Complete", "Closed complete");
+  }
+  if (status === "abandoned") {
+    return healthResult("abandoned", "Abandoned", "Closed abandoned");
+  }
+  if (isGanttRangeOverdue(range, currentDay)) {
+    return healthResult("red", "Overdue", "Past due date");
+  }
+  if ((row.type === "project" || row.type === "solution") && row.hasOverdueChild) {
+    return healthResult("yellow", "Child overdue", "Underlying item is overdue");
+  }
+  if (status === "on_hold") {
+    return healthResult("yellow", "On hold", "Work is on hold");
+  }
+  if (isNotStartedGanttStatus(status)) {
+    if (range) {
+      const daysToStart = range.startDay - currentDay;
+      const daysToDue = range.endDay - currentDay;
+      if (daysToStart <= warningDays || daysToDue <= warningDays) {
+        return healthResult("yellow", "Due soon", "Not started and approaching schedule");
+      }
+    }
+    return healthResult("future", "Future", "Planned for later");
+  }
+  if (isActiveGanttStatus(status)) {
+    return healthResult("green", "On time", "Active and on time");
+  }
+  return healthResult("green", "On time", "No schedule alert");
+}
+
+function withGanttHealth(row, todayDay) {
+  return {
+    ...row,
+    ...resolveGanttHealth(row, { todayDay }),
+  };
+}
+
+function markOverdue(map, key) {
+  const normalizedKey = String(key || "__unassigned__").trim() || "__unassigned__";
+  map.set(normalizedKey, true);
+}
+
+function buildGanttHealthContext({ solutions = [], subcomponents = [], todayDay = todayDayNumber() } = {}) {
+  const overdueSubcomponentsBySolution = new Map();
+  const overdueChildrenByProject = new Map();
+
+  (subcomponents || []).forEach((subcomponent) => {
+    const range = normalizeRange(subcomponent?.due_date, subcomponent?.due_date, { milestone: true });
+    if (!isGanttItemOverdue(subcomponent?.status, range, todayDay)) return;
+    if (subcomponent?.solution_id) markOverdue(overdueSubcomponentsBySolution, subcomponent.solution_id);
+    markOverdue(overdueChildrenByProject, subcomponent?.project_id);
+  });
+
+  (solutions || []).forEach((solution) => {
+    const range = normalizeRange(solution?.planned_start_date, solution?.due_date);
+    if (!isGanttItemOverdue(solution?.status, range, todayDay)) return;
+    markOverdue(overdueChildrenByProject, solution?.project_id);
+  });
+
+  return {
+    solutionHasOverdueChild(solutionId) {
+      return overdueSubcomponentsBySolution.get(String(solutionId || "").trim()) === true;
+    },
+    projectHasOverdueChild(projectId) {
+      const key = String(projectId || "__unassigned__").trim() || "__unassigned__";
+      return overdueChildrenByProject.get(key) === true;
+    },
+  };
+}
+
 export function resolveGanttTimelineScale(windowRange, chartWidth = 0, leftRailWidth = DEFAULT_LEFT_RAIL_WIDTH) {
   const totalDays = Math.max(1, Number(windowRange?.totalDays || 0));
   const measuredWidth = Math.max(0, Number(chartWidth) || 0);
@@ -185,10 +294,10 @@ export function resolveGanttTimelineScale(windowRange, chartWidth = 0, leftRailW
   };
 }
 
-function buildSubcomponentNode(subcomponent, windowRange) {
+function buildSubcomponentNode(subcomponent, windowRange, todayDay) {
   const range = normalizeRange(subcomponent?.due_date, subcomponent?.due_date, { milestone: true });
   if (!rangeOverlapsWindow(range, windowRange)) return null;
-  return {
+  return withGanttHealth({
     type: "subcomponent",
     id: subcomponent.subcomponent_id,
     key: `subcomponent:${subcomponent.subcomponent_id}`,
@@ -199,19 +308,22 @@ function buildSubcomponentNode(subcomponent, windowRange) {
     status: subcomponent.status || "",
     priority: subcomponent.priority ?? "",
     range,
+    scheduleRange: range,
     milestone: true,
     collapsible: false,
     childCount: 0,
     children: [],
-  };
+    hasOverdueChild: false,
+  }, todayDay);
 }
 
-function buildSolutionNode(solution, childNodes, windowRange) {
+function buildSolutionNode(solution, childNodes, windowRange, healthContext, todayDay) {
   const ownRange = normalizeRange(solution?.planned_start_date, solution?.due_date);
   const ownOverlaps = rangeOverlapsWindow(ownRange, windowRange);
   if (!ownOverlaps && !childNodes.length) return null;
   const range = mergeRanges([ownOverlaps ? ownRange : null, ...childNodes.map((child) => child.range)]);
-  return {
+  const scheduleRange = ownRange || range;
+  return withGanttHealth({
     type: "solution",
     id: solution.solution_id,
     key: `solution:${solution.solution_id}`,
@@ -221,17 +333,19 @@ function buildSolutionNode(solution, childNodes, windowRange) {
     status: solution.status || "",
     priority: solution.priority ?? "",
     range,
+    scheduleRange,
     milestone: range?.milestone && !childNodes.length,
     collapsible: childNodes.length > 0,
     childCount: childNodes.length,
     children: childNodes,
-  };
+    hasOverdueChild: healthContext.solutionHasOverdueChild(solution.solution_id),
+  }, todayDay);
 }
 
-function buildProjectNode(project, childNodes) {
+function buildProjectNode(project, childNodes, healthContext, todayDay) {
   if (!childNodes.length) return null;
   const range = mergeRanges(childNodes.map((child) => child.range));
-  return {
+  return withGanttHealth({
     type: "project",
     id: project.project_id,
     key: `project:${project.project_id}`,
@@ -240,11 +354,13 @@ function buildProjectNode(project, childNodes) {
     status: project.status || "",
     priority: project.priority ?? "",
     range,
+    scheduleRange: range,
     milestone: range?.milestone,
     collapsible: childNodes.length > 0,
     childCount: childNodes.length,
     children: childNodes,
-  };
+    hasOverdueChild: healthContext.projectHasOverdueChild(project.project_id),
+  }, todayDay);
 }
 
 function flattenProject(projectNode, collapsedKeys) {
@@ -265,13 +381,15 @@ export function buildGanttRows({
   subcomponents = [],
   ganttWindow = {},
   collapsedKeys = new Set(),
+  todayDay = todayDayNumber(),
 } = {}) {
   const windowRange = normalizeWindow(ganttWindow);
   if (!windowRange) return { rows: [], projectNodes: [], windowRange: null };
+  const healthContext = buildGanttHealthContext({ solutions, subcomponents, todayDay });
 
   const subcomponentsBySolution = new Map();
   sortByName(subcomponents, "subcomponent_name").forEach((subcomponent) => {
-    const node = buildSubcomponentNode(subcomponent, windowRange);
+    const node = buildSubcomponentNode(subcomponent, windowRange, todayDay);
     if (!node) return;
     const bucket = subcomponentsBySolution.get(subcomponent.solution_id) || [];
     bucket.push(node);
@@ -281,7 +399,7 @@ export function buildGanttRows({
   const solutionsByProject = new Map();
   sortByName(solutions, "solution_name").forEach((solution) => {
     const childNodes = subcomponentsBySolution.get(solution.solution_id) || [];
-    const node = buildSolutionNode(solution, childNodes, windowRange);
+    const node = buildSolutionNode(solution, childNodes, windowRange, healthContext, todayDay);
     if (!node) return;
     const projectId = solution.project_id || "__unassigned__";
     const bucket = solutionsByProject.get(projectId) || [];
@@ -293,7 +411,7 @@ export function buildGanttRows({
   const seenProjectIds = new Set();
   sortByName(projects, "project_name").forEach((project) => {
     const childNodes = solutionsByProject.get(project.project_id) || [];
-    const node = buildProjectNode(project, childNodes);
+    const node = buildProjectNode(project, childNodes, healthContext, todayDay);
     if (!node) return;
     seenProjectIds.add(project.project_id);
     projectNodes.push(node);
@@ -309,7 +427,9 @@ export function buildGanttRows({
           project_name: "Unassigned Project",
           sponsor: "",
         },
-        childNodes
+        childNodes,
+        healthContext,
+        todayDay
       );
       if (node) projectNodes.push(node);
     });
@@ -352,13 +472,15 @@ function renderBar(row, windowRange, scale) {
   const left = (clippedStart - windowRange.startDay) * dayWidth;
   const width = Math.max((clippedEnd - clippedStart + 1) * dayWidth, MILESTONE_SIZE);
   const dateText = labelRange(row.range);
+  const healthText = row.healthLabel ? ` (${row.healthLabel})` : "";
+  const healthClass = row.health ? ` gantt-health-${esc(row.health)}` : "";
   const attrs = `data-gantt-action="open-item" data-gantt-type="${esc(row.type)}" data-gantt-id="${esc(row.id)}"`;
   if (row.milestone) {
     const milestoneLeft = left + Math.max((width - MILESTONE_SIZE) / 2, 0);
-    return `<button type="button" class="gantt-milestone gantt-milestone-${esc(row.type)}" style="left: ${px(milestoneLeft)}px;" ${attrs} title="${esc(row.label)}: ${esc(dateText)}" aria-label="Open ${esc(row.label)}"></button>`;
+    return `<button type="button" class="gantt-milestone gantt-milestone-${esc(row.type)}${healthClass}" style="left: ${px(milestoneLeft)}px;" ${attrs} title="${esc(row.label)}: ${esc(dateText)}${esc(healthText)}" aria-label="Open ${esc(row.label)}${esc(healthText)}"></button>`;
   }
   const barLabel = width >= 72 ? `<span>${esc(dateText)}</span>` : "";
-  return `<button type="button" class="gantt-bar gantt-bar-${esc(row.type)}" style="left: ${px(left)}px; width: ${px(width)}px;" ${attrs} title="${esc(row.label)}: ${esc(dateText)}" aria-label="Open ${esc(row.label)}">
+  return `<button type="button" class="gantt-bar gantt-bar-${esc(row.type)}${healthClass}" style="left: ${px(left)}px; width: ${px(width)}px;" ${attrs} title="${esc(row.label)}: ${esc(dateText)}${esc(healthText)}" aria-label="Open ${esc(row.label)}${esc(healthText)}">
     ${barLabel}
   </button>`;
 }

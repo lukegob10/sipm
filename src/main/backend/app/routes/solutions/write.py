@@ -45,7 +45,7 @@ def create_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
 
@@ -183,7 +183,7 @@ def update_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
@@ -269,7 +269,7 @@ def delete_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
     now = datetime.now(timezone.utc)

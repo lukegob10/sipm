@@ -36,7 +36,7 @@ def create_project(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     existing = _active_project_name_conflict_query(
         session,
@@ -127,7 +127,7 @@ def update_project(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     project = _get_project_or_404(session, project_id, space_ctx)
 
@@ -191,7 +191,7 @@ def delete_project(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     project = _get_project_or_404(session, project_id, space_ctx)
     now = datetime.now(timezone.utc)

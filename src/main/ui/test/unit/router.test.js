@@ -7,10 +7,12 @@ function buildRouterHarness() {
   document.body.innerHTML = `
     <button class="nav-btn" data-view="master"></button>
     <button class="nav-btn" data-view="gantt"></button>
+    <button class="nav-btn" data-view="team-capacity"></button>
     <button class="nav-btn" data-view="spaces"></button>
     <button class="nav-btn" data-view="analytics"></button>
     <section class="view" id="view-master"></section>
     <section class="view" id="view-gantt"></section>
+    <section class="view" id="view-team-capacity"></section>
     <section class="view" id="view-spaces"></section>
     <section class="view" id="view-analytics"></section>
   `;
@@ -58,13 +60,23 @@ describe("router controller", () => {
     expect(controller.appRelativePath("/dashboard")).toBe("/dashboard");
   });
 
-  it("blocks admin routes for non-admin users", () => {
+  it("keeps governance routes admin-only while allowing team capacity for members", () => {
     const { controller } = buildRouterHarness();
 
+    expect(controller.resolveAccessibleView("team-capacity")).toBe("team-capacity");
     expect(controller.resolveAccessibleView("spaces")).toBe("spaces");
     expect(controller.resolveAccessibleView("access")).toBe("access");
     expect(controller.resolveAccessibleView("analytics")).toBe("master");
     expect(controller.resolveAccessibleView("unknown")).toBe("master");
+  });
+
+  it("allows member users to access team capacity but not governance routes", () => {
+    const { controller, state } = buildRouterHarness();
+    state.activeSpace = { space_id: "space-1", space_role: "member" };
+
+    expect(controller.resolveAccessibleView("team-capacity")).toBe("team-capacity");
+    expect(controller.resolveAccessibleView("spaces")).toBe("master");
+    expect(controller.resolveAccessibleView("access")).toBe("master");
   });
 
   it("allows analytics for global admins when the feature is enabled", () => {

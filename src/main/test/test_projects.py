@@ -275,7 +275,7 @@ async def test_delete_project_soft_deletes(client):
 
 
 @pytest.mark.anyio
-async def test_member_cannot_delete_project(client):
+async def test_member_can_delete_project(client):
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -299,15 +299,6 @@ async def test_member_cannot_delete_project(client):
             space_name="Delete Project Space",
             is_global_admin=False,
             space_role="member",
-        )
-        denied = await client.delete(f"/project-manager/api/projects/{project_id}")
-        assert denied.status_code == 403, denied.text
-
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-project",
-            space_name="Delete Project Space",
-            is_global_admin=False,
-            space_role="space_admin",
         )
         allowed = await client.delete(f"/project-manager/api/projects/{project_id}")
         assert allowed.status_code == 204, allowed.text

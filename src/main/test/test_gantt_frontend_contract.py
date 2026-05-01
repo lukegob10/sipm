@@ -47,11 +47,17 @@ def test_gantt_contract_uses_existing_dates_rollups_and_drilldowns():
     assert "due_date" in gantt_text
     assert "const LONG_RANGE_DAY_WIDTH = 3.5;" in gantt_text
     assert "const FIT_WINDOW_MAX_DAYS = 366;" in gantt_text
+    assert "const GANTT_DUE_SOON_DAYS = 7;" in gantt_text
     assert "export function resolveGanttTimelineScale" in gantt_text
+    assert "export function resolveGanttHealth" in gantt_text
     assert 'type: "subcomponent"' in gantt_text
     assert "dateRangesOverlap(startDay, endDay, windowStartDay, windowEndDay)" in gantt_text
-    assert "buildProjectNode(project, childNodes)" in gantt_text
-    assert "buildSolutionNode(solution, childNodes, windowRange)" in gantt_text
+    assert "buildGanttHealthContext" in gantt_text
+    assert "buildProjectNode(project, childNodes, healthContext, todayDay)" in gantt_text
+    assert "buildSolutionNode(solution, childNodes, windowRange, healthContext, todayDay)" in gantt_text
+    assert "hasOverdueChild" in gantt_text
+    assert "healthLabel" in gantt_text
+    assert "gantt-health-${esc(row.health)}" in gantt_text
     assert "function renderTodayMarker(windowRange, scale)" in gantt_text
     assert "function countRowsByType(rows)" in gantt_text
     assert 'class="gantt-summary-metrics"' in gantt_text
@@ -93,3 +99,12 @@ def test_gantt_styles_are_route_scoped_and_scrollable():
     assert ".gantt-bar-project" in gantt_css_text
     assert ".gantt-bar-solution" in gantt_css_text
     assert ".gantt-milestone-subcomponent" in gantt_css_text
+    for health_class in (
+        ".gantt-health-green",
+        ".gantt-health-yellow",
+        ".gantt-health-red",
+        ".gantt-health-future",
+        ".gantt-health-complete",
+        ".gantt-health-abandoned",
+    ):
+        assert health_class in gantt_css_text

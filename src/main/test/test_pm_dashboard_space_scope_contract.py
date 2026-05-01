@@ -21,13 +21,13 @@ def test_pm_dashboard_filters_records_to_project_graph():
     assert "const allocations = rawAllocations.filter" in text
 
 
-def test_pm_dashboard_capacity_card_uses_planning_task_assignments_only():
+def test_pm_dashboard_capacity_card_uses_planning_deliverable_assignments_only():
     render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
     assert "const planningTaskAllocations = scopedAllocations.filter" in render_text
     assert 'String(allocation?.work_item_type || "").trim().toLowerCase() === "subcomponent"' in render_text
     assert "planningTaskAllocations.forEach((allocation) => {" in render_text
-    assert "Source: Planning task assignments only." in text
+    assert "Source: Planning deliverable assignments only." in text
 
 
 def test_pm_dashboard_capacity_card_defaults_to_current_month_and_exposes_month_picker():

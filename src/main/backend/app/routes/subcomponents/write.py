@@ -20,6 +20,7 @@ from .common import (
     _ensure_solution,
     _get_subcomponent,
     _publish_subcomponent_mutation,
+    _resolve_subcomponent_assignee,
     _solution_repo_map,
     _subcomponent_payload,
     _subcomponent_query,
@@ -41,7 +42,7 @@ def create_subcomponent(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _ensure_solution(session, solution_id, space_ctx)
     try:
@@ -64,11 +65,11 @@ def create_subcomponent(
     now = datetime.now(timezone.utc)
     completed_at = now if payload.status == SubcomponentStatus.complete else None
 
-    assignee = normalize_str(payload.assignee) or current_user.display_name or current_user.soeid or ""
-    assignee_user_soeid = normalize_str(payload.assignee_user_soeid) or None
-    if assignee_user_soeid is None and current_user.soeid:
-        if assignee == current_user.display_name or assignee == current_user.soeid:
-            assignee_user_soeid = current_user.soeid
+    assignee, assignee_user_soeid = _resolve_subcomponent_assignee(
+        payload.assignee,
+        payload.assignee_user_soeid,
+        current_user,
+    )
 
     subcomponent = Subcomponent(
         space_id=space_ctx.space_id,
@@ -132,7 +133,7 @@ def update_subcomponent(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
 
@@ -204,7 +205,7 @@ def batch_update_subcomponents(
     session: Session = Depends(get_db),
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     unique_ids: list[str] = []
     seen: set[str] = set()
@@ -313,7 +314,7 @@ def delete_subcomponent(
     session: Session = Depends(get_db),
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
     now = datetime.now(timezone.utc)

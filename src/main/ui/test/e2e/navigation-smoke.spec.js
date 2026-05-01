@@ -1,20 +1,14 @@
 import { expect, test } from "@playwright/test";
 
 
-async function bootstrapUser(page, suffix) {
+async function loadAuthedApp(page) {
   await page.goto("/");
-  await page.locator("#auth-tab-register").click();
-  await page.locator('#register-form input[name="display_name"]').fill(`Nav Smoke ${suffix}`);
-  await page.locator('#register-form input[name="soeid"]').fill(`nav${suffix}`);
-  await page.locator('#register-form input[name="password"]').fill("TempPass123!");
-  await page.locator('#register-form button[type="submit"]').click();
   await expect(page.locator("#app-shell")).toBeVisible();
 }
 
 
 test("dashboard and planning routes load from the shared shell", async ({ page }) => {
-  const suffix = Date.now().toString();
-  await bootstrapUser(page, suffix);
+  await loadAuthedApp(page);
 
   await page.locator('.nav-btn[data-view="dashboard"]').click();
   await expect(page.locator("#view-dashboard")).toHaveClass(/active/);

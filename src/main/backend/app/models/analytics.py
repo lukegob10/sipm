@@ -12,6 +12,7 @@ from .base import Base, _utcnow_naive
 class UsageEvent(Base):
     __tablename__ = physical_table_name("usage_events")
     __table_args__ = (
+        Index("idx_usage_events_created", "occurred_at"),
         Index("idx_usage_events_feature_action_created", "feature_key", "action_key", "occurred_at"),
         Index("idx_usage_events_session_created", "session_id", "occurred_at"),
         Index("idx_usage_events_space_created", "space_id", "occurred_at"),
@@ -42,6 +43,7 @@ class UsageEvent(Base):
 class PerformanceSample(Base):
     __tablename__ = physical_table_name("performance_samples")
     __table_args__ = (
+        Index("idx_performance_samples_created", "occurred_at"),
         Index("idx_performance_samples_kind_created", "sample_kind", "occurred_at"),
         Index("idx_performance_samples_session_created", "session_id", "occurred_at"),
         Index("idx_performance_samples_space_created", "space_id", "occurred_at"),

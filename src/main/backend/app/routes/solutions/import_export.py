@@ -17,11 +17,14 @@ from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
 from .._mutations import commit_session
+from ..projects.common import _resolve_project_sponsor
 from .common import (
     _apply_solution_completion_state,
     _exclude_work_allocation_board_solutions,
     _parse_rag_status,
     _publish_solution_import,
+    _resolve_solution_assignee,
+    _resolve_solution_owner,
     _run_enable_all_phases,
     _solution_query,
     _validate_current_phase,
@@ -39,7 +42,7 @@ def import_solutions(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
@@ -61,15 +64,15 @@ def import_solutions(
         project_name = normalize_str(row.get("project_name"))
         solution_name = normalize_str(row.get("solution_name"))
         version_raw = normalize_str(row.get("version")) or "0.1.0"
-        owner = normalize_str(row.get("owner"))
-        assignee = normalize_str(row.get("assignee"))
+        owner_input = normalize_str(row.get("owner"))
+        assignee_input = normalize_str(row.get("assignee"))
         owner_user_soeid = normalize_str(row.get("owner_user_soeid")) or None
         assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
         approver = normalize_str(row.get("approver")) or None
         approver_user_soeid = normalize_str(row.get("approver_user_soeid")) or None
         key_stakeholder = normalize_str(row.get("key_stakeholder"))
-        if not project_name or not solution_name or not owner:
-            errors.append(f"Row {idx}: project_name, solution_name, and owner are required")
+        if not project_name or not solution_name:
+            errors.append(f"Row {idx}: project_name and solution_name are required")
             continue
         key = (project_name.lower(), solution_name.lower(), version_raw.lower())
         if key in seen:
@@ -126,11 +129,18 @@ def import_solutions(
         project = projects_by_name.get(project_name.lower())
         project_created_this_row = False
         if not project:
+            project_sponsor, project_sponsor_user_soeid = _resolve_project_sponsor(
+                owner_input,
+                owner_user_soeid,
+                current_user,
+            )
             project = Project(
                 space_id=space_ctx.space_id,
                 project_name=project_name,
                 status=ProjectStatus.not_started,
                 description=None,
+                sponsor=project_sponsor,
+                sponsor_user_soeid=project_sponsor_user_soeid,
             )
             session.add(project)
             session.flush()
@@ -147,6 +157,8 @@ def import_solutions(
                     "status": (None, project.status),
                     "description": (None, project.description),
                     "success_criteria": (None, project.success_criteria),
+                    "sponsor": (None, project.sponsor),
+                    "sponsor_user_soeid": (None, project.sponsor_user_soeid),
                 },
                 request_id=None,
             )
@@ -160,6 +172,26 @@ def import_solutions(
         )
         try:
             if existing:
+                if owner_input:
+                    resolved_owner, resolved_owner_user_soeid = _resolve_solution_owner(
+                        owner_input,
+                        owner_user_soeid,
+                        current_user,
+                    )
+                else:
+                    resolved_owner = existing.owner
+                    resolved_owner_user_soeid = existing.owner_user_soeid
+                if assignee_input:
+                    resolved_assignee, resolved_assignee_user_soeid = _resolve_solution_assignee(
+                        assignee_input,
+                        assignee_user_soeid,
+                        owner=resolved_owner,
+                        owner_user_soeid=resolved_owner_user_soeid,
+                        current_user=current_user,
+                    )
+                else:
+                    resolved_assignee = existing.assignee
+                    resolved_assignee_user_soeid = existing.assignee_user_soeid
                 if current_phase:
                     _validate_current_phase(session, existing.solution_id, current_phase)
 
@@ -201,10 +233,10 @@ def import_solutions(
                 existing.problem_statement = problem_statement
                 existing.github_repo_url = github_repo_url
                 existing.impact_confidence = impact_confidence
-                existing.owner = owner
-                existing.owner_user_soeid = owner_user_soeid
-                existing.assignee = assignee or ""
-                existing.assignee_user_soeid = assignee_user_soeid
+                existing.owner = resolved_owner
+                existing.owner_user_soeid = resolved_owner_user_soeid
+                existing.assignee = resolved_assignee or ""
+                existing.assignee_user_soeid = resolved_assignee_user_soeid
                 existing.approver = approver
                 existing.approver_user_soeid = approver_user_soeid
                 existing.key_stakeholder = key_stakeholder or None
@@ -260,6 +292,18 @@ def import_solutions(
                 updated += 1
                 commit_session(session)
             else:
+                resolved_owner, resolved_owner_user_soeid = _resolve_solution_owner(
+                    owner_input,
+                    owner_user_soeid,
+                    current_user,
+                )
+                resolved_assignee, resolved_assignee_user_soeid = _resolve_solution_assignee(
+                    assignee_input,
+                    assignee_user_soeid,
+                    owner=resolved_owner,
+                    owner_user_soeid=resolved_owner_user_soeid,
+                    current_user=current_user,
+                )
                 now = datetime.now(timezone.utc)
                 completed_at = now if status_enum == SolutionStatus.complete else None
                 solution = Solution(
@@ -280,10 +324,10 @@ def import_solutions(
                     problem_statement=problem_statement,
                     github_repo_url=github_repo_url,
                     impact_confidence=impact_confidence,
-                    owner=owner,
-                    owner_user_soeid=owner_user_soeid,
-                    assignee=assignee or "",
-                    assignee_user_soeid=assignee_user_soeid,
+                    owner=resolved_owner,
+                    owner_user_soeid=resolved_owner_user_soeid,
+                    assignee=resolved_assignee or "",
+                    assignee_user_soeid=resolved_assignee_user_soeid,
                     approver=approver,
                     approver_user_soeid=approver_user_soeid,
                     key_stakeholder=key_stakeholder or None,

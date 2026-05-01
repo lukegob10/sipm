@@ -122,11 +122,11 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["updated"] == 1
-    assert data["created"] == 1
+    assert data["created"] == 2
     assert data["projects_created"] == 1
     assert data["solutions_created"] == 1
     assert data["total_rows"] == 5
-    assert len(data["errors"]) == 3
+    assert len(data["errors"]) == 2
 
     updated = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
     assert updated.status_code == 200
@@ -168,6 +168,14 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert reopened_json["status"] == "in_progress"
     assert reopened_json["completed_at"] is None
 
+    fallback_assignee = await client.get(
+        "/project-manager/api/subcomponents",
+        params={"assignee_user_soeid": "tu12345"},
+    )
+    assert fallback_assignee.status_code == 200
+    assert [row["subcomponent_name"] for row in fallback_assignee.json()] == ["Missing Assignee"]
+    assert fallback_assignee.json()[0]["assignee"] == "Test User"
+
     exported = await client.get("/project-manager/api/subcomponents/export")
     assert exported.status_code == 200
     assert "text/csv" in exported.headers.get("content-type", "")
@@ -176,6 +184,12 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         r["subcomponent_name"] == "Task A"
         and r["assignee"] == "Engineer Updated"
         and r["github_repo_url"] == "https://github.com/example-org/platform-worker"
+        for r in rows
+    )
+    assert any(
+        r["subcomponent_name"] == "Missing Assignee"
+        and r["assignee"] == "Test User"
+        and r["assignee_user_soeid"] == "tu12345"
         for r in rows
     )
     assert any(r["project_name"] == "Auto Project" and r["subcomponent_name"] == "Auto Task" for r in rows)
@@ -227,6 +241,46 @@ async def test_subcomponents_import_auto_created_parents_refresh_project_solutio
         assert [row["subcomponent_name"] for row in subcomponents.json()] == ["Imported Task"]
     finally:
         clear_cache()
+
+
+@pytest.mark.anyio
+async def test_subcomponents_import_auto_created_parents_use_current_user_accountability(client):
+    csv_text = "\n".join(
+        [
+            "project_name,solution_name,version,subcomponent_name,status,priority,due_date,assignee,solution_owner",
+            "Current User Project,Current User Workstream,0.1.0,Current User Deliverable,to_do,3,,,",
+        ]
+    )
+
+    imported = await client.post(
+        "/project-manager/api/subcomponents/import",
+        content=csv_text.encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert imported.status_code == 200, imported.text
+    payload = imported.json()
+    assert payload["projects_created"] == 1
+    assert payload["solutions_created"] == 1
+    assert payload["created"] == 1
+    assert payload["errors"] == []
+
+    projects = await client.get("/project-manager/api/projects/")
+    assert projects.status_code == 200, projects.text
+    project = next(row for row in projects.json() if row["project_name"] == "Current User Project")
+    assert project["sponsor"] == "Test User"
+    assert project["sponsor_user_soeid"] == "tu12345"
+
+    solutions = await client.get("/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"})
+    assert solutions.status_code == 200, solutions.text
+    solution = next(row for row in solutions.json() if row["solution_name"] == "Current User Workstream")
+    assert solution["owner"] == "Test User"
+    assert solution["owner_user_soeid"] == "tu12345"
+
+    subcomponents = await client.get("/project-manager/api/subcomponents", params={"assignee_user_soeid": "tu12345"})
+    assert subcomponents.status_code == 200, subcomponents.text
+    subcomponent = next(row for row in subcomponents.json() if row["subcomponent_name"] == "Current User Deliverable")
+    assert subcomponent["assignee"] == "Test User"
+    assert subcomponent["assignee_user_soeid"] == "tu12345"
 
 
 @pytest.mark.anyio

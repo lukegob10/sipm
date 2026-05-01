@@ -15,6 +15,7 @@ export function createSolutionEntityController({
   renderDashboard,
   renderKanban,
   renderCalendar,
+  renderGantt,
   renderSolutionPhases,
   renderSolutionSubcomponents,
   renderSolutionActivity,
@@ -254,6 +255,7 @@ export function createSolutionEntityController({
           renderDashboard();
           renderKanban();
           renderCalendar();
+          renderGantt();
           if (typeof trackWorkflow === "function") {
             trackWorkflow("solutions", "delete", "success", { source: "solution_form" });
           }

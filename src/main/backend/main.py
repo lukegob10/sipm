@@ -26,6 +26,30 @@ def _bool_env(name: str, default: bool) -> bool:
     raise RuntimeError(f"{name} must be a boolean value.")
 
 
+def _int_env(name: str, default: int) -> int:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer.") from exc
+
+
+def _require_min(name: str, value: int, minimum: int) -> int:
+    if value < minimum:
+        raise RuntimeError(f"{name} must be >= {minimum}.")
+    return value
+
+
+def _require_min_or_disable(name: str, value: int, disable_value: int, minimum: int) -> int:
+    if value == disable_value:
+        return value
+    if value < minimum:
+        raise RuntimeError(f"{name} must be {disable_value} or >= {minimum}.")
+    return value
+
+
 def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
     if not path.exists():
         return
@@ -53,22 +77,31 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
             os.environ[key] = value
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-_load_env_file(BASE_DIR / ".env")
-_load_env_file(BASE_DIR / ".env.local")
+def _repo_dir_for(base_dir: Path) -> Path:
+    # Local source runs from <repo>/src/main, while the Docker image flattens that to /app.
+    if len(base_dir.parents) > 1:
+        return base_dir.parents[1]
+    return base_dir
 
-# Also attempt to load repo-root env files as a fallback, without overriding non-empty values.
-# This helps when running the app from different working directories.
-try:
-    REPO_DIR = BASE_DIR.parents[1]
-    _load_env_file(REPO_DIR / ".env", override_existing=False)
-    _load_env_file(REPO_DIR / ".env.local", override_existing=False)
-except Exception:
-    pass
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+REPO_DIR = _repo_dir_for(BASE_DIR)
+REPO_ENV = REPO_DIR / ".env"
+REPO_ENV_LOCAL = REPO_DIR / ".env.local"
+
+# Use the repo-root env files as the single source of truth.
+# Keep `src/main/.env` only as a legacy fallback for older local setups.
+if REPO_ENV.exists() or REPO_ENV_LOCAL.exists():
+    _load_env_file(REPO_ENV)
+    _load_env_file(REPO_ENV_LOCAL)
+else:
+    _load_env_file(BASE_DIR / ".env")
+    _load_env_file(BASE_DIR / ".env.local")
 
 
 from backend.app.auth.auth import validate_auth_configuration
-from backend.app.db.db import check_db_connection, init_db
+from backend.app.auth.proxy_auth import maybe_inject_dev_proxy_headers, validate_proxy_auth_configuration
+from backend.app.db.db import check_db_connection, init_db, warm_db_pool
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -89,6 +122,12 @@ from backend.app.services.realtime import stop_runtime as stop_realtime_runtime
 logger = logging.getLogger(__name__)
 REQUEST_ID_HEADER = "X-Request-ID"
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+FRONTEND_DIR = BASE_DIR / "ui"
+FRONTEND_REQUIRED_FILES = (
+    FRONTEND_DIR / "index.html",
+    FRONTEND_DIR / "styles.css",
+    FRONTEND_DIR / "js" / "app.js",
+)
 
 
 def _running_tests() -> bool:
@@ -97,6 +136,31 @@ def _running_tests() -> bool:
 
 def _startup_db_disabled() -> bool:
     return _bool_env("SIPM_DISABLE_STARTUP", False) or _running_tests()
+
+
+def _db_prewarm_connection_count() -> int:
+    if not _bool_env("SIPM_DB_PREWARM_ON_STARTUP", False):
+        return 0
+    return _require_min(
+        "SIPM_DB_PREWARM_CONNECTIONS",
+        _int_env("SIPM_DB_PREWARM_CONNECTIONS", 1),
+        1,
+    )
+
+
+def _db_keepwarm_interval_seconds() -> int:
+    return _require_min_or_disable(
+        "SIPM_DB_KEEPWARM_INTERVAL_SECONDS",
+        _int_env("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", 0),
+        0,
+        1,
+    )
+
+
+async def _db_keepwarm_loop(interval_seconds: int) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        check_db_connection()
 
 
 def _request_id_for(request: Request) -> str:
@@ -116,6 +180,13 @@ def _request_log_line(request: Request, *, request_id: str, status_code: int, du
     )
 
 
+def _frontend_bundle_error() -> str | None:
+    missing = [path.relative_to(BASE_DIR).as_posix() for path in FRONTEND_REQUIRED_FILES if not path.exists()]
+    if not missing:
+        return None
+    return f"Frontend bundle missing required files: {', '.join(missing)}"
+
+
 def _readiness_payload() -> tuple[int, dict]:
     checks: dict[str, dict[str, str]] = {}
     ready = True
@@ -126,6 +197,20 @@ def _readiness_payload() -> tuple[int, dict]:
     except Exception as exc:
         ready = False
         checks["auth"] = {"status": "error", "detail": str(exc)}
+
+    try:
+        validate_proxy_auth_configuration()
+        checks["proxy_auth"] = {"status": "ok"}
+    except Exception as exc:
+        ready = False
+        checks["proxy_auth"] = {"status": "error", "detail": str(exc)}
+
+    frontend_error = _frontend_bundle_error()
+    if frontend_error:
+        ready = False
+        checks["frontend"] = {"status": "error", "detail": frontend_error}
+    else:
+        checks["frontend"] = {"status": "ok"}
 
     if _startup_db_disabled():
         checks["db"] = {"status": "skipped", "detail": "startup disabled or test mode active"}
@@ -143,6 +228,7 @@ def _readiness_payload() -> tuple[int, dict]:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     validate_auth_configuration()
+    validate_proxy_auth_configuration()
     coordination.validate_configuration()
     # Avoid touching the on-disk DB during unit tests. Tests create their own in-memory DB
     # and override `get_db`/auth dependencies.
@@ -169,6 +255,7 @@ async def lifespan(app: FastAPI):
             patched_run_sync = run_sync_no_threadpool
 
     keepalive_task = None
+    db_keepwarm_task = None
     try:
         await start_realtime_runtime()
         if running_tests or _bool_env("SIPM_KEEPALIVE_TASK", False):
@@ -180,9 +267,21 @@ async def lifespan(app: FastAPI):
 
         if not disable_startup and not running_tests:
             init_db()
+            prewarm_connection_count = _db_prewarm_connection_count()
+            if prewarm_connection_count:
+                warm_db_pool(connection_count=prewarm_connection_count)
+            keepwarm_interval_seconds = _db_keepwarm_interval_seconds()
+            if keepwarm_interval_seconds:
+                if not prewarm_connection_count:
+                    check_db_connection()
+                db_keepwarm_task = asyncio.create_task(_db_keepwarm_loop(keepwarm_interval_seconds))
         yield
     finally:
         await stop_realtime_runtime()
+        if db_keepwarm_task:
+            db_keepwarm_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await db_keepwarm_task
         if keepalive_task:
             keepalive_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -209,6 +308,7 @@ app.include_router(api_router, prefix=API_PREFIX)
 
 @app.middleware("http")
 async def request_observability_middleware(request: Request, call_next):
+    maybe_inject_dev_proxy_headers(request.scope)
     request_id = _request_id_for(request)
     request.state.request_id = request_id
     request_token = set_request_id(request_id)
@@ -253,56 +353,59 @@ def readiness():
     return JSONResponse(payload, status_code=status_code)
 
 
-# Serve frontend from src/main/ui
-FRONTEND_DIR = BASE_DIR / "ui"
-if FRONTEND_DIR.exists():
-    frontend_static = StaticFiles(directory=FRONTEND_DIR, html=False)
+frontend_static = StaticFiles(directory=FRONTEND_DIR, html=False) if FRONTEND_DIR.exists() else None
 
-    def _should_serve_spa(path: str) -> bool:
-        normalized = str(path or "").strip("/")
-        if not normalized:
-            return True
-        return "." not in normalized.split("/")[-1]
+def _should_serve_spa(path: str) -> bool:
+    normalized = str(path or "").strip("/")
+    if not normalized:
+        return True
+    return "." not in normalized.split("/")[-1]
 
-    async def _serve_frontend(request: Request, frontend_path: str = ""):
-        normalized = str(frontend_path or "").lstrip("/")
-        response = None
-        try:
-            response = await frontend_static.get_response(normalized or ".", request.scope)
-        except StarletteHTTPException as exc:
-            if exc.status_code != 404:
-                raise
-        if response is not None and response.status_code != 404:
-            return response
-        if normalized.endswith("/") and _should_serve_spa(normalized.rstrip("/")):
-            return RedirectResponse(app_path(f"/{normalized.rstrip('/')}"), status_code=307)
-        if _should_serve_spa(normalized):
-            return FileResponse(FRONTEND_DIR / "index.html")
-        if response is not None:
-            return response
-        raise StarletteHTTPException(status_code=404)
+async def _serve_frontend(request: Request, frontend_path: str = ""):
+    frontend_error = _frontend_bundle_error()
+    if frontend_error:
+        return JSONResponse({"detail": frontend_error}, status_code=503)
+    if frontend_static is None:
+        return JSONResponse({"detail": "Frontend bundle is not configured."}, status_code=503)
 
-    if APP_CONTEXT_PATH:
-        @app.get("/", include_in_schema=False)
-        def app_root_redirect():
-            return RedirectResponse(app_root_path(), status_code=307)
-
-        @app.get(APP_CONTEXT_PATH, include_in_schema=False)
-        def app_context_redirect():
-            return RedirectResponse(app_root_path(), status_code=307)
-
-    @app.get(RESET_PASSWORD_PATH)
-    def reset_password_page():
+    normalized = str(frontend_path or "").lstrip("/")
+    response = None
+    try:
+        response = await frontend_static.get_response(normalized or ".", request.scope)
+    except StarletteHTTPException as exc:
+        if exc.status_code != 404:
+            raise
+    if response is not None and response.status_code != 404:
+        return response
+    if normalized.endswith("/") and _should_serve_spa(normalized.rstrip("/")):
+        return RedirectResponse(app_path(f"/{normalized.rstrip('/')}"), status_code=307)
+    if _should_serve_spa(normalized):
         return FileResponse(FRONTEND_DIR / "index.html")
+    if response is not None:
+        return response
+    raise StarletteHTTPException(status_code=404)
 
-    @app.get(f"{RESET_PASSWORD_PATH}/")
-    def reset_password_page_slash():
-        return FileResponse(FRONTEND_DIR / "index.html")
+if APP_CONTEXT_PATH:
+    @app.get("/", include_in_schema=False)
+    def app_root_redirect():
+        return RedirectResponse(app_root_path(), status_code=307)
 
-    @app.get(app_root_path(), include_in_schema=False)
-    async def frontend_root(request: Request):
-        return await _serve_frontend(request, "")
+    @app.get(APP_CONTEXT_PATH, include_in_schema=False)
+    def app_context_redirect():
+        return RedirectResponse(app_root_path(), status_code=307)
 
-    @app.get(f"{APP_CONTEXT_PATH}/{{frontend_path:path}}" if APP_CONTEXT_PATH else "/{frontend_path:path}", include_in_schema=False)
-    async def frontend_catchall(frontend_path: str, request: Request):
-        return await _serve_frontend(request, frontend_path)
+@app.get(RESET_PASSWORD_PATH)
+async def reset_password_page(request: Request):
+    return await _serve_frontend(request, "reset-password")
+
+@app.get(f"{RESET_PASSWORD_PATH}/")
+async def reset_password_page_slash(request: Request):
+    return await _serve_frontend(request, "reset-password/")
+
+@app.get(app_root_path(), include_in_schema=False)
+async def frontend_root(request: Request):
+    return await _serve_frontend(request, "")
+
+@app.get(f"{APP_CONTEXT_PATH}/{{frontend_path:path}}" if APP_CONTEXT_PATH else "/{frontend_path:path}", include_in_schema=False)
+async def frontend_catchall(frontend_path: str, request: Request):
+    return await _serve_frontend(request, frontend_path)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import concurrent.futures
 import importlib
 import os
@@ -77,6 +78,7 @@ def test_db_engine_uses_sqlalchemy_pooling_with_pre_ping(monkeypatch):
         "SIPM_DB_POOL_TIMEOUT_SECONDS",
         "SIPM_DB_POOL_RECYCLE_SECONDS",
         "SIPM_DB_POOL_PRE_PING",
+        "SIPM_DB_POOL_USE_LIFO",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -100,6 +102,7 @@ def test_db_engine_uses_sqlalchemy_pooling_with_pre_ping(monkeypatch):
     assert kwargs["pool_timeout"] == 30
     assert kwargs["pool_recycle"] == 1800
     assert kwargs["pool_pre_ping"] is True
+    assert kwargs["pool_use_lifo"] is False
 
 
 def test_db_engine_uses_pooling_env_overrides(monkeypatch):
@@ -108,6 +111,7 @@ def test_db_engine_uses_pooling_env_overrides(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "12")
     monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "90")
     monkeypatch.setenv("SIPM_DB_POOL_PRE_PING", "false")
+    monkeypatch.setenv("SIPM_DB_POOL_USE_LIFO", "true")
 
     module = _reload_db_module()
     captured = {}
@@ -126,6 +130,7 @@ def test_db_engine_uses_pooling_env_overrides(monkeypatch):
     assert kwargs["pool_timeout"] == 12
     assert kwargs["pool_recycle"] == 90
     assert kwargs["pool_pre_ping"] is False
+    assert kwargs["pool_use_lifo"] is True
 
 
 def test_db_engine_allows_documented_zero_or_disabled_pool_values(monkeypatch):
@@ -214,6 +219,20 @@ def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
         module._build_engine()
 
 
+def test_db_engine_rejects_invalid_boolean_pool_use_lifo_env(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_USE_LIFO", "sometimes")
+
+    module = _reload_db_module()
+    monkeypatch.setattr(
+        module,
+        "create_engine",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+    )
+
+    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_USE_LIFO must be a boolean value."):
+        module._build_engine()
+
+
 def test_db_engine_rejects_negative_pool_size(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_SIZE", "-2")
 
@@ -299,6 +318,44 @@ def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
 
     assert results == [sentinel_session_local] * 8
     assert captured == {"build_calls": 1, "sessionmaker_calls": 1}
+
+
+def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
+    module = _reload_db_module()
+    module.SessionLocal = object()
+
+    captured = {"open_now": 0, "max_open": 0, "execute": 0, "commit": 0, "close": 0}
+
+    class FakeConnection:
+        def execute(self, statement):
+            captured["execute"] += 1
+            assert str(statement) == "SELECT 1"
+
+        def commit(self):
+            captured["commit"] += 1
+
+        def close(self):
+            captured["close"] += 1
+            captured["open_now"] -= 1
+
+    class FakeEngine:
+        def connect(self):
+            captured["open_now"] += 1
+            captured["max_open"] = max(captured["max_open"], captured["open_now"])
+            return FakeConnection()
+
+    module.engine = FakeEngine()
+
+    module.warm_db_pool(connection_count=2)
+
+    assert captured == {"open_now": 0, "max_open": 2, "execute": 2, "commit": 2, "close": 2}
+
+
+def test_warm_db_pool_rejects_non_positive_connection_count():
+    module = _reload_db_module()
+
+    with pytest.raises(RuntimeError, match="connection_count must be >= 1."):
+        module.warm_db_pool(connection_count=0)
 
 
 def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):
@@ -413,3 +470,118 @@ async def test_app_lifespan_accepts_truthy_disable_threadpool_value(monkeypatch)
         assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
 
     assert anyio.to_thread.run_sync is original_run_sync
+
+
+@pytest.mark.anyio
+async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
+    calls = {"sleep": 0, "check": 0}
+
+    async def fake_sleep(seconds: int) -> None:
+        calls["sleep"] += 1
+        assert seconds == 15
+        if calls["sleep"] > 1:
+            raise asyncio.CancelledError()
+
+    def fake_check_db_connection() -> None:
+        calls["check"] += 1
+
+    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
+
+    with pytest.raises(asyncio.CancelledError):
+        await main_module._db_keepwarm_loop(15)
+
+    assert calls == {"sleep": 2, "check": 1}
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "validate_proxy_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", raising=False)
+    monkeypatch.setenv("SIPM_DB_PREWARM_ON_STARTUP", "true")
+    monkeypatch.setenv("SIPM_DB_PREWARM_CONNECTIONS", "2")
+
+    calls = {"init_db": 0, "warm": []}
+
+    async def fake_start_runtime() -> None:
+        return None
+
+    async def fake_stop_runtime() -> None:
+        return None
+
+    def fake_init_db() -> None:
+        calls["init_db"] += 1
+
+    def fake_warm_db_pool(*, connection_count: int) -> None:
+        calls["warm"].append(connection_count)
+
+    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "warm_db_pool", fake_warm_db_pool)
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        pass
+
+    assert calls == {"init_db": 1, "warm": [2]}
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "validate_proxy_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.delenv("SIPM_DB_PREWARM_ON_STARTUP", raising=False)
+    monkeypatch.setenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", "60")
+
+    calls = {"init_db": 0, "check": 0, "create_task": 0}
+
+    async def fake_start_runtime() -> None:
+        return None
+
+    async def fake_stop_runtime() -> None:
+        return None
+
+    def fake_init_db() -> None:
+        calls["init_db"] += 1
+
+    def fake_check_db_connection() -> None:
+        calls["check"] += 1
+
+    class FakeTask:
+        def __init__(self, coro):
+            self._coro = coro
+            self._cancelled = False
+
+        def cancel(self) -> None:
+            self._cancelled = True
+            self._coro.close()
+
+        def __await__(self):
+            async def _wait():
+                if self._cancelled:
+                    raise asyncio.CancelledError()
+                return None
+
+            return _wait().__await__()
+
+    def fake_create_task(coro):
+        calls["create_task"] += 1
+        return FakeTask(coro)
+
+    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(main_module.asyncio, "create_task", fake_create_task)
+
+    async with main_module.app.router.lifespan_context(main_module.app):
+        pass
+
+    assert calls == {"init_db": 1, "check": 1, "create_task": 1}

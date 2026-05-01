@@ -17,6 +17,7 @@ export function createSubcomponentEntityController({
   deleteSubcomponentsById,
   renderSolutionSubcomponents,
   renderDashboard,
+  renderGantt,
   timestampLabel,
   trackWorkflow = null,
 }) {
@@ -163,6 +164,7 @@ export function createSubcomponentEntityController({
         fillSubcomponentForm(saved);
         renderSolutionSubcomponents(saved.solution_id);
         renderDashboard();
+        renderGantt();
         const successMessage = isEditing
           ? `Saved subcomponent at ${timestampLabel()}.`
           : `Created subcomponent at ${timestampLabel()}.`;
@@ -225,6 +227,7 @@ export function createSubcomponentEntityController({
         }
         renderSolutionSubcomponents(solutionId);
         renderDashboard();
+        renderGantt();
         if (result.failed.length) {
           if (typeof trackWorkflow === "function") {
             trackWorkflow("subcomponents", "delete", "failure", { source: "subcomponent_form" });

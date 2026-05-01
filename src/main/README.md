@@ -13,6 +13,18 @@ uvicorn backend.main:app --reload --app-dir src/main
 
 Then open `http://127.0.0.1:8000/project-manager/`.
 
+Use the repo-root [.env](/mnt/f/vault/projects/sipm/.env) or `.env.local` as the runtime source of truth. The nested [src/main/.env](/mnt/f/vault/projects/sipm/src/main/.env) file is deprecated and only exists as a legacy fallback if the repo-root env files are missing.
+
+Auth is now reverse-proxy driven. Direct access to the app URL only works when the request carries the configured proxy identity headers and SIPM can mint its own cookies.
+
+For local smoke/dev runs without the enterprise proxy, enable the mock proxy header injector:
+
+```bash
+export SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true
+export SIPM_PROXY_AUTH_DEV_MOCK_SOEID=devuser1
+export SIPM_PROXY_AUTH_DEV_MOCK_NAME="Dev User"
+```
+
 ## Planning MVP Features
 
 - Backlog tasks with search and effort filter.
@@ -46,10 +58,15 @@ Validation highlights:
 ## Ops
 
 - `GET /health` is a shallow liveness check and remains the quick `{"status":"ok"}` endpoint.
-- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
+- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
 - Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
+- The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
+- Reverse-proxy auth is controlled with `SIPM_PROXY_AUTH_ENABLED=true|false`.
+- Configure the trusted identity headers with `SIPM_PROXY_AUTH_SOEID_HEADER` and `SIPM_PROXY_AUTH_NAME_HEADER`.
+- The production proxy contract uses `SM_USER` for the SUID and `name` for the full name. SIPM derives email internally as `<suid>@<DOMAIN_NAME>`.
+- `SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true` injects those headers server-side for local/dev/test runs only; it must stay off in UAT/prod.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.

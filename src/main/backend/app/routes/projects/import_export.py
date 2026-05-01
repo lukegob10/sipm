@@ -22,6 +22,7 @@ from .common import (
     _project_create_changes,
     _project_query,
     _publish_project_mutation,
+    _resolve_project_sponsor,
 )
 
 router = APIRouter()
@@ -53,7 +54,7 @@ def import_projects(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
@@ -62,12 +63,9 @@ def import_projects(
     seen = set()
     for idx, row in enumerate(rows, start=2):
         name = normalize_str(row.get("project_name"))
-        sponsor = normalize_str(row.get("sponsor"))
+        sponsor_input = normalize_str(row.get("sponsor"))
         if not name:
             errors.append(f"Row {idx}: project_name is required")
-            continue
-        if not sponsor:
-            errors.append(f"Row {idx}: sponsor is required")
             continue
         key = name.lower()
         if key in seen:
@@ -94,12 +92,21 @@ def import_projects(
         existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
         try:
             if existing:
+                if sponsor_input:
+                    resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
+                        sponsor_input,
+                        sponsor_user_soeid,
+                        current_user,
+                    )
+                else:
+                    resolved_sponsor = existing.sponsor
+                    resolved_sponsor_user_soeid = existing.sponsor_user_soeid
                 before = {field: getattr(existing, field) for field in _PROJECT_IMPORT_UPDATE_FIELDS}
                 existing.status = status_enum
                 existing.description = description
                 existing.success_criteria = success_criteria
-                existing.sponsor = sponsor
-                existing.sponsor_user_soeid = sponsor_user_soeid
+                existing.sponsor = resolved_sponsor
+                existing.sponsor_user_soeid = resolved_sponsor_user_soeid
                 existing.strategic_objective = strategic_objective
                 existing.priority = priority_val
                 if not existing.space_id:
@@ -118,14 +125,19 @@ def import_projects(
                 )
                 updated += 1
             else:
+                resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
+                    sponsor_input,
+                    sponsor_user_soeid,
+                    current_user,
+                )
                 project = Project(
                     space_id=space_ctx.space_id,
                     project_name=name,
                     status=status_enum,
                     description=description,
                     success_criteria=success_criteria,
-                    sponsor=sponsor,
-                    sponsor_user_soeid=sponsor_user_soeid,
+                    sponsor=resolved_sponsor,
+                    sponsor_user_soeid=resolved_sponsor_user_soeid,
                     strategic_objective=strategic_objective,
                     priority=priority_val,
                 )

@@ -61,6 +61,7 @@ import {
 } from "./routes/subcomponents-workbench/interactions.js";
 import { populateSubcomponentsWorkbenchOptions } from "./routes/subcomponents-workbench/options.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
+import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
 import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
@@ -235,7 +236,7 @@ const state = {
   globalAdmins: [],
   globalAdminsLoaded: false,
   platformPasswordReset: null,
-  authMode: "login",
+  authMode: "portal",
   phases: [],
   projects: [],
   solutions: [],
@@ -283,6 +284,8 @@ const state = {
   })(),
   kanbanFilters: { project: "", owner: "" },
   calendarFilters: { project: "", owner: "" },
+  ganttWindow: { from: "", to: "" },
+  ganttCollapsed: new Set(),
   planningGroupCollapsed: new Set(),
   capacitySelectedSoeid: "",
   teamCapacity: createTeamCapacityState(),
@@ -304,6 +307,7 @@ const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";
 const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";
 const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";
+const GANTT_VIEW_STATE_KEY_PREFIX = "sipm-gantt-view-state-v1";
 const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
 const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
 const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
@@ -343,6 +347,7 @@ const projectEntityController = createProjectEntityController({
   renderDashboard,
   renderKanban,
   renderCalendar,
+  renderGantt,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   timestampLabel,
@@ -366,6 +371,7 @@ const solutionEntityController = createSolutionEntityController({
   renderDashboard,
   renderKanban,
   renderCalendar,
+  renderGantt,
   renderSolutionPhases,
   renderSolutionSubcomponents,
   renderSolutionActivity,
@@ -399,6 +405,7 @@ const subcomponentEntityController = createSubcomponentEntityController({
   deleteSubcomponentsById,
   renderSolutionSubcomponents,
   renderDashboard,
+  renderGantt,
   timestampLabel,
   trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
@@ -419,6 +426,18 @@ const calendarRouteController = createCalendarRouteController({
   filteredSolutionsForCalendar,
   filteredSubcomponentsForCalendar,
   formatStatus,
+});
+const ganttRouteController = createGanttRouteController({
+  state,
+  els,
+  ganttViewStateKey: GANTT_VIEW_STATE_KEY_PREFIX,
+  writeStoredJson,
+  readStoredJsonState,
+  activeSpaceScopedStorageKey,
+  renderGantt,
+  openProjectForm,
+  openSolutionModal,
+  fillSubcomponentForm,
 });
 const kanbanRouteController = createKanbanRouteController({
   state,
@@ -811,15 +830,15 @@ function setSpaceGovernanceNotice(message, tone = "info", autoClearMs = 5000) {
 }
 
 function syncRoleAwareActions() {
-  const canUseAdminActions = userCanAccessAdminViews();
+  const canUseWorkEditActions = !!state.authed;
   [
     els.deleteProjectBtn,
     els.deleteSolutionBtn,
     els.deleteSubcomponentBtn,
   ].forEach((button) => {
     if (!button) return;
-    button.classList.toggle("hidden", !canUseAdminActions);
-    if (!canUseAdminActions) {
+    button.classList.toggle("hidden", !canUseWorkEditActions);
+    if (!canUseWorkEditActions) {
       button.disabled = true;
     }
   });
@@ -881,6 +900,7 @@ async function switchActiveSpace(targetSpaceId) {
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
     stopLiveSync({ phase: "reconnecting" });
     clearDataState();
+    restoreGanttViewState();
     await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
     startLiveSync({ force: true });
     state.spaceSwitcherOpen = false;
@@ -935,6 +955,8 @@ async function refreshSpaceContext(options = {}) {
     state.subcomponentsWorkbench.selectedSavedViewId = "";
     state.filters = {};
     state.deliverablesPreset = "";
+    state.ganttWindow = { from: "", to: "" };
+    state.ganttCollapsed = new Set();
     closeSpaceCreateModal();
     closeSpaceMemberModal();
     closeSpaceDirectoryModal();
@@ -972,6 +994,7 @@ async function refreshSpaceContext(options = {}) {
   restoreWorkspaceViewPreferences();
   restoreMasterViewState();
   restoreCalendarViewState();
+  restoreGanttViewState();
   restoreKanbanViewState();
   restoreTeamCapacityViewState();
   restorePlanningWindowViewState();
@@ -1036,6 +1059,8 @@ function setAuthed(user) {
     state.globalAdminsLoaded = false;
     state.subcomponentsWorkbench.savedViews = [];
     state.subcomponentsWorkbench.selectedSavedViewId = "";
+    state.ganttWindow = { from: "", to: "" };
+    state.ganttCollapsed = new Set();
     closeSpaceCreateModal();
     closeSpaceMemberModal();
     closeSpaceDirectoryModal();
@@ -1044,7 +1069,7 @@ function setAuthed(user) {
   }
   setAuthVisible(!state.authed);
   if (!state.authed) {
-    setStatus("Sign in required", "warn");
+    setStatus("Portal sign-in required", "warn");
   }
   renderSpaceSwitcher();
   renderCompletedVisibilityToggle();
@@ -1307,6 +1332,7 @@ function renderActiveView() {
     "pm-dashboard": () => renderPMDashboard(),
     kanban: () => renderKanban(),
     calendar: () => renderCalendar(),
+    gantt: () => renderGantt(),
     planning: () => renderPlanning(),
     "team-capacity": () => renderTeamCapacity(),
     spaces: () => renderSpaces(),
@@ -1429,6 +1455,7 @@ function createMasterRouteContext(overrides = {}) {
     renderDashboard,
     renderKanban,
     renderCalendar,
+    renderGantt,
     renderActiveView,
     openProjectForm,
     openSolutionModal,
@@ -1953,7 +1980,7 @@ function openAllocationWorkItemDrilldown(allocationId) {
   if (allocation.work_item_type === "solution") {
     const solution = state.solutions.find((row) => row.solution_id === workItemId);
     if (!solution) {
-      setStatus("The linked solution is unavailable.", "warn");
+      setStatus("The linked workstream is unavailable.", "warn");
       return;
     }
     openSolutionModal(solution, "details");
@@ -1962,12 +1989,12 @@ function openAllocationWorkItemDrilldown(allocationId) {
   if (allocation.work_item_type === "subcomponent") {
     const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === workItemId);
     if (!subcomponent) {
-      setStatus("The linked task is unavailable.", "warn");
+      setStatus("The linked deliverable is unavailable.", "warn");
       return;
     }
     const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
     if (!solution) {
-      setStatus("The linked solution is unavailable.", "warn");
+      setStatus("The linked workstream is unavailable.", "warn");
       return;
     }
     openSolutionModal(solution, "subcomponents");
@@ -1997,11 +2024,13 @@ function openPMDashboardCapacityDrilldown(detail) {
           const teamName = allocation.team_id ? state.teams.find((team) => team.team_id === allocation.team_id)?.name : "";
           const windowName = allocation.window_id ? state.planningWindows.find((row) => row.window_id === allocation.window_id)?.name : "";
           const actionLabel =
-            type === "project" ? "Open Project" : type === "solution" ? "Open Solution" : type === "subcomponent" ? "Open Task" : "Open Item";
+            type === "project" ? "Open Project" : type === "solution" ? "Open Workstream" : type === "subcomponent" ? "Open Deliverable" : "Open Item";
+          const itemTypeLabel =
+            type === "project" ? "Project" : type === "solution" ? "Workstream" : type === "subcomponent" ? "Deliverable" : allocation.work_item_type || "work item";
           const itemClass = type === "solution" || type === "subcomponent" ? ` ${type}` : "";
           return `<div class="modal-item${itemClass}">
             <div class="modal-item-title">${esc(itemTitle)}</div>
-            <div class="modal-item-meta">${esc(allocation.work_item_type || "work item")} • ${formatFte(allocationFteMonths(allocation))} FTE-mo • ${esc(allocationMonthStart(allocation) || "—")}</div>
+            <div class="modal-item-meta">${esc(itemTypeLabel)} • ${formatFte(allocationFteMonths(allocation))} FTE-mo • ${esc(allocationMonthStart(allocation) || "—")}</div>
             <div class="modal-item-meta">Team: ${esc(teamName || "Unassigned")}${windowName ? ` • Window: ${esc(windowName)}` : ""}</div>
             <div class="modal-item-actions">
               <button type="button" class="secondary modal-item-action" data-planning-modal-action="open-allocation-work-item" data-allocation-id="${esc(allocation.allocation_id || "")}">${esc(actionLabel)}</button>
@@ -2635,6 +2664,24 @@ function renderCalendar() {
   });
 }
 
+function renderGantt() {
+  const mod = getRouteModule("gantt");
+  if (!mod || typeof mod.renderGantt !== "function") {
+    if (state.currentView === "gantt" && els.ganttChart) {
+      els.ganttChart.innerHTML = "<p class='muted'>Loading...</p>";
+    }
+    ensureRouteModule("gantt").then((loaded) => {
+      if (loaded && state.currentView === "gantt") renderGantt();
+    });
+    return;
+  }
+  mod.renderGantt({
+    state,
+    els,
+    formatStatus,
+  });
+}
+
 async function downloadCsv(kind, filename, resultEl) {
   try {
     const headers = {};
@@ -2647,7 +2694,7 @@ async function downloadCsv(kind, filename, resultEl) {
     });
     if (res.status === 401) {
       handleAuthError({ status: 401 });
-      setImportResult(resultEl, "Sign in required", true);
+      setImportResult(resultEl, "Portal sign-in required", true);
       return;
     }
     if (!res.ok) throw new Error(await res.text());
@@ -2803,7 +2850,7 @@ async function uploadCsvFile(kind, file, resultEl) {
     });
     if (res.status === 401) {
       handleAuthError({ status: 401 });
-      const msg = "Sign in required";
+      const msg = "Portal sign-in required";
       setImportResult(resultEl, msg, true);
       return { ok: false, message: msg, partial: false };
     }
@@ -3110,6 +3157,7 @@ function bindNav() {
 
 function bindCalendarControls() {
   calendarRouteController.bindCalendarRouteControls();
+  ganttRouteController.bindGanttRouteControls();
   kanbanRouteController.bindKanbanRouteControls();
 
   if (els.planningWindowSelect) {
@@ -3497,6 +3545,10 @@ function persistCalendarViewState() {
 
 function restoreCalendarViewState() {
   return calendarRouteController.restoreCalendarViewState();
+}
+
+function restoreGanttViewState() {
+  return ganttRouteController.restoreGanttViewState();
 }
 
 function persistKanbanViewState() {

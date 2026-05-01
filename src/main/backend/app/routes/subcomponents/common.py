@@ -10,7 +10,7 @@ from ...models import Project, Solution, Subcomponent
 from ...schemas import SubcomponentRead
 from ...services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
 from ...services.spaces import SpaceContext
-from ...utils import enable_all_phases
+from ...utils import enable_all_phases, normalize_str
 from ...utils.enums import SubcomponentStatus
 from .._mutations import publish_space_mutation
 
@@ -99,6 +99,20 @@ def _apply_subcomponent_completion_state(
         subcomponent.completed_at = subcomponent.completed_at or now
         return
     subcomponent.completed_at = None
+
+
+def _resolve_subcomponent_assignee(
+    assignee_value: object | None,
+    assignee_user_soeid_value: object | None,
+    current_user: object,
+) -> tuple[str, str | None]:
+    display_name = normalize_str(getattr(current_user, "display_name", None))
+    current_soeid = normalize_str(getattr(current_user, "soeid", None))
+    assignee = normalize_str(assignee_value) or display_name or current_soeid or ""
+    assignee_user_soeid = normalize_str(assignee_user_soeid_value) or None
+    if assignee_user_soeid is None and current_soeid and assignee in {display_name, current_soeid}:
+        assignee_user_soeid = current_soeid
+    return assignee, assignee_user_soeid
 
 
 def _publish_subcomponent_mutation(space_id: str) -> None:
@@ -212,6 +226,7 @@ __all__ = [
     "_project_query",
     "_publish_subcomponent_import",
     "_publish_subcomponent_mutation",
+    "_resolve_subcomponent_assignee",
     "_role_scope",
     "_run_enable_all_phases",
     "_solution_query",

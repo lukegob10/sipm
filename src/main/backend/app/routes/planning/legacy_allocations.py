@@ -106,7 +106,7 @@ def create_allocation(
     payload: ResourceAllocationCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> ResourceAllocationRead:
     active_team(session, payload.team_id, space_ctx)
     if payload.window_id:
@@ -137,7 +137,7 @@ def update_allocation(
     payload: ResourceAllocationUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> ResourceAllocationRead:
     alloc = get_allocation(session, allocation_id, space_ctx)
     if payload.team_id is not None:
@@ -183,7 +183,7 @@ def delete_allocation(
     allocation_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     alloc = get_allocation(session, allocation_id, space_ctx)
     alloc.deleted_at = datetime.now(timezone.utc)
@@ -287,7 +287,7 @@ def create_window(
     payload: PlanningWindowCreate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> PlanningWindowRead:
     win = PlanningWindow(
         space_id=space_ctx.space_id,
@@ -311,7 +311,7 @@ def update_window(
     payload: PlanningWindowUpdate,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> PlanningWindowRead:
     win = get_window(session, window_id, space_ctx)
     update_data = payload.model_dump(exclude_unset=True)
@@ -334,7 +334,7 @@ def delete_window(
     window_id: str,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     win = get_window(session, window_id, space_ctx)
     win.deleted_at = datetime.now(timezone.utc)

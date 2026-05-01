@@ -28,11 +28,11 @@ async def test_projects_import_updates_creates_and_exports(client):
     csv_text = "\n".join(
         [
             "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
-            # Update existing (status normalization accepts spaces/underscores/case).
-            "Data Platform,On Hold,Waiting on vendor,New criteria,CFO Office,,,",
+            # Update existing while preserving sponsor when the CSV leaves it blank.
+            "Data Platform,On Hold,Waiting on vendor,New criteria,,,,",
             # Create new.
             "Risk Platform,active,Own risk controls,,COO Office,,,",
-            # Missing sponsor => row error.
+            # Missing sponsor => lean create with current-user fallback.
             "No Sponsor,active,Desc,,,,,",
             # Duplicate project_name in same CSV => row error.
             "Risk Platform,active,Duplicate row,,COO Office,,,",
@@ -50,21 +50,25 @@ async def test_projects_import_updates_creates_and_exports(client):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["updated"] == 1
-    assert data["created"] == 1
+    assert data["created"] == 2
     assert data["total_rows"] == 5
-    assert len(data["errors"]) == 3
+    assert len(data["errors"]) == 2
 
     updated = await client.get(f"/project-manager/api/projects/{existing['project_id']}")
     assert updated.status_code == 200
     assert updated.json()["status"] == "on_hold"
     assert updated.json()["description"] == "Waiting on vendor"
     assert updated.json()["success_criteria"] == "New criteria"
+    assert updated.json()["sponsor"] == "CFO Office"
 
     export = await client.get("/project-manager/api/projects/export")
     assert export.status_code == 200
     assert "text/csv" in export.headers.get("content-type", "")
     rows = list(csv.DictReader(StringIO(export.text)))
-    assert {row["project_name"] for row in rows} == {"Data Platform", "Risk Platform"}
+    assert {row["project_name"] for row in rows} == {"Data Platform", "Risk Platform", "No Sponsor"}
+    no_sponsor = next(row for row in rows if row["project_name"] == "No Sponsor")
+    assert no_sponsor["sponsor"] == "Test User"
+    assert no_sponsor["sponsor_user_soeid"] == "tu12345"
 
     filtered = await client.get("/project-manager/api/projects", params={"status_filter": "on_hold"})
     assert filtered.status_code == 200
@@ -73,6 +77,10 @@ async def test_projects_import_updates_creates_and_exports(client):
     sponsor_filtered = await client.get("/project-manager/api/projects", params={"sponsor": "cfo office"})
     assert sponsor_filtered.status_code == 200
     assert [p["project_name"] for p in sponsor_filtered.json()] == ["Data Platform"]
+
+    fallback_sponsor_filtered = await client.get("/project-manager/api/projects", params={"sponsor": "test user"})
+    assert fallback_sponsor_filtered.status_code == 200
+    assert [p["project_name"] for p in fallback_sponsor_filtered.json()] == ["No Sponsor"]
 
 
 @pytest.mark.anyio

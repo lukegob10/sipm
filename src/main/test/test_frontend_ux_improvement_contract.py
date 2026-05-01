@@ -525,16 +525,19 @@ def test_planning_window_stale_selection_self_heals_to_live_option_set():
     assert "if (prev !== nextSelectedId) persistPlanningWindowViewState();" in app_text
 
 
-def test_reset_password_ui_uses_temp_password_flow():
-    app_text = SESSION_JS.read_text(encoding="utf-8")
+def test_auth_screen_uses_portal_only_entry_flow():
+    session_text = SESSION_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "/auth/reset-password" in app_text
-    assert 'name="soeid"' in html_text
-    assert 'name="temp_password"' in html_text
-    assert 'Use temporary password' in html_text
-    assert "/auth/reset-password-with-token" not in app_text
-    assert "verify-temp-form" not in html_text
+    assert "Company Portal Sign-In" in html_text
+    assert "company portal" in html_text.lower()
+    assert 'id="login-form"' not in html_text
+    assert 'id="register-form"' not in html_text
+    assert 'id="reset-screen"' not in html_text
+    assert 'id="auth-tab-register"' not in html_text
+    assert '/auth/login' not in session_text
+    assert '/auth/register' not in session_text
+    assert '/auth/reset-password' not in session_text
 
 
 def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes():
@@ -551,9 +554,8 @@ def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes(
     assert "function routePathForView(view)" in router_text
     assert "function syncPathForView(view, replace = false)" in router_text
     assert 'window.addEventListener("popstate"' in app_text
-    assert 'buildAppUrl("/reset-password")' in session_text
-    assert 'window.location.href = buildAppUrl("/reset-password");' in session_text
-    assert 'window.location.href = buildAppUrl("/");' in session_text
+    assert 'const me = await api("/auth/me");' in session_text
+    assert 'setStatus("Checking portal session...", "warn");' in session_text
     assert 'const url = new URL(buildWsUrl("/ws"));' in live_sync_text
     assert "resolveApiBase(ctx)" in planning_text
     assert "viewHref," in app_text

@@ -27,6 +27,8 @@ export function renderPMDashboardSummarySection({
   unassignedSubcomponentsCount,
   overdueTotal,
   dueSoonTotal,
+  staleTotal,
+  staleStatusDays,
   totalGap,
   totalAllocated,
   totalCapacity,
@@ -46,12 +48,12 @@ export function renderPMDashboardSummarySection({
       <div class="pm-kpi-meta">Composite risk-adjusted score</div>
     </article>
     <article class="pm-kpi-card">
-      <div class="pm-kpi-label">Active Solutions</div>
+      <div class="pm-kpi-label">Active Workstreams</div>
       <div class="pm-kpi-value">${activeSolutionsCount}</div>
       <div class="pm-kpi-meta">${atRiskSolutions} currently at risk</div>
     </article>
     <article class="pm-kpi-card">
-      <div class="pm-kpi-label">Open Tasks</div>
+      <div class="pm-kpi-label">Open Deliverables</div>
       <div class="pm-kpi-value">${activeSubcomponentsCount}</div>
       <div class="pm-kpi-meta">${blockedSubcomponentsCount} blocked, ${unassignedSubcomponentsCount} unassigned</div>
     </article>
@@ -61,6 +63,11 @@ export function renderPMDashboardSummarySection({
       <div class="pm-kpi-meta">${overdueTotal} overdue, ${dueSoonTotal} due in 14 days</div>
     </article>
     <article class="pm-kpi-card">
+      <div class="pm-kpi-label">Status Freshness</div>
+      <div class="pm-kpi-value ${staleTotal > 0 ? "warn" : "positive"}">${staleTotal}</div>
+      <div class="pm-kpi-meta">${staleTotal > 0 ? `Records older than ${staleStatusDays} days` : "No stale active records"}</div>
+    </article>
+    <article class="pm-kpi-card">
       <div class="pm-kpi-label">Capacity Gap</div>
       <div class="pm-kpi-value ${totalGap < 0 ? "danger" : "positive"}">${totalGap >= 0 ? "+" : "-"}${formatFteValue(Math.abs(totalGap), formatFte)}</div>
       <div class="pm-kpi-meta">${formatFteValue(totalAllocated, formatFte)} allocated / ${formatFteValue(totalCapacity, formatFte)} capacity</div>
@@ -68,7 +75,7 @@ export function renderPMDashboardSummarySection({
     <article class="pm-kpi-card">
       <div class="pm-kpi-label">Throughput (This Month)</div>
       <div class="pm-kpi-value">${completionsThisMonth}</div>
-      <div class="pm-kpi-meta">Completed solutions + tasks</div>
+      <div class="pm-kpi-meta">Completed work items</div>
     </article>
   `;
 }
@@ -86,6 +93,7 @@ export function renderPMDashboardHealthSection({ els, projectSummaries, hrefFor 
         summary.redCount ? `<span class="pill danger">Red ${summary.redCount}</span>` : "",
         summary.amberCount ? `<span class="pill warn">Amber ${summary.amberCount}</span>` : "",
         summary.overdueCount ? `<span class="pill danger">Overdue ${summary.overdueCount}</span>` : "",
+        summary.staleCount ? `<span class="pill warn">Stale ${summary.staleCount}</span>` : "",
         summary.blockedCount ? `<span class="pill warn">Blocked ${summary.blockedCount}</span>` : "",
       ].filter(Boolean).join(" ");
       return `<tr>
@@ -100,12 +108,12 @@ export function renderPMDashboardHealthSection({ els, projectSummaries, hrefFor 
   els.pmDashboardHealth.innerHTML = `
     <div class="pm-card-header">
       <h3>Project Health</h3>
-      <a href="${esc(hrefFor("master"))}" class="pm-card-link">Deliverables</a>
+      <a href="${esc(hrefFor("master"))}" class="pm-card-link">Work List</a>
     </div>
     <div class="table pm-table-wrap">
       <table>
         <thead>
-          <tr><th>Project</th><th>Health</th><th>Open Sol.</th><th>Open Tasks</th><th>Hotspots</th></tr>
+          <tr><th>Project</th><th>Health</th><th>Open Workstreams</th><th>Open Deliverables</th><th>Hotspots</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -132,8 +140,8 @@ export function renderPMDashboardRiskSection({ els, solutionRiskRows, hrefFor })
       <a href="${esc(hrefFor("master"))}" class="pm-card-link">Update Status</a>
     </div>
     ${rows
-      ? `<div class="table pm-table-wrap"><table><thead><tr><th>Solution</th><th>Risk</th><th>Owner</th><th>Due</th><th>Signals</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : "<p class='muted'>No elevated solution risks detected.</p>"
+      ? `<div class="table pm-table-wrap"><table><thead><tr><th>Workstream</th><th>Risk</th><th>Owner</th><th>Due</th><th>Signals</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : "<p class='muted'>No elevated workstream risks detected.</p>"
     }
   `;
 }
@@ -219,7 +227,7 @@ export function renderPMDashboardCapacitySection({
       </div>
     </div>
     <p class="muted">${esc(capacityScopeLabel)}</p>
-    <p class="muted">Source: Planning task assignments only.</p>
+    <p class="muted">Source: Planning deliverable assignments only.</p>
     <div class="pm-capacity-summary">
       <div><span>Total Capacity</span><strong>${formatFteValue(totalCapacity, formatFte)} FTE-mo</strong></div>
       <div><span>Allocated</span><strong>${formatFteValue(totalAllocated, formatFte)} FTE-mo</strong></div>
@@ -268,16 +276,16 @@ export function renderPMDashboardStatusSection({
     </div>
     <div class="pm-status-grid">
       <section>
-        <h4>Solutions by Status</h4>
+        <h4>Workstreams by Status</h4>
         <ul class="pm-status-list">${renderStatusRows(solutionStatusCounts, solutionTotal, SOLUTION_STATUS_ORDER)}</ul>
       </section>
       <section>
-        <h4>Tasks by Status</h4>
+        <h4>Deliverables by Status</h4>
         <ul class="pm-status-list">${renderStatusRows(subcomponentStatusCounts, subcomponentTotal, SUBCOMPONENT_STATUS_ORDER)}</ul>
       </section>
     </div>
-    <h4>Active Solution RAG Mix</h4>
-    <div class="pm-rag-stack" role="img" aria-label="RAG distribution for active solutions">
+    <h4>Active Workstream RAG Mix</h4>
+    <div class="pm-rag-stack" role="img" aria-label="RAG distribution for active workstreams">
       <span class="rag-red" style="width:${Math.round((ragCounts.red / ragTotal) * 100)}%;"></span>
       <span class="rag-amber" style="width:${Math.round((ragCounts.amber / ragTotal) * 100)}%;"></span>
       <span class="rag-green" style="width:${Math.round((ragCounts.green / ragTotal) * 100)}%;"></span>
@@ -310,9 +318,9 @@ export function renderPMDashboardActionsSection({ els, actions, hrefFor }) {
     </div>
     <ul class="pm-actions-list">${actionRows}</ul>
     <div class="pm-quick-links">
-      <a href="${esc(hrefFor("master"))}">Deliverables</a>
+      <a href="${esc(hrefFor("master"))}">Work List</a>
       <a href="${esc(hrefFor("planning"))}">Planning</a>
-      <a href="${esc(hrefFor("subcomponents-workbench"))}">Subcomponents</a>
+      <a href="${esc(hrefFor("subcomponents-workbench"))}">Deliverables</a>
       <a href="${esc(hrefFor("calendar"))}">Calendar</a>
     </div>
   `;

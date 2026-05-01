@@ -236,6 +236,7 @@ export function createTopbarCreateController({
   return {
     bindSubcomponentCreatePicker,
     bindTopbarCreateMenu,
+    closeTopbarCreateMenu,
     closeSubcomponentCreatePicker,
   };
 }

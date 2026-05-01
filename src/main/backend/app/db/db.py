@@ -75,6 +75,7 @@ def _build_engine():
             0,
         ),
         pool_pre_ping=_env_bool("SIPM_DB_POOL_PRE_PING", True),
+        pool_use_lifo=_env_bool("SIPM_DB_POOL_USE_LIFO", False),
     )
 
 
@@ -115,6 +116,22 @@ def check_db_connection() -> None:
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
         connection.commit()
+
+
+def warm_db_pool(connection_count: int = 1) -> None:
+    if connection_count < 1:
+        raise RuntimeError("connection_count must be >= 1.")
+    _ensure_session_local()
+    connections = []
+    try:
+        for _ in range(connection_count):
+            connection = engine.connect()
+            connection.execute(text("SELECT 1"))
+            connection.commit()
+            connections.append(connection)
+    finally:
+        while connections:
+            connections.pop().close()
 
 
 def get_session():

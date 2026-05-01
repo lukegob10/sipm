@@ -3,13 +3,11 @@ from __future__ import annotations
 import json
 import math
 import os
-from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta, timezone
-from statistics import median
 from typing import Iterable, Optional
 
 from fastapi import Query
-from sqlalchemy import inspect
+from sqlalchemy import case, func, inspect, literal, or_, select, union
 
 from ..db.table_names import physical_table_name
 from ..models import PerformanceSample, UsageEvent
@@ -21,6 +19,7 @@ _MAX_BATCH_SIZE = 100
 _MAX_DETAILS_BYTES = 1024
 _MAX_DETAIL_VALUE_LENGTH = 160
 _MAX_DURATION_MS = 24 * 60 * 60 * 1000
+_FAILURE_OUTCOMES = ("failure", "timeout", "server_error")
 
 ALLOWED_EVENT_CATEGORIES = {"lifecycle", "navigation", "workflow", "operations"}
 ALLOWED_FEATURE_KEYS = {
@@ -246,153 +245,290 @@ def analytics_scope_read(*, days: int, all_spaces: bool, scope_space_id: str | N
     }
 
 
-def _query_events(session, *, since: datetime, scope_space_id: str | None) -> list[UsageEvent]:
-    query = session.query(UsageEvent).filter(UsageEvent.occurred_at >= since)
+def _base_filters(model, *, since: datetime, scope_space_id: str | None) -> list:
+    filters = [model.occurred_at >= since]
     if scope_space_id:
-        query = query.filter(UsageEvent.space_id == scope_space_id)
-    return query.order_by(UsageEvent.occurred_at.asc()).all()
+        filters.append(model.space_id == scope_space_id)
+    return filters
 
 
-def _query_samples(session, *, since: datetime, scope_space_id: str | None) -> list[PerformanceSample]:
-    query = session.query(PerformanceSample).filter(PerformanceSample.occurred_at >= since)
-    if scope_space_id:
-        query = query.filter(PerformanceSample.space_id == scope_space_id)
-    return query.order_by(PerformanceSample.occurred_at.asc()).all()
+def _date_bucket_expr(session, value):
+    dialect_name = session.get_bind().dialect.name
+    if dialect_name == "oracle":
+        return func.trunc(value)
+    return func.date(value)
 
 
-def _percentile(values: Iterable[int | float], ratio: float) -> Optional[int]:
-    ordered = sorted(float(value) for value in values if value is not None)
-    if not ordered:
+def _bucket_to_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.fromisoformat(str(value)[:10]).date()
+
+
+def _int_value(value: object) -> int:
+    return int(value or 0)
+
+
+def _optional_int_value(value: object) -> Optional[int]:
+    if value is None:
         return None
-    if len(ordered) == 1:
-        return int(round(ordered[0]))
-    idx = max(int(math.ceil(len(ordered) * ratio)) - 1, 0)
-    return int(round(ordered[min(idx, len(ordered) - 1)]))
+    return int(round(float(value)))
 
 
-def _median(values: Iterable[int | float]) -> Optional[int]:
-    ordered = [float(value) for value in values if value is not None]
-    if not ordered:
+def _optional_float_value(value: object) -> Optional[float]:
+    if value is None:
         return None
-    return int(round(median(ordered)))
+    return round(float(value), 4)
 
 
-def _mean(values: Iterable[int | float]) -> Optional[float]:
-    ordered = [float(value) for value in values if value is not None]
-    if not ordered:
-        return None
-    return round(sum(ordered) / len(ordered), 4)
+def _sample_load_expr():
+    return case(
+        (
+            PerformanceSample.sample_kind == "route_transition",
+            case(
+                (
+                    PerformanceSample.data_load_ms.is_(None) & PerformanceSample.render_ms.is_(None),
+                    None,
+                ),
+                else_=func.coalesce(PerformanceSample.data_load_ms, 0)
+                + func.coalesce(PerformanceSample.render_ms, 0),
+            ),
+        ),
+        else_=PerformanceSample.load_event_ms,
+    )
 
 
-def _event_is_failure(event: UsageEvent) -> bool:
-    return str(event.outcome or "").lower() in {"failure", "timeout", "server_error"}
+def _event_count(session, *, since: datetime, scope_space_id: str | None, extra_filters: Iterable = ()) -> int:
+    filters = [*_base_filters(UsageEvent, since=since, scope_space_id=scope_space_id), *extra_filters]
+    value = session.execute(select(func.count()).select_from(UsageEvent).where(*filters)).scalar()
+    return _int_value(value)
 
 
-def _sample_load_value(sample: PerformanceSample) -> Optional[int]:
-    if sample.sample_kind == "route_transition":
-        if sample.data_load_ms is None and sample.render_ms is None:
-            return None
-        return int(sample.data_load_ms or 0) + int(sample.render_ms or 0)
-    return sample.load_event_ms
+def _distinct_token_count(session, *, token_name: str, since: datetime, scope_space_id: str | None) -> int:
+    event_token = getattr(UsageEvent, token_name)
+    sample_token = getattr(PerformanceSample, token_name)
+    event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
+    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    tokens = union(
+        select(event_token.label("token")).where(*event_filters, event_token.isnot(None), event_token != ""),
+        select(sample_token.label("token")).where(*sample_filters, sample_token.isnot(None), sample_token != ""),
+    ).subquery()
+    value = session.execute(select(func.count()).select_from(tokens)).scalar()
+    return _int_value(value)
 
 
-def _date_bucket(value: datetime) -> date:
-    return value.date()
+def _daily_distinct_token_counts(
+    session,
+    *,
+    token_name: str,
+    since: datetime,
+    scope_space_id: str | None,
+) -> dict[date, int]:
+    event_token = getattr(UsageEvent, token_name)
+    sample_token = getattr(PerformanceSample, token_name)
+    event_bucket = _date_bucket_expr(session, UsageEvent.occurred_at).label("bucket")
+    sample_bucket = _date_bucket_expr(session, PerformanceSample.occurred_at).label("bucket")
+    event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
+    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    tokens = union(
+        select(event_bucket, event_token.label("token")).where(
+            *event_filters,
+            event_token.isnot(None),
+            event_token != "",
+        ),
+        select(sample_bucket, sample_token.label("token")).where(
+            *sample_filters,
+            sample_token.isnot(None),
+            sample_token != "",
+        ),
+    ).subquery()
+    rows = session.execute(
+        select(tokens.c.bucket, func.count().label("total")).group_by(tokens.c.bucket)
+    ).all()
+    return {_bucket_to_date(row.bucket): _int_value(row.total) for row in rows}
+
+
+def _daily_event_counts(session, *, since: datetime, scope_space_id: str | None) -> dict[date, dict[str, int]]:
+    bucket = _date_bucket_expr(session, UsageEvent.occurred_at).label("bucket")
+    filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
+    route_views_expr = func.coalesce(
+        func.sum(case((UsageEvent.action_key == "route_view", 1), else_=0)),
+        0,
+    )
+    workflow_expr = func.coalesce(
+        func.sum(case((UsageEvent.category == "workflow", 1), else_=0)),
+        0,
+    )
+    failure_expr = func.coalesce(
+        func.sum(case((UsageEvent.outcome.in_(_FAILURE_OUTCOMES), 1), else_=0)),
+        0,
+    )
+    rows = session.execute(
+        select(
+            bucket,
+            route_views_expr.label("route_views"),
+            workflow_expr.label("workflow_actions"),
+            failure_expr.label("failure_count"),
+        )
+        .where(*filters)
+        .group_by(bucket)
+    ).all()
+    return {
+        _bucket_to_date(row.bucket): {
+            "route_views": _int_value(row.route_views),
+            "workflow_actions": _int_value(row.workflow_actions),
+            "failure_count": _int_value(row.failure_count),
+        }
+        for row in rows
+    }
+
+
+def _ranked_metric_stats_by_group(
+    session,
+    *,
+    group_expr,
+    metric_expr,
+    filters: Iterable,
+) -> dict[object, dict[str, Optional[int]]]:
+    base = (
+        select(group_expr.label("group_key"), metric_expr.label("metric_value"))
+        .where(*filters, metric_expr.isnot(None))
+        .subquery()
+    )
+    ranked = select(
+        base.c.group_key,
+        base.c.metric_value,
+        func.row_number()
+        .over(partition_by=base.c.group_key, order_by=base.c.metric_value)
+        .label("rn"),
+        func.count().over(partition_by=base.c.group_key).label("cnt"),
+    ).subquery()
+
+    median_low_rank = func.floor((ranked.c.cnt + 1) / 2)
+    median_high_rank = func.floor((ranked.c.cnt + 2) / 2)
+    median_condition = or_(
+        ranked.c.rn == median_low_rank,
+        ranked.c.rn == median_high_rank,
+    )
+    p95_rank = func.ceil((ranked.c.cnt * 95) / 100)
+
+    rows = session.execute(
+        select(
+            ranked.c.group_key,
+            func.round(
+                func.avg(case((median_condition, ranked.c.metric_value), else_=None))
+            ).label("median_value"),
+            func.round(
+                func.max(case((ranked.c.rn == p95_rank, ranked.c.metric_value), else_=None))
+            ).label("p95_value"),
+        )
+        .group_by(ranked.c.group_key)
+    ).all()
+    return {
+        row.group_key: {
+            "median": _optional_int_value(row.median_value),
+            "p95": _optional_int_value(row.p95_value),
+        }
+        for row in rows
+    }
 
 
 def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     since = analytics_window_start(days)
-    events = _query_events(session, since=since, scope_space_id=scope_space_id)
-    samples = _query_samples(session, since=since, scope_space_id=scope_space_id)
-
-    unique_sessions = {
-        str(token).strip()
-        for token in [*(event.session_id for event in events), *(sample.session_id for sample in samples)]
-        if str(token or "").strip()
+    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    load_expr = _sample_load_expr()
+    overall_load_stats = _ranked_metric_stats_by_group(
+        session,
+        group_expr=literal("all"),
+        metric_expr=load_expr,
+        filters=sample_filters,
+    ).get("all", {})
+    raw_daily_load_stats = _ranked_metric_stats_by_group(
+        session,
+        group_expr=_date_bucket_expr(session, PerformanceSample.occurred_at),
+        metric_expr=load_expr,
+        filters=sample_filters,
+    )
+    daily_load_stats = {
+        _bucket_to_date(bucket): stats
+        for bucket, stats in raw_daily_load_stats.items()
     }
-    unique_users = {
-        str(token).strip()
-        for token in [*(event.user_id for event in events), *(sample.user_id for sample in samples)]
-        if str(token or "").strip()
-    }
-    route_views = [event for event in events if event.action_key == "route_view"]
-    workflow_events = [event for event in events if event.category == "workflow"]
-    failure_events = [event for event in events if _event_is_failure(event)]
-    load_values = [_sample_load_value(sample) for sample in samples]
+    daily_event_counts = _daily_event_counts(session, since=since, scope_space_id=scope_space_id)
+    daily_session_counts = _daily_distinct_token_counts(
+        session,
+        token_name="session_id",
+        since=since,
+        scope_space_id=scope_space_id,
+    )
+    daily_user_counts = _daily_distinct_token_counts(
+        session,
+        token_name="user_id",
+        since=since,
+        scope_space_id=scope_space_id,
+    )
 
-    by_day: dict[date, dict[str, object]] = {}
-    for offset in range(days):
-        bucket = (since + timedelta(days=offset)).date()
-        by_day[bucket] = {
-            "sessions": set(),
-            "active_users": set(),
-            "route_views": 0,
-            "workflow_actions": 0,
-            "failure_count": 0,
-            "load_values": [],
-        }
-
-    for event in events:
-        bucket = by_day.setdefault(_date_bucket(event.occurred_at), {
-            "sessions": set(),
-            "active_users": set(),
-            "route_views": 0,
-            "workflow_actions": 0,
-            "failure_count": 0,
-            "load_values": [],
-        })
-        if event.session_id:
-            bucket["sessions"].add(event.session_id)
-        if event.user_id:
-            bucket["active_users"].add(event.user_id)
-        if event.action_key == "route_view":
-            bucket["route_views"] += 1
-        if event.category == "workflow":
-            bucket["workflow_actions"] += 1
-        if _event_is_failure(event):
-            bucket["failure_count"] += 1
-
-    for sample in samples:
-        bucket = by_day.setdefault(_date_bucket(sample.occurred_at), {
-            "sessions": set(),
-            "active_users": set(),
-            "route_views": 0,
-            "workflow_actions": 0,
-            "failure_count": 0,
-            "load_values": [],
-        })
-        if sample.session_id:
-            bucket["sessions"].add(sample.session_id)
-        if sample.user_id:
-            bucket["active_users"].add(sample.user_id)
-        load_value = _sample_load_value(sample)
-        if load_value is not None:
-            bucket["load_values"].append(load_value)
-
+    window_days = {(since + timedelta(days=offset)).date() for offset in range(days)}
+    daily_dates = sorted(
+        window_days
+        | set(daily_event_counts)
+        | set(daily_session_counts)
+        | set(daily_user_counts)
+        | set(daily_load_stats)
+    )
     daily = []
-    for bucket_date in sorted(by_day):
-        bucket = by_day[bucket_date]
-        daily.append({
-            "date": bucket_date.isoformat(),
-            "sessions": len(bucket["sessions"]),
-            "active_users": len(bucket["active_users"]),
-            "route_views": int(bucket["route_views"]),
-            "workflow_actions": int(bucket["workflow_actions"]),
-            "failure_count": int(bucket["failure_count"]),
-            "median_load_ms": _median(bucket["load_values"]),
-            "p95_load_ms": _percentile(bucket["load_values"], 0.95),
-        })
+    for bucket_date in daily_dates:
+        event_counts = daily_event_counts.get(bucket_date, {})
+        load_stats = daily_load_stats.get(bucket_date, {})
+        daily.append(
+            {
+                "date": bucket_date.isoformat(),
+                "sessions": daily_session_counts.get(bucket_date, 0),
+                "active_users": daily_user_counts.get(bucket_date, 0),
+                "route_views": event_counts.get("route_views", 0),
+                "workflow_actions": event_counts.get("workflow_actions", 0),
+                "failure_count": event_counts.get("failure_count", 0),
+                "median_load_ms": load_stats.get("median"),
+                "p95_load_ms": load_stats.get("p95"),
+            }
+        )
 
     return {
         **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
         "summary": {
-            "sessions": len(unique_sessions),
-            "active_users": len(unique_users),
-            "route_views": len(route_views),
-            "workflow_actions": len(workflow_events),
-            "failure_count": len(failure_events),
-            "median_load_ms": _median(load_values),
-            "p95_load_ms": _percentile(load_values, 0.95),
+            "sessions": _distinct_token_count(
+                session,
+                token_name="session_id",
+                since=since,
+                scope_space_id=scope_space_id,
+            ),
+            "active_users": _distinct_token_count(
+                session,
+                token_name="user_id",
+                since=since,
+                scope_space_id=scope_space_id,
+            ),
+            "route_views": _event_count(
+                session,
+                since=since,
+                scope_space_id=scope_space_id,
+                extra_filters=(UsageEvent.action_key == "route_view",),
+            ),
+            "workflow_actions": _event_count(
+                session,
+                since=since,
+                scope_space_id=scope_space_id,
+                extra_filters=(UsageEvent.category == "workflow",),
+            ),
+            "failure_count": _event_count(
+                session,
+                since=since,
+                scope_space_id=scope_space_id,
+                extra_filters=(UsageEvent.outcome.in_(_FAILURE_OUTCOMES),),
+            ),
+            "median_load_ms": overall_load_stats.get("median"),
+            "p95_load_ms": overall_load_stats.get("p95"),
         },
         "daily": daily,
     }
@@ -400,91 +536,111 @@ def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_i
 
 def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     since = analytics_window_start(days)
-    events = _query_events(session, since=since, scope_space_id=scope_space_id)
-
-    route_groups: dict[str, dict[str, object]] = defaultdict(lambda: {
-        "route_views": 0,
-        "sessions": set(),
-        "users": set(),
-        "failures": 0,
-    })
-    workflow_groups: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {
-        "total": 0,
-        "success_count": 0,
-        "failure_count": 0,
-    })
-    failure_groups: dict[tuple[str, str, str], dict[str, object]] = defaultdict(lambda: {
-        "failure_count": 0,
-        "last_occurred_at": None,
-    })
-
-    for event in events:
-        if event.action_key == "route_view":
-            route_group = route_groups[event.view_key]
-            route_group["route_views"] += 1
-            if event.session_id:
-                route_group["sessions"].add(event.session_id)
-            if event.user_id:
-                route_group["users"].add(event.user_id)
-        if event.category == "workflow":
-            workflow_group = workflow_groups[(event.feature_key, event.action_key)]
-            workflow_group["total"] += 1
-            if _event_is_failure(event):
-                workflow_group["failure_count"] += 1
-            elif event.outcome == "success":
-                workflow_group["success_count"] += 1
-        if _event_is_failure(event):
-            route_groups[event.view_key]["failures"] += 1
-            failure_group = failure_groups[(event.view_key, event.feature_key, event.action_key)]
-            failure_group["failure_count"] += 1
-            last_seen = failure_group["last_occurred_at"]
-            if last_seen is None or event.occurred_at > last_seen:
-                failure_group["last_occurred_at"] = event.occurred_at
-
-    top_routes = sorted(
-        (
-            {
-                "view_key": view_key,
-                "route_views": int(values["route_views"]),
-                "unique_sessions": len(values["sessions"]),
-                "active_users": len(values["users"]),
-                "failure_count": int(values["failures"]),
-            }
-            for view_key, values in route_groups.items()
-        ),
-        key=lambda row: (-row["route_views"], row["view_key"]),
-    )[:10]
-
-    top_workflows = sorted(
-        (
-            {
-                "feature_key": feature_key,
-                "action_key": action_key,
-                "total": values["total"],
-                "success_count": values["success_count"],
-                "failure_count": values["failure_count"],
-            }
-            for (feature_key, action_key), values in workflow_groups.items()
-        ),
-        key=lambda row: (-row["total"], row["feature_key"], row["action_key"]),
-    )[:10]
-
-    recent_failures = sorted(
-        (
-            {
-                "view_key": view_key,
-                "feature_key": feature_key,
-                "action_key": action_key,
-                "failure_count": values["failure_count"],
-                "last_occurred_at": values["last_occurred_at"],
-            }
-            for (view_key, feature_key, action_key), values in failure_groups.items()
-            if values["last_occurred_at"] is not None
-        ),
-        key=lambda row: (-row["failure_count"], row["last_occurred_at"]),
-        reverse=False,
+    filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
+    route_views_expr = func.coalesce(
+        func.sum(case((UsageEvent.action_key == "route_view", 1), else_=0)),
+        0,
     )
-    recent_failures.sort(key=lambda row: (row["last_occurred_at"], row["failure_count"]), reverse=True)
+    route_failure_expr = func.coalesce(
+        func.sum(case((UsageEvent.outcome.in_(_FAILURE_OUTCOMES), 1), else_=0)),
+        0,
+    )
+    top_route_rows = session.execute(
+        select(
+            UsageEvent.view_key.label("view_key"),
+            route_views_expr.label("route_views"),
+            func.count(
+                func.distinct(
+                    case((UsageEvent.action_key == "route_view", UsageEvent.session_id), else_=None)
+                )
+            ).label("unique_sessions"),
+            func.count(
+                func.distinct(
+                    case((UsageEvent.action_key == "route_view", UsageEvent.user_id), else_=None)
+                )
+            ).label("active_users"),
+            route_failure_expr.label("failure_count"),
+        )
+        .where(
+            *filters,
+            or_(
+                UsageEvent.action_key == "route_view",
+                UsageEvent.outcome.in_(_FAILURE_OUTCOMES),
+            ),
+        )
+        .group_by(UsageEvent.view_key)
+        .order_by(route_views_expr.desc(), UsageEvent.view_key.asc())
+        .limit(10)
+    ).all()
+    top_routes = [
+        {
+            "view_key": row.view_key,
+            "route_views": _int_value(row.route_views),
+            "unique_sessions": _int_value(row.unique_sessions),
+            "active_users": _int_value(row.active_users),
+            "failure_count": _int_value(row.failure_count),
+        }
+        for row in top_route_rows
+    ]
+
+    workflow_total_expr = func.count()
+    workflow_success_expr = func.coalesce(
+        func.sum(case((UsageEvent.outcome == "success", 1), else_=0)),
+        0,
+    )
+    workflow_failure_expr = func.coalesce(
+        func.sum(case((UsageEvent.outcome.in_(_FAILURE_OUTCOMES), 1), else_=0)),
+        0,
+    )
+    workflow_rows = session.execute(
+        select(
+            UsageEvent.feature_key.label("feature_key"),
+            UsageEvent.action_key.label("action_key"),
+            workflow_total_expr.label("total"),
+            workflow_success_expr.label("success_count"),
+            workflow_failure_expr.label("failure_count"),
+        )
+        .where(*filters, UsageEvent.category == "workflow")
+        .group_by(UsageEvent.feature_key, UsageEvent.action_key)
+        .order_by(workflow_total_expr.desc(), UsageEvent.feature_key.asc(), UsageEvent.action_key.asc())
+        .limit(10)
+    ).all()
+    top_workflows = [
+        {
+            "feature_key": row.feature_key,
+            "action_key": row.action_key,
+            "total": _int_value(row.total),
+            "success_count": _int_value(row.success_count),
+            "failure_count": _int_value(row.failure_count),
+        }
+        for row in workflow_rows
+    ]
+
+    failure_count_expr = func.count()
+    last_seen_expr = func.max(UsageEvent.occurred_at)
+    failure_rows = session.execute(
+        select(
+            UsageEvent.view_key.label("view_key"),
+            UsageEvent.feature_key.label("feature_key"),
+            UsageEvent.action_key.label("action_key"),
+            failure_count_expr.label("failure_count"),
+            last_seen_expr.label("last_occurred_at"),
+        )
+        .where(*filters, UsageEvent.outcome.in_(_FAILURE_OUTCOMES))
+        .group_by(UsageEvent.view_key, UsageEvent.feature_key, UsageEvent.action_key)
+        .order_by(last_seen_expr.desc(), failure_count_expr.desc())
+        .limit(10)
+    ).all()
+    recent_failures = [
+        {
+            "view_key": row.view_key,
+            "feature_key": row.feature_key,
+            "action_key": row.action_key,
+            "failure_count": _int_value(row.failure_count),
+            "last_occurred_at": row.last_occurred_at,
+        }
+        for row in failure_rows
+    ]
 
     return {
         **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
@@ -496,48 +652,99 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
 
 def build_performance_stats_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     since = analytics_window_start(days)
-    samples = _query_samples(session, since=since, scope_space_id=scope_space_id)
+    filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    kind_rows = session.execute(
+        select(PerformanceSample.sample_kind, func.count().label("total"))
+        .where(*filters)
+        .group_by(PerformanceSample.sample_kind)
+    ).all()
+    kind_counts = {row.sample_kind: _int_value(row.total) for row in kind_rows}
+    load_expr = _sample_load_expr()
+    total_load_stats = _ranked_metric_stats_by_group(
+        session,
+        group_expr=literal("all"),
+        metric_expr=load_expr,
+        filters=filters,
+    ).get("all", {})
 
-    route_groups: dict[str, list[PerformanceSample]] = defaultdict(list)
-    navigation_count = 0
-    route_transition_count = 0
-    total_load_values = []
-    for sample in samples:
-        route_groups[sample.view_key].append(sample)
-        if sample.sample_kind == "navigation":
-            navigation_count += 1
-        if sample.sample_kind == "route_transition":
-            route_transition_count += 1
-        load_value = _sample_load_value(sample)
-        if load_value is not None:
-            total_load_values.append(load_value)
+    route_rows = session.execute(
+        select(
+            PerformanceSample.view_key.label("view_key"),
+            func.count().label("sample_count"),
+            func.avg(PerformanceSample.cls_score).label("avg_cls_score"),
+            func.coalesce(func.sum(func.coalesce(PerformanceSample.long_task_count, 0)), 0).label("long_task_count"),
+        )
+        .where(*filters)
+        .group_by(PerformanceSample.view_key)
+    ).all()
+    route_groups = {
+        row.view_key: {
+            "view_key": row.view_key,
+            "sample_count": _int_value(row.sample_count),
+            "avg_cls_score": _optional_float_value(row.avg_cls_score),
+            "long_task_count": _int_value(row.long_task_count),
+        }
+        for row in route_rows
+    }
+
+    load_stats_by_route = _ranked_metric_stats_by_group(
+        session,
+        group_expr=PerformanceSample.view_key,
+        metric_expr=load_expr,
+        filters=filters,
+    )
+    data_stats_by_route = _ranked_metric_stats_by_group(
+        session,
+        group_expr=PerformanceSample.view_key,
+        metric_expr=PerformanceSample.data_load_ms,
+        filters=filters,
+    )
+    render_stats_by_route = _ranked_metric_stats_by_group(
+        session,
+        group_expr=PerformanceSample.view_key,
+        metric_expr=PerformanceSample.render_ms,
+        filters=filters,
+    )
+    fcp_stats_by_route = _ranked_metric_stats_by_group(
+        session,
+        group_expr=PerformanceSample.view_key,
+        metric_expr=PerformanceSample.first_contentful_paint_ms,
+        filters=filters,
+    )
+    lcp_stats_by_route = _ranked_metric_stats_by_group(
+        session,
+        group_expr=PerformanceSample.view_key,
+        metric_expr=PerformanceSample.largest_contentful_paint_ms,
+        filters=filters,
+    )
 
     routes = []
-    for view_key, route_samples in route_groups.items():
-        load_values = [_sample_load_value(sample) for sample in route_samples]
+    for view_key, route in route_groups.items():
+        load_stats = load_stats_by_route.get(view_key, {})
+        data_stats = data_stats_by_route.get(view_key, {})
+        render_stats = render_stats_by_route.get(view_key, {})
+        fcp_stats = fcp_stats_by_route.get(view_key, {})
+        lcp_stats = lcp_stats_by_route.get(view_key, {})
         routes.append({
-            "view_key": view_key,
-            "sample_count": len(route_samples),
-            "median_load_ms": _median(load_values),
-            "p95_load_ms": _percentile(load_values, 0.95),
-            "median_data_load_ms": _median(sample.data_load_ms for sample in route_samples),
-            "p95_data_load_ms": _percentile((sample.data_load_ms for sample in route_samples), 0.95),
-            "median_render_ms": _median(sample.render_ms for sample in route_samples),
-            "p95_render_ms": _percentile((sample.render_ms for sample in route_samples), 0.95),
-            "median_first_contentful_paint_ms": _median(sample.first_contentful_paint_ms for sample in route_samples),
-            "p95_largest_contentful_paint_ms": _percentile((sample.largest_contentful_paint_ms for sample in route_samples), 0.95),
-            "avg_cls_score": _mean(sample.cls_score for sample in route_samples),
-            "long_task_count": sum(int(sample.long_task_count or 0) for sample in route_samples),
+            **route,
+            "median_load_ms": load_stats.get("median"),
+            "p95_load_ms": load_stats.get("p95"),
+            "median_data_load_ms": data_stats.get("median"),
+            "p95_data_load_ms": data_stats.get("p95"),
+            "median_render_ms": render_stats.get("median"),
+            "p95_render_ms": render_stats.get("p95"),
+            "median_first_contentful_paint_ms": fcp_stats.get("median"),
+            "p95_largest_contentful_paint_ms": lcp_stats.get("p95"),
         })
     routes.sort(key=lambda row: (-(row["p95_load_ms"] or 0), row["view_key"]))
 
     return {
         **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
         "summary": {
-            "navigation_samples": navigation_count,
-            "route_transition_samples": route_transition_count,
-            "median_load_ms": _median(total_load_values),
-            "p95_load_ms": _percentile(total_load_values, 0.95),
+            "navigation_samples": kind_counts.get("navigation", 0),
+            "route_transition_samples": kind_counts.get("route_transition", 0),
+            "median_load_ms": total_load_stats.get("median"),
+            "p95_load_ms": total_load_stats.get("p95"),
         },
         "routes": routes[:10],
     }

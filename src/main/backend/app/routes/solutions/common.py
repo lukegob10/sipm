@@ -86,6 +86,40 @@ def _parse_rag_status(raw: Optional[str]) -> Optional[RagStatus]:
     raise ValueError(f"invalid rag_status '{raw}', expected one of: red, amber, green")
 
 
+def _resolve_solution_owner(
+    owner_value: object | None,
+    owner_user_soeid_value: object | None,
+    current_user: object,
+) -> tuple[str, str | None]:
+    display_name = normalize_str(getattr(current_user, "display_name", None))
+    current_soeid = normalize_str(getattr(current_user, "soeid", None))
+    owner = normalize_str(owner_value) or display_name or current_soeid or ""
+    owner_user_soeid = normalize_str(owner_user_soeid_value) or None
+    if owner_user_soeid is None and current_soeid and owner in {display_name, current_soeid}:
+        owner_user_soeid = current_soeid
+    return owner, owner_user_soeid
+
+
+def _resolve_solution_assignee(
+    assignee_value: object | None,
+    assignee_user_soeid_value: object | None,
+    *,
+    owner: str,
+    owner_user_soeid: str | None,
+    current_user: object,
+) -> tuple[str, str | None]:
+    display_name = normalize_str(getattr(current_user, "display_name", None))
+    current_soeid = normalize_str(getattr(current_user, "soeid", None))
+    assignee = normalize_str(assignee_value) or owner
+    assignee_user_soeid = normalize_str(assignee_user_soeid_value) or None
+    if assignee_user_soeid is None:
+        if owner_user_soeid and assignee == owner:
+            assignee_user_soeid = owner_user_soeid
+        elif current_soeid and assignee in {display_name, current_soeid}:
+            assignee_user_soeid = current_soeid
+    return assignee, assignee_user_soeid
+
+
 def _ensure_project_exists(session: Session, project_id: str, space_ctx: SpaceContext) -> None:
     exists = (
         session.query(Project)
@@ -210,6 +244,8 @@ __all__ = [
     "_publish_solution_deletion",
     "_publish_solution_import",
     "_publish_solution_mutation",
+    "_resolve_solution_assignee",
+    "_resolve_solution_owner",
     "_role_scope",
     "_run_enable_all_phases",
     "_solution_payload",

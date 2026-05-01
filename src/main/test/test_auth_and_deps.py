@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from backend.app import deps as deps_module
 from backend.app.auth import auth as auth_module
+from backend.app.auth import proxy_auth as proxy_auth_module
 from backend.app.auth.auth import (
     clear_auth_cookies,
     create_token,
@@ -28,6 +29,28 @@ def _encode_test_token(payload: dict[str, object]) -> str:
     return jwt.encode(payload, auth_module.SECRET_KEY, algorithm=auth_module.ALGORITHM)
 
 
+def _proxy_headers(soeid: str, *, display_name: str | None = None) -> dict[str, str]:
+    config = proxy_auth_module.load_proxy_auth_config()
+    headers = {config.soeid_header: soeid}
+    if config.name_header and display_name is not None:
+        headers[config.name_header] = display_name
+    return headers
+
+
+async def _bootstrap_proxy_session(
+    auth_client: httpx.AsyncClient,
+    *,
+    soeid: str,
+    display_name: str | None = None,
+):
+    response = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers=_proxy_headers(soeid, display_name=display_name),
+    )
+    assert response.status_code == 200, response.text
+    return response
+
+
 @pytest.fixture
 def override_db_only(db_sessionmaker):
     def get_test_db():
@@ -39,6 +62,14 @@ def override_db_only(db_sessionmaker):
         yield
     finally:
         fastapi_app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def stable_proxy_auth_env(monkeypatch):
+    monkeypatch.setenv("SIPM_PROXY_AUTH_ENABLED", "true")
+    monkeypatch.setenv("SIPM_PROXY_AUTH_SOEID_HEADER", "SM_USER")
+    monkeypatch.setenv("SIPM_PROXY_AUTH_NAME_HEADER", "name")
+    monkeypatch.setenv("SIPM_PROXY_AUTH_DEV_MOCK_ENABLED", "false")
 
 
 @pytest.fixture
@@ -353,6 +384,36 @@ def test_validate_auth_configuration_requires_secure_cookies_for_samesite_none(m
         importlib.reload(auth_module)
 
 
+def test_proxy_auth_defaults_to_sm_user_and_name_headers():
+    config = proxy_auth_module.load_proxy_auth_config()
+    assert config.soeid_header == "SM_USER"
+    assert config.name_header == "name"
+
+
+def test_validate_proxy_auth_configuration_rejects_invalid_name_header(monkeypatch):
+    with monkeypatch.context() as env:
+        env.setenv("SIPM_PROXY_AUTH_ENABLED", "true")
+        env.setenv("SIPM_PROXY_AUTH_NAME_HEADER", "bad header")
+        with pytest.raises(
+            RuntimeError,
+            match="SIPM_PROXY_AUTH_NAME_HEADER must be a valid HTTP header name.",
+        ):
+            proxy_auth_module.validate_proxy_auth_configuration()
+
+
+def test_validate_proxy_auth_configuration_rejects_dev_mock_in_non_dev(monkeypatch):
+    with monkeypatch.context() as env:
+        env.setenv("ENV", "prod")
+        env.setenv("SIPM_PROXY_AUTH_ENABLED", "true")
+        env.setenv("SIPM_PROXY_AUTH_DEV_MOCK_ENABLED", "true")
+        env.setenv("SIPM_PROXY_AUTH_DEV_MOCK_SOEID", "devuser1")
+        with pytest.raises(
+            RuntimeError,
+            match="SIPM_PROXY_AUTH_DEV_MOCK_ENABLED is only allowed in dev/test environments.",
+        ):
+            proxy_auth_module.validate_proxy_auth_configuration()
+
+
 def test_require_space_role_normalizes_space_admin_aliases():
     dep = deps_module.require_space_role("space_admin")
     ctx_space = SpaceContext(
@@ -387,17 +448,27 @@ def test_require_space_role_rejects_member_for_space_admin_threshold():
 
 
 @pytest.mark.anyio
-async def test_register_refresh_logout_and_me(auth_client):
-    payload = {"soeid": "ABC1", "display_name": "Alice", "password": "Password123"}
-    resp = await auth_client.post("/project-manager/api/auth/register", json=payload)
-    assert resp.status_code == 201, resp.text
+async def test_proxy_auth_bootstraps_session_sets_cookies_and_blocks_local_auth_routes(auth_client, db_sessionmaker):
+    resp = await _bootstrap_proxy_session(
+        auth_client,
+        soeid="ABC1",
+        display_name="Alice Proxy",
+    )
     created = resp.json()
     assert created["soeid"] == "abc1"
     assert created["email"] == "abc1@citi.com"
+    assert created["display_name"] == "Alice Proxy"
 
-    me = await auth_client.get("/project-manager/api/auth/me")
-    assert me.status_code == 200, me.text
-    assert me.json()["user_id"] == created["user_id"]
+    set_cookies = resp.headers.get_list("set-cookie")
+    assert any("access_token=" in cookie for cookie in set_cookies)
+    assert any("refresh_token=" in cookie for cookie in set_cookies)
+    assert any("active_space_id=" in cookie for cookie in set_cookies)
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "abc1").first()
+        assert user is not None
+        assert user.email == "abc1@citi.com"
+        assert user.external_id == "abc1"
 
     refresh = await auth_client.post("/project-manager/api/auth/refresh")
     assert refresh.status_code == 200, refresh.text
@@ -409,132 +480,74 @@ async def test_register_refresh_logout_and_me(auth_client):
     me_unauth = await auth_client.get("/project-manager/api/auth/me")
     assert me_unauth.status_code == 401
 
-    dup = await auth_client.post("/project-manager/api/auth/register", json=payload)
-    assert dup.status_code == 400
-    assert dup.json()["detail"] == "SOEID already registered"
+    for path, payload in [
+        ("/project-manager/api/auth/register", {"soeid": "blocked1", "display_name": "Blocked", "password": "Password123"}),
+        ("/project-manager/api/auth/login", {"soeid": "blocked1", "password": "Password123"}),
+        (
+            "/project-manager/api/auth/reset-password",
+            {
+                "soeid": "blocked1",
+                "temp_password": "temp-password",
+                "new_password": "Password123",
+                "confirm_password": "Password123",
+            },
+        ),
+    ]:
+        disabled = await auth_client.post(path, json=payload)
+        assert disabled.status_code == 410, disabled.text
+        assert disabled.json()["detail"] == "Authentication is managed by the company portal."
 
 
 @pytest.mark.anyio
-async def test_register_uses_reloaded_self_registration_setting(monkeypatch, override_db_only):
-    try:
-        with monkeypatch.context() as env:
-            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
-            importlib.reload(auth_module)
-            async with fastapi_app.router.lifespan_context(fastapi_app):
-                async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=fastapi_app),
-                    base_url="http://test",
-                ) as client:
-                    resp = await client.post(
-                        "/project-manager/api/auth/register",
-                        json={"soeid": "blocked1", "display_name": "Blocked", "password": "Password123"},
-                    )
-            assert resp.status_code == 403
-            assert resp.json()["detail"] == "Self-registration is disabled"
-    finally:
-        importlib.reload(auth_module)
-
-
-@pytest.mark.anyio
-async def test_global_admin_can_issue_temp_password_and_user_reset_with_it(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "GA2", "display_name": "Global Admin", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
-
+async def test_proxy_auth_updates_existing_user_without_overwriting_role(auth_client, db_sessionmaker):
     with db_sessionmaker() as session:
-        admin = session.query(User).filter(User.soeid == "ga2").first()
-        assert admin is not None
-        admin.role = "global_admin"
-        target = User(
-            soeid="resettarget1",
-            email="resettarget1@example.com",
-            display_name="Reset Target",
+        user = User(
+            soeid="ga2",
+            email="old-ga2@example.com",
+            display_name="Old Admin",
             password_hash=hash_password("OldPassword123"),
-            role="user",
+            role="global_admin",
             is_active=True,
         )
-        session.add_all([admin, target])
+        session.add(user)
         session.commit()
+        user_id = user.user_id
 
-    issued = await auth_client.post(
-        "/project-manager/api/users/by-soeid/resettarget1/password-reset-request",
-        json={"expires_minutes": 30},
+    resp = await _bootstrap_proxy_session(
+        auth_client,
+        soeid="GA2",
+        display_name="Global Admin",
     )
-    assert issued.status_code == 201, issued.text
-    payload = issued.json()
-    assert payload["status"] == "issued"
-    assert payload["temp_password"]
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["user_id"] == user_id
 
-    reset = await auth_client.post(
-        "/project-manager/api/auth/reset-password",
-        json={
-            "soeid": "resettarget1",
-            "temp_password": payload["temp_password"],
-            "new_password": "Password456",
-            "confirm_password": "Password456",
-        },
-    )
-    assert reset.status_code == 200, reset.text
-
-    login = await auth_client.post(
-        "/project-manager/api/auth/login",
-        json={"soeid": "resettarget1", "password": "Password456"},
-    )
-    assert login.status_code == 200, login.text
-    assert login.json()["soeid"] == "resettarget1"
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.user_id == user_id).first()
+        assert user is not None
+        assert user.role == "global_admin"
+        assert user.display_name == "Global Admin"
+        assert user.email == "ga2@citi.com"
 
 
 @pytest.mark.anyio
-async def test_reset_password_rejects_short_new_password(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "GA3", "display_name": "Global Admin", "password": "Password123"},
+async def test_proxy_auth_falls_back_to_bootstrap_when_access_cookie_is_invalid(auth_client, db_sessionmaker):
+    auth_client.cookies.set("access_token", "not-a-token")
+
+    resp = await _bootstrap_proxy_session(
+        auth_client,
+        soeid="fallback1",
+        display_name="Fallback User",
     )
-    assert register.status_code == 201, register.text
+    assert resp.json()["soeid"] == "fallback1"
 
     with db_sessionmaker() as session:
-        admin = session.query(User).filter(User.soeid == "ga3").first()
-        assert admin is not None
-        admin.role = "global_admin"
-        target = User(
-            soeid="resettargetshort1",
-            email="resettargetshort1@example.com",
-            display_name="Reset Target Short",
-            password_hash=hash_password("OldPassword123"),
-            role="user",
-            is_active=True,
-        )
-        session.add_all([admin, target])
-        session.commit()
-
-    issued = await auth_client.post(
-        "/project-manager/api/users/by-soeid/resettargetshort1/password-reset-request",
-        json={"expires_minutes": 30},
-    )
-    assert issued.status_code == 201, issued.text
-    payload = issued.json()
-
-    reset = await auth_client.post(
-        "/project-manager/api/auth/reset-password",
-        json={
-            "soeid": "resettargetshort1",
-            "temp_password": payload["temp_password"],
-            "new_password": "short",
-            "confirm_password": "short",
-        },
-    )
-    assert reset.status_code == 422, reset.text
+        user = session.query(User).filter(User.soeid == "fallback1").first()
+        assert user is not None
 
 
 @pytest.mark.anyio
 async def test_refresh_preserves_active_space_selection(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "GA1", "display_name": "Global Admin", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="GA1", display_name="Global Admin")
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "ga1").first()
@@ -566,11 +579,7 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 
 @pytest.mark.anyio
 async def test_active_space_accepts_legacy_global_admin_role_format(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "LEGACYGA1", "display_name": "Legacy Global Admin", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="LEGACYGA1", display_name="Legacy Global Admin")
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "legacyga1").first()
@@ -596,11 +605,7 @@ async def test_active_space_accepts_legacy_global_admin_role_format(auth_client,
 
 @pytest.mark.anyio
 async def test_refresh_rejects_token_issued_before_password_change(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "REVOKE1", "display_name": "Revoke User", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="REVOKE1", display_name="Revoke User")
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "revoke1").first()
@@ -616,11 +621,7 @@ async def test_refresh_rejects_token_issued_before_password_change(auth_client, 
 
 @pytest.mark.anyio
 async def test_get_active_space_repairs_missing_active_space_cookie(auth_client):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "COOKIE1", "display_name": "Cookie User", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="COOKIE1", display_name="Cookie User")
 
     auth_client.cookies.pop("active_space_id", None)
 
@@ -633,11 +634,7 @@ async def test_get_active_space_repairs_missing_active_space_cookie(auth_client)
 
 @pytest.mark.anyio
 async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "COOKIE2", "display_name": "Stale Cookie User", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="COOKIE2", display_name="Stale Cookie User")
 
     auth_client.cookies.set("active_space_id", "stale-space-id")
 
@@ -652,12 +649,7 @@ async def test_get_active_space_repairs_stale_active_space_cookie(auth_client):
 @pytest.mark.anyio
 async def test_active_space_reports_usage_analytics_flag(auth_client, monkeypatch):
     monkeypatch.setenv("SIPM_USAGE_ANALYTICS_ENABLED", "true")
-
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "ANALYTICSFLAG1", "display_name": "Flag User", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="ANALYTICSFLAG1", display_name="Flag User")
 
     resp = await auth_client.get("/project-manager/api/auth/active-space")
     assert resp.status_code == 200, resp.text
@@ -666,11 +658,7 @@ async def test_active_space_reports_usage_analytics_flag(auth_client, monkeypatc
 
 @pytest.mark.anyio
 async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(auth_client):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "SPACEFAIL1", "display_name": "Space Fail", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
+    await _bootstrap_proxy_session(auth_client, soeid="SPACEFAIL1", display_name="Space Fail")
 
     ok = await auth_client.get("/project-manager/api/projects/")
     assert ok.status_code == 200, ok.text
@@ -684,52 +672,8 @@ async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(
 
 
 @pytest.mark.anyio
-async def test_login_lockout_and_unlock(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "LOCK1", "display_name": "Locker", "password": "Password123"},
-    )
-    assert register.status_code == 201, register.text
-    auth_client.cookies.clear()
-
-    for _ in range(5):
-        bad = await auth_client.post(
-            "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
-        )
-        assert bad.status_code == 401
-
-    locked = await auth_client.post(
-        "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "wrong-password"}
-    )
-    assert locked.status_code == 423
-
-    with db_sessionmaker() as session:
-        user = session.query(User).filter(User.soeid == "lock1").first()
-        assert user is not None
-        user.locked_until = datetime.now(timezone.utc) - timedelta(minutes=1)
-        session.add(user)
-        session.commit()
-
-    ok = await auth_client.post(
-        "/project-manager/api/auth/login", json={"soeid": "lock1", "password": "Password123"}
-    )
-    assert ok.status_code == 200, ok.text
-    assert ok.json()["last_login_at"] is not None
-
-    with db_sessionmaker() as session:
-        user = session.query(User).filter(User.soeid == "lock1").first()
-        assert user is not None
-        assert user.failed_attempts == 0
-        assert user.locked_until is None
-
-
-@pytest.mark.anyio
 async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(auth_client, db_sessionmaker):
-    register = await auth_client.post(
-        "/project-manager/api/auth/register",
-        json={"soeid": "AUTH1", "display_name": "Auth", "password": "Password123"},
-    )
-    assert register.status_code == 201
+    await _bootstrap_proxy_session(auth_client, soeid="AUTH1", display_name="Auth")
 
     auth_client.cookies.clear()
     missing_cookie = await auth_client.get("/project-manager/api/auth/me")

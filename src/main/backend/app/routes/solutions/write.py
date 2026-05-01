@@ -21,6 +21,8 @@ from .common import (
     _get_solution_or_404,
     _publish_solution_deletion,
     _publish_solution_mutation,
+    _resolve_solution_assignee,
+    _resolve_solution_owner,
     _run_enable_all_phases,
     _solution_payload,
     _solution_query,
@@ -43,7 +45,7 @@ def create_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
 
@@ -61,17 +63,18 @@ def create_solution(
         github_repo_url = normalize_github_repo_url(payload.github_repo_url)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    owner = normalize_str(payload.owner) or current_user.display_name or current_user.soeid or ""
-    owner_user_soeid = normalize_str(payload.owner_user_soeid) or None
-    if owner_user_soeid is None and current_user.soeid:
-        if owner == current_user.display_name or owner == current_user.soeid:
-            owner_user_soeid = current_user.soeid
-
-    assignee = normalize_str(payload.assignee) or owner
-    assignee_user_soeid = normalize_str(payload.assignee_user_soeid) or None
-    if assignee_user_soeid is None and current_user.soeid:
-        if assignee == current_user.display_name or assignee == current_user.soeid:
-            assignee_user_soeid = current_user.soeid
+    owner, owner_user_soeid = _resolve_solution_owner(
+        payload.owner,
+        payload.owner_user_soeid,
+        current_user,
+    )
+    assignee, assignee_user_soeid = _resolve_solution_assignee(
+        payload.assignee,
+        payload.assignee_user_soeid,
+        owner=owner,
+        owner_user_soeid=owner_user_soeid,
+        current_user=current_user,
+    )
 
     conflict = (
         _solution_query(session, space_ctx)
@@ -180,7 +183,7 @@ def update_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
@@ -266,7 +269,7 @@ def delete_solution(
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
-    _authz: SpaceContext = Depends(require_space_role("space_admin")),
+    _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
     now = datetime.now(timezone.utc)

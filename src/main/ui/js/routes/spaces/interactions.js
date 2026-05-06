@@ -25,6 +25,7 @@ export function createSpaceGovernanceController({
 }) {
   let globalAdminsInFlight = null;
   const spaceMembersInFlight = {};
+  const apiTokensInFlight = {};
 
   function openSpaceCreateModal() {
     if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
@@ -122,6 +123,27 @@ export function createSpaceGovernanceController({
     return state.platformPasswordReset;
   }
 
+  async function refreshApiTokens(userId, options = {}) {
+    const targetUserId = String(userId || "").trim();
+    if (!targetUserId || !userIsGlobalAdmin()) return [];
+    const force = !!options.force;
+    if (!force && state.apiTokensLoadedByUser[targetUserId]) {
+      return state.apiTokensByUser[targetUserId] || [];
+    }
+    if (apiTokensInFlight[targetUserId]) return apiTokensInFlight[targetUserId];
+    apiTokensInFlight[targetUserId] = api(`/users/${encodeURIComponent(targetUserId)}/api-tokens`)
+      .then((rows) => {
+        state.apiTokensByUser[targetUserId] = Array.isArray(rows) ? rows : [];
+        state.apiTokensLoadedByUser[targetUserId] = true;
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.apiTokensByUser[targetUserId];
+      })
+      .finally(() => {
+        delete apiTokensInFlight[targetUserId];
+      });
+    return apiTokensInFlight[targetUserId];
+  }
+
   async function refreshSpaceMembers(spaceId, options = {}) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId) return [];
@@ -155,6 +177,8 @@ export function createSpaceGovernanceController({
     const spaceId = button.getAttribute("data-space-id") || "";
     const membershipId = button.getAttribute("data-membership-id") || "";
     const soeid = button.getAttribute("data-soeid") || "";
+    const userId = button.getAttribute("data-user-id") || "";
+    const tokenId = button.getAttribute("data-token-id") || "";
     const launchedFromDirectoryModal = !!button.closest("#space-directory-modal");
     if (action !== "toggle-member-menu") {
       state.spaceMembershipActionMenuId = "";
@@ -309,6 +333,41 @@ export function createSpaceGovernanceController({
         setSpaceGovernanceNotice(action === "copy-temp-password" ? "Temporary password copied." : "Reset page copied.", "success", 3000);
       } catch (err) {
         setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
+      }
+      return true;
+    }
+    if (action === "copy-api-token") {
+      try {
+        await copyText(state.issuedApiToken?.token);
+        setSpaceGovernanceNotice("API token copied.", "success", 3000);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
+      }
+      return true;
+    }
+    if (action === "clear-api-token-result") {
+      state.issuedApiToken = null;
+      renderGovernanceHub("platform-access");
+      return true;
+    }
+    if (action === "refresh-api-tokens" && userIsGlobalAdmin()) {
+      await refreshApiTokens(userId, { force: true });
+      return true;
+    }
+    if (action === "revoke-api-token" && userIsGlobalAdmin()) {
+      const confirmed = await showConfirmModal({
+        title: "Revoke API Token",
+        message: "Revoke this service-account API token?",
+        confirmLabel: "Revoke",
+      });
+      if (!confirmed) return true;
+      try {
+        await api(`/users/${encodeURIComponent(userId)}/api-tokens/${encodeURIComponent(tokenId)}`, { method: "DELETE" });
+        state.apiTokensLoadedByUser[userId] = false;
+        await refreshApiTokens(userId, { force: true });
+        setSpaceGovernanceNotice("API token revoked.", "success", 4500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "API token revoke failed.", "error", 7000);
       }
       return true;
     }
@@ -513,6 +572,84 @@ export function createSpaceGovernanceController({
           } catch (err) {
             setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
           }
+          return;
+        }
+        if (form.id === "service-account-token-form") {
+          event.preventDefault();
+          if (!userIsGlobalAdmin()) return;
+          const data = new FormData(form);
+          const soeid = String(data.get("soeid") || "").trim();
+          const name = String(data.get("name") || "").trim();
+          const expiresRaw = String(data.get("expires_at") || "").trim();
+          if (!soeid) {
+            setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
+            return;
+          }
+          if (!name) {
+            setSpaceGovernanceNotice("Token name is required.", "error", 5000);
+            return;
+          }
+          const body = { name };
+          if (expiresRaw) body.expires_at = new Date(expiresRaw).toISOString();
+          try {
+            state.spaceAdminSection = "platform-access";
+            const user = await api(`/users/by-soeid/${encodeURIComponent(soeid)}`, {
+              method: "PATCH",
+              body: JSON.stringify({ is_service_account: true }),
+            });
+            const issued = await api(`/users/${encodeURIComponent(user.user_id)}/api-tokens`, {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            state.issuedApiToken = {
+              ...issued,
+              user_label: user?.display_name || user?.soeid || soeid,
+            };
+            form.reset();
+            state.apiTokensLoadedByUser[user.user_id] = false;
+            await refreshFromServer("users");
+            state.spaceAdminSection = "platform-access";
+            await refreshApiTokens(user.user_id, { force: true });
+            renderGovernanceHub("platform-access");
+            setSpaceGovernanceNotice("API token generated. Copy it now.", "success", 7000);
+          } catch (err) {
+            setSpaceGovernanceNotice(err?.message || "Token generation failed.", "error", 7000);
+          }
+          return;
+        }
+        if (form.classList.contains("api-token-issue-form")) {
+          event.preventDefault();
+          if (!userIsGlobalAdmin()) return;
+          const userId = String(form.getAttribute("data-user-id") || "").trim();
+          const data = new FormData(form);
+          const name = String(data.get("name") || "").trim();
+          const expiresRaw = String(data.get("expires_at") || "").trim();
+          if (!name) {
+            setSpaceGovernanceNotice("Token name is required.", "error", 5000);
+            return;
+          }
+          const body = { name };
+          if (expiresRaw) body.expires_at = new Date(expiresRaw).toISOString();
+          try {
+            state.spaceAdminSection = "platform-access";
+            const issued = await api(`/users/${encodeURIComponent(userId)}/api-tokens`, {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            const user = (state.users || []).find((row) => row.user_id === userId);
+            state.issuedApiToken = {
+              ...issued,
+              user_label: user?.display_name || user?.soeid || userId,
+            };
+            form.reset();
+            state.apiTokensLoadedByUser[userId] = false;
+            await refreshApiTokens(userId, { force: true });
+            renderGovernanceHub("platform-access");
+            setSpaceGovernanceNotice("API token generated. Copy it now.", "success", 7000);
+          } catch (err) {
+            setSpaceGovernanceNotice(err?.message || "Token generation failed.", "error", 7000);
+          }
+          return;
         }
       });
       els.spaceGovernanceShell.addEventListener("input", (event) => {
@@ -550,6 +687,11 @@ export function createSpaceGovernanceController({
         }
         if (els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
           closeSpaceMemberModal();
+          return;
+        }
+        if (state.issuedApiToken?.token) {
+          state.issuedApiToken = null;
+          renderGovernanceHub("platform-access");
         }
       });
       document.addEventListener("click", (event) => {
@@ -576,6 +718,7 @@ export function createSpaceGovernanceController({
     openSpaceCreateModal,
     openSpaceDirectoryModal,
     openSpaceMemberModal,
+    refreshApiTokens,
     refreshGlobalAdmins,
     refreshSpaceMembers,
   };

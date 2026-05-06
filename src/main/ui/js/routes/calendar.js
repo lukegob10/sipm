@@ -1,3 +1,5 @@
+import { parseDateOnly } from "../utils/date-only.js";
+
 function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -8,21 +10,9 @@ function esc(value) {
 }
 
 function dateParts(value) {
-  if (!value) return null;
-  const raw = String(value).trim();
-  const dateOnly = raw.slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(dateOnly)) {
-    const [yearText, monthText, dayText] = dateOnly.split("-");
-    const year = Number(yearText);
-    const month = Number(monthText) - 1;
-    const day = Number(dayText);
-    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
-      return { year, month, day };
-    }
-  }
-  const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return null;
-  return { year: d.getFullYear(), month: d.getMonth(), day: d.getDate() };
+  const parsed = parseDateOnly(value);
+  if (!parsed) return null;
+  return { year: parsed.year, month: parsed.monthIndex, day: parsed.day };
 }
 
 function sortByName(items, fieldName) {

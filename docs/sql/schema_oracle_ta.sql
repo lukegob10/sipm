@@ -1,6 +1,12 @@
 -- Oracle DDL generated from SQLAlchemy models.
 -- Table names follow TB_TA_PM_* with no schema qualifier.
 
+-- Index: idx_api_token_user
+CREATE INDEX idx_api_token_user ON "TB_TA_PM_API_TOKENS" (user_id);
+
+-- Index: ix_TB_TA_PM_API_TOKENS_revoked_at
+CREATE INDEX "ix_TB_TA_PM_API_TOKENS_revoked_at" ON "TB_TA_PM_API_TOKENS" (revoked_at);
+
 -- Table: TB_TA_PM_EXTERNAL_REF
 
 CREATE TABLE "TB_TA_PM_EXTERNAL_REF" (
@@ -56,6 +62,7 @@ CREATE TABLE "TB_TA_PM_USERS" (
 	password_hash VARCHAR2(255 CHAR) NOT NULL, 
 	role VARCHAR2(255 CHAR) NOT NULL, 
 	is_active SMALLINT NOT NULL, 
+	is_service_account SMALLINT NOT NULL, 
 	team_tag VARCHAR2(255 CHAR), 
 	capacity_hours INTEGER NOT NULL, 
 	capacity_fte_month FLOAT NOT NULL, 
@@ -72,6 +79,24 @@ CREATE TABLE "TB_TA_PM_USERS" (
 	PRIMARY KEY (user_id), 
 	CONSTRAINT uix_user_email UNIQUE (email), 
 	CONSTRAINT uix_user_soeid UNIQUE (soeid)
+);
+
+-- Table: TB_TA_PM_API_TOKENS
+
+CREATE TABLE "TB_TA_PM_API_TOKENS" (
+	token_id VARCHAR2(255 CHAR) NOT NULL, 
+	user_id VARCHAR2(255 CHAR) NOT NULL, 
+	name VARCHAR2(255 CHAR) NOT NULL, 
+	token_hash VARCHAR2(64 CHAR) NOT NULL, 
+	created_by_user_id VARCHAR2(255 CHAR) NOT NULL, 
+	last_used_at DATE, 
+	expires_at DATE, 
+	revoked_at DATE, 
+	created_at DATE NOT NULL, 
+	updated_at DATE NOT NULL, 
+	PRIMARY KEY (token_id), 
+	CONSTRAINT uix_api_token_hash UNIQUE (token_hash), 
+	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
 );
 
 -- Table: TB_TA_PM_CHANGE_LOG

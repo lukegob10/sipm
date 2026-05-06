@@ -67,11 +67,19 @@ Validation highlights:
 - Configure the trusted identity headers with `SIPM_PROXY_AUTH_SOEID_HEADER` and `SIPM_PROXY_AUTH_NAME_HEADER`.
 - The production proxy contract uses `SM_USER` for the SUID and `name` for the full name. SIPM derives email internally as `<suid>@<DOMAIN_NAME>`.
 - `SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true` injects those headers server-side for local/dev/test runs only; it must stay off in UAT/prod.
+- Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after reverse-proxy identity bootstrap through `/api/auth/me`.
+- Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
+- WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
+- SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress header spoofing protection, and company portal proxy files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
+- Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
 - When usage analytics is enabled, apply [`docs/sql/migrations/2026-03-29_usage_analytics.sql`](/mnt/f/vault/projects/sipm/docs/sql/migrations/2026-03-29_usage_analytics.sql) before exposing the admin dashboard.
+- Service-account API tokens require [`docs/sql/migrations/2026-05-01_service_account_api_tokens.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/migrations/2026-05-01_service_account_api_tokens.sql). If Oracle raises `ORA-00904` for `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT`, this migration has not been applied to the target schema yet.
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
+- Application startup is intentionally non-mutating for database schema. SQL files in `docs/sql/migrations/` document schema changes for the external deployment migration process. Use a `schema_migrations` ledger in the managed database to record applied migrations; SIPM does not run migration apply steps during startup.
+- CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 
 ## Frontend Validation
 

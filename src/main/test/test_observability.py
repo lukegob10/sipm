@@ -28,6 +28,19 @@ async def test_request_id_propagates_when_header_is_sane(client):
 
 
 @pytest.mark.anyio
+async def test_security_headers_are_app_owned_and_portal_frame_compatible(client):
+    response = await client.get("/health")
+
+    assert response.status_code == 200
+    csp = response.headers.get("Content-Security-Policy", "")
+    assert "default-src 'self'" in csp
+    assert "connect-src 'self' ws: wss:" in csp
+    assert "frame-ancestors 'self' https:" in csp
+    assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
+    assert "camera=()" in response.headers.get("Permissions-Policy", "")
+
+
+@pytest.mark.anyio
 async def test_readiness_skips_db_check_during_tests(client):
     response = await client.get("/health/ready")
 
@@ -36,6 +49,8 @@ async def test_readiness_skips_db_check_during_tests(client):
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
+            "proxy_auth": {"status": "ok"},
+            "frontend": {"status": "ok"},
             "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
         },
     }
@@ -60,6 +75,8 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
+            "proxy_auth": {"status": "ok"},
+            "frontend": {"status": "ok"},
             "db": {"status": "ok"},
         },
     }
@@ -79,6 +96,8 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
+            "proxy_auth": {"status": "ok"},
+            "frontend": {"status": "ok"},
             "db": {"status": "error", "detail": "db down"},
         },
     }
@@ -107,9 +126,10 @@ async def test_unhandled_exception_logging_includes_request_id_and_redacts_sensi
 
     assert response.status_code == 500
     assert response.text == "Internal Server Error"
-    assert "request_id=req-observe-500" in caplog.text
-    assert "path=/__observability_test__/boom" in caplog.text
-    assert "status=500" in caplog.text
+    assert '"request_id":"req-observe-500"' in caplog.text
+    assert '"path":"/__observability_test__/boom"' in caplog.text
+    assert '"status":500' in caplog.text
+    assert '"error_category":"unhandled_exception"' in caplog.text
     assert "secret-token" not in caplog.text
     assert "session=super-secret" not in caplog.text
 
@@ -131,8 +151,8 @@ async def test_unhandled_exception_preserves_raising_client_behavior(client, cap
             },
         )
 
-    assert "request_id=req-observe-raise" in caplog.text
-    assert "path=/__observability_test__/boom-raise" in caplog.text
-    assert "status=500" in caplog.text
+    assert '"request_id":"req-observe-raise"' in caplog.text
+    assert '"path":"/__observability_test__/boom-raise"' in caplog.text
+    assert '"status":500' in caplog.text
     assert "secret-token" not in caplog.text
     assert "session=super-secret" not in caplog.text

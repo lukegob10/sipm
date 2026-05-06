@@ -121,6 +121,8 @@ def proxy_identity_from_headers(headers: Mapping[str, str]) -> ProxyIdentity | N
     soeid = _normalize_identity_token(_mapping_get_case_insensitive(headers, config.soeid_header))
     if not soeid:
         return None
+    if not _HEADER_TOKEN_PATTERN.fullmatch(soeid):
+        return None
 
     display_name = _mapping_get_case_insensitive(headers, config.name_header) or soeid.upper()
     email = _default_email_for_soeid(soeid)

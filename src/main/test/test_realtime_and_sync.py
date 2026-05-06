@@ -167,6 +167,35 @@ async def test_websocket_endpoint_closes_with_auth_code_on_invalid_token(monkeyp
 
 
 @pytest.mark.anyio
+async def test_websocket_endpoint_rejects_query_token_auth(monkeypatch):
+    ws = StubWebSocket(query_params={"token": "query-token"})
+
+    def reject_token(_session, token):
+        assert token is None
+        raise RuntimeError("missing token")
+
+    monkeypatch.setattr(sync_route, "authenticate_access_token", reject_token)
+
+    await websocket_endpoint(ws, session=SessionStub())
+
+    assert ws.accepted is True
+    assert ws.close_calls == [(realtime.WS_CLOSE_AUTH_INVALID, "auth-invalid")]
+    assert ws not in realtime.connections
+
+
+@pytest.mark.anyio
+async def test_websocket_endpoint_rejects_anonymous_session_outside_tests(monkeypatch):
+    ws = StubWebSocket()
+    monkeypatch.setattr(sync_route, "_running_tests", lambda: False)
+
+    await websocket_endpoint(ws)
+
+    assert ws.accepted is True
+    assert ws.close_calls == [(realtime.WS_CLOSE_AUTH_INVALID, "auth-invalid")]
+    assert ws not in realtime.connections
+
+
+@pytest.mark.anyio
 async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mismatch(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"}, query_params={"space_id": "requested-space"})
 

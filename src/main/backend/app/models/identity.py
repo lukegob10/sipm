@@ -33,6 +33,7 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     team_tag: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=40)
     capacity_fte_month: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
@@ -48,6 +49,27 @@ class User(TimestampMixin, Base):
         default=_utcnow_naive,
         nullable=True,
     )
+
+
+class ApiToken(TimestampMixin, Base):
+    __tablename__ = physical_table_name("api_tokens")
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uix_api_token_hash"),
+        Index("idx_api_token_user", "user_id"),
+    )
+
+    token_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_user_id: Mapped[str] = mapped_column(String, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
 
 class Space(TimestampMixin, SoftDeleteMixin, Base):

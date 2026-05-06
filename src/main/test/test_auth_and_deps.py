@@ -20,7 +20,7 @@ from backend.app.auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from backend.app.models import Space, User
+from backend.app.models import ApiToken, Space, User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -543,6 +543,143 @@ async def test_proxy_auth_falls_back_to_bootstrap_when_access_cookie_is_invalid(
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "fallback1").first()
         assert user is not None
+
+
+@pytest.mark.anyio
+async def test_proxy_auth_rejects_malformed_identity_header(auth_client):
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers=_proxy_headers("bad user"),
+    )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Not authenticated"
+
+
+@pytest.mark.anyio
+async def test_proxy_auth_rejects_inactive_existing_user(auth_client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="inactive1",
+                email="inactive1@citi.com",
+                display_name="Inactive User",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=False,
+            )
+        )
+        session.commit()
+
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers=_proxy_headers("inactive1", display_name="Inactive User"),
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "User inactive"
+
+
+@pytest.mark.anyio
+async def test_admin_issued_service_account_api_token_authenticates_api(auth_client, db_sessionmaker):
+    await _bootstrap_proxy_session(auth_client, soeid="ADMINPAT1", display_name="Admin PAT")
+    with db_sessionmaker() as session:
+        admin = session.query(User).filter(User.soeid == "adminpat1").first()
+        assert admin is not None
+        admin.role = "global_admin"
+        service_user = User(
+            soeid="svcpat1",
+            email="svcpat1@citi.com",
+            display_name="Service PAT",
+            password_hash=hash_password("ServicePassword123"),
+            role="global_admin",
+            is_active=True,
+            is_service_account=True,
+        )
+        session.add_all([admin, service_user])
+        session.commit()
+        service_user_id = service_user.user_id
+
+    issued = await auth_client.post(
+        f"/project-manager/api/users/{service_user_id}/api-tokens",
+        json={"name": "Automation"},
+    )
+    assert issued.status_code == 201, issued.text
+    token_value = issued.json()["token"]
+    assert token_value.startswith("sipm_pat_")
+
+    auth_client.cookies.clear()
+    me = await auth_client.get(
+        "/project-manager/api/auth/active-space",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+    assert me.status_code == 200, me.text
+
+    with db_sessionmaker() as session:
+        token_rows = session.query(ApiToken).all()
+        assert len(token_rows) == 1
+        assert token_rows[0].token_hash != token_value
+        assert token_rows[0].last_used_at is not None
+
+
+@pytest.mark.anyio
+async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_token(auth_client, db_sessionmaker):
+    await _bootstrap_proxy_session(auth_client, soeid="ADMINPAT2", display_name="Admin PAT")
+    with db_sessionmaker() as session:
+        admin = session.query(User).filter(User.soeid == "adminpat2").first()
+        assert admin is not None
+        admin.role = "global_admin"
+        normal_user = User(
+            soeid="normalpat1",
+            email="normalpat1@citi.com",
+            display_name="Normal PAT",
+            password_hash=hash_password("NormalPassword123"),
+            role="user",
+            is_active=True,
+        )
+        service_user = User(
+            soeid="svcpat2",
+            email="svcpat2@citi.com",
+            display_name="Service PAT 2",
+            password_hash=hash_password("ServicePassword123"),
+            role="user",
+            is_active=True,
+            is_service_account=True,
+        )
+        session.add_all([admin, normal_user, service_user])
+        session.commit()
+        normal_user_id = normal_user.user_id
+        service_user_id = service_user.user_id
+
+    denied = await auth_client.post(
+        f"/project-manager/api/users/{normal_user_id}/api-tokens",
+        json={"name": "Denied"},
+    )
+    assert denied.status_code == 400
+
+    issued = await auth_client.post(
+        f"/project-manager/api/users/{service_user_id}/api-tokens",
+        json={"name": "Revoke me"},
+    )
+    assert issued.status_code == 201, issued.text
+    body = issued.json()
+    listed = await auth_client.get(f"/project-manager/api/users/{service_user_id}/api-tokens")
+    assert listed.status_code == 200
+    assert "sipm_pat_" not in listed.text
+    assert "token_hash" not in listed.text
+
+    revoked = await auth_client.delete(
+        f"/project-manager/api/users/{service_user_id}/api-tokens/{body['token_id']}"
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["revoked_at"]
+
+    auth_client.cookies.clear()
+    rejected = await auth_client.get(
+        "/project-manager/api/auth/active-space",
+        headers={"Authorization": f"Bearer {body['token']}"},
+    )
+    assert rejected.status_code == 401
 
 
 @pytest.mark.anyio

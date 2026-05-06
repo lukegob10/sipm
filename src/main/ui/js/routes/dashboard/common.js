@@ -1,4 +1,10 @@
-const DAY_MS = 24 * 60 * 60 * 1000;
+import {
+  DAY_MS,
+  dateOnlyToDate,
+  daysBetweenDateOnly,
+  startOfDateOnlyDay,
+} from "../../utils/date-only.js";
+
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
 
@@ -139,21 +145,15 @@ export function normalize(value) {
 }
 
 export function parseDate(value) {
-  if (!value) return null;
-  const token = String(value).slice(0, 10);
-  if (!token) return null;
-  const parsed = new Date(`${token}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return dateOnlyToDate(value);
 }
 
 export function startOfDay(value) {
-  const date = new Date(value.getTime());
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return startOfDateOnlyDay(value);
 }
 
 export function daysUntil(fromDate, toDate) {
-  return Math.ceil((toDate.getTime() - fromDate.getTime()) / DAY_MS);
+  return daysBetweenDateOnly(fromDate, toDate);
 }
 
 export function daysAgo(fromDate, pastDate) {

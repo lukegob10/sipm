@@ -1,6 +1,7 @@
 from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
 from .analytics import PerformanceSample, UsageEvent
 from .identity import (
+    ApiToken,
     ChangeLog,
     Space,
     SpaceMembership,
@@ -22,6 +23,7 @@ from .work import (
 
 __all__ = [
     "Base",
+    "ApiToken",
     "ChangeLog",
     "ExternalRef",
     "PerformanceSample",

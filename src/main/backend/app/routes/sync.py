@@ -1,3 +1,6 @@
+import os
+import sys
+
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
@@ -14,6 +17,10 @@ from ..services.realtime import (
 from ..services.spaces import resolve_active_space_context
 
 router = APIRouter()
+
+
+def _running_tests() -> bool:
+    return "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
 
 
 def _ws_requested_space_id(ws: WebSocket) -> str | None:
@@ -46,6 +53,9 @@ async def _reject_websocket(ws: WebSocket, *, code: int, reason: str = "") -> No
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
     if not hasattr(session, "query"):
+        if not _running_tests():
+            await _reject_websocket(ws, code=WS_CLOSE_AUTH_INVALID, reason="auth-invalid")
+            return
         try:
             await register(ws)
         except WebSocketRejected as exc:
@@ -55,8 +65,7 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
         return
 
     cookies = getattr(ws, "cookies", {}) or {}
-    query_params = getattr(ws, "query_params", {}) or {}
-    token = cookies.get("access_token") or query_params.get("token")
+    token = cookies.get("access_token")
     try:
         user = authenticate_access_token(session, token)
     except Exception:

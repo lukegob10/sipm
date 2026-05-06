@@ -1,3 +1,5 @@
+import { safeExternalUrl } from "../../utils/external-url.js";
+
 function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -38,7 +40,8 @@ function renderSolutionNameLink(label, solutionId) {
 }
 
 function renderRepoCell(solution) {
-  const url = String(solution?.github_repo_url || "").trim();
+  const raw = String(solution?.github_repo_url || "").trim();
+  const url = safeExternalUrl(raw);
   if (!url) return `<span class="deliverables-repo-missing">Missing Repo</span>`;
   return `<a class="deliverables-repo-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
 }

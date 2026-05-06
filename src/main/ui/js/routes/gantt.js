@@ -1,4 +1,11 @@
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
+import {
+  DAY_MS as MS_PER_DAY,
+  dayNumberToDate,
+  dayNumberToIso,
+  parseDateOnly,
+  todayDayNumber,
+} from "../utils/date-only.js";
+
 const LONG_RANGE_DAY_WIDTH = 3.5;
 const DEFAULT_LEFT_RAIL_WIDTH = 620;
 const MOBILE_LEFT_RAIL_WIDTH = 560;
@@ -17,32 +24,15 @@ function esc(value) {
 }
 
 function parseDateParts(value) {
-  const raw = String(value || "").trim().slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  const [yearText, monthText, dayText] = raw.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
-  const time = Date.UTC(year, month - 1, day);
-  const date = new Date(time);
-  if (
-    date.getUTCFullYear() !== year
-    || date.getUTCMonth() !== month - 1
-    || date.getUTCDate() !== day
-  ) {
-    return null;
-  }
-  return { year, month, day, iso: raw, dayNumber: Math.floor(time / MS_PER_DAY) };
+  return parseDateOnly(value);
 }
 
 function dayToDate(dayNumber) {
-  return new Date(dayNumber * MS_PER_DAY);
+  return dayNumberToDate(dayNumber);
 }
 
 function dayToIso(dayNumber) {
-  const d = dayToDate(dayNumber);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  return dayNumberToIso(dayNumber);
 }
 
 function formatMonthLabel(dayNumber) {
@@ -520,11 +510,6 @@ function renderWeekTicks(windowRange, scale) {
     ticks.push(`<div class="gantt-week-tick" style="left: ${px(left)}px;">${esc(label)}</div>`);
   }
   return ticks.join("");
-}
-
-function todayDayNumber() {
-  const today = new Date();
-  return Math.floor(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()) / MS_PER_DAY);
 }
 
 function renderTodayMarker(windowRange, scale) {

@@ -14,6 +14,7 @@ export function createSpaceGovernanceRenderer({
   governanceSections,
   resolveGovernanceSection,
   refreshGlobalAdmins,
+  refreshApiTokens,
   refreshSpaceMembers,
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
@@ -422,6 +423,98 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
+  function renderIssuedApiToken() {
+    const issued = state.issuedApiToken;
+    if (!issued?.token) return "";
+    return `
+      <div class="modal api-token-modal" role="dialog" aria-modal="true" aria-labelledby="api-token-modal-title">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content api-token-modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="space-card-kicker">API token issued</p>
+              <h3 id="api-token-modal-title">Copy this token now</h3>
+            </div>
+            <button type="button" class="secondary modal-close-x" data-space-action="clear-api-token-result" aria-label="Close API token dialog" title="Close">x</button>
+          </div>
+          <div class="api-token-modal-body">
+            <p class="muted">This token is shown once for ${esc(issued.user_label || "the service account")}.</p>
+            <label class="wide">Personal access token
+              <input type="text" readonly value="${escapeAttr(issued.token)}" />
+            </label>
+            <div class="form-actions api-token-modal-actions">
+              <button type="button" data-space-action="copy-api-token">Copy token</button>
+              <button type="button" class="secondary" data-space-action="clear-api-token-result">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderApiTokenRows(user) {
+    const rows = state.apiTokensByUser[user.user_id] || [];
+    if (!state.apiTokensLoadedByUser[user.user_id]) {
+      refreshApiTokens(user.user_id).catch((err) => {
+        console.warn("Failed to load API tokens", err);
+        setSpaceGovernanceNotice(err?.message || "Failed to load API tokens.", "error", 7000);
+      });
+      return "<tr><td colspan='5' class='muted'>Loading tokens...</td></tr>";
+    }
+    if (!rows.length) return "<tr><td colspan='5' class='muted'>No API tokens issued</td></tr>";
+    return rows.map((token) => {
+      const revoked = !!token.revoked_at;
+      const expired = token.expires_at && new Date(token.expires_at).getTime() <= Date.now();
+      const status = revoked ? "revoked" : (expired ? "expired" : "active");
+      return `<tr data-token-id="${escapeAttr(token.token_id)}">
+        <td>${esc(token.name)}</td>
+        <td>${esc(status)}</td>
+        <td>${esc(formatDateTime(token.expires_at) || "Never")}</td>
+        <td>${esc(formatDateTime(token.last_used_at) || "Never")}</td>
+        <td>${revoked ? "<span class='muted'>Revoked</span>" : `<button type="button" class="secondary danger" data-space-action="revoke-api-token" data-user-id="${escapeAttr(user.user_id)}" data-token-id="${escapeAttr(token.token_id)}">Revoke</button>`}</td>
+      </tr>`;
+    }).join("");
+  }
+
+  function renderServiceAccountTokens() {
+    const serviceUsers = (state.users || []).filter((user) => user.is_service_account);
+    const sections = serviceUsers.length
+      ? serviceUsers.map((user) => `
+        <div class="panel soft">
+          <div class="panel-header">
+            <div>
+              <h3>${esc(user.display_name || user.soeid || user.user_id)}</h3>
+              <p class="muted">${esc(user.soeid || user.email || user.user_id)}</p>
+            </div>
+            <button type="button" class="secondary" data-space-action="refresh-api-tokens" data-user-id="${escapeAttr(user.user_id)}">Refresh</button>
+          </div>
+          <form class="form compact inline-form api-token-issue-form" data-user-id="${escapeAttr(user.user_id)}">
+            <label class="wide">Token name <input name="name" placeholder="Automation token" /></label>
+            <label>Expires at <input name="expires_at" type="datetime-local" /></label>
+            <div class="form-actions full-span platform-command-actions"><button type="submit">Issue Token</button></div>
+          </form>
+          <div class="table">
+            <table>
+              <thead><tr><th>Name</th><th>Status</th><th>Expires</th><th>Last Used</th><th>Actions</th></tr></thead>
+              <tbody>${renderApiTokenRows(user)}</tbody>
+            </table>
+          </div>
+        </div>
+      `).join("")
+      : "";
+    return `
+      <div class="panel soft">
+        <form id="service-account-token-form" class="form compact inline-form">
+          <label>User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+          <label class="wide">Token name <input name="name" placeholder="Automation token" /></label>
+          <label>Expires at <input name="expires_at" type="datetime-local" /></label>
+          <div class="form-actions full-span platform-command-actions"><button type="submit">Generate Token</button></div>
+        </form>
+      </div>
+      ${sections}
+    `;
+  }
+
   function renderPlatformAccessSection() {
     if (!userIsGlobalAdmin()) {
       return `
@@ -446,6 +539,7 @@ export function createSpaceGovernanceRenderer({
           <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
           <td>
             <div class="platform-access-actions">
+              <button type="button" class="secondary" data-space-action="issue-password-reset" data-soeid="${escapeAttr(user.soeid)}">Issue Reset</button>
               <button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke</button>
             </div>
           </td>
@@ -464,7 +558,7 @@ export function createSpaceGovernanceRenderer({
         <div class="panel soft">
           <form id="space-platform-access-form" class="form compact inline-form">
             <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-            <div class="form-actions full-span">
+            <div class="form-actions full-span platform-command-actions">
               <button type="submit">Grant Global Admin</button>
             </div>
           </form>
@@ -474,12 +568,20 @@ export function createSpaceGovernanceRenderer({
             <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
             <label>Expires in minutes <input type="number" name="expires_minutes" min="5" max="1440" placeholder="30" /></label>
             <p class="muted full-span">Issuing a reset signs the user out, generates a temporary password on this screen, and requires them to choose a new password on the reset page.</p>
-            <div class="form-actions full-span">
+            <div class="form-actions full-span platform-command-actions">
               <button type="submit">Issue Password Reset</button>
             </div>
           </form>
         </div>
         ${renderPlatformPasswordResetResult()}
+        <div class="space-hero-card">
+          <div>
+            <p class="space-card-kicker">Automation access</p>
+            <h3>Service Account API Tokens</h3>
+            <p class="muted">Issue bearer tokens only for accounts explicitly marked as service accounts.</p>
+          </div>
+        </div>
+        ${renderServiceAccountTokens()}
         <div class="panel soft">
           <div class="table">
             <table>
@@ -529,6 +631,7 @@ export function createSpaceGovernanceRenderer({
       <div class="space-governance-tabs">${sectionTabs}</div>
       ${renderGovernanceNotice()}
       <div class="space-governance-body">${body}</div>
+      ${renderIssuedApiToken()}
     `;
     if (activeSection !== "space-directory") {
       closeSpaceDirectoryModal();

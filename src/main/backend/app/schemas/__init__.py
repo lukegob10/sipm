@@ -102,6 +102,7 @@ class UserRead(BaseModel):
     display_name: str
     role: str
     is_active: bool
+    is_service_account: bool = False
     team_tag: Optional[str] = None
     capacity_hours: int = 40
     capacity_fte_month: float = 1.0
@@ -116,6 +117,38 @@ class UserUpdate(BaseModel):
     capacity_hours: Optional[int] = None
     capacity_fte_month: Optional[float] = None
     is_active: Optional[bool] = None
+    is_service_account: Optional[bool] = None
+
+
+class ApiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    expires_at: Optional[datetime] = None
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("Token name is required")
+        return normalized
+
+
+class ApiTokenRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    token_id: str
+    user_id: str
+    name: str
+    created_by_user_id: str
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApiTokenIssueResponse(ApiTokenRead):
+    token: str
 
 
 class SpaceCreate(BaseModel):

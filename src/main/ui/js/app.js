@@ -64,8 +64,9 @@ import { createCalendarRouteController } from "./routes/calendar/interactions.js
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
-import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
-import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
+import { createSpaceGovernanceController } from "./routes/spaces/interactions.js?v=12";
+import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js?v=12";
+import { safeExternalUrl } from "./utils/external-url.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
@@ -110,7 +111,7 @@ function escapeHtml(value) {
 const esc = escapeHtml;
 
 function repoDisplayUrl(value) {
-  return String(value || "").trim();
+  return safeExternalUrl(value);
 }
 
 function effectiveSubcomponentRepoInfo(solutionId, overrideUrl) {
@@ -128,7 +129,7 @@ function effectiveSubcomponentRepoInfo(solutionId, overrideUrl) {
 
 function renderExternalRepoLink(url, { label = "Open Repo", className = "" } = {}) {
   const targetUrl = repoDisplayUrl(url);
-  if (!targetUrl) return "";
+  if (!targetUrl) return escapeHtml(label === "Open Repo" ? "" : label);
   const classes = ["repo-external-link", className].filter(Boolean).join(" ");
   return `<a class="${classes}" href="${escapeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
 }
@@ -236,6 +237,9 @@ const state = {
   globalAdmins: [],
   globalAdminsLoaded: false,
   platformPasswordReset: null,
+  apiTokensByUser: {},
+  apiTokensLoadedByUser: {},
+  issuedApiToken: null,
   authMode: "portal",
   phases: [],
   projects: [],
@@ -517,6 +521,7 @@ const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
   governanceSections,
   resolveGovernanceSection,
   refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
+  refreshApiTokens: (...args) => refreshApiTokens(...args),
   refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
@@ -3694,6 +3699,10 @@ function renderGovernanceHub(preferredSection = "") {
 
 async function refreshGlobalAdmins() {
   return spaceGovernanceController.refreshGlobalAdmins();
+}
+
+async function refreshApiTokens(userId, options = {}) {
+  return spaceGovernanceController.refreshApiTokens(userId, options);
 }
 
 async function refreshSpaceMembers(spaceId, options = {}) {

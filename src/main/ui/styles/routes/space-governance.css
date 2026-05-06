@@ -8,6 +8,41 @@
   justify-content: flex-start;
 }
 
+.platform-command-actions {
+  justify-content: flex-start;
+}
+
+.platform-command-actions button {
+  flex: 0 0 clamp(160px, 18vw, 240px);
+  width: clamp(160px, 18vw, 240px);
+  max-width: 100%;
+}
+
+.api-token-modal-content {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.api-token-modal-body {
+  display: grid;
+  gap: 14px;
+}
+
+.api-token-modal-body p {
+  margin: 0;
+}
+
+.api-token-modal-body input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.api-token-modal-actions {
+  justify-content: flex-end;
+}
+
+.api-token-modal-actions button {
+  flex: 0 0 128px;
+}
+
 #view-spaces > .panel > .panel-header {
   margin-bottom: 12px;
 }

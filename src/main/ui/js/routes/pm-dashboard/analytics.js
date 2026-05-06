@@ -1,4 +1,10 @@
-const DAY_MS = 24 * 60 * 60 * 1000;
+import {
+  DAY_MS,
+  dateOnlyToDate,
+  daysBetweenDateOnly,
+  startOfDateOnlyDay,
+} from "../../utils/date-only.js";
+
 const CLOSED_SOLUTION_STATUSES = new Set(["complete", "abandoned"]);
 const CLOSED_SUBCOMPONENT_STATUSES = new Set(["complete", "abandoned"]);
 
@@ -24,20 +30,15 @@ export function clamp(value, min, max) {
 }
 
 export function parseDate(value) {
-  if (!value) return null;
-  const iso = String(value).slice(0, 10);
-  const parsed = new Date(`${iso}T00:00:00`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  return dateOnlyToDate(value);
 }
 
 export function startOfDay(value) {
-  const date = new Date(value.getTime());
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return startOfDateOnlyDay(value);
 }
 
 export function daysUntil(fromDate, toDate) {
-  return Math.ceil((toDate.getTime() - fromDate.getTime()) / DAY_MS);
+  return daysBetweenDateOnly(fromDate, toDate);
 }
 
 export function isClosedSolutionStatus(status) {

@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import json
 import os
 import sys
 import asyncio
@@ -122,6 +123,21 @@ from backend.app.services.realtime import stop_runtime as stop_realtime_runtime
 logger = logging.getLogger(__name__)
 REQUEST_ID_HEADER = "X-Request-ID"
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' ws: wss:; "
+        "frame-ancestors 'self' https:; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    ),
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
 FRONTEND_DIR = BASE_DIR / "ui"
 FRONTEND_REQUIRED_FILES = (
     FRONTEND_DIR / "index.html",
@@ -170,14 +186,35 @@ def _request_id_for(request: Request) -> str:
     return str(uuid4())
 
 
-def _request_log_line(request: Request, *, request_id: str, status_code: int, duration_ms: int) -> str:
+def _request_log_line(
+    request: Request,
+    *,
+    request_id: str,
+    status_code: int,
+    duration_ms: int,
+    error_category: str | None = None,
+) -> str:
     client_ip = request.client.host if request.client else "-"
     active_space_id = str(request.headers.get("X-Space-Id", "")).strip() or "-"
-    return (
-        f"request_id={request_id} method={request.method} path={request.url.path} "
-        f"status={status_code} duration_ms={duration_ms} client_ip={client_ip} "
-        f"space_id={active_space_id}"
-    )
+    user = getattr(request.state, "user", None)
+    try:
+        user_id = getattr(user, "user_id", None)
+    except Exception:
+        user_id = None
+    payload = {
+        "request_id": request_id,
+        "method": request.method,
+        "path": request.url.path,
+        "status": status_code,
+        "duration_ms": duration_ms,
+        "client_ip": client_ip,
+        "space_id": active_space_id,
+        "user_id": user_id or "-",
+        "auth_method": getattr(request.state, "auth_method", None) or "-",
+    }
+    if error_category:
+        payload["error_category"] = error_category
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
 def _frontend_bundle_error() -> str | None:
@@ -323,6 +360,7 @@ async def request_observability_middleware(request: Request, call_next):
                 request_id=request_id,
                 status_code=500,
                 duration_ms=duration_ms,
+                error_category="unhandled_exception",
             )
         )
         raise
@@ -331,6 +369,8 @@ async def request_observability_middleware(request: Request, call_next):
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
     response.headers[REQUEST_ID_HEADER] = request_id
+    for header_name, header_value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header_name, header_value)
     logger.info(
         _request_log_line(
             request,

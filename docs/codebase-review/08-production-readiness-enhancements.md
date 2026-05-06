@@ -2,7 +2,12 @@
 
 Date: 2026-05-01
 Mode: full-surface clean-code review
-Scope: backend, frontend, schema, CI, configuration, documentation, and operations
+Scope: backend, frontend, schema, tests, and code-owned operational behavior
+
+## Scope Boundary
+- This backlog is limited to changes owned by the SIPM codebase.
+- CI/CD deployment mechanics, production manifests, environment injection, deployment-time secret management, and platform-owned reverse-proxy files are handled outside this repo and are intentionally out of scope here.
+- Codebase work can still define and test integration contracts, but it should not require SIPM to own deployment packaging or platform configuration.
 
 ## Purpose
 - Capture the production-readiness improvement backlog from the clean-code review pass.
@@ -10,12 +15,12 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Keep the list actionable with owners, severity, affected surfaces, and expected outcomes.
 
 ## Current Strengths
-- Runtime auth configuration validates non-dev secret and secure-cookie requirements.
+- Runtime auth configuration contains safeguards for non-dev auth and cookie behavior.
 - `/health` and `/health/ready` exist and readiness checks auth, proxy auth, frontend files, and DB connectivity.
 - Request IDs are generated, propagated, and logged for HTTP requests.
 - Space isolation has a route-level enforcement gate in `src/main/test/test_route_space_enforcement_gate.py`.
 - Schema/model drift is covered by `src/main/test/test_models_schema_contract.py`.
-- CI runs backend tests, frontend lint, frontend unit tests, frontend smoke tests, route-module mapping checks, Redis-backed tests, and dependency lock verification.
+- Existing automated checks cover backend tests, frontend lint, frontend unit tests, frontend smoke tests, route-module mapping checks, Redis-backed tests, and dependency lock consistency.
 - The new Gantt view is covered by route/module contract tests and follows the lazy route-module pattern.
 
 ## Priority 1: Must Fix Before Production
@@ -26,9 +31,9 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Surface: `src/main/backend/app/routes/sync.py`
 - Issue: The WebSocket endpoint accepts `?token=...` as an access-token source. Query tokens can leak through browser history, proxy logs, referrers, tracing systems, and support screenshots.
 - Implementation:
-  - Stop reading `query_params.get("token")` in production.
+  - Stop reading `query_params.get("token")`.
   - Prefer the existing `access_token` HTTP-only cookie for browser sockets.
-  - If non-browser clients need socket auth, add a short-lived one-time WebSocket ticket created through an authenticated HTTP endpoint.
+  - Keep personal access tokens scoped to HTTP API routes only; do not accept API tokens or JWTs in WebSocket URLs.
   - Add tests proving query-token auth is rejected and cookie auth still works.
 - Exit criteria:
   - No production WebSocket path accepts reusable access tokens in the URL.
@@ -40,7 +45,7 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Surface: `src/main/backend/app/routes/sync.py`
 - Issue: The WebSocket endpoint registers anonymous sockets when the injected session lacks `query`. That looks like a test shim, but it lives in production route code.
 - Implementation:
-  - Gate this branch to `ENV=test`, or move the behavior into test-only dependency overrides.
+  - Gate this branch behind a test-only runtime check, or move the behavior into test-only dependency overrides.
   - Add a production-mode test proving a malformed/non-query session cannot register anonymously.
 - Exit criteria:
   - Production route execution always requires authenticated socket identity.
@@ -49,28 +54,27 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Severity: High
 - Owner: backend/database
 - Surface: `docs/sql/migrations/`, `src/main/backend/app/db/db.py`
-- Issue: Startup intentionally avoids schema mutation, which is right for managed Oracle deployments, but migrations are currently loose SQL files without a repo-owned ledger or verification workflow.
+- Issue: Startup intentionally avoids schema mutation, which is right for the production runtime, but migrations are currently loose SQL files without a repo-owned ledger or verification workflow.
 - Implementation:
-  - Add a `schema_migrations` ledger table contract.
-  - Add a migration runner or documented apply/check script that can run in dry-run and apply modes.
-  - Require each migration to be idempotent, ordered, documented, and tied to an application version.
-  - Add CI checks that every model/schema change has a migration or an explicit no-migration note.
+  - Document the `schema_migrations` ledger expectation for the external deployment migration process.
+  - Require each migration to be ordered, documented, and tied to an application version.
+  - Add feature-specific SQL migration files when code changes require schema changes.
   - Keep production startup non-mutating.
 - Exit criteria:
   - Operators can determine which migrations have run.
-  - CI catches schema drift before merge.
+  - Code-owned schema changes include matching SQL migration notes/files.
 
-### PRD-004: Create A Production Deployment Runbook
+### PRD-004: Document Code-Owned Runtime Contracts
 - Severity: High
-- Owner: platform/operations
-- Surface: repo root, `src/main/README.md`, `.env.example`
-- Issue: The repo has good local README material, but it lacks a single production runbook covering release, deployment, migration, rollback, and incident operations.
+- Owner: backend/platform
+- Surface: `src/main/README.md`, `docs/codebase-review/`
+- Issue: The codebase has important runtime assumptions around auth flow, health checks, context path routing, static frontend serving, DB startup behavior, Redis-backed coordination, and migration ordering. Those assumptions need to be captured as code-owned contracts without duplicating external CI/CD deployment mechanics.
 - Implementation:
-  - Add a root `README.md` or `docs/production-runbook.md`.
-  - Document environment modes, Oracle/TAConnection setup, Redis requirements, reverse-proxy auth headers, cookie/security settings, health checks, startup order, migration flow, rollback flow, and smoke validation.
-  - Include the exact commands CI runs and the exact checks operators should run after deploy.
+  - Document which behaviors the application guarantees directly: auth bootstrap path, cookie-backed sessions, context-path routing, `/health` vs `/health/ready`, startup schema non-mutation, and WebSocket refresh behavior.
+  - Document which integration boundaries are externally owned: proxy ingress, CI/CD packaging, deployment-time configuration injection, and platform healthcheck wiring.
+  - Add or update tests when a documented contract maps to application behavior.
 - Exit criteria:
-  - A new operator can deploy, verify, roll back, and triage the app from repo docs alone.
+  - A maintainer can tell which readiness guarantees are enforced by SIPM code and which are intentionally delegated to the deployment platform.
 
 ## Priority 2: Should Fix Before Broad Rollout
 
@@ -80,9 +84,9 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Surface: `src/main/ui/js/app.js`
 - Issue: `app.js` remains a large shell/state module. Route extraction is underway, but more modal wiring, state persistence, route loaders, repository helpers, and entity orchestration still belong in focused modules.
 - Implementation:
-  - Continue the existing decomposition roadmap in `docs/codebase-review/05-enterprise-roadmap.md`.
-  - Keep `app.js` limited to bootstrap, shell state, route dispatch, cross-route callbacks, and shared lifecycle.
-  - Move route-specific behavior into route-owned modules and entity modal behavior into `src/main/ui/js/entities/`.
+  - Defer broad `app.js` decomposition for this readiness pass.
+  - Extract only small shared utilities needed by security and date-stability work.
+  - Keep future route/module extraction as normal roadmap work.
 - Exit criteria:
   - `app.js` stays within the quality-gate budget.
   - New views do not add route-local behavior back to the shell.
@@ -90,14 +94,15 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 ### PRD-006: Add Application Security Headers
 - Severity: Medium-high
 - Owner: backend/platform
-- Surface: `src/main/backend/main.py`, reverse-proxy config
+- Surface: `src/main/backend/main.py`, backend tests
 - Issue: The app logs request metadata and validates auth config, but production browser hardening headers are not enforced in app code.
 - Implementation:
-  - Add or document enforcement for `Content-Security-Policy`, `frame-ancestors` or `X-Frame-Options`, `Referrer-Policy`, `Strict-Transport-Security`, and `Permissions-Policy`.
-  - Decide whether headers are app-owned or proxy-owned, then add tests for the chosen contract.
+  - Add code-owned response headers for `Content-Security-Policy`, `frame-ancestors` or `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` where SIPM can safely enforce them.
+  - If a header must remain platform-owned, document that as an explicit integration boundary instead of adding proxy config here.
+  - Add tests for the application-owned header contract.
   - Keep CSP compatible with the current static frontend.
 - Exit criteria:
-  - Production responses have a tested browser security-header contract.
+  - SIPM responses have a tested browser security-header contract for the portions owned by app code.
 
 ### PRD-007: Normalize Frontend Date Parsing
 - Severity: Medium
@@ -127,78 +132,76 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 ### PRD-009: Document Or Harden Multi-Instance WebSocket Behavior
 - Severity: Medium
 - Owner: backend/platform
-- Surface: `src/main/backend/app/services/realtime.py`, Redis deployment docs
-- Issue: Redis coordinates refresh broadcasts, but socket connection state and connection limits remain per process. This needs an explicit production deployment contract.
+- Surface: `src/main/backend/app/services/realtime.py`, `src/main/backend/app/services/coordination.py`, backend tests
+- Issue: Redis coordinates refresh broadcasts, but socket connection state and connection limits remain per process. This needs an explicit application-level scaling contract.
 - Implementation:
-  - Document whether production uses one worker, sticky sessions, or per-instance connection limits.
+  - Make the application-level scaling contract explicit in code comments, service docs, or tests: refresh fanout can cross instances through Redis, while live socket accounting is currently process-local.
   - If horizontal scaling is required, move connection accounting or fanout semantics to Redis-backed primitives.
-  - Add operational metrics for open sockets, rejected sockets, idle timeouts, and broadcast failures.
+  - Add code-level metrics or inspectable snapshots for open sockets, rejected sockets, idle timeouts, and broadcast failures.
 - Exit criteria:
-  - Production scaling behavior is explicit and observable.
+  - SIPM's WebSocket behavior is explicit, tested where practical, and observable from app-owned code.
 
-### PRD-010: Align `.env.example` With Production Proxy Auth Contract
+### PRD-010: Keep Proxy Auth Boundary Explicit In Application Code
 - Severity: Medium
-- Owner: platform/security
-- Surface: `.env.example`, `src/main/backend/app/auth/proxy_auth.py`, `src/main/README.md`
-- Issue: Code defaults use `SM_USER` and `name`, while `.env.example` uses `user` and `full_name`. Both may be valid in different environments, but the production contract is ambiguous.
+- Owner: backend/security
+- Surface: `src/main/backend/app/auth/proxy_auth.py`, `src/main/backend/app/routes/auth.py`, auth tests
+- Issue: Reverse-proxy identity is intentionally trusted only after the platform proxy has authenticated the user and stripped spoofed headers. The app should keep that boundary narrow and testable without owning platform configuration files.
 - Implementation:
-  - Split dev/local and prod examples, or comment the expected production proxy headers directly.
-  - Make `.env.example` safe as a template without implying insecure dev values are production-ready.
-  - Add readiness/config docs for proxy header ownership and spoofing protection at the reverse proxy.
+  - Keep proxy identity parsing centralized in `proxy_auth.py`.
+  - Prove only the expected auth bootstrap path provisions proxy users and mints SIPM cookies.
+  - Add tests for missing identity, malformed identity, inactive users, and stale-cookie fallback through `/auth/me`.
+  - Document that header spoofing protection is an external ingress responsibility while SIPM owns the in-app trust boundary.
 - Exit criteria:
-  - Operators know exactly which headers production must set and which clients are trusted to set them.
+  - Proxy-auth behavior is constrained, regression-tested, and not spread across unrelated routes.
 
 ## Priority 3: Production Hardening And Maintainability
 
-### PRD-011: Add Dependency And Static Security Gates
+### PRD-011: Add Code-Owned Security Regression Tests
 - Severity: Medium
 - Owner: repo-quality/security
-- Surface: `.github/workflows/backend-tests.yml`, `package.json`, `src/main/requirements.txt`
-- Issue: CI verifies dependency lock state, but the repo does not currently run dependency vulnerability scanning or Python static security checks.
+- Surface: `src/main/test/`, `src/main/ui/test/`
+- Issue: Several important security expectations are currently implicit in implementation rather than captured as durable regression tests.
 - Implementation:
-  - Add `pip-audit` or an approved equivalent for Python dependencies.
-  - Add `npm audit` or an approved equivalent for frontend dependencies.
-  - Add Python lint/static checks such as Ruff plus Bandit/Semgrep where appropriate.
-  - Start report-only if existing findings need triage, then promote to blocking.
+  - Add focused tests for auth-cookie handling, WebSocket auth rejection, external-link rendering, route-level space isolation, and admin-only endpoints.
+  - Prefer contract tests around high-risk behavior over broad deployment or dependency scanning concerns.
+  - Keep external dependency vulnerability management in the separate CI/CD/security process.
 - Exit criteria:
-  - CI surfaces vulnerable dependencies and high-confidence static security findings before merge.
+  - Code-owned security assumptions fail fast during the repository's normal test suite.
 
 ### PRD-012: Add Operational Observability Beyond Request Logs
 - Severity: Medium
-- Owner: platform/operations
-- Surface: `src/main/backend/main.py`, analytics services, deployment config
-- Issue: Request IDs and key-value request logs exist, but production needs metrics, dashboards, alerts, retention, and error aggregation.
+- Owner: backend/platform
+- Surface: `src/main/backend/main.py`, analytics services, realtime services
+- Issue: Request IDs and key-value request logs exist, but the app can expose richer code-owned telemetry without taking over platform dashboards or alert routing.
 - Implementation:
   - Emit structured JSON logs with request ID, route, status, latency, user/space identifiers where safe, and error category.
-  - Add metrics for request latency, status rates, DB readiness failures, WebSocket counts, cache invalidations, analytics ingestion, and migration state.
-  - Add alert thresholds and an incident triage guide.
-  - Document analytics retention and purge operations.
+  - Keep this pass to structured logs only.
+  - Keep dashboard, alert routing, retention jobs, and log shipping mechanics platform-owned.
 - Exit criteria:
-  - Operators can detect, localize, and triage production incidents without reproducing them locally.
+  - SIPM emits enough structured signals for the external observability platform to detect and localize application failures.
 
-### PRD-013: Add Production Packaging Artifacts
+### PRD-013: Keep Startup Behavior Explicit And Non-Mutating
 - Severity: Medium
-- Owner: platform
-- Surface: repo root
-- Issue: The repo does not expose a production packaging contract such as Dockerfile, compose file, or equivalent deployment manifest.
+- Owner: backend/database
+- Surface: `src/main/backend/main.py`, `src/main/backend/app/db/db.py`, backend tests
+- Issue: Production startup intentionally avoids schema mutation, but that guarantee should remain explicit and covered as the app evolves.
 - Implementation:
-  - Add the packaging artifact required by the target deployment environment.
-  - Include non-root runtime, healthcheck, static asset serving expectations, env injection, and startup command.
-  - Keep local development instructions separate from production packaging.
+  - Add or strengthen tests proving startup does not create or alter schema unless explicitly invoked through a controlled helper.
+  - Keep readiness DB checks separate from migration application.
+  - Document the code-level startup sequence and the non-mutating DB invariant.
 - Exit criteria:
-  - CI or release automation can build the same artifact that production runs.
+  - Application startup cannot accidentally become a schema-changing path.
 
 ### PRD-014: Add Coverage And Quality Thresholds
 - Severity: Medium-low
 - Owner: repo-quality
-- Surface: CI, tests
-- Issue: CI has strong suites, but no coverage threshold or explicit quality trend gate.
+- Surface: tests
+- Issue: The repo has strong suites, but no coverage threshold or explicit quality trend gate for critical code paths.
 - Implementation:
-  - Add Python coverage reporting for backend-critical paths.
-  - Add frontend coverage or focused contract coverage checks for route modules.
-  - Track thresholds per domain instead of chasing a single vanity percentage.
+  - Add focused contract checks for backend-critical paths and frontend utility behavior.
+  - Do not add percentage coverage thresholds in this pass.
 - Exit criteria:
-  - Critical auth, space isolation, schema, route registration, and date-window logic have durable coverage thresholds.
+  - Critical auth, space isolation, schema, route registration, and date-window logic have focused regression coverage.
 
 ### PRD-015: Reduce Generated-Artifact And Local-Tool Noise
 - Severity: Low
@@ -208,7 +211,7 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 - Implementation:
   - Add or document a cleanup command for local generated artifacts.
   - Keep `.auto-research/` and local assistant/tooling state out of commits unless explicitly requested.
-  - Add pre-commit or CI checks for accidental generated artifacts if needed.
+  - Add repository-local checks for accidental generated artifacts if needed.
 - Exit criteria:
   - Production PRs contain only intentional source, tests, docs, and migration files.
 
@@ -220,8 +223,8 @@ Scope: backend, frontend, schema, CI, configuration, documentation, and operatio
 ## Suggested Implementation Order
 1. Close PRD-001 and PRD-002 together as the WebSocket auth hardening slice.
 2. Add PRD-003 migration ledger/check tooling before the next schema change.
-3. Add PRD-004 production runbook and PRD-010 environment-contract cleanup.
-4. Ship PRD-006 security headers and PRD-011 scanning gates.
+3. Add PRD-004 runtime contract docs and PRD-010 proxy-auth boundary tests.
+4. Ship PRD-006 security headers and PRD-011 security regression tests.
 5. Normalize dates through PRD-007 before expanding roadmap/calendar reporting.
 6. Continue frontend decomposition through PRD-005 as part of normal feature work.
 7. Complete PRD-009, PRD-012, PRD-013, PRD-014, and PRD-015 before broad rollout.

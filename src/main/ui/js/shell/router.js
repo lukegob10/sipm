@@ -40,8 +40,8 @@ export function createRouterController({
     calendar: ["projects", "solutions"],
     planning: ["projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
     "team-capacity": ["users", "allocations"],
-    spaces: [],
-    access: [],
+    spaces: ["users"],
+    access: ["users"],
     analytics: [],
   };
   const VIEW_PREFETCH_TARGET = {

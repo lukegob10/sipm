@@ -18,6 +18,7 @@ from .db.db import get_session
 from .models import User
 from .security import security_http_exception
 from .services.audit_log import log_changes
+from .services.api_tokens import authenticate_api_token
 from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
 
 
@@ -103,7 +104,19 @@ def ensure_token_not_revoked(user: User, token_issued_at: int | None) -> None:
 
 def require_user(request: Request, session: Session = Depends(get_db)) -> User:
     token = request.cookies.get("access_token")
-    user = authenticate_access_token(session, token)
+    if token:
+        user = authenticate_access_token(session, token)
+        request.state.auth_method = "cookie"
+        request.state.user = user
+        return user
+    auth_header = str(request.headers.get("Authorization", "")).strip()
+    scheme, _, credential = auth_header.partition(" ")
+    if scheme.lower() == "bearer" and credential.strip():
+        user = authenticate_api_token(session, credential.strip())
+        request.state.auth_method = "api_token"
+        request.state.user = user
+        return user
+    user = authenticate_access_token(session, None)
     request.state.user = user
     return user
 

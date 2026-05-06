@@ -55,8 +55,8 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'data-space-action="issue-password-reset"' in render_text
     assert 'data-space-action="copy-temp-password"' in render_text
     assert 'data-space-action="copy-reset-link"' in render_text
-    assert 'from "./routes/spaces/interactions.js";' in app_text
-    assert 'from "./routes/spaces/render.js";' in app_text
+    assert 'from "./routes/spaces/interactions.js' in app_text
+    assert 'from "./routes/spaces/render.js' in app_text
     assert 'event.composedPath()' in interactions_text
     assert 'classList.contains("space-member-actions")' in interactions_text
     assert "Workspace atlas" in render_text
@@ -76,7 +76,7 @@ def test_space_governance_controls_move_into_route_local_module():
     interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
 
-    assert 'from "./routes/spaces/interactions.js";' in app_text
+    assert 'from "./routes/spaces/interactions.js' in app_text
     assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
     assert "function closeSpaceDirectoryModal() {" in app_text
     assert "return spaceGovernanceController.closeSpaceDirectoryModal();" in app_text

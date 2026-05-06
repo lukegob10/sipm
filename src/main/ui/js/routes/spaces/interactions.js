@@ -400,6 +400,30 @@ export function createSpaceGovernanceController({
       }
       return true;
     }
+    if (action === "grant-global-admin" && userIsGlobalAdmin()) {
+      const confirmed = await showConfirmModal({
+        title: "Grant Global Admin",
+        message: `Grant global admin to ${soeid}?`,
+        confirmLabel: "Grant",
+      });
+      if (!confirmed) return true;
+      try {
+        await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "POST" });
+        state.globalAdminsLoaded = false;
+        await refreshGlobalAdmins();
+        await refreshFromServer("users");
+        setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("users", "update", "success", { source: "space_governance" });
+        }
+      } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("users", "update", "failure", { source: "space_governance" });
+        }
+        setSpaceGovernanceNotice(err?.message || "Grant failed.", "error", 7000);
+      }
+      return true;
+    }
     return false;
   }
 

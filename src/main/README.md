@@ -15,15 +15,7 @@ Then open `http://127.0.0.1:8000/project-manager/`.
 
 Use the repo-root [.env](/mnt/f/vault/projects/sipm/.env) or `.env.local` as the runtime source of truth. The nested [src/main/.env](/mnt/f/vault/projects/sipm/src/main/.env) file is deprecated and only exists as a legacy fallback if the repo-root env files are missing.
 
-Auth is now reverse-proxy driven. Direct access to the app URL only works when the request carries the configured proxy identity headers and SIPM can mint its own cookies.
-
-For local smoke/dev runs without the enterprise proxy, enable the mock proxy header injector:
-
-```bash
-export SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true
-export SIPM_PROXY_AUTH_DEV_MOCK_SOEID=devuser1
-export SIPM_PROXY_AUTH_DEV_MOCK_NAME="Dev User"
-```
+Auth is application-managed. Users sign in with SOEID and password against the SIPM `users` table. SIPM stores bcrypt password hashes and mints its own HTTP-only access, refresh, and active-space cookies after local login.
 
 ## Planning MVP Features
 
@@ -63,14 +55,12 @@ Validation highlights:
 - Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
 - The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
-- Reverse-proxy auth is controlled with `SIPM_PROXY_AUTH_ENABLED=true|false`.
-- Configure the trusted identity headers with `SIPM_PROXY_AUTH_SOEID_HEADER` and `SIPM_PROXY_AUTH_NAME_HEADER`.
-- The production proxy contract uses `SM_USER` for the SUID and `name` for the full name. SIPM derives email internally as `<suid>@<DOMAIN_NAME>`.
-- `SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true` injects those headers server-side for local/dev/test runs only; it must stay off in UAT/prod.
-- Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after reverse-proxy identity bootstrap through `/api/auth/me`.
+- Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
+- `SIPM_ALLOW_SELF_REGISTER=false` should be used in UAT/prod unless self-registration is explicitly approved.
+- Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
 - Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
-- SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress header spoofing protection, and company portal proxy files remain platform-owned.
+- SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
 - Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.

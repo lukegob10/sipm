@@ -515,6 +515,37 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
+  function renderUserDirectoryRows() {
+    const users = [...(state.users || [])]
+      .sort((a, b) => (a.display_name || a.soeid || "").localeCompare(b.display_name || b.soeid || ""));
+    if (!users.length) {
+      return "<tr><td colspan='9' class='muted'>No users loaded for the active space.</td></tr>";
+    }
+    return users.map((user) => {
+      const isGlobalAdmin = String(user.role || "").trim().toLowerCase().replace(/[\s-]+/g, "_") === "global_admin";
+      const statusText = user.is_active ? "active" : "inactive";
+      const serviceText = user.is_service_account ? "service" : "interactive";
+      return `<tr data-user-id="${escapeAttr(user.user_id)}" data-soeid="${escapeAttr(user.soeid)}">
+        <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
+        <td>${esc(user.soeid || "—")}</td>
+        <td>${esc(user.email || "—")}</td>
+        <td>${esc(user.role || "user")}</td>
+        <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
+        <td><span class="pill ${user.is_service_account ? "warn" : "muted"}">${esc(serviceText)}</span></td>
+        <td>${esc(user.team_tag || "—")}</td>
+        <td>${esc(formatDateTime(user.last_login_at) || "Never")}</td>
+        <td>
+          <div class="platform-access-actions">
+            <button type="button" class="secondary" data-space-action="issue-password-reset" data-soeid="${escapeAttr(user.soeid)}">Issue Reset</button>
+            ${isGlobalAdmin
+              ? `<button type="button" class="secondary" data-space-action="revoke-global-admin" data-soeid="${escapeAttr(user.soeid)}">Revoke Admin</button>`
+              : `<button type="button" class="secondary" data-space-action="grant-global-admin" data-soeid="${escapeAttr(user.soeid)}">Grant Admin</button>`}
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
   function renderPlatformAccessSection() {
     if (!userIsGlobalAdmin()) {
       return `
@@ -582,6 +613,33 @@ export function createSpaceGovernanceRenderer({
           </div>
         </div>
         ${renderServiceAccountTokens()}
+        <div class="space-hero-card">
+          <div>
+            <p class="space-card-kicker">Local user table</p>
+            <h3>Users</h3>
+            <p class="muted">Review local-auth users, issue temporary password resets, and manage platform admin access.</p>
+          </div>
+        </div>
+        <div class="panel soft">
+          <div class="table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>SOEID</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Account Type</th>
+                  <th>Team</th>
+                  <th>Last Login</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>${renderUserDirectoryRows()}</tbody>
+            </table>
+          </div>
+        </div>
         <div class="panel soft">
           <div class="table">
             <table>

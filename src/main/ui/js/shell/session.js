@@ -1,18 +1,21 @@
-const PORTAL_ACCESS_NOTICE = "Access SIPM through the company portal to start a session.";
-const PORTAL_SESSION_EXPIRED_NOTICE = "Your SIPM session expired. Refresh this page from the company portal to continue.";
-
 export function createSessionController({
   state,
   els,
   apiBase,
   accessRefreshIntervalMs,
+  buildAppUrl,
   isResetPathname,
   viewFromLocationPath,
   setView,
+  setAuthMode,
   setAuthed,
   setStatus,
   setAuthVisible,
+  setResetVisible,
+  showAuthError,
   showAuthNotice,
+  showResetError,
+  showResetSuccess,
   resetIdleTimer,
   hideIdleModal,
   refreshSpaceContext,
@@ -193,8 +196,8 @@ export function createSessionController({
     sessionRefreshPromise = null;
     lastSessionRefreshAt = 0;
     setAuthed(null);
-    setStatus("Portal session required", "warn");
-    showAuthNotice(PORTAL_SESSION_EXPIRED_NOTICE);
+    setStatus("Session expired", "warn");
+    showAuthNotice("Your session expired due to inactivity. Please sign in again.");
   }
 
   function handleAuthError(err) {
@@ -226,11 +229,88 @@ export function createSessionController({
     }
   }
 
+  async function performLogin(soeid, password) {
+    return api("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ soeid, password }),
+    });
+  }
+
+  async function performRegister(display_name, soeid, password) {
+    return api("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ display_name, soeid, password }),
+    });
+  }
+
   function isResetPath() {
     return isResetPathname(window.location.pathname);
   }
 
   function bindAuthUI() {
+    setAuthMode("login");
+    els.authTabLogin?.addEventListener("click", () => setAuthMode("login"));
+    els.authTabRegister?.addEventListener("click", () => setAuthMode("register"));
+    els.resetLink?.addEventListener("click", () => {
+      window.location.href = buildAppUrl("/reset-password");
+    });
+
+    els.loginForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showAuthError("");
+      const form = new FormData(els.loginForm);
+      try {
+        const user = await performLogin(form.get("soeid"), form.get("password"));
+        setAuthed(user);
+        await refreshSpaceContext();
+        startLiveSync();
+        restoreRouteFromLocationAfterAuth();
+        setAuthVisible(false);
+      } catch (err) {
+        if (!handleAuthError(err)) showAuthError(err.message || "Login failed");
+      }
+    });
+
+    els.registerForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showAuthError("");
+      const form = new FormData(els.registerForm);
+      try {
+        const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
+        setAuthed(user);
+        await refreshSpaceContext();
+        startLiveSync();
+        restoreRouteFromLocationAfterAuth();
+        setAuthVisible(false);
+      } catch (err) {
+        if (!handleAuthError(err)) showAuthError(err.message || "Registration failed");
+      }
+    });
+
+    els.resetForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showResetError("");
+      showResetSuccess("");
+      const form = new FormData(els.resetForm);
+      try {
+        await api("/auth/reset-password", {
+          method: "POST",
+          body: JSON.stringify({
+            soeid: form.get("soeid"),
+            temp_password: form.get("temp_password"),
+            new_password: form.get("new_password"),
+            confirm_password: form.get("confirm_password"),
+          }),
+        });
+        showResetSuccess("Password reset complete. Redirecting to login...");
+        setTimeout(() => {
+          window.location.href = buildAppUrl("/");
+        }, 1200);
+      } catch (err) {
+        showResetError(err.message || "Reset failed");
+      }
+    });
+
     els.logoutBtn?.addEventListener("click", async () => {
       try {
         await api("/auth/logout", { method: "POST" });
@@ -238,7 +318,6 @@ export function createSessionController({
         console.warn("Logout error", err);
       } finally {
         setAuthed(null);
-        showAuthNotice(PORTAL_ACCESS_NOTICE);
         setAuthVisible(true);
       }
     });
@@ -262,15 +341,20 @@ export function createSessionController({
         console.warn("Logout error", err);
       } finally {
         setAuthed(null);
-        showAuthNotice(PORTAL_ACCESS_NOTICE);
         setAuthVisible(true);
       }
     });
   }
 
   async function bootstrapAuth() {
-    showAuthNotice(PORTAL_ACCESS_NOTICE);
-    setStatus("Checking portal session...", "warn");
+    if (isResetPath()) {
+      showResetError("");
+      showResetSuccess("");
+      setResetVisible(true);
+      setStatus("Password reset", "warn");
+      return;
+    }
+    setStatus("Checking session...", "warn");
     const user = await fetchCurrentUser();
     if (user) {
       await refreshSpaceContext();
@@ -280,8 +364,7 @@ export function createSessionController({
       return;
     }
     setAuthVisible(true);
-    setStatus("Portal sign-in required", "warn");
-    showAuthNotice(PORTAL_ACCESS_NOTICE);
+    setStatus("Sign in required", "warn");
   }
 
   return {

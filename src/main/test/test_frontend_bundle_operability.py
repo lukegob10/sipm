@@ -24,7 +24,6 @@ async def test_frontend_root_returns_503_when_frontend_bundle_is_missing(client,
 @pytest.mark.anyio
 async def test_readiness_reports_frontend_bundle_failure(client, monkeypatch):
     monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "validate_proxy_auth_configuration", lambda: None)
     monkeypatch.setattr(main_module, "_startup_db_disabled", lambda: True)
     monkeypatch.setattr(
         main_module,
@@ -39,7 +38,6 @@ async def test_readiness_reports_frontend_bundle_failure(client, monkeypatch):
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
-            "proxy_auth": {"status": "ok"},
             "frontend": {
                 "status": "error",
                 "detail": "Frontend bundle missing required files: ui/index.html",

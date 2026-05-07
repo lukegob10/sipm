@@ -240,7 +240,7 @@ const state = {
   apiTokensByUser: {},
   apiTokensLoadedByUser: {},
   issuedApiToken: null,
-  authMode: "portal",
+  authMode: "login",
   phases: [],
   projects: [],
   solutions: [],
@@ -1074,7 +1074,7 @@ function setAuthed(user) {
   }
   setAuthVisible(!state.authed);
   if (!state.authed) {
-    setStatus("Portal sign-in required", "warn");
+    setStatus("Sign in required", "warn");
   }
   renderSpaceSwitcher();
   renderCompletedVisibilityToggle();

@@ -26,6 +26,7 @@ from ..services.usage_analytics import (
     normalize_timestamp,
     sanitize_details,
     scope_space_id_for_request,
+    update_usage_rollups,
     validate_performance_sample_payload,
     validate_usage_event_payload,
     validate_window_days,
@@ -100,6 +101,7 @@ def ingest_usage_analytics(
         session.add_all(events_to_insert)
     if samples_to_insert:
         session.add_all(samples_to_insert)
+    update_usage_rollups(session, events=events_to_insert, samples=samples_to_insert)
     session.commit()
 
     return TelemetryIngestResultRead(

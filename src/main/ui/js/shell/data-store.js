@@ -238,6 +238,7 @@ export function createDataStoreController({
     const loadStartedAt = Date.now();
     const force = !!options.force;
     const silent = !!options.silent;
+    const routeReady = options.routeReady || Promise.resolve(null);
     const requestedEntities = Array.isArray(options.entities) ? options.entities.filter(isKnownEntity) : null;
     if (!state.authed) {
       setStatus("Portal sign-in required", "warn");
@@ -251,6 +252,7 @@ export function createDataStoreController({
       ? targetEntities
       : targetEntities.filter((entity) => !state.loadedEntities.has(entity));
     if (!entitiesToFetch.length) {
+      await routeReady;
       renderActiveView();
       scheduleViewPrefetch(state.currentView);
       if (typeof onViewDataLoaded === "function") {
@@ -268,7 +270,11 @@ export function createDataStoreController({
     state.loading = true;
     try {
       if (!silent) setStatus("Loading...", "warn");
-      if (!silent) renderActiveView();
+      if (!silent) {
+        routeReady.then(() => {
+          if (state.loading) renderActiveView();
+        });
+      }
       const results = await Promise.allSettled(entitiesToFetch.map((entity) => fetchEntityData(entity)));
       const errors = [];
       let changed = false;
@@ -296,6 +302,7 @@ export function createDataStoreController({
           }
           return;
         }
+        await routeReady;
         const uiSyncError = syncUiAfterDataLoad({
           selectedProjectId,
           selectedSolutionId,
@@ -310,6 +317,7 @@ export function createDataStoreController({
         return;
       }
 
+      await routeReady;
       const uiSyncError = syncUiAfterDataLoad({
         selectedProjectId,
         selectedSolutionId,

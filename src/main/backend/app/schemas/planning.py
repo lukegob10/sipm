@@ -76,3 +76,10 @@ class WorkAllocationAssignmentRead(BaseModel):
     assignee_name: Optional[str] = None
     month: str
     fte_months_allocated: float
+
+
+class WorkAllocationBoardRead(BaseModel):
+    tasks: list[WorkAllocationTaskRead]
+    teams: list[WorkAllocationTeamRead]
+    people: list[WorkAllocationPersonRead]
+    allocations: list[WorkAllocationAssignmentRead]

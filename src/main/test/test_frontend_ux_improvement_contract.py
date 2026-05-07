@@ -525,19 +525,17 @@ def test_planning_window_stale_selection_self_heals_to_live_option_set():
     assert "if (prev !== nextSelectedId) persistPlanningWindowViewState();" in app_text
 
 
-def test_auth_screen_uses_portal_only_entry_flow():
+def test_auth_screen_uses_local_login_register_and_reset_flow():
     session_text = SESSION_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "Company Portal Sign-In" in html_text
-    assert "company portal" in html_text.lower()
-    assert 'id="login-form"' not in html_text
-    assert 'id="register-form"' not in html_text
-    assert 'id="reset-screen"' not in html_text
-    assert 'id="auth-tab-register"' not in html_text
-    assert '/auth/login' not in session_text
-    assert '/auth/register' not in session_text
-    assert '/auth/reset-password' not in session_text
+    assert 'id="login-form"' in html_text
+    assert 'id="register-form"' in html_text
+    assert 'id="reset-screen"' in html_text
+    assert 'id="auth-tab-register"' in html_text
+    assert '/auth/login' in session_text
+    assert '/auth/register' in session_text
+    assert '/auth/reset-password' in session_text
 
 
 def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes():
@@ -555,7 +553,7 @@ def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes(
     assert "function syncPathForView(view, replace = false)" in router_text
     assert 'window.addEventListener("popstate"' in app_text
     assert 'const me = await api("/auth/me");' in session_text
-    assert 'setStatus("Checking portal session...", "warn");' in session_text
+    assert 'setStatus("Checking session...", "warn");' in session_text
     assert 'const url = new URL(buildWsUrl("/ws"));' in live_sync_text
     assert "resolveApiBase(ctx)" in planning_text
     assert "viewHref," in app_text
@@ -886,8 +884,8 @@ def test_space_governance_modal_and_action_bindings_move_into_route_local_module
     interactions_text = SPACES_INTERACTIONS_JS.read_text(encoding="utf-8")
     render_text = SPACES_RENDER_JS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/spaces/interactions.js";' in app_text
-    assert 'from "./routes/spaces/render.js";' in app_text
+    assert 'from "./routes/spaces/interactions.js' in app_text
+    assert 'from "./routes/spaces/render.js' in app_text
     assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
     assert "const spaceGovernanceRenderer = createSpaceGovernanceRenderer({" in app_text
     assert "function bindSpaceAdminControls() {" in app_text

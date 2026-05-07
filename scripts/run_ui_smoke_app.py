@@ -19,12 +19,6 @@ os.environ.setdefault("ENV", "dev")
 os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
 os.environ.setdefault("SIPM_DISABLE_STARTUP", "true")
 os.environ.setdefault("SIPM_KEEPALIVE_TASK", "false")
-os.environ.setdefault("SIPM_PROXY_AUTH_ENABLED", "true")
-os.environ.setdefault("SIPM_PROXY_AUTH_SOEID_HEADER", "SM_USER")
-os.environ.setdefault("SIPM_PROXY_AUTH_NAME_HEADER", "name")
-os.environ.setdefault("SIPM_PROXY_AUTH_DEV_MOCK_ENABLED", "true")
-os.environ.setdefault("SIPM_PROXY_AUTH_DEV_MOCK_SOEID", "ui-smoke-user")
-os.environ.setdefault("SIPM_PROXY_AUTH_DEV_MOCK_NAME", "UI Smoke User")
 
 from backend.app.models import Base  # noqa: E402
 import backend.app.db.db as db_module  # noqa: E402

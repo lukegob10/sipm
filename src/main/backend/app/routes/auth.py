@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
 from ..auth.auth import (
@@ -15,12 +15,6 @@ from ..auth.auth import (
     set_active_space_cookie,
     set_auth_cookies,
     verify_password,
-)
-from ..auth.proxy_auth import (
-    portal_auth_disabled_exception,
-    provision_proxy_user,
-    proxy_auth_enabled,
-    proxy_identity_from_request,
 )
 from ..deps import authenticate_access_token, ensure_token_not_revoked, get_db, require_global_admin, require_user
 from ..models import User
@@ -67,11 +61,6 @@ def _requested_space_id(request: Request) -> str | None:
     return request.headers.get("X-Space-Id") or request.cookies.get(ACTIVE_SPACE_COOKIE)
 
 
-def _ensure_local_auth_routes_enabled() -> None:
-    if proxy_auth_enabled():
-        raise portal_auth_disabled_exception()
-
-
 def _issue_session(response: Response, session: Session, user: User, requested_space_id: str | None) -> None:
     access_token = create_token(user.user_id, user.role, "access")
     refresh_token = create_token(user.user_id, user.role, "refresh")
@@ -82,7 +71,6 @@ def _issue_session(response: Response, session: Session, user: User, requested_s
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def register(payload: UserCreate, response: Response, session: Session = Depends(get_db)):
-    _ensure_local_auth_routes_enabled()
     if not allow_self_register():
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -125,7 +113,6 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
 
 @router.post("/login", response_model=UserRead)
 def login(payload: UserLogin, request: Request, response: Response, session: Session = Depends(get_db)):
-    _ensure_local_auth_routes_enabled()
     soeid_norm = str(payload.soeid).strip().lower()
     user = _get_user_by_soeid(session, soeid_norm)
     now = datetime.now(timezone.utc)
@@ -250,7 +237,6 @@ def reset_password(
     response: Response,
     session: Session = Depends(get_db),
 ):
-    _ensure_local_auth_routes_enabled()
     if not payload.new_password or payload.new_password != payload.confirm_password:
         raise security_http_exception(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -290,36 +276,17 @@ def logout(response: Response):
 
 
 @router.get("/me", response_model=UserRead)
-def me(request: Request, response: Response, session: Session = Depends(get_db)):
+def me(request: Request, session: Session = Depends(get_db)):
     token = request.cookies.get("access_token")
-    token_error: HTTPException | None = None
-
-    if token:
-        try:
-            user = authenticate_access_token(session, token)
-        except HTTPException as exc:
-            if not proxy_auth_enabled() or exc.status_code != status.HTTP_401_UNAUTHORIZED:
-                raise
-            token_error = exc
-        else:
-            request.state.user = user
-            return user
-
-    identity = proxy_identity_from_request(request)
-    if identity:
-        user = provision_proxy_user(session, identity)
-        _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
-        request.state.user = user
-        return user
-
-    if token_error:
-        raise token_error
-
-    raise security_http_exception(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        code="AUTH_REQUIRED",
-        message="Not authenticated",
-    )
+    if not token:
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="AUTH_REQUIRED",
+            message="Not authenticated",
+        )
+    user = authenticate_access_token(session, token)
+    request.state.user = user
+    return user
 
 
 @router.get("/active-space", response_model=ActiveSpaceResponse)

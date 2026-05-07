@@ -1,29 +1,6 @@
 -- Oracle DDL generated from SQLAlchemy models.
 -- Table names follow TB_TA_PM_* with no schema qualifier.
 
--- Index: idx_api_token_user
-CREATE INDEX idx_api_token_user ON "TB_TA_PM_API_TOKENS" (user_id);
-
--- Index: ix_TB_TA_PM_API_TOKENS_revoked_at
-CREATE INDEX "ix_TB_TA_PM_API_TOKENS_revoked_at" ON "TB_TA_PM_API_TOKENS" (revoked_at);
-
--- Table: TB_TA_PM_EXTERNAL_REF
-
-CREATE TABLE "TB_TA_PM_EXTERNAL_REF" (
-	external_ref_id VARCHAR2(255 CHAR) NOT NULL, 
-	work_item_type VARCHAR2(255 CHAR) NOT NULL, 
-	work_item_id VARCHAR2(255 CHAR) NOT NULL, 
-	ref_type VARCHAR2(255 CHAR) NOT NULL, 
-	ref_url VARCHAR2(255 CHAR), 
-	ref_key VARCHAR2(255 CHAR), 
-	label VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (external_ref_id), 
-	CONSTRAINT uix_external_ref_unique UNIQUE (work_item_type, work_item_id, ref_type, ref_key)
-);
-
 -- Table: TB_TA_PM_PHASES
 
 CREATE TABLE "TB_TA_PM_PHASES" (
@@ -60,10 +37,10 @@ CREATE TABLE "TB_TA_PM_USERS" (
 	email VARCHAR2(255 CHAR) NOT NULL, 
 	display_name VARCHAR2(255 CHAR) NOT NULL, 
 	password_hash VARCHAR2(255 CHAR) NOT NULL, 
-	role VARCHAR2(255 CHAR) NOT NULL, 
-	is_active SMALLINT NOT NULL, 
-	is_service_account SMALLINT NOT NULL, 
-	team_tag VARCHAR2(255 CHAR), 
+	role VARCHAR2(255 CHAR) NOT NULL,
+	is_active SMALLINT NOT NULL,
+	is_service_account SMALLINT NOT NULL,
+	team_tag VARCHAR2(255 CHAR),
 	capacity_hours INTEGER NOT NULL, 
 	capacity_fte_month FLOAT NOT NULL, 
 	failed_attempts INTEGER NOT NULL, 
@@ -84,20 +61,26 @@ CREATE TABLE "TB_TA_PM_USERS" (
 -- Table: TB_TA_PM_API_TOKENS
 
 CREATE TABLE "TB_TA_PM_API_TOKENS" (
-	token_id VARCHAR2(255 CHAR) NOT NULL, 
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	name VARCHAR2(255 CHAR) NOT NULL, 
-	token_hash VARCHAR2(64 CHAR) NOT NULL, 
-	created_by_user_id VARCHAR2(255 CHAR) NOT NULL, 
-	last_used_at DATE, 
-	expires_at DATE, 
-	revoked_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (token_id), 
-	CONSTRAINT uix_api_token_hash UNIQUE (token_hash), 
+	token_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	name VARCHAR2(255 CHAR) NOT NULL,
+	token_hash VARCHAR2(64 CHAR) NOT NULL,
+	created_by_user_id VARCHAR2(255 CHAR) NOT NULL,
+	last_used_at DATE,
+	expires_at DATE,
+	revoked_at DATE,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (token_id),
+	CONSTRAINT uix_api_token_hash UNIQUE (token_hash),
 	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
 );
+
+-- Index: idx_api_token_user
+CREATE INDEX idx_api_token_user ON "TB_TA_PM_API_TOKENS" (user_id);
+
+-- Index: ix_TB_TA_PM_API_TOKENS_revoked_at
+CREATE INDEX "ix_TB_TA_PM_API_TOKENS_revoked_at" ON "TB_TA_PM_API_TOKENS" (revoked_at);
 
 -- Table: TB_TA_PM_CHANGE_LOG
 
@@ -168,6 +151,49 @@ CREATE TABLE "TB_TA_PM_PERFORMANCE_SAMPLES" (
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
+-- Table: TB_TA_PM_USAGE_DAILY_ROLLUPS
+
+CREATE TABLE "TB_TA_PM_USAGE_DAILY_ROLLUPS" (
+	rollup_date DATE NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	view_key VARCHAR2(255 CHAR) NOT NULL,
+	category VARCHAR2(255 CHAR) NOT NULL,
+	feature_key VARCHAR2(255 CHAR) NOT NULL,
+	action_key VARCHAR2(255 CHAR) NOT NULL,
+	outcome VARCHAR2(255 CHAR) NOT NULL,
+	event_count NUMBER(19) NOT NULL,
+	route_view_count NUMBER(19) NOT NULL,
+	workflow_action_count NUMBER(19) NOT NULL,
+	success_count NUMBER(19) NOT NULL,
+	failure_count NUMBER(19) NOT NULL,
+	last_occurred_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (rollup_date, space_id, view_key, category, feature_key, action_key, outcome)
+);
+
+-- Table: TB_TA_PM_USAGE_IDENTITY_DAILY_ROLLUPS
+
+CREATE TABLE "TB_TA_PM_USAGE_IDENTITY_DAILY_ROLLUPS" (
+	rollup_date DATE NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	token_type VARCHAR2(255 CHAR) NOT NULL,
+	token_value VARCHAR2(255 CHAR) NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (rollup_date, space_id, token_type, token_value)
+);
+
+-- Table: TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS
+
+CREATE TABLE "TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS" (
+	rollup_date DATE NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	view_key VARCHAR2(255 CHAR) NOT NULL,
+	token_type VARCHAR2(255 CHAR) NOT NULL,
+	token_value VARCHAR2(255 CHAR) NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (rollup_date, space_id, view_key, token_type, token_value)
+);
+
 -- Table: TB_TA_PM_PLANNING_WINDOWS
 
 CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
@@ -195,7 +221,7 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	success_criteria CLOB, 
 	sponsor VARCHAR2(255 CHAR) NOT NULL, 
 	sponsor_user_soeid VARCHAR2(255 CHAR), 
-	strategic_objective VARCHAR2(255 CHAR), 
+	strategic_objective CLOB, 
 	priority INTEGER NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
@@ -276,7 +302,7 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 	version VARCHAR2(255 CHAR) NOT NULL, 
 	status VARCHAR(11 CHAR) NOT NULL, 
 	rag_status VARCHAR(5 CHAR) NOT NULL, 
-	rag_reason VARCHAR2(255 CHAR), 
+	rag_reason CLOB, 
 	priority INTEGER NOT NULL, 
 	due_date DATE, 
 	current_phase VARCHAR2(255 CHAR), 
@@ -291,8 +317,8 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 	approver VARCHAR2(255 CHAR), 
 	approver_user_soeid VARCHAR2(255 CHAR), 
 	key_stakeholder VARCHAR2(255 CHAR), 
-	blockers VARCHAR2(255 CHAR), 
-	risks VARCHAR2(255 CHAR), 
+	blockers CLOB, 
+	risks CLOB, 
 	impact_confidence VARCHAR(6 CHAR), 
 	planned_start_date DATE, 
 	rag_confidence FLOAT, 
@@ -345,26 +371,6 @@ CREATE TABLE "TB_TA_PM_SOLUTION_PHASES" (
 	FOREIGN KEY(phase_id) REFERENCES "TB_TA_PM_PHASES" (phase_id)
 );
 
--- Table: TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT
-
-CREATE TABLE "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (
-	snapshot_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	week_start DATE NOT NULL, 
-	rag_status VARCHAR(5 CHAR) NOT NULL, 
-	progress_note VARCHAR2(255 CHAR), 
-	next_week_plan VARCHAR2(255 CHAR), 
-	confidence_on_due_date VARCHAR(6 CHAR), 
-	owner_user_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (snapshot_id), 
-	CONSTRAINT uix_solution_week_start UNIQUE (solution_id, week_start), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
-	FOREIGN KEY(owner_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
-);
-
 -- Table: TB_TA_PM_SUBCOMPONENTS
 
 CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
@@ -382,8 +388,8 @@ CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
 	github_repo_url VARCHAR2(1024 CHAR), 
 	estimate_hours INTEGER, 
 	blocked SMALLINT NOT NULL, 
-	blocker_note VARCHAR2(255 CHAR), 
-	done_criteria VARCHAR2(255 CHAR), 
+	blocker_note CLOB, 
+	done_criteria CLOB, 
 	capacity_hours INTEGER NOT NULL, 
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
@@ -409,9 +415,6 @@ CREATE INDEX idx_change_entity_created ON "TB_TA_PM_CHANGE_LOG" (entity_type, en
 
 -- Index: idx_change_user_created
 CREATE INDEX idx_change_user_created ON "TB_TA_PM_CHANGE_LOG" (user_id, created_at);
-
--- Index: idx_external_ref_work_item
-CREATE INDEX idx_external_ref_work_item ON "TB_TA_PM_EXTERNAL_REF" (work_item_type, work_item_id);
 
 -- Index: idx_performance_samples_created
 CREATE INDEX idx_performance_samples_created ON "TB_TA_PM_PERFORMANCE_SAMPLES" (occurred_at);
@@ -449,6 +452,30 @@ CREATE INDEX idx_usage_events_user_created ON "TB_TA_PM_USAGE_EVENTS" (user_id, 
 -- Index: idx_usage_events_view_created
 CREATE INDEX idx_usage_events_view_created ON "TB_TA_PM_USAGE_EVENTS" (view_key, occurred_at);
 
+-- Index: idx_usage_identity_rollups_date
+CREATE INDEX idx_usage_identity_rollups_date ON "TB_TA_PM_USAGE_IDENTITY_DAILY_ROLLUPS" (rollup_date, token_type);
+
+-- Index: idx_usage_identity_rollups_scope
+CREATE INDEX idx_usage_identity_rollups_scope ON "TB_TA_PM_USAGE_IDENTITY_DAILY_ROLLUPS" (space_id, rollup_date, token_type);
+
+-- Index: idx_usage_rollups_date_failure
+CREATE INDEX idx_usage_rollups_date_failure ON "TB_TA_PM_USAGE_DAILY_ROLLUPS" (rollup_date, outcome, view_key, feature_key, action_key);
+
+-- Index: idx_usage_rollups_date_view
+CREATE INDEX idx_usage_rollups_date_view ON "TB_TA_PM_USAGE_DAILY_ROLLUPS" (rollup_date, view_key);
+
+-- Index: idx_usage_rollups_date_workflow
+CREATE INDEX idx_usage_rollups_date_workflow ON "TB_TA_PM_USAGE_DAILY_ROLLUPS" (rollup_date, category, feature_key, action_key);
+
+-- Index: idx_usage_rollups_space_date
+CREATE INDEX idx_usage_rollups_space_date ON "TB_TA_PM_USAGE_DAILY_ROLLUPS" (space_id, rollup_date);
+
+-- Index: idx_usage_route_identity_date
+CREATE INDEX idx_usage_route_identity_date ON "TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS" (rollup_date, view_key, token_type);
+
+-- Index: idx_usage_route_identity_scope
+CREATE INDEX idx_usage_route_identity_scope ON "TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS" (space_id, rollup_date, view_key, token_type);
+
 -- Index: ix_TB_TA_PM_CHANGE_LOG_created_at
 CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_created_at" ON "TB_TA_PM_CHANGE_LOG" (created_at);
 
@@ -460,12 +487,6 @@ CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_space_id" ON "TB_TA_PM_CHANGE_LOG" (space_i
 
 -- Index: ix_TB_TA_PM_CHANGE_LOG_user_id
 CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_user_id" ON "TB_TA_PM_CHANGE_LOG" (user_id);
-
--- Index: ix_TB_TA_PM_EXTERNAL_REF_deleted_at
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_REF_deleted_at" ON "TB_TA_PM_EXTERNAL_REF" (deleted_at);
-
--- Index: ix_TB_TA_PM_EXTERNAL_REF_work_item_id
-CREATE INDEX "ix_TB_TA_PM_EXTERNAL_REF_work_item_id" ON "TB_TA_PM_EXTERNAL_REF" (work_item_id);
 
 -- Index: ix_TB_TA_PM_PHASES_sequence
 CREATE INDEX "ix_TB_TA_PM_PHASES_sequence" ON "TB_TA_PM_PHASES" (sequence);
@@ -550,18 +571,6 @@ CREATE INDEX "ix_TB_TA_PM_SOLUTION_PHASES_sequence_override" ON "TB_TA_PM_SOLUTI
 
 -- Index: ix_TB_TA_PM_SOLUTION_PHASES_solution_id
 CREATE INDEX "ix_TB_TA_PM_SOLUTION_PHASES_solution_id" ON "TB_TA_PM_SOLUTION_PHASES" (solution_id);
-
--- Index: ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_deleted_at
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_deleted_at" ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (deleted_at);
-
--- Index: ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_owner_user_id
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_owner_user_id" ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (owner_user_id);
-
--- Index: ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_solution_id
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_solution_id" ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (solution_id);
-
--- Index: ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_week_start
-CREATE INDEX "ix_TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT_week_start" ON "TB_TA_PM_SOLUTION_WEEKLY_SNAPSHOT" (week_start);
 
 -- Index: ix_TB_TA_PM_SPACES_archived_at
 CREATE INDEX "ix_TB_TA_PM_SPACES_archived_at" ON "TB_TA_PM_SPACES" (archived_at);

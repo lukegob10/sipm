@@ -5,25 +5,18 @@ This app now uses `#/planning` as a **Work Allocation Board** for FTE-month task
 ## Run
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r src/main/requirements.txt
-uvicorn backend.main:app --reload --app-dir src/main
+uv venv
+.venv\Scripts\activate
+uv pip install -r requirements.txt
+cd src/main
+uvicorn backend.main:app --reload
 ```
 
 Then open `http://127.0.0.1:8000/project-manager/`.
 
 Use the repo-root [.env](/mnt/f/vault/projects/sipm/.env) or `.env.local` as the runtime source of truth. The nested [src/main/.env](/mnt/f/vault/projects/sipm/src/main/.env) file is deprecated and only exists as a legacy fallback if the repo-root env files are missing.
 
-Auth is now reverse-proxy driven. Direct access to the app URL only works when the request carries the configured proxy identity headers and SIPM can mint its own cookies.
-
-For local smoke/dev runs without the enterprise proxy, enable the mock proxy header injector:
-
-```bash
-export SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true
-export SIPM_PROXY_AUTH_DEV_MOCK_SOEID=devuser1
-export SIPM_PROXY_AUTH_DEV_MOCK_NAME="Dev User"
-```
+Auth is application-managed. Users sign in with SOEID and password against the SIPM `users` table. SIPM stores bcrypt password hashes and mints its own HTTP-only access, refresh, and active-space cookies after local login.
 
 ## Planning MVP Features
 
@@ -63,22 +56,21 @@ Validation highlights:
 - Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
 - The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
-- Reverse-proxy auth is controlled with `SIPM_PROXY_AUTH_ENABLED=true|false`.
-- Configure the trusted identity headers with `SIPM_PROXY_AUTH_SOEID_HEADER` and `SIPM_PROXY_AUTH_NAME_HEADER`.
-- The production proxy contract uses `SM_USER` for the SUID and `name` for the full name. SIPM derives email internally as `<suid>@<DOMAIN_NAME>`.
-- `SIPM_PROXY_AUTH_DEV_MOCK_ENABLED=true` injects those headers server-side for local/dev/test runs only; it must stay off in UAT/prod.
-- Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after reverse-proxy identity bootstrap through `/api/auth/me`.
+- Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
+- `SIPM_ALLOW_SELF_REGISTER=false` is required in UAT/prod; startup/readiness fails if non-dev self-registration is enabled.
+- Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
 - Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
-- SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress header spoofing protection, and company portal proxy files remain platform-owned.
+- SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
 - Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
-- When usage analytics is enabled, apply [`docs/sql/migrations/2026-03-29_usage_analytics.sql`](/mnt/f/vault/projects/sipm/docs/sql/migrations/2026-03-29_usage_analytics.sql) before exposing the admin dashboard.
-- Service-account API tokens require [`docs/sql/migrations/2026-05-01_service_account_api_tokens.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/migrations/2026-05-01_service_account_api_tokens.sql). If Oracle raises `ORA-00904` for `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT`, this migration has not been applied to the target schema yet.
+- When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
+- Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql).
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
-- Application startup is intentionally non-mutating for database schema. SQL files in `docs/sql/migrations/` document schema changes for the external deployment migration process. Use a `schema_migrations` ledger in the managed database to record applied migrations; SIPM does not run migration apply steps during startup.
+- Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
+- First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_time_global_admin.sql).
 - CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 
 ## Frontend Validation

@@ -1,8 +1,8 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Float, Index, Integer, String, Text
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.table_names import fk_target, physical_table_name
@@ -78,7 +78,64 @@ class PerformanceSample(Base):
     long_task_total_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
+class UsageDailyRollup(Base):
+    __tablename__ = physical_table_name("usage_daily_rollups")
+    __table_args__ = (
+        Index("idx_usage_rollups_space_date", "space_id", "rollup_date"),
+        Index("idx_usage_rollups_date_view", "rollup_date", "view_key"),
+        Index("idx_usage_rollups_date_workflow", "rollup_date", "category", "feature_key", "action_key"),
+        Index("idx_usage_rollups_date_failure", "rollup_date", "outcome", "view_key", "feature_key", "action_key"),
+    )
+
+    rollup_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    space_id: Mapped[str] = mapped_column(String, primary_key=True)
+    view_key: Mapped[str] = mapped_column(String, primary_key=True)
+    category: Mapped[str] = mapped_column(String, primary_key=True)
+    feature_key: Mapped[str] = mapped_column(String, primary_key=True)
+    action_key: Mapped[str] = mapped_column(String, primary_key=True)
+    outcome: Mapped[str] = mapped_column(String, primary_key=True)
+    event_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    route_view_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    workflow_action_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    success_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    failure_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    last_occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive, nullable=False)
+
+
+class UsageIdentityDailyRollup(Base):
+    __tablename__ = physical_table_name("usage_identity_daily_rollups")
+    __table_args__ = (
+        Index("idx_usage_identity_rollups_scope", "space_id", "rollup_date", "token_type"),
+        Index("idx_usage_identity_rollups_date", "rollup_date", "token_type"),
+    )
+
+    rollup_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    space_id: Mapped[str] = mapped_column(String, primary_key=True)
+    token_type: Mapped[str] = mapped_column(String, primary_key=True)
+    token_value: Mapped[str] = mapped_column(String, primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive, nullable=False)
+
+
+class UsageRouteIdentityDailyRollup(Base):
+    __tablename__ = physical_table_name("usage_route_identity_daily_rollups")
+    __table_args__ = (
+        Index("idx_usage_route_identity_scope", "space_id", "rollup_date", "view_key", "token_type"),
+        Index("idx_usage_route_identity_date", "rollup_date", "view_key", "token_type"),
+    )
+
+    rollup_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    space_id: Mapped[str] = mapped_column(String, primary_key=True)
+    view_key: Mapped[str] = mapped_column(String, primary_key=True)
+    token_type: Mapped[str] = mapped_column(String, primary_key=True)
+    token_value: Mapped[str] = mapped_column(String, primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive, nullable=False)
+
+
 __all__ = [
     "PerformanceSample",
+    "UsageDailyRollup",
     "UsageEvent",
+    "UsageIdentityDailyRollup",
+    "UsageRouteIdentityDailyRollup",
 ]

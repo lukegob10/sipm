@@ -497,7 +497,6 @@ async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
 @pytest.mark.anyio
 async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
     monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "validate_proxy_auth_configuration", lambda: None)
     monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
     monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
@@ -533,7 +532,6 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
 @pytest.mark.anyio
 async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
     monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "validate_proxy_auth_configuration", lambda: None)
     monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
     monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)

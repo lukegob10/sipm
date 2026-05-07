@@ -12,6 +12,7 @@ export function createRouterController({
   loadTeamCapacityData,
   onBeforeViewChange = null,
   onModuleLoadFailure = null,
+  routeModuleLoaders = null,
 }) {
   const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
   const KNOWN_VIEWS = [
@@ -58,7 +59,7 @@ export function createRouterController({
     access: "analytics",
     analytics: "planning",
   };
-  const ROUTE_MODULE_LOADERS = {
+  const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
     master: () => import(`../routes/master.js?v=${APP_ASSET_VERSION}`),
     gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`),
     "subcomponents-workbench": () => import(`../routes/subcomponents-workbench.js?v=${APP_ASSET_VERSION}`),
@@ -248,26 +249,27 @@ export function createRouterController({
     if (!fromHistory || redirected) {
       syncPathForView(nextView, redirected ? true : replacePath);
     }
-    if (viewHasLazyModule(nextView)) {
-      ensureRouteModule(nextView).then((loaded) => {
-        if (state.currentView !== nextView) return;
-        if (loaded) renderActiveView();
-      });
-    }
+    const routeModuleReady = viewHasLazyModule(nextView)
+      ? ensureRouteModule(nextView)
+      : Promise.resolve(null);
     if (state.authed) {
       if (nextView === "team-capacity") {
-        loadTeamCapacityData({ force: true }).catch((err) => {
+        routeModuleReady.then(() => {
+          if (state.currentView !== nextView) return null;
+          return loadTeamCapacityData({ force: true });
+        }).catch((err) => {
           console.warn("Team capacity load failed", err);
         });
       } else {
-        loadData({ entities: entitiesForView(nextView) }).catch((err) => {
+        loadData({ entities: entitiesForView(nextView), routeReady: routeModuleReady }).catch((err) => {
           console.warn("View load failed", err);
         });
       }
-      renderActiveView();
       return;
     }
-    renderActiveView();
+    routeModuleReady.finally(() => {
+      if (state.currentView === nextView) renderActiveView();
+    });
   }
 
   return {

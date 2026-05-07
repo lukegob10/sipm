@@ -28,7 +28,7 @@ async def test_request_id_propagates_when_header_is_sane(client):
 
 
 @pytest.mark.anyio
-async def test_security_headers_are_app_owned_and_portal_frame_compatible(client):
+async def test_security_headers_are_app_owned_and_frame_compatible(client):
     response = await client.get("/health")
 
     assert response.status_code == 200
@@ -49,7 +49,6 @@ async def test_readiness_skips_db_check_during_tests(client):
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
-            "proxy_auth": {"status": "ok"},
             "frontend": {"status": "ok"},
             "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
         },
@@ -75,7 +74,6 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
-            "proxy_auth": {"status": "ok"},
             "frontend": {"status": "ok"},
             "db": {"status": "ok"},
         },
@@ -96,7 +94,6 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
-            "proxy_auth": {"status": "ok"},
             "frontend": {"status": "ok"},
             "db": {"status": "error", "detail": "db down"},
         },

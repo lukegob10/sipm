@@ -10,7 +10,13 @@ from fastapi import Query
 from sqlalchemy import case, func, inspect, literal, or_, select, union
 
 from ..db.table_names import physical_table_name
-from ..models import PerformanceSample, UsageEvent
+from ..models import (
+    PerformanceSample,
+    UsageDailyRollup,
+    UsageEvent,
+    UsageIdentityDailyRollup,
+    UsageRouteIdentityDailyRollup,
+)
 from ..security import security_http_exception
 
 
@@ -20,6 +26,7 @@ _MAX_DETAILS_BYTES = 1024
 _MAX_DETAIL_VALUE_LENGTH = 160
 _MAX_DURATION_MS = 24 * 60 * 60 * 1000
 _FAILURE_OUTCOMES = ("failure", "timeout", "server_error")
+_UNSCOPED_SPACE_ID = "__none__"
 
 ALLOWED_EVENT_CATEGORIES = {"lifecycle", "navigation", "workflow", "operations"}
 ALLOWED_FEATURE_KEYS = {
@@ -113,6 +120,9 @@ def ensure_usage_analytics_available(session) -> None:
     required_tables = [
         physical_table_name("usage_events"),
         physical_table_name("performance_samples"),
+        physical_table_name("usage_daily_rollups"),
+        physical_table_name("usage_identity_daily_rollups"),
+        physical_table_name("usage_route_identity_daily_rollups"),
     ]
     for table_name in required_tables:
         if not inspector.has_table(table_name):
@@ -252,6 +262,148 @@ def _base_filters(model, *, since: datetime, scope_space_id: str | None) -> list
     return filters
 
 
+def _rollup_space_id(space_id: str | None) -> str:
+    return str(space_id or "").strip() or _UNSCOPED_SPACE_ID
+
+
+def _rollup_space_filter(model, *, scope_space_id: str | None) -> list:
+    if not scope_space_id:
+        return []
+    return [model.space_id == _rollup_space_id(scope_space_id)]
+
+
+def _rollup_date_filters(model, *, since: datetime, scope_space_id: str | None) -> list:
+    return [
+        model.rollup_date >= since.date(),
+        *_rollup_space_filter(model, scope_space_id=scope_space_id),
+    ]
+
+
+def _rollups_have_data(session, *, since: datetime, scope_space_id: str | None) -> bool:
+    value = session.execute(
+        select(func.count())
+        .select_from(UsageDailyRollup)
+        .where(*_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id))
+    ).scalar()
+    return _int_value(value) > 0
+
+
+def _event_rollup_key(event: UsageEvent) -> tuple:
+    return (
+        event.occurred_at.date(),
+        _rollup_space_id(event.space_id),
+        event.view_key,
+        event.category,
+        event.feature_key,
+        event.action_key,
+        event.outcome,
+    )
+
+
+def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iterable[PerformanceSample]) -> None:
+    event_totals: dict[tuple, dict[str, object]] = {}
+    identity_keys: set[tuple[date, str, str, str]] = set()
+    route_identity_keys: set[tuple[date, str, str, str, str]] = set()
+
+    for event in events:
+        key = _event_rollup_key(event)
+        totals = event_totals.setdefault(
+            key,
+            {
+                "event_count": 0,
+                "route_view_count": 0,
+                "workflow_action_count": 0,
+                "success_count": 0,
+                "failure_count": 0,
+                "last_occurred_at": event.occurred_at,
+            },
+        )
+        totals["event_count"] = int(totals["event_count"]) + 1
+        if event.action_key == "route_view":
+            totals["route_view_count"] = int(totals["route_view_count"]) + 1
+        if event.category == "workflow":
+            totals["workflow_action_count"] = int(totals["workflow_action_count"]) + 1
+        if event.outcome == "success":
+            totals["success_count"] = int(totals["success_count"]) + 1
+        if event.outcome in _FAILURE_OUTCOMES:
+            totals["failure_count"] = int(totals["failure_count"]) + 1
+        if event.occurred_at > totals["last_occurred_at"]:
+            totals["last_occurred_at"] = event.occurred_at
+
+        rollup_date = event.occurred_at.date()
+        space_id = _rollup_space_id(event.space_id)
+        if event.session_id:
+            identity_keys.add((rollup_date, space_id, "session", event.session_id))
+            if event.action_key == "route_view":
+                route_identity_keys.add((rollup_date, space_id, event.view_key, "session", event.session_id))
+        if event.user_id:
+            identity_keys.add((rollup_date, space_id, "user", event.user_id))
+            if event.action_key == "route_view":
+                route_identity_keys.add((rollup_date, space_id, event.view_key, "user", event.user_id))
+
+    for sample in samples:
+        rollup_date = sample.occurred_at.date()
+        space_id = _rollup_space_id(sample.space_id)
+        if sample.session_id:
+            identity_keys.add((rollup_date, space_id, "session", sample.session_id))
+        if sample.user_id:
+            identity_keys.add((rollup_date, space_id, "user", sample.user_id))
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for key, totals in event_totals.items():
+        rollup = session.get(UsageDailyRollup, key)
+        if rollup is None:
+            rollup = UsageDailyRollup(
+                rollup_date=key[0],
+                space_id=key[1],
+                view_key=key[2],
+                category=key[3],
+                feature_key=key[4],
+                action_key=key[5],
+                outcome=key[6],
+                event_count=0,
+                route_view_count=0,
+                workflow_action_count=0,
+                success_count=0,
+                failure_count=0,
+                last_occurred_at=totals["last_occurred_at"],
+            )
+            session.add(rollup)
+        rollup.event_count += int(totals["event_count"])
+        rollup.route_view_count += int(totals["route_view_count"])
+        rollup.workflow_action_count += int(totals["workflow_action_count"])
+        rollup.success_count += int(totals["success_count"])
+        rollup.failure_count += int(totals["failure_count"])
+        if totals["last_occurred_at"] > rollup.last_occurred_at:
+            rollup.last_occurred_at = totals["last_occurred_at"]
+        rollup.updated_at = now
+
+    for key in identity_keys:
+        if session.get(UsageIdentityDailyRollup, key) is None:
+            session.add(
+                UsageIdentityDailyRollup(
+                    rollup_date=key[0],
+                    space_id=key[1],
+                    token_type=key[2],
+                    token_value=key[3],
+                    updated_at=now,
+                )
+            )
+
+    for key in route_identity_keys:
+        if session.get(UsageRouteIdentityDailyRollup, key) is None:
+            session.add(
+                UsageRouteIdentityDailyRollup(
+                    rollup_date=key[0],
+                    space_id=key[1],
+                    view_key=key[2],
+                    token_type=key[3],
+                    token_value=key[4],
+                    updated_at=now,
+                )
+            )
+
+
 def _date_bucket_expr(session, value):
     dialect_name = session.get_bind().dialect.name
     if dialect_name == "oracle":
@@ -385,6 +537,70 @@ def _daily_event_counts(session, *, since: datetime, scope_space_id: str | None)
     }
 
 
+def _rollup_distinct_token_count(session, *, token_type: str, since: datetime, scope_space_id: str | None) -> int:
+    filters = [
+        *_rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id),
+        UsageIdentityDailyRollup.token_type == token_type,
+    ]
+    tokens = (
+        select(UsageIdentityDailyRollup.token_value.label("token"))
+        .where(*filters)
+        .group_by(UsageIdentityDailyRollup.token_value)
+        .subquery()
+    )
+    value = session.execute(select(func.count()).select_from(tokens)).scalar()
+    return _int_value(value)
+
+
+def _rollup_daily_distinct_token_counts(
+    session,
+    *,
+    token_type: str,
+    since: datetime,
+    scope_space_id: str | None,
+) -> dict[date, int]:
+    rows = session.execute(
+        select(UsageIdentityDailyRollup.rollup_date, func.count().label("total"))
+        .where(
+            *_rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id),
+            UsageIdentityDailyRollup.token_type == token_type,
+        )
+        .group_by(UsageIdentityDailyRollup.rollup_date)
+    ).all()
+    return {_bucket_to_date(row.rollup_date): _int_value(row.total) for row in rows}
+
+
+def _rollup_daily_event_counts(session, *, since: datetime, scope_space_id: str | None) -> dict[date, dict[str, int]]:
+    rows = session.execute(
+        select(
+            UsageDailyRollup.rollup_date,
+            func.coalesce(func.sum(UsageDailyRollup.route_view_count), 0).label("route_views"),
+            func.coalesce(func.sum(UsageDailyRollup.workflow_action_count), 0).label("workflow_actions"),
+            func.coalesce(func.sum(UsageDailyRollup.failure_count), 0).label("failure_count"),
+        )
+        .where(*_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id))
+        .group_by(UsageDailyRollup.rollup_date)
+    ).all()
+    return {
+        _bucket_to_date(row.rollup_date): {
+            "route_views": _int_value(row.route_views),
+            "workflow_actions": _int_value(row.workflow_actions),
+            "failure_count": _int_value(row.failure_count),
+        }
+        for row in rows
+    }
+
+
+def _rollup_event_count(session, *, since: datetime, scope_space_id: str | None, metric_name: str) -> int:
+    metric = getattr(UsageDailyRollup, metric_name)
+    value = session.execute(
+        select(func.coalesce(func.sum(metric), 0)).where(
+            *_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id)
+        )
+    ).scalar()
+    return _int_value(value)
+
+
 def _ranked_metric_stats_by_group(
     session,
     *,
@@ -437,6 +653,7 @@ def _ranked_metric_stats_by_group(
 
 def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     since = analytics_window_start(days)
+    use_rollups = _rollups_have_data(session, since=since, scope_space_id=scope_space_id)
     sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
     load_expr = _sample_load_expr()
     overall_load_stats = _ranked_metric_stats_by_group(
@@ -455,19 +672,94 @@ def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_i
         _bucket_to_date(bucket): stats
         for bucket, stats in raw_daily_load_stats.items()
     }
-    daily_event_counts = _daily_event_counts(session, since=since, scope_space_id=scope_space_id)
-    daily_session_counts = _daily_distinct_token_counts(
-        session,
-        token_name="session_id",
-        since=since,
-        scope_space_id=scope_space_id,
-    )
-    daily_user_counts = _daily_distinct_token_counts(
-        session,
-        token_name="user_id",
-        since=since,
-        scope_space_id=scope_space_id,
-    )
+    if use_rollups:
+        daily_event_counts = _rollup_daily_event_counts(session, since=since, scope_space_id=scope_space_id)
+        daily_session_counts = _rollup_daily_distinct_token_counts(
+            session,
+            token_type="session",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        daily_user_counts = _rollup_daily_distinct_token_counts(
+            session,
+            token_type="user",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        sessions = _rollup_distinct_token_count(
+            session,
+            token_type="session",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        active_users = _rollup_distinct_token_count(
+            session,
+            token_type="user",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        route_views = _rollup_event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            metric_name="route_view_count",
+        )
+        workflow_actions = _rollup_event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            metric_name="workflow_action_count",
+        )
+        failure_count = _rollup_event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            metric_name="failure_count",
+        )
+    else:
+        daily_event_counts = _daily_event_counts(session, since=since, scope_space_id=scope_space_id)
+        daily_session_counts = _daily_distinct_token_counts(
+            session,
+            token_name="session_id",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        daily_user_counts = _daily_distinct_token_counts(
+            session,
+            token_name="user_id",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        sessions = _distinct_token_count(
+            session,
+            token_name="session_id",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        active_users = _distinct_token_count(
+            session,
+            token_name="user_id",
+            since=since,
+            scope_space_id=scope_space_id,
+        )
+        route_views = _event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            extra_filters=(UsageEvent.action_key == "route_view",),
+        )
+        workflow_actions = _event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            extra_filters=(UsageEvent.category == "workflow",),
+        )
+        failure_count = _event_count(
+            session,
+            since=since,
+            scope_space_id=scope_space_id,
+            extra_filters=(UsageEvent.outcome.in_(_FAILURE_OUTCOMES),),
+        )
 
     window_days = {(since + timedelta(days=offset)).date() for offset in range(days)}
     daily_dates = sorted(
@@ -497,36 +789,11 @@ def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_i
     return {
         **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
         "summary": {
-            "sessions": _distinct_token_count(
-                session,
-                token_name="session_id",
-                since=since,
-                scope_space_id=scope_space_id,
-            ),
-            "active_users": _distinct_token_count(
-                session,
-                token_name="user_id",
-                since=since,
-                scope_space_id=scope_space_id,
-            ),
-            "route_views": _event_count(
-                session,
-                since=since,
-                scope_space_id=scope_space_id,
-                extra_filters=(UsageEvent.action_key == "route_view",),
-            ),
-            "workflow_actions": _event_count(
-                session,
-                since=since,
-                scope_space_id=scope_space_id,
-                extra_filters=(UsageEvent.category == "workflow",),
-            ),
-            "failure_count": _event_count(
-                session,
-                since=since,
-                scope_space_id=scope_space_id,
-                extra_filters=(UsageEvent.outcome.in_(_FAILURE_OUTCOMES),),
-            ),
+            "sessions": sessions,
+            "active_users": active_users,
+            "route_views": route_views,
+            "workflow_actions": workflow_actions,
+            "failure_count": failure_count,
             "median_load_ms": overall_load_stats.get("median"),
             "p95_load_ms": overall_load_stats.get("p95"),
         },
@@ -536,6 +803,131 @@ def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_i
 
 def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     since = analytics_window_start(days)
+    if _rollups_have_data(session, since=since, scope_space_id=scope_space_id):
+        filters = _rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id)
+        route_views_expr = func.coalesce(func.sum(UsageDailyRollup.route_view_count), 0)
+        route_failure_expr = func.coalesce(func.sum(UsageDailyRollup.failure_count), 0)
+        top_route_rows = session.execute(
+            select(
+                UsageDailyRollup.view_key.label("view_key"),
+                route_views_expr.label("route_views"),
+                route_failure_expr.label("failure_count"),
+            )
+            .where(*filters)
+            .group_by(UsageDailyRollup.view_key)
+            .having((route_views_expr > 0) | (route_failure_expr > 0))
+            .order_by(route_views_expr.desc(), UsageDailyRollup.view_key.asc())
+            .limit(10)
+        ).all()
+
+        top_view_keys = [row.view_key for row in top_route_rows]
+        route_identity_counts: dict[tuple[str, str], int] = {}
+        if top_view_keys:
+            distinct_route_tokens = (
+                select(
+                    UsageRouteIdentityDailyRollup.view_key.label("view_key"),
+                    UsageRouteIdentityDailyRollup.token_type.label("token_type"),
+                    UsageRouteIdentityDailyRollup.token_value.label("token_value"),
+                )
+                .where(
+                    *_rollup_date_filters(
+                        UsageRouteIdentityDailyRollup,
+                        since=since,
+                        scope_space_id=scope_space_id,
+                    ),
+                    UsageRouteIdentityDailyRollup.view_key.in_(top_view_keys),
+                )
+                .group_by(
+                    UsageRouteIdentityDailyRollup.view_key,
+                    UsageRouteIdentityDailyRollup.token_type,
+                    UsageRouteIdentityDailyRollup.token_value,
+                )
+                .subquery()
+            )
+            identity_rows = session.execute(
+                select(
+                    distinct_route_tokens.c.view_key,
+                    distinct_route_tokens.c.token_type,
+                    func.count().label("total"),
+                )
+                .group_by(distinct_route_tokens.c.view_key, distinct_route_tokens.c.token_type)
+            ).all()
+            route_identity_counts = {
+                (row.view_key, row.token_type): _int_value(row.total)
+                for row in identity_rows
+            }
+
+        top_routes = [
+            {
+                "view_key": row.view_key,
+                "route_views": _int_value(row.route_views),
+                "unique_sessions": route_identity_counts.get((row.view_key, "session"), 0),
+                "active_users": route_identity_counts.get((row.view_key, "user"), 0),
+                "failure_count": _int_value(row.failure_count),
+            }
+            for row in top_route_rows
+        ]
+
+        workflow_total_expr = func.coalesce(func.sum(UsageDailyRollup.workflow_action_count), 0)
+        workflow_success_expr = func.coalesce(func.sum(UsageDailyRollup.success_count), 0)
+        workflow_failure_expr = func.coalesce(func.sum(UsageDailyRollup.failure_count), 0)
+        workflow_rows = session.execute(
+            select(
+                UsageDailyRollup.feature_key.label("feature_key"),
+                UsageDailyRollup.action_key.label("action_key"),
+                workflow_total_expr.label("total"),
+                workflow_success_expr.label("success_count"),
+                workflow_failure_expr.label("failure_count"),
+            )
+            .where(*filters, UsageDailyRollup.category == "workflow")
+            .group_by(UsageDailyRollup.feature_key, UsageDailyRollup.action_key)
+            .order_by(workflow_total_expr.desc(), UsageDailyRollup.feature_key.asc(), UsageDailyRollup.action_key.asc())
+            .limit(10)
+        ).all()
+        top_workflows = [
+            {
+                "feature_key": row.feature_key,
+                "action_key": row.action_key,
+                "total": _int_value(row.total),
+                "success_count": _int_value(row.success_count),
+                "failure_count": _int_value(row.failure_count),
+            }
+            for row in workflow_rows
+        ]
+
+        failure_count_expr = func.coalesce(func.sum(UsageDailyRollup.failure_count), 0)
+        last_seen_expr = func.max(UsageDailyRollup.last_occurred_at)
+        failure_rows = session.execute(
+            select(
+                UsageDailyRollup.view_key.label("view_key"),
+                UsageDailyRollup.feature_key.label("feature_key"),
+                UsageDailyRollup.action_key.label("action_key"),
+                failure_count_expr.label("failure_count"),
+                last_seen_expr.label("last_occurred_at"),
+            )
+            .where(*filters, UsageDailyRollup.failure_count > 0)
+            .group_by(UsageDailyRollup.view_key, UsageDailyRollup.feature_key, UsageDailyRollup.action_key)
+            .order_by(last_seen_expr.desc(), failure_count_expr.desc())
+            .limit(10)
+        ).all()
+        recent_failures = [
+            {
+                "view_key": row.view_key,
+                "feature_key": row.feature_key,
+                "action_key": row.action_key,
+                "failure_count": _int_value(row.failure_count),
+                "last_occurred_at": row.last_occurred_at,
+            }
+            for row in failure_rows
+        ]
+
+        return {
+            **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
+            "top_routes": top_routes,
+            "top_workflows": top_workflows,
+            "recent_failures": recent_failures[:10],
+        }
+
     filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
     route_views_expr = func.coalesce(
         func.sum(case((UsageEvent.action_key == "route_view", 1), else_=0)),
@@ -767,6 +1159,7 @@ __all__ = [
     "normalize_timestamp",
     "sanitize_details",
     "scope_space_id_for_request",
+    "update_usage_rollups",
     "usage_analytics_enabled",
     "validate_performance_sample_payload",
     "validate_usage_event_payload",

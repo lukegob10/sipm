@@ -1,5 +1,11 @@
 from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
-from .analytics import PerformanceSample, UsageEvent
+from .analytics import (
+    PerformanceSample,
+    UsageDailyRollup,
+    UsageEvent,
+    UsageIdentityDailyRollup,
+    UsageRouteIdentityDailyRollup,
+)
 from .identity import (
     ApiToken,
     ChangeLog,
@@ -10,14 +16,12 @@ from .identity import (
     User,
 )
 from .work import (
-    ExternalRef,
     Phase,
     PlanningWindow,
     Project,
     ResourceAllocation,
     Solution,
     SolutionPhase,
-    SolutionWeeklySnapshot,
     Subcomponent,
 )
 
@@ -25,7 +29,6 @@ __all__ = [
     "Base",
     "ApiToken",
     "ChangeLog",
-    "ExternalRef",
     "PerformanceSample",
     "Phase",
     "PlanningWindow",
@@ -34,14 +37,16 @@ __all__ = [
     "SoftDeleteMixin",
     "Solution",
     "SolutionPhase",
-    "SolutionWeeklySnapshot",
     "Space",
     "SpaceMembership",
     "Subcomponent",
     "Team",
     "TeamMember",
     "TimestampMixin",
+    "UsageDailyRollup",
     "UsageEvent",
+    "UsageIdentityDailyRollup",
+    "UsageRouteIdentityDailyRollup",
     "User",
     "_utcnow_naive",
 ]

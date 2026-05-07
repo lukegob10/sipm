@@ -84,6 +84,45 @@ async def test_planning_allocation_can_target_regular_subcomponents(client):
 
 
 @pytest.mark.anyio
+async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocations(client):
+    subcomponent = await create_regular_subcomponent(client, "Planning Snapshot Task", capacity_hours=120)
+
+    team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Snapshot Team"},
+    )
+    assert team_resp.status_code == 201, team_resp.text
+    team = team_resp.json()
+
+    allocation_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "task_id": subcomponent["subcomponent_id"],
+            "assignee_type": "team",
+            "assignee_id": team["id"],
+            "month": "2026-03",
+            "fte_months_allocated": 0.75,
+        },
+    )
+    assert allocation_resp.status_code == 201, allocation_resp.text
+    allocation = allocation_resp.json()
+
+    response = await client.get("/project-manager/api/planning/work-allocation/board?month=2026-03")
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    assert set(payload) == {"tasks", "teams", "people", "allocations"}
+    task = next((row for row in payload["tasks"] if row["id"] == subcomponent["subcomponent_id"]), None)
+    assert task is not None
+    assert task["title"] == "Planning Snapshot Task"
+    assert task["fte_months"] == pytest.approx(0.75, abs=1e-6)
+    assert task["status"] == "assigned"
+    assert any(row["id"] == team["id"] and row["name"] == "Snapshot Team" for row in payload["teams"])
+    assert any(row["id"] == allocation["id"] and row["task_id"] == subcomponent["subcomponent_id"] for row in payload["allocations"])
+    assert isinstance(payload["people"], list)
+
+
+@pytest.mark.anyio
 async def test_planning_allocation_can_move_between_teams_and_people(client):
     subcomponent = await create_regular_subcomponent(client, "Planning Reassigned Task")
 

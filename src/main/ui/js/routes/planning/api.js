@@ -102,16 +102,11 @@ export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
       boardState.data.tasks = Array.isArray(tasks) ? tasks : [];
       boardState.data.allocations = Array.isArray(allocations) ? allocations : [];
     } else {
-      const [tasks, teams, people, allocations] = await Promise.all([
-        callApi(ctx, `/planning/work-allocation/tasks?month=${encodeURIComponent(month)}`),
-        callApi(ctx, "/planning/work-allocation/teams"),
-        callApi(ctx, "/planning/work-allocation/people"),
-        callApi(ctx, `/planning/work-allocation/allocations?month=${encodeURIComponent(month)}`),
-      ]);
-      boardState.data.teams = Array.isArray(teams) ? teams : [];
-      boardState.data.people = Array.isArray(people) ? people : [];
-      boardState.data.tasks = Array.isArray(tasks) ? tasks : [];
-      boardState.data.allocations = Array.isArray(allocations) ? allocations : [];
+      const board = await callApi(ctx, `/planning/work-allocation/board?month=${encodeURIComponent(month)}`);
+      boardState.data.teams = Array.isArray(board?.teams) ? board.teams : [];
+      boardState.data.people = Array.isArray(board?.people) ? board.people : [];
+      boardState.data.tasks = Array.isArray(board?.tasks) ? board.tasks : [];
+      boardState.data.allocations = Array.isArray(board?.allocations) ? board.allocations : [];
     }
     boardState.loaded = true;
     normalizePersistedBoardFilters();

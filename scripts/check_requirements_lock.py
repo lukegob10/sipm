@@ -11,9 +11,9 @@ from pathlib import Path
 
 def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
-    requirements_in = repo_root / "src" / "main" / "requirements.in"
-    requirements_txt = repo_root / "src" / "main" / "requirements.txt"
-    compile_command = "uv pip compile src/main/requirements.in -o src/main/requirements.txt --universal"
+    requirements_in = repo_root / "requirements.in"
+    requirements_txt = repo_root / "requirements.txt"
+    compile_command = "uv pip compile requirements.in -o requirements.txt --universal"
 
     if not requirements_in.exists():
         print(f"Missing source dependency file: {requirements_in}")
@@ -34,7 +34,7 @@ def main() -> int:
             uv_path,
             "pip",
             "compile",
-            "src/main/requirements.in",
+            "requirements.in",
             "-o",
             str(generated),
             "--universal",
@@ -63,7 +63,7 @@ def main() -> int:
     diff = difflib.unified_diff(
         expected,
         actual,
-        fromfile="src/main/requirements.txt",
+        fromfile="requirements.txt",
         tofile="generated",
         n=3,
     )

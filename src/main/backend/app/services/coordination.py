@@ -120,7 +120,7 @@ class RedisCoordinationBackend(CoordinationBackend):
             import redis.asyncio as redis_asyncio
         except ImportError as exc:
             raise RuntimeError(
-                "Redis coordination requires the `redis` package. Add it to src/main/requirements.in."
+                "Redis coordination requires the `redis` package. Add it to requirements.in."
             ) from exc
 
         self._redis = redis.Redis.from_url(redis_url, decode_responses=True)

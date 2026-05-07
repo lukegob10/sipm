@@ -31,6 +31,13 @@ function buildRouterHarness() {
   const loadData = vi.fn().mockResolvedValue(undefined);
   const loadTeamCapacityData = vi.fn().mockResolvedValue(undefined);
   const renderActiveView = vi.fn();
+  const routeModuleLoaders = {
+    master: vi.fn().mockResolvedValue({}),
+    gantt: vi.fn().mockResolvedValue({}),
+    "team-capacity": vi.fn().mockResolvedValue({}),
+    spaces: vi.fn().mockResolvedValue({}),
+    analytics: vi.fn().mockResolvedValue({}),
+  };
   const controller = createRouterController({
     state,
     els,
@@ -40,8 +47,9 @@ function buildRouterHarness() {
     usageAnalyticsEnabled: () => false,
     loadData,
     loadTeamCapacityData,
+    routeModuleLoaders,
   });
-  return { controller, state, loadData, renderActiveView };
+  return { controller, state, loadData, loadTeamCapacityData, renderActiveView, routeModuleLoaders };
 }
 
 
@@ -112,8 +120,8 @@ describe("router controller", () => {
 
     controller.setView("master");
     expect(state.currentView).toBe("master");
-    await Promise.resolve();
-    expect(loadData).toHaveBeenCalledWith({ entities: ["phases", "projects", "solutions"] });
+    await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["phases", "projects", "solutions"] }));
   });
 
   it("loads Gantt route data from existing work entities", async () => {
@@ -121,7 +129,29 @@ describe("router controller", () => {
 
     controller.setView("gantt");
     expect(state.currentView).toBe("gantt");
-    await Promise.resolve();
-    expect(loadData).toHaveBeenCalledWith({ entities: ["projects", "solutions", "subcomponents"] });
+    await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["projects", "solutions", "subcomponents"] }));
+  });
+
+  it("does not render authenticated data routes before the route module and data store are ready", async () => {
+    const { controller, loadData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
+
+    controller.setView("gantt");
+
+    expect(renderActiveView).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(routeModuleLoaders.gantt).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(loadData).toHaveBeenCalledTimes(1));
+    expect(renderActiveView).not.toHaveBeenCalled();
+  });
+
+  it("waits for the team-capacity route module before forcing team-capacity data", async () => {
+    const { controller, loadTeamCapacityData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
+
+    controller.setView("team-capacity");
+
+    expect(renderActiveView).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(routeModuleLoaders["team-capacity"]).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(loadTeamCapacityData).toHaveBeenCalledWith({ force: true }));
+    expect(renderActiveView).not.toHaveBeenCalled();
   });
 });

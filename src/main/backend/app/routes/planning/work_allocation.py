@@ -14,6 +14,7 @@ from ...schemas.planning import (
     WorkAllocationAssignmentCreate,
     WorkAllocationAssignmentRead,
     WorkAllocationAssignmentUpdate,
+    WorkAllocationBoardRead,
     WorkAllocationPersonCreate,
     WorkAllocationPersonRead,
     WorkAllocationPersonUpdate,
@@ -40,11 +41,12 @@ from ...services.planning_work_allocation import (
     team_name_to_id_map,
 )
 from ...services.spaces import SpaceContext
-from ...services.smart_cache import invalidate_space
+from ...services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ...services.user_admin_guards import ensure_actor_can_modify_user, ensure_user_can_be_deactivated
 from ...utils.enums import SubcomponentStatus
 from .common import (
     _HOURS_PER_FTE_MONTH,
+    _PLANNING_LIST_TTL_SECONDS,
     active_team,
     allocation_for_board_payload,
     allocation_month_expr,
@@ -57,6 +59,7 @@ from .common import (
     raise_team_name_conflict,
     raise_team_rename_conflict,
     resolve_work_allocation_assignee,
+    role_scope,
     task_payload,
     team_query,
     work_allocation_revival_query,
@@ -89,6 +92,78 @@ def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set
         space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
         if space_id:
             invalidate_space(space_id, ["users"])
+
+
+def _work_allocation_board_payload(
+    session: Session,
+    space_ctx: SpaceContext,
+    *,
+    month_start,
+    search: str | None = None,
+) -> WorkAllocationBoardRead:
+    teams = team_query(session, space_ctx).order_by(Team.name.asc()).all()
+    team_map = team_name_to_id_map(session, space_ctx)
+    people = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    task_query = planning_task_query(session, space_ctx)
+    if search:
+        term = f"%{search.strip().lower()}%"
+        task_query = task_query.filter(func.lower(Subcomponent.subcomponent_name).like(term))
+    tasks = task_query.order_by(Subcomponent.created_at.asc()).all()
+    task_ids = [task.subcomponent_id for task in tasks]
+    allocations: list[ResourceAllocation] = []
+    assigned_ids: set[str] = set()
+    if task_ids:
+        allocations = (
+            allocation_query(session, space_ctx)
+            .filter(ResourceAllocation.work_item_type == "subcomponent")
+            .filter(ResourceAllocation.work_item_id.in_(task_ids))
+            .filter(allocation_month_expr() == month_start)
+            .order_by(ResourceAllocation.created_at.asc())
+            .all()
+        )
+        assigned_ids = {row.work_item_id for row in allocations}
+    return WorkAllocationBoardRead(
+        teams=[WorkAllocationTeamRead(id=row.team_id, name=row.name) for row in teams],
+        people=[person_payload(row, team_map) for row in people],
+        tasks=[task_payload(row, assigned_ids) for row in tasks],
+        allocations=[allocation_for_board_payload(row, space_ctx, session) for row in allocations],
+    )
+
+
+@router.get("/planning/work-allocation/board", response_model=WorkAllocationBoardRead)
+def get_work_allocation_board(
+    month: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    current_user: User = Depends(current_user_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+) -> WorkAllocationBoardRead:
+    month_start = month_from_token(month or month_token(None))
+    normalized_search = (search or "").strip()
+    return cached_call(
+        endpoint="planning:work-allocation:board",
+        params={
+            "month": month_token(month_start),
+            "search": normalized_search.lower(),
+        },
+        space_id=space_ctx.space_id,
+        user_id=current_user.user_id,
+        role_scope=role_scope(space_ctx),
+        ttl_seconds=_PLANNING_LIST_TTL_SECONDS,
+        scope_tokens=[
+            make_scope_token("planning", space_ctx.space_id),
+            make_scope_token("subcomponents", space_ctx.space_id),
+            make_scope_token("teams", space_ctx.space_id),
+            make_scope_token("users", space_ctx.space_id),
+        ],
+        loader=lambda: _work_allocation_board_payload(
+            session,
+            space_ctx,
+            month_start=month_start,
+            search=normalized_search or None,
+        ),
+    )
 
 
 @router.get("/planning/work-allocation/teams", response_model=List[WorkAllocationTeamRead])

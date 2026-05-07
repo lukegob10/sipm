@@ -50,7 +50,7 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
     success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sponsor: Mapped[str] = mapped_column(String, nullable=False, default="")
     sponsor_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    strategic_objective: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    strategic_objective: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
 
 
@@ -92,7 +92,7 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
         nullable=False,
         default=RagStatus.green,
     )
-    rag_reason: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    rag_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False, index=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     current_phase: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
@@ -107,8 +107,8 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
     approver: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     approver_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     key_stakeholder: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    blockers: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    risks: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    blockers: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    risks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     impact_confidence: Mapped[Optional[ConfidenceLevel]] = mapped_column(
         Enum(ConfidenceLevel),
         nullable=True,
@@ -193,8 +193,8 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
     github_repo_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     estimate_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
-    blocker_note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    done_criteria: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    blocker_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    done_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
@@ -243,57 +243,6 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
     )
 
 
-class SolutionWeeklySnapshot(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = physical_table_name("solution_weekly_snapshot")
-    __table_args__ = (
-        UniqueConstraint("solution_id", "week_start", name="uix_solution_week_start"),
-    )
-
-    snapshot_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    solution_id: Mapped[str] = mapped_column(
-        String,
-        ForeignKey(fk_target("solutions", "solution_id")),
-        nullable=False,
-        index=True,
-    )
-    week_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    rag_status: Mapped[RagStatus] = mapped_column(Enum(RagStatus), nullable=False)
-    progress_note: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    next_week_plan: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    confidence_on_due_date: Mapped[Optional[ConfidenceLevel]] = mapped_column(
-        Enum(ConfidenceLevel),
-        nullable=True,
-    )
-    owner_user_id: Mapped[Optional[str]] = mapped_column(
-        String,
-        ForeignKey(fk_target("users", "user_id")),
-        nullable=True,
-        index=True,
-    )
-
-
-class ExternalRef(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = physical_table_name("external_ref")
-    __table_args__ = (
-        UniqueConstraint(
-            "work_item_type",
-            "work_item_id",
-            "ref_type",
-            "ref_key",
-            name="uix_external_ref_unique",
-        ),
-        Index("idx_external_ref_work_item", "work_item_type", "work_item_id"),
-    )
-
-    external_ref_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    work_item_type: Mapped[str] = mapped_column(String, nullable=False)
-    work_item_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    ref_type: Mapped[str] = mapped_column(String, nullable=False)
-    ref_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    ref_key: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    label: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-
-
 class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("planning_windows")
     __table_args__ = (
@@ -313,13 +262,11 @@ class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
 
 
 __all__ = [
-    "ExternalRef",
     "Phase",
     "PlanningWindow",
     "Project",
     "ResourceAllocation",
     "Solution",
     "SolutionPhase",
-    "SolutionWeeklySnapshot",
     "Subcomponent",
 ]

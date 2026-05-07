@@ -109,6 +109,8 @@ def validate_auth_configuration() -> None:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
+    if IS_NON_DEV and ALLOW_SELF_REGISTER:
+        raise RuntimeError("SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments.")
     if COOKIE_SAMESITE not in _VALID_COOKIE_SAMESITE:
         raise RuntimeError("SIPM_COOKIE_SAMESITE must be one of: lax, strict, none.")
     if COOKIE_SAMESITE == "none" and not SECURE_COOKIES:

@@ -7,7 +7,14 @@ import httpx
 import pytest
 
 from backend.app import deps as deps_module
-from backend.app.models import PerformanceSample, Space, UsageEvent
+from backend.app.models import (
+    PerformanceSample,
+    Space,
+    UsageDailyRollup,
+    UsageEvent,
+    UsageIdentityDailyRollup,
+    UsageRouteIdentityDailyRollup,
+)
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -204,6 +211,21 @@ async def test_usage_analytics_ingest_persists_server_identity_and_sanitizes_det
     assert sample.space_id == "space-1"
     assert sample.load_event_ms == 1100
 
+    with db_sessionmaker() as session:
+        rollup = session.query(UsageDailyRollup).one()
+        identities = session.query(UsageIdentityDailyRollup).all()
+
+    assert rollup.space_id == "space-1"
+    assert rollup.view_key == "master"
+    assert rollup.event_count == 1
+    assert rollup.workflow_action_count == 1
+    assert rollup.success_count == 1
+    assert rollup.failure_count == 0
+    assert {(row.token_type, row.token_value) for row in identities} == {
+        ("session", "tab_1"),
+        ("user", "user-1"),
+    }
+
 
 @pytest.mark.anyio
 async def test_usage_analytics_ingest_rejects_large_batch(analytics_client):
@@ -228,6 +250,106 @@ async def test_usage_analytics_ingest_rejects_large_batch(analytics_client):
 
     assert response.status_code == 400, response.text
     assert response.headers["X-Error-Code"] == "ANALYTICS_BATCH_TOO_LARGE"
+
+
+@pytest.mark.anyio
+async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(analytics_client, db_sessionmaker):
+    now = datetime.now(timezone.utc)
+    yesterday = now - timedelta(days=1)
+
+    response = await analytics_client.post(
+        "/project-manager/api/analytics/ingest",
+        json={
+            "events": [
+                {
+                    "occurred_at": _iso(yesterday),
+                    "session_id": "session-a",
+                    "view_key": "master",
+                    "category": "navigation",
+                    "feature_key": "navigation",
+                    "action_key": "route_view",
+                    "outcome": "success",
+                },
+                {
+                    "occurred_at": _iso(yesterday + timedelta(seconds=10)),
+                    "session_id": "session-a",
+                    "view_key": "master",
+                    "category": "navigation",
+                    "feature_key": "navigation",
+                    "action_key": "route_view",
+                    "outcome": "success",
+                },
+                {
+                    "occurred_at": _iso(yesterday + timedelta(seconds=20)),
+                    "session_id": "session-b",
+                    "view_key": "master",
+                    "category": "workflow",
+                    "feature_key": "projects",
+                    "action_key": "create",
+                    "outcome": "server_error",
+                    "status_code": 500,
+                },
+            ],
+            "performance_samples": [
+                {
+                    "occurred_at": _iso(yesterday + timedelta(seconds=30)),
+                    "session_id": "session-b",
+                    "view_key": "master",
+                    "sample_kind": "route_transition",
+                    "data_load_ms": 300,
+                    "render_ms": 100,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    with db_sessionmaker() as session:
+        assert session.query(UsageDailyRollup).count() == 2
+        assert session.query(UsageIdentityDailyRollup).count() == 3
+        assert session.query(UsageRouteIdentityDailyRollup).count() == 2
+
+    summary = await analytics_client.get("/project-manager/api/analytics/summary?days=30")
+    assert summary.status_code == 200, summary.text
+    summary_payload = summary.json()
+    assert summary_payload["summary"]["sessions"] == 2
+    assert summary_payload["summary"]["active_users"] == 1
+    assert summary_payload["summary"]["route_views"] == 2
+    assert summary_payload["summary"]["workflow_actions"] == 1
+    assert summary_payload["summary"]["failure_count"] == 1
+
+    daily_points = [point for point in summary_payload["daily"] if point["route_views"] or point["failure_count"]]
+    assert daily_points == [
+        {
+            "date": yesterday.date().isoformat(),
+            "sessions": 2,
+            "active_users": 1,
+            "route_views": 2,
+            "workflow_actions": 1,
+            "failure_count": 1,
+            "median_load_ms": 400,
+            "p95_load_ms": 400,
+        }
+    ]
+
+    routes = await analytics_client.get("/project-manager/api/analytics/routes?days=30")
+    assert routes.status_code == 200, routes.text
+    route_payload = routes.json()
+    assert route_payload["top_routes"][0] == {
+        "view_key": "master",
+        "route_views": 2,
+        "unique_sessions": 1,
+        "active_users": 1,
+        "failure_count": 1,
+    }
+    assert route_payload["top_workflows"][0] == {
+        "feature_key": "projects",
+        "action_key": "create",
+        "total": 1,
+        "success_count": 0,
+        "failure_count": 1,
+    }
+    assert route_payload["recent_failures"][0]["failure_count"] == 1
 
 
 @pytest.mark.anyio

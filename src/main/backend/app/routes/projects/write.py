@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
@@ -28,6 +29,7 @@ from .common import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def create_project(
@@ -111,6 +113,14 @@ def create_project(
         ) from exc
     except Exception as exc:
         session.rollback()
+        logger.exception(
+            "Project create failed",
+            extra={
+                "space_id": space_ctx.space_id,
+                "user_id": current_user.user_id,
+                "project_name": payload.project_name,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create project.",
@@ -176,6 +186,14 @@ def update_project(
         ) from exc
     except Exception as exc:
         session.rollback()
+        logger.exception(
+            "Project update failed",
+            extra={
+                "space_id": space_ctx.space_id,
+                "user_id": current_user.user_id,
+                "project_id": project_id,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update project.",

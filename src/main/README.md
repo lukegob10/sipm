@@ -5,10 +5,11 @@ This app now uses `#/planning` as a **Work Allocation Board** for FTE-month task
 ## Run
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r src/main/requirements.txt
-uvicorn backend.main:app --reload --app-dir src/main
+uv venv
+.venv\Scripts\activate
+uv pip install -r requirements.txt
+cd src/main
+uvicorn backend.main:app --reload
 ```
 
 Then open `http://127.0.0.1:8000/project-manager/`.
@@ -56,7 +57,7 @@ Validation highlights:
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
 - The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
 - Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
-- `SIPM_ALLOW_SELF_REGISTER=false` should be used in UAT/prod unless self-registration is explicitly approved.
+- `SIPM_ALLOW_SELF_REGISTER=false` is required in UAT/prod; startup/readiness fails if non-dev self-registration is enabled.
 - Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
 - Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
@@ -65,10 +66,11 @@ Validation highlights:
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
 - Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
-- When usage analytics is enabled, apply [`docs/sql/migrations/2026-03-29_usage_analytics.sql`](/mnt/f/vault/projects/sipm/docs/sql/migrations/2026-03-29_usage_analytics.sql) before exposing the admin dashboard.
-- Service-account API tokens require [`docs/sql/migrations/2026-05-01_service_account_api_tokens.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/migrations/2026-05-01_service_account_api_tokens.sql). If Oracle raises `ORA-00904` for `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT`, this migration has not been applied to the target schema yet.
+- When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
+- Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql).
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
-- Application startup is intentionally non-mutating for database schema. SQL files in `docs/sql/migrations/` document schema changes for the external deployment migration process. Use a `schema_migrations` ledger in the managed database to record applied migrations; SIPM does not run migration apply steps during startup.
+- Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
+- First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_time_global_admin.sql).
 - CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 
 ## Frontend Validation

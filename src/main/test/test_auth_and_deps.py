@@ -337,6 +337,7 @@ def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(
             env.setenv("ENV", "prod")
             env.setenv("SIPM_SECRET_KEY", "x" * 40)
             env.setenv("SIPM_SECURE_COOKIES", "yes")
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
             reloaded = importlib.reload(auth_module)
             assert reloaded.SECURE_COOKIES is True
             reloaded.validate_auth_configuration()
@@ -359,6 +360,25 @@ def test_unknown_env_defaults_to_non_dev_auth_safety(monkeypatch):
             assert reloaded.SECURE_COOKIES is True
             assert reloaded.ALLOW_SELF_REGISTER is False
             reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_non_dev_self_registration(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("ENV", "prod")
+            env.setenv("SIPM_SECRET_KEY", "x" * 40)
+            env.setenv("SIPM_SECURE_COOKIES", "true")
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "true")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments.",
+            ):
+                reloaded.validate_auth_configuration()
     finally:
         importlib.reload(auth_module)
 
@@ -426,12 +446,10 @@ def test_require_space_role_rejects_member_for_space_admin_threshold():
 
 
 @pytest.mark.anyio
-async def test_local_login_sets_session_cookies_and_proxy_env_does_not_block_routes(
+async def test_local_login_sets_session_cookies_and_supports_register_refresh_logout(
     auth_client,
     db_sessionmaker,
-    monkeypatch,
 ):
-    monkeypatch.setenv("SIPM_PROXY_AUTH_ENABLED", "true")
     resp = await _login_local_session(
         auth_client,
         db_sessionmaker,
@@ -492,7 +510,7 @@ async def test_local_login_preserves_existing_role(auth_client, db_sessionmaker)
 
 
 @pytest.mark.anyio
-async def test_me_rejects_invalid_cookie_without_proxy_bootstrap(auth_client, db_sessionmaker):
+async def test_me_rejects_invalid_cookie_without_identity_bootstrap(auth_client, db_sessionmaker):
     with db_sessionmaker() as session:
         session.add(
             User(
@@ -508,10 +526,7 @@ async def test_me_rejects_invalid_cookie_without_proxy_bootstrap(auth_client, db
 
     auth_client.cookies.set("access_token", "not-a-token")
 
-    resp = await auth_client.get(
-        "/project-manager/api/auth/me",
-        headers={"SM_USER": "fallback1", "name": "Fallback User"},
-    )
+    resp = await auth_client.get("/project-manager/api/auth/me")
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid token"
 
@@ -522,11 +537,8 @@ async def test_me_rejects_invalid_cookie_without_proxy_bootstrap(auth_client, db
 
 
 @pytest.mark.anyio
-async def test_me_ignores_proxy_identity_headers_without_cookie(auth_client):
-    resp = await auth_client.get(
-        "/project-manager/api/auth/me",
-        headers={"SM_USER": "ignored1", "name": "Ignored User"},
-    )
+async def test_me_requires_cookie_for_local_auth_session(auth_client):
+    resp = await auth_client.get("/project-manager/api/auth/me")
 
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Not authenticated"

@@ -14,7 +14,7 @@ from ...deps import get_db, require_space_role
 from ...models import Project, Solution, Subcomponent, User
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv
+from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 from .._mutations import commit_session
 from ..projects.common import _resolve_project_sponsor
@@ -403,8 +403,8 @@ def export_subcomponents(
                 "github_repo_url": subcomponent.github_repo_url or "",
                 "estimate_hours": subcomponent.estimate_hours if subcomponent.estimate_hours is not None else "",
                 "blocked": subcomponent.blocked,
-                "blocker_note": subcomponent.blocker_note or "",
-                "done_criteria": subcomponent.done_criteria or "",
+                "blocker_note": read_text_value(subcomponent.blocker_note) or "",
+                "done_criteria": read_text_value(subcomponent.done_criteria) or "",
                 "completed_at": subcomponent.completed_at.isoformat() if subcomponent.completed_at else "",
             }
         )

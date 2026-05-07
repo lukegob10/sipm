@@ -11,9 +11,9 @@ from sqlalchemy.dialects import oracle
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.table_names import physical_table_name
-from backend.app.models import Base, ChangeLog, Project, Solution, Team
-from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead
-from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus
+from backend.app.models import Base, ChangeLog, Project, Solution, Subcomponent, Team
+from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead, SubcomponentRead
+from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
 
 
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
@@ -32,6 +32,8 @@ STALE_MODEL_NAMES = (
     "ProjectPlan",
     "ProjectDecisionLog",
     "ExternalDocument",
+    "ExternalRef",
+    "SolutionWeeklySnapshot",
 )
 
 STALE_TABLE_NAMES = tuple(
@@ -47,6 +49,8 @@ STALE_TABLE_NAMES = tuple(
         "project_plans",
         "project_decision_logs",
         "external_documents",
+        "external_ref",
+        "solution_weekly_snapshot",
     )
 )
 
@@ -114,12 +118,21 @@ def _model_schema_contract():
 def test_project_long_text_fields_use_text_type():
     assert isinstance(Project.__table__.c.description.type, Text)
     assert isinstance(Project.__table__.c.success_criteria.type, Text)
+    assert isinstance(Project.__table__.c.strategic_objective.type, Text)
 
 
 def test_solution_long_text_fields_use_text_type():
     assert isinstance(Solution.__table__.c.description.type, Text)
     assert isinstance(Solution.__table__.c.success_criteria.type, Text)
     assert isinstance(Solution.__table__.c.problem_statement.type, Text)
+    assert isinstance(Solution.__table__.c.rag_reason.type, Text)
+    assert isinstance(Solution.__table__.c.blockers.type, Text)
+    assert isinstance(Solution.__table__.c.risks.type, Text)
+
+
+def test_subcomponent_long_text_fields_use_text_type():
+    assert isinstance(Subcomponent.__table__.c.blocker_note.type, Text)
+    assert isinstance(Subcomponent.__table__.c.done_criteria.type, Text)
 
 
 def test_oracle_solution_repo_url_column_uses_documented_length():
@@ -154,6 +167,22 @@ def test_oracle_schema_document_matches_model_uniques_and_indexes():
     for table_name in doc_tables:
         assert doc_tables[table_name]["unique_constraints"] == model_tables[table_name]["unique_constraints"]
     assert doc_indexes == model_indexes
+
+
+def test_oracle_schema_document_creates_indexes_after_target_tables():
+    schema = SCHEMA_DOC_PATH.read_text()
+    seen_tables: set[str] = set()
+    violations: list[str] = []
+    for line_number, raw_line in enumerate(schema.splitlines(), 1):
+        line = raw_line.strip()
+        table_match = re.search(r'CREATE TABLE "([^"]+)"', line)
+        if table_match:
+            seen_tables.add(table_match.group(1))
+            continue
+        index_match = re.search(r'CREATE INDEX "?[A-Za-z0-9_]+"? ON "([^"]+)"', line)
+        if index_match and index_match.group(1) not in seen_tables:
+            violations.append(f"line {line_number}: {line}")
+    assert violations == []
 
 
 def test_models_package_reexports_and_registers_metadata():
@@ -199,7 +228,7 @@ def test_long_text_read_schemas_coerce_lob_values():
             success_criteria=FakeLob("project success"),
             sponsor="Sponsor",
             sponsor_user_soeid="abc123",
-            strategic_objective="Objective",
+            strategic_objective=FakeLob("project objective"),
             priority=3,
             created_at=now,
             updated_at=now,
@@ -207,6 +236,7 @@ def test_long_text_read_schemas_coerce_lob_values():
     )
     assert project.description == "project description"
     assert project.success_criteria == "project success"
+    assert project.strategic_objective == "project objective"
 
     solution = SolutionRead.model_validate(
         SimpleNamespace(
@@ -216,9 +246,12 @@ def test_long_text_read_schemas_coerce_lob_values():
             version="1.0.0",
             status=SolutionStatus.not_started,
             rag_status=RagStatus.green,
+            rag_reason=FakeLob("solution rag reason"),
             description=FakeLob("solution description"),
             success_criteria=FakeLob("solution success"),
             problem_statement=FakeLob("solution problem"),
+            blockers=FakeLob("solution blockers"),
+            risks=FakeLob("solution risks"),
             priority=3,
             created_at=now,
             updated_at=now,
@@ -227,6 +260,29 @@ def test_long_text_read_schemas_coerce_lob_values():
     assert solution.description == "solution description"
     assert solution.success_criteria == "solution success"
     assert solution.problem_statement == "solution problem"
+    assert solution.rag_reason == "solution rag reason"
+    assert solution.blockers == "solution blockers"
+    assert solution.risks == "solution risks"
+
+    subcomponent = SubcomponentRead.model_validate(
+        SimpleNamespace(
+            subcomponent_id="subcomponent-1",
+            project_id="project-1",
+            solution_id="solution-1",
+            subcomponent_name="Subcomponent",
+            status=SubcomponentStatus.to_do,
+            priority=3,
+            assignee="Assignee",
+            estimate_hours=None,
+            blocked=True,
+            blocker_note=FakeLob("subcomponent blocker"),
+            done_criteria=FakeLob("subcomponent done"),
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    assert subcomponent.blocker_note == "subcomponent blocker"
+    assert subcomponent.done_criteria == "subcomponent done"
 
     change = ChangeLogRead.model_validate(
         SimpleNamespace(

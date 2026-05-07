@@ -96,6 +96,21 @@ async def test_register_broadcast_unregister_prunes_dead_connections():
 
 
 @pytest.mark.anyio
+async def test_realtime_status_endpoint_returns_connection_snapshot(client):
+    ws = StubWebSocket()
+    await realtime.register(ws, user_id="user-1", space_id="space-1")
+
+    response = await client.get("/project-manager/api/realtime/status")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["by_space"] == {"space-1": 1}
+    assert payload["by_user"] == {"user-1": 1}
+    assert payload["limits"]["global"] == realtime.MAX_CONNECTIONS_GLOBAL
+
+
+@pytest.mark.anyio
 async def test_broadcast_prunes_idle_connections_with_reconnectable_close_code():
     ws_idle = StubWebSocket()
     ws_active = StubWebSocket()

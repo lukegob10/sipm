@@ -453,7 +453,7 @@ def export_solutions(
                 "version": solution.version,
                 "status": solution.status.value if hasattr(solution.status, "value") else solution.status,
                 "rag_status": solution.rag_status.value if hasattr(solution.rag_status, "value") else solution.rag_status,
-                "rag_reason": solution.rag_reason or "",
+                "rag_reason": read_text_value(solution.rag_reason) or "",
                 "rag_confidence": solution.rag_confidence if solution.rag_confidence is not None else "",
                 "priority": solution.priority,
                 "due_date": solution.due_date.isoformat() if solution.due_date else "",
@@ -471,8 +471,8 @@ def export_solutions(
                 "approver": solution.approver or "",
                 "approver_user_soeid": solution.approver_user_soeid or "",
                 "key_stakeholder": solution.key_stakeholder or "",
-                "blockers": solution.blockers or "",
-                "risks": solution.risks or "",
+                "blockers": read_text_value(solution.blockers) or "",
+                "risks": read_text_value(solution.risks) or "",
                 "completed_at": solution.completed_at.isoformat() if solution.completed_at else "",
             }
         )

@@ -4,12 +4,13 @@ import sys
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
-from ..deps import authenticate_access_token, get_db
+from ..deps import authenticate_access_token, get_db, require_global_admin
 from ..services.realtime import (
     WS_CLOSE_AUTH_INVALID,
     WS_CLOSE_SERVER_BUSY,
     WS_CLOSE_SPACE_INVALID,
     WebSocketRejected,
+    connection_snapshot,
     heartbeat,
     register,
     unregister,
@@ -17,6 +18,11 @@ from ..services.realtime import (
 from ..services.spaces import resolve_active_space_context
 
 router = APIRouter()
+
+
+@router.get("/realtime/status")
+def realtime_status(_admin=Depends(require_global_admin)):
+    return connection_snapshot()
 
 
 def _running_tests() -> bool:

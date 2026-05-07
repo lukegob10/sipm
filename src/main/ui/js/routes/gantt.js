@@ -1,5 +1,4 @@
 import {
-  DAY_MS as MS_PER_DAY,
   dayNumberToDate,
   dayNumberToIso,
   parseDateOnly,

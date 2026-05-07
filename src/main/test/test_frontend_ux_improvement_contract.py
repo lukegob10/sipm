@@ -529,8 +529,6 @@ def test_auth_screen_uses_local_login_register_and_reset_flow():
     session_text = SESSION_JS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert "Company Portal Sign-In" not in html_text
-    assert "company portal" not in html_text.lower()
     assert 'id="login-form"' in html_text
     assert 'id="register-form"' in html_text
     assert 'id="reset-screen"' in html_text

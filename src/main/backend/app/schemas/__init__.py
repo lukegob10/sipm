@@ -26,6 +26,7 @@ from .planning import (
     WorkAllocationAssignmentCreate,
     WorkAllocationAssignmentRead,
     WorkAllocationAssignmentUpdate,
+    WorkAllocationBoardRead,
     WorkAllocationPersonCreate,
     WorkAllocationPersonRead,
     WorkAllocationPersonUpdate,
@@ -44,7 +45,13 @@ class TextLikeReadModel(BaseModel):
         "new_value",
         "description",
         "success_criteria",
+        "strategic_objective",
         "problem_statement",
+        "rag_reason",
+        "blockers",
+        "risks",
+        "blocker_note",
+        "done_criteria",
         mode="before",
         check_fields=False,
     )
@@ -412,7 +419,7 @@ class SubcomponentBatchUpdate(BaseModel):
     blocked: Optional[bool] = None
 
 
-class SubcomponentRead(BaseModel):
+class SubcomponentRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     subcomponent_id: str

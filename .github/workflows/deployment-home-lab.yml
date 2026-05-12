@@ -1,0 +1,148 @@
+name: Deploy Home Lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to deploy
+        required: false
+        default: latest
+      deploy_environment:
+        description: Runtime ENV value
+        required: true
+        default: uat
+        type: choice
+        options:
+          - uat
+          - prod
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: home-lab-deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image metadata
+        id: meta
+        run: |
+          IMAGE="${REGISTRY}/${IMAGE_NAME,,}"
+          TAG="${{ github.event.inputs.image_tag || 'latest' }}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            INSTALL_TREASURY_ANALYTICS_MOCK=${{ vars.INSTALL_TREASURY_ANALYTICS_MOCK || 'true' }}
+            TREASURY_ANALYTICS_PACKAGE=${{ vars.TREASURY_ANALYTICS_PACKAGE }}
+          secrets: |
+            pip_extra_index_url=${{ secrets.PIP_EXTRA_INDEX_URL }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha_tag }}
+
+      - name: Prepare deployment bundle
+        env:
+          HOMELAB_ENV_FILE: ${{ secrets.HOMELAB_ENV_FILE }}
+          DEPLOY_ENVIRONMENT: ${{ github.event.inputs.deploy_environment || 'uat' }}
+        run: |
+          set -euo pipefail
+          set_or_append() {
+            key="$1"
+            value="$2"
+            file="$3"
+            if grep -q "^${key}=" "${file}"; then
+              sed -i "s|^${key}=.*|${key}=${value}|" "${file}"
+            else
+              printf '%s=%s\n' "${key}" "${value}" >> "${file}"
+            fi
+          }
+          mkdir -p .deploy
+          cp docker-compose.yml .deploy/docker-compose.yml
+          if [ -n "${HOMELAB_ENV_FILE}" ]; then
+            printf '%s\n' "${HOMELAB_ENV_FILE}" > .deploy/.env
+          else
+            cp deployment/.env.example .deploy/.env
+            set_or_append "ENV" "${DEPLOY_ENVIRONMENT}" .deploy/.env
+          fi
+          set_or_append "SIPM_IMAGE" "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" .deploy/.env
+          set_or_append "SIPM_HOST_PORT" "${{ vars.HOMELAB_APP_PORT || '8000' }}" .deploy/.env
+
+      - name: Configure SSH
+        env:
+          HOMELAB_SSH_KEY: ${{ secrets.HOMELAB_SSH_KEY }}
+          HOMELAB_SSH_HOST: ${{ secrets.HOMELAB_SSH_HOST }}
+          HOMELAB_SSH_PORT: ${{ secrets.HOMELAB_SSH_PORT || '22' }}
+        run: |
+          set -euo pipefail
+          test -n "${HOMELAB_SSH_KEY}"
+          test -n "${HOMELAB_SSH_HOST}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "${HOMELAB_SSH_KEY}" > ~/.ssh/homelab
+          chmod 600 ~/.ssh/homelab
+          ssh-keyscan -p "${HOMELAB_SSH_PORT}" -H "${HOMELAB_SSH_HOST}" >> ~/.ssh/known_hosts
+
+      - name: Upload deployment files
+        env:
+          HOMELAB_SSH_HOST: ${{ secrets.HOMELAB_SSH_HOST }}
+          HOMELAB_SSH_PORT: ${{ secrets.HOMELAB_SSH_PORT || '22' }}
+          HOMELAB_SSH_USER: ${{ secrets.HOMELAB_SSH_USER }}
+          HOMELAB_DEPLOY_PATH: ${{ vars.HOMELAB_DEPLOY_PATH || '~/sipm' }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/homelab -p "${HOMELAB_SSH_PORT}" "${HOMELAB_SSH_USER}@${HOMELAB_SSH_HOST}" "mkdir -p ${HOMELAB_DEPLOY_PATH}"
+          scp -i ~/.ssh/homelab -P "${HOMELAB_SSH_PORT}" .deploy/docker-compose.yml .deploy/.env "${HOMELAB_SSH_USER}@${HOMELAB_SSH_HOST}:${HOMELAB_DEPLOY_PATH}/"
+
+      - name: Deploy on home lab
+        env:
+          HOMELAB_SSH_HOST: ${{ secrets.HOMELAB_SSH_HOST }}
+          HOMELAB_SSH_PORT: ${{ secrets.HOMELAB_SSH_PORT || '22' }}
+          HOMELAB_SSH_USER: ${{ secrets.HOMELAB_SSH_USER }}
+          HOMELAB_DEPLOY_PATH: ${{ vars.HOMELAB_DEPLOY_PATH || '~/sipm' }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/homelab -p "${HOMELAB_SSH_PORT}" "${HOMELAB_SSH_USER}@${HOMELAB_SSH_HOST}" "
+            set -euo pipefail
+            cd ${HOMELAB_DEPLOY_PATH}
+            if [ -n '${GHCR_USERNAME}' ] && [ -n '${GHCR_TOKEN}' ]; then
+              printf '%s' '${GHCR_TOKEN}' | docker login ghcr.io -u '${GHCR_USERNAME}' --password-stdin
+            fi
+            docker compose pull
+            docker compose up -d --remove-orphans
+            docker image prune -f
+            docker compose ps
+          "

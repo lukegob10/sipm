@@ -1,6 +1,13 @@
 services:
   sipm:
-    image: ${SIPM_IMAGE:-ghcr.io/lukegob10/sipm:latest}
+    image: ${SIPM_IMAGE:-sipm:homelab}
+    build:
+      context: .
+      args:
+        INSTALL_TREASURY_ANALYTICS_MOCK: ${INSTALL_TREASURY_ANALYTICS_MOCK:-true}
+        TREASURY_ANALYTICS_PACKAGE: ${TREASURY_ANALYTICS_PACKAGE:-}
+      secrets:
+        - pip_extra_index_url
     container_name: sipm
     restart: unless-stopped
     depends_on:
@@ -11,6 +18,8 @@ services:
     environment:
       SIPM_COORDINATION_BACKEND: redis
       SIPM_REDIS_URL: redis://redis:6379/0
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${SIPM_HOST_PORT:-8000}:8000"
     volumes:
@@ -38,3 +47,7 @@ services:
 volumes:
   sipm_docs:
   sipm_redis:
+
+secrets:
+  pip_extra_index_url:
+    environment: PIP_EXTRA_INDEX_URL

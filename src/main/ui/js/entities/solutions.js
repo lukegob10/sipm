@@ -92,7 +92,7 @@ export function createSolutionEntityController({
     els.solutionForm.querySelector('[name="rag_confidence"]').value = solution?.rag_confidence ?? "";
     els.solutionForm.querySelector('[name="blockers"]').value = solution?.blockers || "";
     els.solutionForm.querySelector('[name="risks"]').value = solution?.risks || "";
-    updateCurrentPhaseOptions(solution?.solution_id || "");
+    updateCurrentPhaseOptions(solution?.solution_id || "", solution?.current_phase || "");
     els.solutionForm.querySelector('[name="current_phase"]').value = solution?.current_phase || "";
     if (els.deleteSolutionBtn) {
       els.deleteSolutionBtn.disabled = !solution?.solution_id;

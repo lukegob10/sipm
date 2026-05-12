@@ -1779,10 +1779,11 @@ function orderedPhases(solutionId) {
   });
 }
 
-function updateCurrentPhaseOptions(solutionId) {
+function updateCurrentPhaseOptions(solutionId, selectedPhaseId = null) {
   const sel = els.solutionForm?.querySelector('[name="current_phase"]');
   if (!sel) return;
 
+  const selectedValue = selectedPhaseId ?? sel.value ?? "";
   const enabledPhaseIds = orderedPhases(solutionId).map((p) => p.phase_id);
   const phases = enabledPhaseIds.length
     ? enabledPhaseIds
@@ -1794,6 +1795,9 @@ function updateCurrentPhaseOptions(solutionId) {
     .map((p) => `<option value="${p.phase_id}">${phaseDisplayName(p.phase_id) || p.phase_id}</option>`)
     .join("");
   sel.innerHTML = `<option value="">None</option>${opts}`;
+  if (selectedValue && phases.some((p) => p.phase_id === selectedValue)) {
+    sel.value = selectedValue;
+  }
 }
 
 function solutionProgress(solution) {
@@ -2349,7 +2353,8 @@ async function renderSolutionPhases(selectedId) {
       return;
     }
   }
-  updateCurrentPhaseOptions(solutionId);
+  const currentPhaseValue = els.solutionForm?.querySelector('[name="current_phase"]')?.value || "";
+  updateCurrentPhaseOptions(solutionId, currentPhaseValue);
 
   const enabled = new Set((state.solutionPhases[solutionId] || []).filter((p) => p.is_enabled).map((p) => p.phase_id));
   const grouped = {};
@@ -2393,7 +2398,7 @@ async function renderSolutionPhases(selectedId) {
         const idx = state.solutions.findIndex((s) => s.solution_id === solutionId);
         if (idx !== -1) state.solutions[idx] = updatedSolution;
 
-        updateCurrentPhaseOptions(solutionId);
+        updateCurrentPhaseOptions(solutionId, updatedSolution.current_phase || "");
         if (els.solutionForm?.querySelector('[name="solution_id"]')?.value === solutionId) {
           els.solutionForm.querySelector('[name="current_phase"]').value = updatedSolution.current_phase || "";
         }

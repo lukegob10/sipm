@@ -1,0 +1,40 @@
+services:
+  sipm:
+    image: ${SIPM_IMAGE:-ghcr.io/lukegob10/sipm:latest}
+    container_name: sipm
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      SIPM_COORDINATION_BACKEND: redis
+      SIPM_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${SIPM_HOST_PORT:-8000}:8000"
+    volumes:
+      - sipm_docs:/app/data/external_docs
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "http://127.0.0.1:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: sipm-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - sipm_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  sipm_docs:
+  sipm_redis:

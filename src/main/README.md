@@ -70,6 +70,7 @@ Validation highlights:
 - Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql).
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
 - Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
+- First-deploy reference data SQL lives in [`docs/sql/first_deploy_reference_data.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_deploy_reference_data.sql). Run it after the canonical schema is created so required phase rows exist.
 - First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_time_global_admin.sql).
 - CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 

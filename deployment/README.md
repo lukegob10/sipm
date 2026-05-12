@@ -128,3 +128,16 @@ Open the app at:
 ```text
 http://<server>:8000/project-manager/
 ```
+
+## First-Deploy Database Setup
+
+SIPM does not mutate Oracle schema or reference data during application
+startup. For a new database, run the SQL artifacts in this order:
+
+1. `docs/sql/schema_oracle_ta.sql`
+2. `docs/sql/first_deploy_reference_data.sql`
+3. `docs/sql/first_time_global_admin.sql`, after the first user row exists
+
+`first_deploy_reference_data.sql` seeds the canonical phase catalog required by
+the planning and solution phase workflows. It is idempotent and can be rerun if
+an environment is missing phase rows.

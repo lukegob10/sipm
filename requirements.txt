@@ -17,6 +17,8 @@ certifi==2026.1.4
     # via
     #   httpcore
     #   httpx
+cffi==2.0.0 ; platform_python_implementation != 'PyPy'
+    # via cryptography
 click==8.3.1
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
@@ -24,6 +26,8 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   click
     #   pytest
     #   uvicorn
+cryptography==48.0.0
+    # via oracledb
 dnspython==2.8.0
     # via email-validator
 email-validator==2.3.0
@@ -49,12 +53,16 @@ idna==3.11
     #   httpx
 iniconfig==2.3.0
     # via pytest
+oracledb==4.0.0
+    # via -r requirements.in
 packaging==26.0
     # via pytest
 passlib==1.7.4
     # via -r requirements.in
 pluggy==1.6.0
     # via pytest
+pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via cffi
 pydantic==2.12.5
     # via fastapi
 pydantic-core==2.41.5
@@ -81,6 +89,7 @@ typing-extensions==4.15.0
     # via
     #   anyio
     #   fastapi
+    #   oracledb
     #   pydantic
     #   pydantic-core
     #   sqlalchemy

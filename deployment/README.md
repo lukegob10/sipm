@@ -35,7 +35,20 @@ Create these repository variables if the defaults are not right:
 
 Use `.env.example` as the starting point for `HOMELAB_ENV_FILE`.
 
-For UAT/prod, keep:
+For HTTP-only home-lab deployment, use a local profile while keeping
+self-registration disabled:
+
+- `ENV=dev`
+- `SIPM_ALLOW_SELF_REGISTER=false`
+- `SIPM_SECURE_COOKIES=false`
+- `SIPM_COOKIE_SAMESITE=lax`
+- `SIPM_SECRET_KEY` set to a long random value
+
+This is required for browser login over plain HTTP. If `SIPM_SECURE_COOKIES=true`
+on an HTTP origin, the browser will not keep/send the login cookies and the UI
+will immediately behave like the session expired.
+
+For HTTPS UAT/prod, keep:
 
 - `ENV=uat` or `ENV=prod`
 - `SIPM_ALLOW_SELF_REGISTER=false`
@@ -70,23 +83,23 @@ There are two image build modes:
 
 The local mock reads `TA_<ENV>_DSN`, `TA_<ENV>_USER`, and
 `TA_<ENV>_PASSWORD`, with `TA_DSN`, `TA_USER`, and `TA_PASSWORD` as generic
-fallbacks. For `ENV=uat`, use `TA_UAT_DSN`, `TA_UAT_USER`, and
-`TA_UAT_PASSWORD`.
+fallbacks. For HTTP home lab with `ENV=dev`, use `TA_DEV_DSN`, `TA_DEV_USER`,
+and `TA_DEV_PASSWORD`.
 
 For the current home-lab Oracle database, use:
 
 ```text
-TA_UAT_DSN=host.docker.internal:1521/FREEPDB1
-TA_UAT_USER=app_user
-TA_UAT_PASSWORD=<store only in GitHub secret or untracked local env file>
+TA_DEV_DSN=host.docker.internal:1521/FREEPDB1
+TA_DEV_USER=app_user
+TA_DEV_PASSWORD=<store only in GitHub secret or untracked local env file>
 ```
 
 `docker-compose.yml` maps `host.docker.internal` to the Docker host gateway so
 the SIPM container can reach Oracle published on the homelab host port `1521`.
 If your Docker networking requires the LAN IP instead, set
-`TA_UAT_DSN=192.168.1.151:1521/FREEPDB1` in `HOMELAB_ENV_FILE`.
+`TA_DEV_DSN=192.168.1.151:1521/FREEPDB1` in `HOMELAB_ENV_FILE`.
 
-Do not hard-code `TA_UAT_PASSWORD` in committed files. Put the real password in
+Do not hard-code `TA_DEV_PASSWORD` in committed files. Put the real password in
 the `HOMELAB_ENV_FILE` GitHub secret. For one-off local Docker testing, place it
 in an untracked repo-root `.env` file next to `docker-compose.yml`.
 

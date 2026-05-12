@@ -143,6 +143,7 @@ async def test_import_users_links_new_users_to_active_space(client, db_sessionma
         body = resp.json()
         assert body["created"] == 1
         assert body["updated"] == 0
+        assert body["total_rows"] == 1
 
         with db_sessionmaker() as session:
             user = session.query(User).filter(User.soeid == "newuser").first()
@@ -159,6 +160,29 @@ async def test_import_users_links_new_users_to_active_space(client, db_sessionma
             assert membership.role == "member"
     finally:
         _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_import_users_rejects_duplicate_soeid_rows(client):
+    csv_text = "\n".join(
+        [
+            "soeid,display_name,team_tag,capacity_fte_month",
+            "dupeuser,First User,Team A,0.80",
+            "dupeuser,Second User,Team B,0.90",
+        ]
+    )
+    resp = await client.post(
+        "/project-manager/api/users/import",
+        content=csv_text.encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["created"] == 1
+    assert body["updated"] == 0
+    assert body["total_rows"] == 2
+    assert len(body["errors"]) == 1
+    assert "duplicate soeid 'dupeuser'" in body["errors"][0]
 
 
 @pytest.mark.anyio

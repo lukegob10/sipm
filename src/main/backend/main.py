@@ -194,7 +194,13 @@ def _request_log_line(
     error_category: str | None = None,
 ) -> str:
     client_ip = request.client.host if request.client else "-"
-    active_space_id = str(request.headers.get("X-Space-Id", "")).strip() or "-"
+    space_context = getattr(request.state, "space_context", None)
+    active_space_id = (
+        str(getattr(space_context, "space_id", "") or "").strip()
+        or str(request.headers.get("X-Space-Id", "")).strip()
+        or str(request.cookies.get("active_space_id", "")).strip()
+        or "-"
+    )
     user = getattr(request.state, "user", None)
     try:
         user_id = getattr(user, "user_id", None)

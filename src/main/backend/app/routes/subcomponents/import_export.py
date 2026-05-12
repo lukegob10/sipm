@@ -14,7 +14,7 @@ from ...deps import get_db, require_space_role
 from ...models import Project, Solution, Subcomponent, User
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv, read_text_value
+from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 from .._mutations import commit_session
 from ..projects.common import _resolve_project_sponsor
@@ -36,6 +36,7 @@ router = APIRouter()
 @router.post("/subcomponents/import")
 def import_subcomponents(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
     session: Session = Depends(get_db),
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
@@ -51,9 +52,12 @@ def import_subcomponents(
             "solutions_created": 0,
             "errors": errors,
             "total_rows": 0,
+            "dry_run": dry_run,
         }
     created = updated = projects_created = solutions_created = 0
     seen = set()
+    dry_project_keys = set()
+    dry_solution_keys = set()
     projects_by_name = {p.project_name.lower(): p for p in _project_query(session, space_ctx).all()}
     solutions_by_key = {
         (s.project_id, s.solution_name.lower(), s.version.lower()): s
@@ -96,12 +100,39 @@ def import_subcomponents(
             )
             priority_val = parse_priority(row.get("priority"), default=3)
             due_val = parse_date(row.get("due_date"))
+            completed_at_val = parse_datetime(row.get("completed_at"))
             estimate_hours = int(row.get("estimate_hours")) if normalize_str(row.get("estimate_hours")) else None
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
 
         project = projects_by_name.get(project_name.lower())
+        if dry_run:
+            project_key = project_name.lower()
+            if not project and project_key not in dry_project_keys:
+                dry_project_keys.add(project_key)
+                projects_created += 1
+            solution = None
+            if project:
+                solution = solutions_by_key.get((project.project_id, solution_name.lower(), version_raw.lower()))
+            solution_key = (project_key, solution_name.lower(), version_raw.lower())
+            if not solution and solution_key not in dry_solution_keys:
+                dry_solution_keys.add(solution_key)
+                solutions_created += 1
+            if project and solution:
+                existing = (
+                    _subcomponent_query(session, space_ctx)
+                    .filter(Subcomponent.solution_id == solution.solution_id)
+                    .filter(Subcomponent.subcomponent_name == sub_name)
+                    .first()
+                )
+                if existing:
+                    updated += 1
+                else:
+                    created += 1
+            else:
+                created += 1
+            continue
         project_created_this_row = False
         if not project:
             sponsor_val, sponsor_user_soeid = _resolve_project_sponsor(
@@ -252,6 +283,8 @@ def import_subcomponents(
                     next_status=status_enum,
                     now=now,
                 )
+                if status_enum == SubcomponentStatus.complete and completed_at_val is not None:
+                    existing.completed_at = completed_at_val
                 session.add(existing)
                 log_changes(
                     session,
@@ -283,7 +316,9 @@ def import_subcomponents(
                     assignee_user_soeid,
                     current_user,
                 )
-                completed_at = now if status_enum == SubcomponentStatus.complete else None
+                completed_at = completed_at_val if status_enum == SubcomponentStatus.complete and completed_at_val is not None else (
+                    now if status_enum == SubcomponentStatus.complete else None
+                )
                 subcomponent = Subcomponent(
                     space_id=space_ctx.space_id,
                     project_id=project.project_id,
@@ -341,11 +376,12 @@ def import_subcomponents(
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
 
-    _publish_subcomponent_import(
-        space_ctx.space_id,
-        projects_created=projects_created,
-        solutions_created=solutions_created,
-    )
+    if not dry_run:
+        _publish_subcomponent_import(
+            space_ctx.space_id,
+            projects_created=projects_created,
+            solutions_created=solutions_created,
+        )
     return {
         "created": created,
         "updated": updated,
@@ -353,6 +389,7 @@ def import_subcomponents(
         "solutions_created": solutions_created,
         "errors": errors,
         "total_rows": len(rows),
+        "dry_run": dry_run,
     }
 
 

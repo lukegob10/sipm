@@ -7,6 +7,7 @@ from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
 from .analytics import (
     AnalyticsDailyPointRead,
+    AnalyticsDashboardRead,
     AnalyticsFailureHotspotRead,
     AnalyticsPerformanceRouteRead,
     AnalyticsPerformanceStatsRead,

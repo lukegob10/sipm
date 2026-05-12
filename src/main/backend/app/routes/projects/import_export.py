@@ -50,6 +50,7 @@ _PROJECT_EXPORT_FIELDNAMES = [
 @router.post("/import")
 def import_projects(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
     session: Session = Depends(get_db),
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
@@ -58,7 +59,7 @@ def import_projects(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0}
+        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
     created = updated = 0
     seen = set()
     for idx, row in enumerate(rows, start=2):
@@ -92,6 +93,9 @@ def import_projects(
         existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
         try:
             if existing:
+                if dry_run:
+                    updated += 1
+                    continue
                 if sponsor_input:
                     resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
                         sponsor_input,
@@ -125,6 +129,14 @@ def import_projects(
                 )
                 updated += 1
             else:
+                if dry_run:
+                    _resolve_project_sponsor(
+                        sponsor_input,
+                        sponsor_user_soeid,
+                        current_user,
+                    )
+                    created += 1
+                    continue
                 resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
                     sponsor_input,
                     sponsor_user_soeid,
@@ -158,8 +170,9 @@ def import_projects(
         except Exception as exc:
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
-    _publish_project_mutation(space_ctx.space_id)
-    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows)}
+    if not dry_run:
+        _publish_project_mutation(space_ctx.space_id)
+    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": dry_run}
 
 
 @router.get("/export")

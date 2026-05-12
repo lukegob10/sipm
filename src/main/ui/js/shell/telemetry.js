@@ -61,6 +61,13 @@ function normalizePathGroup(path) {
   return `/${segments.slice(0, 2).join("/")}${segments.length > 2 ? "/*" : ""}`;
 }
 
+function shouldDropFailedBatch(status) {
+  const numericStatus = Number(status);
+  if (!Number.isFinite(numericStatus)) return false;
+  if (numericStatus === 401 || numericStatus === 403 || numericStatus === 408 || numericStatus === 429) return false;
+  return numericStatus >= 400 && numericStatus < 500;
+}
+
 export function createTelemetryController({
   state,
   apiBase,
@@ -148,8 +155,8 @@ export function createTelemetryController({
     if (!queue.events.length && !queue.performanceSamples.length) return false;
 
     const payload = {
-      events: queue.events.splice(0, queue.events.length),
-      performance_samples: queue.performanceSamples.splice(0, queue.performanceSamples.length),
+      events: queue.events.slice(),
+      performance_samples: queue.performanceSamples.slice(),
     };
     const body = JSON.stringify(payload);
     const headers = { "Content-Type": "application/json" };
@@ -161,15 +168,28 @@ export function createTelemetryController({
       if (options.useBeacon && navigatorRef && typeof navigatorRef.sendBeacon === "function") {
         const blob = new Blob([body], { type: "application/json" });
         const sent = navigatorRef.sendBeacon(`${apiBase}/analytics/ingest`, blob);
-        if (sent) return true;
+        if (sent) {
+          queue.events.splice(0, payload.events.length);
+          queue.performanceSamples.splice(0, payload.performance_samples.length);
+          return true;
+        }
       }
-      await fetchImpl(`${apiBase}/analytics/ingest`, {
+      const response = await fetchImpl(`${apiBase}/analytics/ingest`, {
         method: "POST",
         credentials: "include",
         keepalive: !!options.useBeacon,
         headers,
         body,
       });
+      if (!response?.ok) {
+        if (shouldDropFailedBatch(response?.status)) {
+          queue.events.splice(0, payload.events.length);
+          queue.performanceSamples.splice(0, payload.performance_samples.length);
+        }
+        return false;
+      }
+      queue.events.splice(0, payload.events.length);
+      queue.performanceSamples.splice(0, payload.performance_samples.length);
       return true;
     } catch {
       return false;

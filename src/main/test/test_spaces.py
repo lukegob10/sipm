@@ -1,9 +1,10 @@
 import pytest
+from fastapi import HTTPException
 
 from backend.app import deps as deps_module
 from backend.app.models import Space, SpaceMembership, User
 from backend.app.services.smart_cache import clear_cache
-from backend.app.services.spaces import SpaceContext
+from backend.app.services.spaces import SpaceContext, resolve_active_space_context
 from backend.main import app as fastapi_app
 
 
@@ -79,6 +80,28 @@ def _restore_current_space_override(original):
         fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
     else:
         fastapi_app.dependency_overrides[deps_module.current_space] = original
+
+
+def test_resolve_active_space_does_not_create_default_membership_for_unassigned_user(db_sessionmaker):
+    with db_sessionmaker() as session:
+        user = User(
+            user_id="space-unassigned-user",
+            soeid="nomember",
+            email="nomember@example.com",
+            display_name="No Member",
+            password_hash="x",
+            role="user",
+            is_active=True,
+        )
+        session.add(user)
+        session.commit()
+
+        with pytest.raises(HTTPException) as exc:
+            resolve_active_space_context(session, user, requested_space_id=None)
+
+        assert exc.value.status_code == 403
+        assert exc.value.headers["X-Error-Code"] == "NO_ACTIVE_SPACE"
+        assert session.query(SpaceMembership).filter(SpaceMembership.user_id == user.user_id).count() == 0
 
 
 @pytest.mark.anyio

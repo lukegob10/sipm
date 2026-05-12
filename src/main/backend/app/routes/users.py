@@ -519,6 +519,7 @@ def update_user_by_soeid(
 @router.post("/users/import")
 def import_users(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
@@ -526,10 +527,11 @@ def import_users(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"count": 0, "errors": errors}
+        return {"count": 0, "created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
     created = 0
     updated = 0
     affected_user_ids: set[str] = set()
+    seen_soeids: set[str] = set()
     for idx, row in enumerate(rows, start=2):
         soeid = (row.get("soeid") or "").strip().lower()
         display_name = (row.get("display_name") or "").strip()
@@ -539,6 +541,10 @@ def import_users(
         if not soeid or not display_name:
             errors.append(f"Row {idx}: soeid and display_name are required")
             continue
+        if soeid in seen_soeids:
+            errors.append(f"Row {idx}: duplicate soeid '{soeid}' in CSV (strict-first policy)")
+            continue
+        seen_soeids.add(soeid)
         capacity_fte = 1.0
         if capacity_fte_raw:
             try:
@@ -559,6 +565,9 @@ def import_users(
             except HTTPException:
                 errors.append(f"Row {idx}: only global admin can modify global admin accounts")
                 continue
+            if dry_run:
+                updated += 1
+                continue
             user.display_name = display_name
             user.team_tag = team_tag or None
             _set_user_capacity_fields(user, capacity_fte_month=capacity_fte)
@@ -566,6 +575,9 @@ def import_users(
             session.add(user)
             updated += 1
         else:
+            if dry_run:
+                created += 1
+                continue
             domain = os.getenv("DOMAIN_NAME", "citi.com")
             user = User(
                 soeid=soeid,
@@ -583,10 +595,18 @@ def import_users(
             created += 1
         _ensure_active_membership_for_user(session, user.user_id, space_ctx.space_id)
         affected_user_ids.add(user.user_id)
-    session.commit()
-    for user_id in affected_user_ids:
-        _invalidate_user_caches_for_user_memberships(session, user_id)
-    return {"count": created + updated, "created": created, "updated": updated, "errors": errors}
+    if not dry_run:
+        session.commit()
+        for user_id in affected_user_ids:
+            _invalidate_user_caches_for_user_memberships(session, user_id)
+    return {
+        "count": created + updated,
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "total_rows": len(rows),
+        "dry_run": dry_run,
+    }
 
 
 @router.get("/users/export")

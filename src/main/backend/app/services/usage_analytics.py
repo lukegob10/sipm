@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import time
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 
@@ -12,6 +13,7 @@ from sqlalchemy import case, func, inspect, literal, or_, select, union
 from ..db.table_names import physical_table_name
 from ..models import (
     PerformanceSample,
+    Space,
     UsageDailyRollup,
     UsageEvent,
     UsageIdentityDailyRollup,
@@ -25,8 +27,10 @@ _MAX_BATCH_SIZE = 100
 _MAX_DETAILS_BYTES = 1024
 _MAX_DETAIL_VALUE_LENGTH = 160
 _MAX_DURATION_MS = 24 * 60 * 60 * 1000
+_SCHEMA_CHECK_TTL_SECONDS = 30
 _FAILURE_OUTCOMES = ("failure", "timeout", "server_error")
 _UNSCOPED_SPACE_ID = "__none__"
+_SCHEMA_AVAILABILITY_CACHE: dict[tuple[str, str], float] = {}
 
 ALLOWED_EVENT_CATEGORIES = {"lifecycle", "navigation", "workflow", "operations"}
 ALLOWED_FEATURE_KEYS = {
@@ -116,6 +120,11 @@ def ensure_usage_analytics_available(session) -> None:
             message="Usage analytics is not enabled",
         )
     bind = session.get_bind()
+    cache_key = (bind.dialect.name, str(bind.url))
+    now = time.monotonic()
+    cached_until = _SCHEMA_AVAILABILITY_CACHE.get(cache_key)
+    if cached_until and cached_until > now:
+        return
     inspector = inspect(bind)
     required_tables = [
         physical_table_name("usage_events"),
@@ -126,11 +135,13 @@ def ensure_usage_analytics_available(session) -> None:
     ]
     for table_name in required_tables:
         if not inspector.has_table(table_name):
+            _SCHEMA_AVAILABILITY_CACHE.pop(cache_key, None)
             raise security_http_exception(
                 status_code=503,
                 code="USAGE_ANALYTICS_SCHEMA_MISSING",
                 message="Usage analytics schema is not available",
             )
+    _SCHEMA_AVAILABILITY_CACHE[cache_key] = now + _SCHEMA_CHECK_TTL_SECONDS
 
 
 def sanitize_details(value: object) -> Optional[str]:
@@ -238,6 +249,25 @@ def scope_space_id_for_request(*, current_space_id: str, all_spaces: bool, reque
     if requested:
         return requested
     return current_space_id
+
+
+def validate_requested_analytics_space(session, *, scope_space_id: str | None) -> None:
+    if not scope_space_id:
+        return
+    exists = (
+        session.query(Space.space_id)
+        .filter(Space.space_id == scope_space_id)
+        .filter(Space.deleted_at.is_(None))
+        .filter(Space.is_active == True)
+        .first()
+    )
+    if exists:
+        return
+    raise security_http_exception(
+        status_code=404,
+        code="ANALYTICS_SPACE_NOT_FOUND",
+        message="Analytics space was not found",
+    )
 
 
 def analytics_window_start(days: int) -> datetime:
@@ -628,7 +658,7 @@ def _ranked_metric_stats_by_group(
         ranked.c.rn == median_low_rank,
         ranked.c.rn == median_high_rank,
     )
-    p95_rank = func.ceil((ranked.c.cnt * 95) / 100)
+    p95_rank = func.ceil((ranked.c.cnt * 95.0) / 100.0)
 
     rows = session.execute(
         select(
@@ -1162,6 +1192,7 @@ __all__ = [
     "update_usage_rollups",
     "usage_analytics_enabled",
     "validate_performance_sample_payload",
+    "validate_requested_analytics_space",
     "validate_usage_event_payload",
     "validate_window_days",
 ]

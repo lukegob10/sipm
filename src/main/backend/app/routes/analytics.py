@@ -11,6 +11,7 @@ from ..deps import get_db, require_global_admin
 from ..models import PerformanceSample, UsageEvent, User
 from ..schemas import (
     AnalyticsPerformanceStatsRead,
+    AnalyticsDashboardRead,
     AnalyticsRouteStatsRead,
     AnalyticsSummaryRead,
     TelemetryBatchIn,
@@ -28,6 +29,7 @@ from ..services.usage_analytics import (
     scope_space_id_for_request,
     update_usage_rollups,
     validate_performance_sample_payload,
+    validate_requested_analytics_space,
     validate_usage_event_payload,
     validate_window_days,
 )
@@ -127,6 +129,7 @@ def get_usage_analytics_summary(
         all_spaces=all_spaces,
         requested_space_id=space_id,
     )
+    validate_requested_analytics_space(session, scope_space_id=scope_space_id)
     return build_summary_payload(
         session,
         days=validated_days,
@@ -151,6 +154,7 @@ def get_usage_analytics_routes(
         all_spaces=all_spaces,
         requested_space_id=space_id,
     )
+    validate_requested_analytics_space(session, scope_space_id=scope_space_id)
     return build_route_stats_payload(
         session,
         days=validated_days,
@@ -175,12 +179,52 @@ def get_usage_analytics_performance(
         all_spaces=all_spaces,
         requested_space_id=space_id,
     )
+    validate_requested_analytics_space(session, scope_space_id=scope_space_id)
     return build_performance_stats_payload(
         session,
         days=validated_days,
         all_spaces=all_spaces,
         scope_space_id=scope_space_id,
     )
+
+
+@router.get("/dashboard", response_model=AnalyticsDashboardRead)
+def get_usage_analytics_dashboard(
+    days: int = 30,
+    all_spaces: bool = False,
+    space_id: str | None = None,
+    session: Session = Depends(get_db),
+    _global_admin: User = Depends(require_global_admin),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+):
+    ensure_usage_analytics_available(session)
+    validated_days = validate_window_days(days)
+    scope_space_id = scope_space_id_for_request(
+        current_space_id=space_ctx.space_id,
+        all_spaces=all_spaces,
+        requested_space_id=space_id,
+    )
+    validate_requested_analytics_space(session, scope_space_id=scope_space_id)
+    return {
+        "summary": build_summary_payload(
+            session,
+            days=validated_days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+        ),
+        "routes": build_route_stats_payload(
+            session,
+            days=validated_days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+        ),
+        "performance": build_performance_stats_payload(
+            session,
+            days=validated_days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+        ),
+    }
 
 
 __all__ = ["router"]

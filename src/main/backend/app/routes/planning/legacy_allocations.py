@@ -1,7 +1,10 @@
+import csv
 from datetime import date, datetime, timezone
+from io import StringIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Body, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -11,7 +14,7 @@ from ...deps import (
     get_db,
     require_space_role,
 )
-from ...models import PlanningWindow, ResourceAllocation, User
+from ...models import PlanningWindow, Project, ResourceAllocation, Solution, Subcomponent, Team, User
 from ...schemas import (
     PlanningWindowCreate,
     PlanningWindowRead,
@@ -22,6 +25,7 @@ from ...schemas import (
 )
 from ...services.smart_cache import cached_call, make_scope_token
 from ...services.spaces import SpaceContext
+from ...utils import normalize_str, parse_date, read_csv
 from .common import (
     _HOURS_PER_FTE_MONTH,
     _PLANNING_DETAIL_TTL_SECONDS,
@@ -45,6 +49,154 @@ from .common import (
 
 
 router = APIRouter()
+_WINDOW_EXPORT_FIELDNAMES = ["window_name", "start_date", "end_date"]
+_ALLOCATION_EXPORT_FIELDNAMES = [
+    "work_item_type",
+    "work_item_id",
+    "project_name",
+    "solution_name",
+    "version",
+    "subcomponent_name",
+    "assignee",
+    "assignee_user_soeid",
+    "team_name",
+    "month_start",
+    "fte_months",
+    "hours",
+    "window_name",
+]
+
+
+def _bool_query(value: bool) -> bool:
+    return bool(value)
+
+
+def _write_csv(fieldnames: list[str], rows: list[dict]) -> StringIO:
+    buffer = StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    buffer.seek(0)
+    return buffer
+
+
+def _project_by_name(session: Session, space_ctx: SpaceContext, name: str) -> Project | None:
+    return (
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(func.lower(Project.project_name) == name.lower())
+        .first()
+    )
+
+
+def _solution_by_natural_key(
+    session: Session,
+    space_ctx: SpaceContext,
+    *,
+    project_name: str,
+    solution_name: str,
+    version: str,
+) -> Solution | None:
+    project = _project_by_name(session, space_ctx, project_name)
+    if not project:
+        return None
+    return (
+        session.query(Solution)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Solution.project_id == project.project_id)
+        .filter(func.lower(Solution.solution_name) == solution_name.lower())
+        .filter(func.lower(Solution.version) == version.lower())
+        .first()
+    )
+
+
+def _subcomponent_by_natural_key(
+    session: Session,
+    space_ctx: SpaceContext,
+    *,
+    project_name: str,
+    solution_name: str,
+    version: str,
+    subcomponent_name: str,
+) -> Subcomponent | None:
+    solution = _solution_by_natural_key(
+        session,
+        space_ctx,
+        project_name=project_name,
+        solution_name=solution_name,
+        version=version,
+    )
+    if not solution:
+        return None
+    return (
+        session.query(Subcomponent)
+        .filter(Subcomponent.deleted_at.is_(None))
+        .filter(Subcomponent.space_id == space_ctx.space_id)
+        .filter(Subcomponent.solution_id == solution.solution_id)
+        .filter(func.lower(Subcomponent.subcomponent_name) == subcomponent_name.lower())
+        .first()
+    )
+
+
+def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row: dict, row_num: int) -> str:
+    work_item_id = normalize_str(row.get("work_item_id"))
+    work_item_type = normalize_str(row.get("work_item_type")).lower()
+    project_name = normalize_str(row.get("project_name"))
+    solution_name = normalize_str(row.get("solution_name"))
+    version = normalize_str(row.get("version")) or "0.1.0"
+    subcomponent_name = normalize_str(row.get("subcomponent_name"))
+    if work_item_type == "project" and project_name:
+        project = _project_by_name(session, space_ctx, project_name)
+        if not project:
+            raise ValueError(f"Row {row_num}: project_name '{project_name}' does not exist")
+        return project.project_id
+    if work_item_type == "solution" and project_name and solution_name:
+        solution = _solution_by_natural_key(
+            session,
+            space_ctx,
+            project_name=project_name,
+            solution_name=solution_name,
+            version=version,
+        )
+        if not solution:
+            raise ValueError(
+                f"Row {row_num}: solution '{solution_name}' version '{version}' for project '{project_name}' does not exist"
+            )
+        return solution.solution_id
+    if work_item_type == "subcomponent" and project_name and solution_name and subcomponent_name:
+        subcomponent = _subcomponent_by_natural_key(
+            session,
+            space_ctx,
+            project_name=project_name,
+            solution_name=solution_name,
+            version=version,
+            subcomponent_name=subcomponent_name,
+        )
+        if not subcomponent:
+            raise ValueError(
+                f"Row {row_num}: subcomponent '{subcomponent_name}' for solution '{solution_name}' does not exist"
+            )
+        return subcomponent.subcomponent_id
+    if work_item_id:
+        return work_item_id
+    raise ValueError(f"Row {row_num}: work item natural key or work_item_id is required")
+
+
+def _team_by_name(session: Session, space_ctx: SpaceContext, name: str) -> Team | None:
+    return (
+        session.query(Team)
+        .filter(Team.deleted_at.is_(None))
+        .filter(Team.space_id == space_ctx.space_id)
+        .filter(func.lower(Team.name) == name.lower())
+        .first()
+    )
+
+
+def _window_by_name(session: Session, space_ctx: SpaceContext, name: str) -> PlanningWindow | None:
+    return window_query(session, space_ctx).filter(func.lower(PlanningWindow.name) == name.lower()).first()
 
 
 @router.get("/resource-allocations", response_model=List[ResourceAllocationRead])
@@ -99,6 +251,231 @@ def list_allocations(
         scope_tokens=[scope_token],
         loader=_load,
     )
+
+
+@router.get("/resource-allocations/export")
+def export_resource_allocations(
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+):
+    allocations = allocation_query(session, space_ctx).order_by(allocation_month_expr().asc(), ResourceAllocation.created_at.asc()).all()
+    project_map = {
+        row.project_id: row
+        for row in session.query(Project).filter(Project.deleted_at.is_(None)).filter(Project.space_id == space_ctx.space_id).all()
+    }
+    solution_map = {
+        row.solution_id: row
+        for row in session.query(Solution).filter(Solution.deleted_at.is_(None)).filter(Solution.space_id == space_ctx.space_id).all()
+    }
+    subcomponent_map = {
+        row.subcomponent_id: row
+        for row in session.query(Subcomponent)
+        .filter(Subcomponent.deleted_at.is_(None))
+        .filter(Subcomponent.space_id == space_ctx.space_id)
+        .all()
+    }
+    team_map = {
+        row.team_id: row.name
+        for row in session.query(Team).filter(Team.deleted_at.is_(None)).filter(Team.space_id == space_ctx.space_id).all()
+    }
+    window_map = {
+        row.window_id: row.name
+        for row in window_query(session, space_ctx).all()
+    }
+    rows = []
+    for alloc in allocations:
+        project_name = solution_name = version = subcomponent_name = ""
+        if alloc.work_item_type == "project":
+            project = project_map.get(alloc.work_item_id)
+            project_name = project.project_name if project else ""
+        elif alloc.work_item_type == "solution":
+            solution = solution_map.get(alloc.work_item_id)
+            if solution:
+                project = project_map.get(solution.project_id)
+                project_name = project.project_name if project else ""
+                solution_name = solution.solution_name
+                version = solution.version
+        elif alloc.work_item_type == "subcomponent":
+            subcomponent = subcomponent_map.get(alloc.work_item_id)
+            if subcomponent:
+                project = project_map.get(subcomponent.project_id)
+                solution = solution_map.get(subcomponent.solution_id)
+                project_name = project.project_name if project else ""
+                solution_name = solution.solution_name if solution else ""
+                version = solution.version if solution else ""
+                subcomponent_name = subcomponent.subcomponent_name
+        payload = allocation_to_payload(alloc)
+        rows.append(
+            {
+                "work_item_type": alloc.work_item_type,
+                "work_item_id": alloc.work_item_id,
+                "project_name": project_name,
+                "solution_name": solution_name,
+                "version": version,
+                "subcomponent_name": subcomponent_name,
+                "assignee": alloc.assignee or "",
+                "assignee_user_soeid": alloc.assignee_user_soeid or "",
+                "team_name": team_map.get(alloc.team_id, ""),
+                "month_start": payload["month_start"] or "",
+                "fte_months": payload["fte_months"],
+                "hours": payload["hours"],
+                "window_name": window_map.get(alloc.window_id, ""),
+            }
+        )
+    headers = {"Content-Disposition": 'attachment; filename="resource-allocations.csv"'}
+    return StreamingResponse(_write_csv(_ALLOCATION_EXPORT_FIELDNAMES, rows), media_type="text/csv", headers=headers)
+
+
+@router.post("/resource-allocations/import")
+def import_resource_allocations(
+    csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
+    atomic: bool = False,
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+):
+    rows, errors = read_csv(csv_bytes)
+    if errors:
+        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": _bool_query(dry_run)}
+    records = []
+    seen = set()
+    created = updated = 0
+    for idx, row in enumerate(rows, start=2):
+        try:
+            work_item_type = normalize_str(row.get("work_item_type")).lower()
+            if work_item_type not in {"project", "solution", "subcomponent"}:
+                raise ValueError(f"Row {idx}: work_item_type must be project, solution, or subcomponent")
+            work_item_id = _resolve_allocation_work_item(session, space_ctx, row, idx)
+            month_value = parse_date(row.get("month_start"))
+            if month_value is None:
+                raise ValueError(f"Row {idx}: month_start is required")
+            normalized_month = month_start(month_value)
+            fte_raw = normalize_str(row.get("fte_months"))
+            hours_raw = normalize_str(row.get("hours"))
+            if fte_raw:
+                fte_months = round(max(float(fte_raw), 0.0), 3)
+                hours = hours_from_fte_months(fte_months)
+            elif hours_raw:
+                hours = max(int(hours_raw), 0)
+                fte_months = round(float(hours) / _HOURS_PER_FTE_MONTH, 3)
+            else:
+                raise ValueError(f"Row {idx}: fte_months or hours is required")
+            team_name = normalize_str(row.get("team_name"))
+            team_id = normalize_str(row.get("team_id")) or None
+            if team_name:
+                team = _team_by_name(session, space_ctx, team_name)
+                if not team:
+                    raise ValueError(f"Row {idx}: team_name '{team_name}' does not exist")
+                team_id = team.team_id
+            elif team_id:
+                active_team(session, team_id, space_ctx)
+            assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
+            assignee = normalize_str(row.get("assignee")) or None
+            window_name = normalize_str(row.get("window_name"))
+            window_id = normalize_str(row.get("window_id")) or None
+            if window_name:
+                window = _window_by_name(session, space_ctx, window_name)
+                if not window:
+                    raise ValueError(f"Row {idx}: window_name '{window_name}' does not exist")
+                window_id = window.window_id
+            elif window_id:
+                get_window(session, window_id, space_ctx)
+            duplicate_key = (
+                work_item_type,
+                work_item_id,
+                normalized_month.isoformat(),
+                assignee_user_soeid or "",
+                team_id or "",
+                window_id or "",
+            )
+            if duplicate_key in seen:
+                raise ValueError(f"Row {idx}: duplicate allocation in CSV (strict-first policy)")
+            seen.add(duplicate_key)
+            existing_query = (
+                allocation_query(session, space_ctx)
+                .filter(ResourceAllocation.work_item_type == work_item_type)
+                .filter(ResourceAllocation.work_item_id == work_item_id)
+                .filter(allocation_month_expr() == normalized_month)
+            )
+            if assignee_user_soeid:
+                existing_query = existing_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+            else:
+                existing_query = existing_query.filter(ResourceAllocation.assignee_user_soeid.is_(None)).filter(ResourceAllocation.team_id == team_id)
+            if window_id:
+                existing_query = existing_query.filter(ResourceAllocation.window_id == window_id)
+            else:
+                existing_query = existing_query.filter(ResourceAllocation.window_id.is_(None))
+            existing = existing_query.first()
+            records.append(
+                {
+                    "existing": existing,
+                    "work_item_type": work_item_type,
+                    "work_item_id": work_item_id,
+                    "month_start": normalized_month,
+                    "hours": hours,
+                    "fte_months": fte_months,
+                    "assignee": assignee,
+                    "assignee_user_soeid": assignee_user_soeid,
+                    "team_id": team_id,
+                    "window_id": window_id,
+                }
+            )
+            if existing:
+                updated += 1
+            else:
+                created += 1
+        except (TypeError, ValueError) as exc:
+            errors.append(str(exc))
+    if dry_run or (atomic and errors):
+        return {
+            "created": 0 if atomic and errors else created,
+            "updated": 0 if atomic and errors else updated,
+            "errors": errors,
+            "total_rows": len(rows),
+            "dry_run": _bool_query(dry_run),
+        }
+    now = datetime.now(timezone.utc)
+    try:
+        for record in records:
+            existing = record["existing"]
+            if existing:
+                existing.assignee = record["assignee"]
+                existing.assignee_user_soeid = record["assignee_user_soeid"]
+                existing.team_id = record["team_id"]
+                existing.week_start = record["month_start"]
+                existing.month_start = record["month_start"]
+                existing.hours = record["hours"]
+                existing.fte_months = record["fte_months"]
+                existing.window_id = record["window_id"]
+                existing.updated_at = now
+                session.add(existing)
+            else:
+                session.add(
+                    ResourceAllocation(
+                        space_id=space_ctx.space_id,
+                        work_item_type=record["work_item_type"],
+                        work_item_id=record["work_item_id"],
+                        assignee=record["assignee"],
+                        assignee_user_soeid=record["assignee_user_soeid"],
+                        team_id=record["team_id"],
+                        week_start=record["month_start"],
+                        month_start=record["month_start"],
+                        hours=record["hours"],
+                        fte_months=record["fte_months"],
+                        window_id=record["window_id"],
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+        commit_planning_mutation(session, space_ctx)
+    except Exception as exc:
+        session.rollback()
+        errors.append(str(exc))
+        if atomic:
+            created = updated = 0
+    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": False}
 
 
 @router.post("/resource-allocations", response_model=ResourceAllocationRead, status_code=status.HTTP_201_CREATED)
@@ -280,6 +657,103 @@ def list_windows(
         scope_tokens=[scope_token],
         loader=_load,
     )
+
+
+@router.get("/planning/windows/export")
+def export_planning_windows(
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+):
+    rows = [
+        {
+            "window_name": row.name,
+            "start_date": row.start_date.isoformat(),
+            "end_date": row.end_date.isoformat(),
+        }
+        for row in window_query(session, space_ctx).order_by(PlanningWindow.start_date.asc(), PlanningWindow.name.asc()).all()
+    ]
+    headers = {"Content-Disposition": 'attachment; filename="planning-windows.csv"'}
+    return StreamingResponse(_write_csv(_WINDOW_EXPORT_FIELDNAMES, rows), media_type="text/csv", headers=headers)
+
+
+@router.post("/planning/windows/import")
+def import_planning_windows(
+    csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
+    atomic: bool = False,
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+):
+    rows, errors = read_csv(csv_bytes)
+    if errors:
+        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": _bool_query(dry_run)}
+    records = []
+    seen = set()
+    created = updated = 0
+    for idx, row in enumerate(rows, start=2):
+        name = normalize_str(row.get("window_name") or row.get("name"))
+        if not name:
+            errors.append(f"Row {idx}: window_name is required")
+            continue
+        key = name.lower()
+        if key in seen:
+            errors.append(f"Row {idx}: duplicate window_name '{name}' in CSV (strict-first policy)")
+            continue
+        seen.add(key)
+        try:
+            start_date = parse_date(row.get("start_date"))
+            end_date = parse_date(row.get("end_date"))
+        except ValueError as exc:
+            errors.append(f"Row {idx}: {exc}")
+            continue
+        if start_date is None or end_date is None:
+            errors.append(f"Row {idx}: start_date and end_date are required")
+            continue
+        if end_date < start_date:
+            errors.append(f"Row {idx}: end_date must be on or after start_date")
+            continue
+        existing = _window_by_name(session, space_ctx, name)
+        records.append((existing, name, start_date, end_date))
+        if existing:
+            updated += 1
+        else:
+            created += 1
+    if dry_run or (atomic and errors):
+        return {
+            "created": 0 if atomic and errors else created,
+            "updated": 0 if atomic and errors else updated,
+            "errors": errors,
+            "total_rows": len(rows),
+            "dry_run": _bool_query(dry_run),
+        }
+    now = datetime.now(timezone.utc)
+    try:
+        for existing, name, start_date, end_date in records:
+            if existing:
+                existing.start_date = start_date
+                existing.end_date = end_date
+                existing.updated_at = now
+                session.add(existing)
+            else:
+                session.add(
+                    PlanningWindow(
+                        space_id=space_ctx.space_id,
+                        name=name,
+                        start_date=start_date,
+                        end_date=end_date,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+        commit_planning_mutation(session, space_ctx)
+    except Exception as exc:
+        session.rollback()
+        errors.append(str(exc))
+        if atomic:
+            created = updated = 0
+    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": False}
 
 
 @router.post("/planning/windows", response_model=PlanningWindowRead, status_code=status.HTTP_201_CREATED)

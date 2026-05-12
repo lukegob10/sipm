@@ -6,8 +6,11 @@ from typing import Iterable, Optional
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from fastapi import status
 
 from ..models import Space, SpaceMembership, User
+from ..security import security_http_exception
 
 
 DEFAULT_SPACE_NAME = "Main"
@@ -70,10 +73,22 @@ def get_or_create_default_space(session: Session) -> Space:
         created_at=now,
         updated_at=now,
     )
-    session.add(space)
-    session.commit()
-    session.refresh(space)
-    return space
+    try:
+        session.add(space)
+        session.commit()
+        session.refresh(space)
+        return space
+    except IntegrityError:
+        session.rollback()
+        existing = (
+            session.query(Space)
+            .filter(Space.slug == DEFAULT_SPACE_SLUG)
+            .filter(Space.deleted_at.is_(None))
+            .first()
+        )
+        if existing:
+            return existing
+        raise
 
 
 def ensure_space_membership(
@@ -185,17 +200,10 @@ def resolve_active_space_context(
         .all()
     )
     if not memberships:
-        ensure_space_membership(session, user, default_space.space_id, role="member")
-        memberships = (
-            session.query(SpaceMembership, Space)
-            .join(Space, Space.space_id == SpaceMembership.space_id)
-            .filter(SpaceMembership.user_id == user.user_id)
-            .filter(SpaceMembership.status == "active")
-            .filter(SpaceMembership.deleted_at.is_(None))
-            .filter(Space.deleted_at.is_(None))
-            .filter(Space.is_active == True)
-            .order_by(Space.name.asc())
-            .all()
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="NO_ACTIVE_SPACE",
+            message="No active space is available for this user",
         )
 
     selected = None

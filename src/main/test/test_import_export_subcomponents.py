@@ -44,6 +44,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         "assignee",
         "github_repo_url",
         "solution_owner",
+        "completed_at",
     ]
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
@@ -59,6 +60,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
             "assignee": "Engineer Updated",
             "github_repo_url": "https://github.com/example-org/platform-worker.git/",
             "solution_owner": "Owner",
+            "completed_at": "2026-03-04T05:06:07",
         }
     )
     writer.writerow(
@@ -132,7 +134,7 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert updated.status_code == 200
     updated_json = updated.json()
     assert updated_json["status"] == "complete"
-    assert updated_json["completed_at"] is not None
+    assert updated_json["completed_at"] == "2026-03-04T05:06:07"
     assert updated_json["assignee"] == "Engineer Updated"
     assert updated_json["github_repo_url"] == "https://github.com/example-org/platform-worker"
     assert updated_json["effective_github_repo_url"] == "https://github.com/example-org/platform-worker"

@@ -14,7 +14,7 @@ from ...deps import get_db, require_space_role
 from ...models import Phase, Project, Solution, User
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_priority, read_csv
+from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
 from .._mutations import commit_session
 from ..projects.common import _resolve_project_sponsor
@@ -38,6 +38,7 @@ router = APIRouter()
 @router.post("/solutions/import")
 def import_solutions(
     csv_bytes: bytes = Body(..., media_type="text/csv"),
+    dry_run: bool = False,
     session: Session = Depends(get_db),
     tasks: BackgroundTasks = None,
     current_user: User = Depends(current_user_dep),
@@ -46,10 +47,11 @@ def import_solutions(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "projects_created": 0, "errors": errors, "total_rows": 0}
+        return {"created": 0, "updated": 0, "projects_created": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
     created = updated = projects_created = 0
     invalidate_subcomponents = False
     seen = set()
+    dry_project_keys = set()
     projects_by_name = {
         p.project_name.lower(): p
         for p in (
@@ -88,6 +90,7 @@ def import_solutions(
             priority_val = parse_priority(row.get("priority"), default=3)
             due_date_val = parse_date(row.get("due_date"))
             planned_start_date = parse_date(row.get("planned_start_date"))
+            completed_at_val = parse_datetime(row.get("completed_at"))
             rag_status_raw = _parse_rag_status(row.get("rag_status"))
             rag_confidence = (
                 float(row.get("rag_confidence")) if normalize_str(row.get("rag_confidence")) else None
@@ -127,6 +130,25 @@ def import_solutions(
                 continue
 
         project = projects_by_name.get(project_name.lower())
+        if dry_run:
+            if not project:
+                if project_name.lower() not in dry_project_keys:
+                    dry_project_keys.add(project_name.lower())
+                    projects_created += 1
+                created += 1
+                continue
+            existing = (
+                _solution_query(session, space_ctx)
+                .filter(Solution.project_id == project.project_id)
+                .filter(Solution.solution_name == solution_name)
+                .filter(Solution.version == version_raw)
+                .first()
+            )
+            if existing:
+                updated += 1
+            else:
+                created += 1
+            continue
         project_created_this_row = False
         if not project:
             project_sponsor, project_sponsor_user_soeid = _resolve_project_sponsor(
@@ -251,6 +273,8 @@ def import_solutions(
                     next_status=status_enum,
                     now=now,
                 )
+                if status_enum == SolutionStatus.complete and completed_at_val is not None:
+                    existing.completed_at = completed_at_val
                 existing.updated_at = now
                 session.add(existing)
                 safe_log_changes(
@@ -305,7 +329,9 @@ def import_solutions(
                     current_user=current_user,
                 )
                 now = datetime.now(timezone.utc)
-                completed_at = now if status_enum == SolutionStatus.complete else None
+                completed_at = completed_at_val if status_enum == SolutionStatus.complete and completed_at_val is not None else (
+                    now if status_enum == SolutionStatus.complete else None
+                )
                 solution = Solution(
                     space_id=space_ctx.space_id,
                     project_id=project.project_id,
@@ -382,17 +408,19 @@ def import_solutions(
         except Exception as exc:
             session.rollback()
             errors.append(f"Row {idx}: {exc}")
-    _publish_solution_import(
-        space_ctx.space_id,
-        projects_created=projects_created,
-        invalidate_subcomponents=invalidate_subcomponents,
-    )
+    if not dry_run:
+        _publish_solution_import(
+            space_ctx.space_id,
+            projects_created=projects_created,
+            invalidate_subcomponents=invalidate_subcomponents,
+        )
     return {
         "created": created,
         "updated": updated,
         "projects_created": projects_created,
         "errors": errors,
         "total_rows": len(rows),
+        "dry_run": dry_run,
     }
 
 

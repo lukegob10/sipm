@@ -504,3 +504,46 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert perf_payload["summary"]["median_load_ms"] == 1100
     assert perf_payload["routes"][0]["view_key"] == "analytics"
     assert perf_payload["routes"][0]["median_load_ms"] == 1100
+
+    dashboard = await analytics_client.get("/project-manager/api/analytics/dashboard?days=30&space_id=space-2")
+    assert dashboard.status_code == 200, dashboard.text
+    dashboard_payload = dashboard.json()
+    assert dashboard_payload["summary"]["scope_space_id"] == "space-2"
+    assert dashboard_payload["routes"]["scope_space_id"] == "space-2"
+    assert dashboard_payload["performance"]["scope_space_id"] == "space-2"
+
+
+@pytest.mark.anyio
+async def test_usage_analytics_rejects_unknown_requested_space(analytics_client):
+    response = await analytics_client.get("/project-manager/api/analytics/summary?days=30&space_id=missing-space")
+
+    assert response.status_code == 404, response.text
+    assert response.headers["X-Error-Code"] == "ANALYTICS_SPACE_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_usage_analytics_p95_uses_float_rank_math(analytics_client, db_sessionmaker):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with db_sessionmaker() as session:
+        for index in range(1, 102):
+            session.add(
+                PerformanceSample(
+                    sample_id=f"p95-sample-{index}",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id=f"session-{index}",
+                    user_id="user-1",
+                    space_id="space-1",
+                    view_key="master",
+                    sample_kind="navigation",
+                    load_event_ms=index,
+                )
+            )
+        session.commit()
+
+    response = await analytics_client.get("/project-manager/api/analytics/performance?days=30")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["median_load_ms"] == 51
+    assert payload["summary"]["p95_load_ms"] == 96

@@ -141,6 +141,12 @@
   gap: 14px;
 }
 
+@media (min-width: 901px) {
+  .space-membership-card .table {
+    overflow: visible;
+  }
+}
+
 .space-member-cell {
   display: grid;
   gap: 4px;

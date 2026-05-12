@@ -86,15 +86,11 @@ async function loadAnalytics(ctx, options = {}) {
   try {
     const query = requestQueryString();
     const suffix = query ? `?${query}` : "";
-    const [summary, routes, performanceStats] = await Promise.all([
-      ctx.api(`/analytics/summary${suffix}`),
-      ctx.api(`/analytics/routes${suffix}`),
-      ctx.api(`/analytics/performance${suffix}`),
-    ]);
+    const dashboard = await ctx.api(`/analytics/dashboard${suffix}`);
     if (analyticsState.requestId !== requestId) return;
-    analyticsState.summary = summary || null;
-    analyticsState.routes = routes || null;
-    analyticsState.performance = performanceStats || null;
+    analyticsState.summary = dashboard?.summary || null;
+    analyticsState.routes = dashboard?.routes || null;
+    analyticsState.performance = dashboard?.performance || null;
     analyticsState.lastQueryKey = nextQueryKey;
   } catch (err) {
     if (analyticsState.requestId !== requestId) return;

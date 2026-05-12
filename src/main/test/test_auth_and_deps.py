@@ -19,7 +19,7 @@ from backend.app.auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from backend.app.models import ApiToken, Space, User
+from backend.app.models import ApiToken, Space, SpaceMembership, User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -51,12 +51,34 @@ async def _login_local_session(
                 is_active=is_active,
             )
             session.add(user)
+            session.flush()
         else:
             user.display_name = display_name or user.display_name
             user.password_hash = hash_password(password)
             user.role = role
             user.is_active = is_active
             session.add(user)
+            session.flush()
+        space = session.query(Space).filter(Space.slug == "main").first()
+        if space is None:
+            space = Space(space_id="test-main-space", name="Main", slug="main", is_active=True)
+            session.add(space)
+            session.flush()
+        membership = (
+            session.query(SpaceMembership)
+            .filter(SpaceMembership.user_id == user.user_id)
+            .filter(SpaceMembership.space_id == space.space_id)
+            .first()
+        )
+        if membership is None:
+            session.add(
+                SpaceMembership(
+                    space_id=space.space_id,
+                    user_id=user.user_id,
+                    role="space_admin" if role == "global_admin" else "member",
+                    status="active",
+                )
+            )
         session.commit()
 
     response = await auth_client.post(
@@ -537,7 +559,7 @@ async def test_me_rejects_invalid_cookie_without_identity_bootstrap(auth_client,
 
 
 @pytest.mark.anyio
-async def test_me_requires_cookie_for_local_auth_session(auth_client):
+async def test_me_requires_authentication(auth_client):
     resp = await auth_client.get("/project-manager/api/auth/me")
 
     assert resp.status_code == 401
@@ -603,11 +625,29 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
     )
     assert me.status_code == 200, me.text
 
+    bearer_me = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+    assert bearer_me.status_code == 200, bearer_me.text
+    assert bearer_me.json()["soeid"] == "svcpat1"
+
     with db_sessionmaker() as session:
         token_rows = session.query(ApiToken).all()
         assert len(token_rows) == 1
         assert token_rows[0].token_hash != token_value
         assert token_rows[0].last_used_at is not None
+        first_last_used_at = token_rows[0].last_used_at
+
+    repeat = await auth_client.get(
+        "/project-manager/api/auth/active-space",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+    assert repeat.status_code == 200, repeat.text
+
+    with db_sessionmaker() as session:
+        token_row = session.query(ApiToken).one()
+        assert token_row.last_used_at == first_last_used_at
 
 
 @pytest.mark.anyio

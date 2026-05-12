@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import status
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from ..models import ApiToken, User
 from ..security import security_http_exception
 
 TOKEN_PREFIX = "sipm_pat_"
+LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
 
 
 def _utc_now_naive() -> datetime:
@@ -56,9 +57,11 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             code="API_TOKEN_USER_INVALID",
             message="API token user inactive or invalid",
         )
-    token_row.last_used_at = _utc_now_naive()
-    session.add(token_row)
-    session.commit()
+    now = _utc_now_naive()
+    if token_row.last_used_at is None or token_row.last_used_at <= now - LAST_USED_WRITE_INTERVAL:
+        token_row.last_used_at = now
+        session.add(token_row)
+        session.commit()
     return user
 
 
@@ -88,4 +91,3 @@ def create_api_token(
     session.commit()
     session.refresh(token)
     return token, raw_token
-

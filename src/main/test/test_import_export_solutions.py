@@ -219,6 +219,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
         "key_stakeholder",
         "blockers",
         "risks",
+        "completed_at",
     ]
     buf = StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
@@ -246,6 +247,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
             "priority": "3",
             "current_phase": "",
             "owner": "Owner",
+            "completed_at": "2026-02-03T04:05:06",
         }
     )
     writer.writerow(
@@ -324,7 +326,7 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
 
     updated_complete = (await client.get(f"/project-manager/api/solutions/{sol_complete['solution_id']}")).json()
     assert updated_complete["status"] == "complete"
-    assert updated_complete["completed_at"] is not None
+    assert updated_complete["completed_at"] == "2026-02-03T04:05:06"
     assert updated_complete["current_phase"] == "requirements"
 
     fallback_owner = await client.get("/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"})

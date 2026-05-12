@@ -76,6 +76,22 @@ describe("telemetry controller", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("retains queued telemetry when fetch ingest returns an HTTP failure", async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({ ok: true });
+    const { controller } = buildHarness({ fetchImpl });
+
+    controller.trackWorkflow("projects", "create", "success", { source: "unit" });
+    await expect(controller.flush()).resolves.toBe(false);
+    await expect(controller.flush()).resolves.toBe(true);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const retryPayload = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(retryPayload.events).toHaveLength(1);
+    expect(retryPayload.events[0].action_key).toBe("create");
+  });
+
   it("records timeout and server-side API failures only", async () => {
     const { controller, fetchImpl } = buildHarness();
 

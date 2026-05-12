@@ -2,7 +2,7 @@ import csv
 import getpass
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from io import StringIO
 from typing import Any, Optional, Sequence, Tuple, Type, TypeVar
 
@@ -100,6 +100,23 @@ def parse_date(raw: Optional[str]) -> Optional[date]:
         return date.fromisoformat(raw)
     except ValueError:
         raise ValueError(f"invalid date '{raw}', expected YYYY-MM-DD")
+
+
+def parse_datetime(raw: Optional[str]) -> Optional[datetime]:
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        raise ValueError(f"invalid datetime '{raw}', expected ISO 8601")
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def read_csv(file_bytes: bytes) -> Tuple[list, list]:

@@ -42,6 +42,18 @@ async def test_projects_import_updates_creates_and_exports(client):
         ]
     )
 
+    dry_run = await client.post(
+        "/project-manager/api/projects/import?dry_run=true",
+        content=csv_text.encode("utf-8"),
+        headers={"Content-Type": "text/csv"},
+    )
+    assert dry_run.status_code == 200, dry_run.text
+    dry_run_data = dry_run.json()
+    assert dry_run_data["updated"] == 1
+    assert dry_run_data["created"] == 2
+    assert dry_run_data["dry_run"] is True
+    assert (await client.get("/project-manager/api/projects", params={"sponsor": "coo office"})).json() == []
+
     resp = await client.post(
         "/project-manager/api/projects/import",
         content=csv_text.encode("utf-8"),

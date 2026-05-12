@@ -16,7 +16,7 @@ from ..auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from ..deps import authenticate_access_token, ensure_token_not_revoked, get_db, require_global_admin, require_user
+from ..deps import ensure_token_not_revoked, get_db, require_global_admin, require_user
 from ..models import User
 from ..paths import API_PREFIX
 from ..schemas import (
@@ -30,7 +30,7 @@ from ..schemas import (
 )
 from ..security import security_http_exception
 from ..services.password_reset import reset_password_with_temp_password
-from ..services.spaces import resolve_active_space_context
+from ..services.spaces import ensure_space_membership, get_or_create_default_space, resolve_active_space_context
 from ..services.usage_analytics import usage_analytics_enabled
 
 router = APIRouter()
@@ -67,6 +67,11 @@ def _issue_session(response: Response, session: Session, user: User, requested_s
     set_auth_cookies(response, access_token, refresh_token)
     active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
     set_active_space_cookie(response, active_ctx.space_id)
+
+
+def _provision_self_registered_space(session: Session, user: User) -> None:
+    default_space = get_or_create_default_space(session)
+    ensure_space_membership(session, user, default_space.space_id, role="member")
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -107,6 +112,7 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
     session.commit()
     session.refresh(user)
 
+    _provision_self_registered_space(session, user)
     _issue_session(response, session, user, requested_space_id=None)
     return user
 
@@ -276,16 +282,7 @@ def logout(response: Response):
 
 
 @router.get("/me", response_model=UserRead)
-def me(request: Request, session: Session = Depends(get_db)):
-    token = request.cookies.get("access_token")
-    if not token:
-        raise security_http_exception(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="AUTH_REQUIRED",
-            message="Not authenticated",
-        )
-    user = authenticate_access_token(session, token)
-    request.state.user = user
+def me(user: User = Depends(require_user)):
     return user
 
 

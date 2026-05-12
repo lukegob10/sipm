@@ -164,8 +164,15 @@ class AnalyticsPerformanceStatsRead(AnalyticsScopeRead):
     routes: list[AnalyticsPerformanceRouteRead]
 
 
+class AnalyticsDashboardRead(BaseModel):
+    summary: AnalyticsSummaryRead
+    routes: AnalyticsRouteStatsRead
+    performance: AnalyticsPerformanceStatsRead
+
+
 __all__ = [
     "AnalyticsDailyPointRead",
+    "AnalyticsDashboardRead",
     "AnalyticsFailureHotspotRead",
     "AnalyticsPerformanceRouteRead",
     "AnalyticsPerformanceStatsRead",

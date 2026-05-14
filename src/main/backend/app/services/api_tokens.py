@@ -43,6 +43,12 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             code="AUTH_REQUIRED",
             message="Not authenticated",
         )
+    if not raw.startswith(TOKEN_PREFIX):
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="API_TOKEN_INVALID",
+            message="Invalid API token",
+        )
     token_row = session.query(ApiToken).filter(ApiToken.token_hash == hash_api_token(raw)).first()
     if not token_row or not api_token_is_active(token_row):
         raise security_http_exception(

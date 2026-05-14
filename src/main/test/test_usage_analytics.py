@@ -484,6 +484,10 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert summary_payload["summary"]["failure_count"] == 0
     assert summary_payload["summary"]["median_load_ms"] == 810
     assert summary_payload["summary"]["p95_load_ms"] == 1200
+    assert summary_payload["summary"]["navigation_median_load_ms"] == 1200
+    assert summary_payload["summary"]["navigation_p95_load_ms"] == 1200
+    assert summary_payload["summary"]["route_transition_median_load_ms"] == 420
+    assert summary_payload["summary"]["route_transition_p95_load_ms"] == 420
 
     routes = await analytics_client.get("/project-manager/api/analytics/routes?days=30&all_spaces=true")
     assert routes.status_code == 200, routes.text
@@ -502,6 +506,10 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert perf_payload["summary"]["navigation_samples"] == 0
     assert perf_payload["summary"]["route_transition_samples"] == 1
     assert perf_payload["summary"]["median_load_ms"] == 1100
+    assert perf_payload["summary"]["navigation_median_load_ms"] is None
+    assert perf_payload["summary"]["navigation_p95_load_ms"] is None
+    assert perf_payload["summary"]["route_transition_median_load_ms"] == 1100
+    assert perf_payload["summary"]["route_transition_p95_load_ms"] == 1100
     assert perf_payload["routes"][0]["view_key"] == "analytics"
     assert perf_payload["routes"][0]["median_load_ms"] == 1100
 
@@ -547,3 +555,78 @@ async def test_usage_analytics_p95_uses_float_rank_math(analytics_client, db_ses
     payload = response.json()
     assert payload["summary"]["median_load_ms"] == 51
     assert payload["summary"]["p95_load_ms"] == 96
+
+
+@pytest.mark.anyio
+async def test_usage_analytics_performance_routes_count_only_samples_with_load_metrics(
+    analytics_client,
+    db_sessionmaker,
+):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with db_sessionmaker() as session:
+        session.add_all(
+            [
+                PerformanceSample(
+                    sample_id="complete-route-sample",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id="session-1",
+                    user_id="user-1",
+                    space_id="space-1",
+                    view_key="planning",
+                    sample_kind="route_transition",
+                    data_load_ms=300,
+                    render_ms=100,
+                ),
+                PerformanceSample(
+                    sample_id="incomplete-route-sample",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id="session-2",
+                    user_id="user-1",
+                    space_id="space-1",
+                    view_key="planning",
+                    sample_kind="route_transition",
+                ),
+                PerformanceSample(
+                    sample_id="incomplete-navigation-sample",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id="session-3",
+                    user_id="user-1",
+                    space_id="space-1",
+                    view_key="analytics",
+                    sample_kind="navigation",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = await analytics_client.get("/project-manager/api/analytics/performance?days=30")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["route_transition_samples"] == 2
+    assert payload["summary"]["navigation_samples"] == 1
+    assert payload["summary"]["median_load_ms"] == 400
+    assert payload["summary"]["p95_load_ms"] == 400
+    assert payload["summary"]["navigation_median_load_ms"] is None
+    assert payload["summary"]["navigation_p95_load_ms"] is None
+    assert payload["summary"]["route_transition_median_load_ms"] == 400
+    assert payload["summary"]["route_transition_p95_load_ms"] == 400
+    assert payload["routes"] == [
+        {
+            "view_key": "planning",
+            "sample_count": 1,
+            "median_load_ms": 400,
+            "p95_load_ms": 400,
+            "median_data_load_ms": 300,
+            "p95_data_load_ms": 300,
+            "median_render_ms": 100,
+            "p95_render_ms": 100,
+            "median_first_contentful_paint_ms": None,
+            "p95_largest_contentful_paint_ms": None,
+            "avg_cls_score": None,
+            "long_task_count": 0,
+        }
+    ]

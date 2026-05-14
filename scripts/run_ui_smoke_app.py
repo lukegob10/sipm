@@ -42,7 +42,8 @@ def configure_sqlite_runtime() -> None:
 
 def main() -> None:
     configure_sqlite_runtime()
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    port = int(os.getenv("SIPM_UI_SMOKE_PORT", "8000"))
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
 if __name__ == "__main__":

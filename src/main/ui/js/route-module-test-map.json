@@ -32,7 +32,8 @@
       "src/main/test/test_ui_route_modules_exports.py"
     ],
     "analytics.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
+      "src/main/test/test_ui_route_modules_exports.py",
+      "src/main/test/test_analytics_frontend_contract.py"
     ],
     "access.js": [
       "src/main/test/test_ui_route_modules_exports.py"

@@ -30,6 +30,16 @@ from .common import (
 router = APIRouter()
 
 
+def _required_subcomponent_name(value: object) -> str:
+    subcomponent_name = normalize_str(value)
+    if not subcomponent_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="subcomponent_name is required",
+        )
+    return subcomponent_name
+
+
 @router.post(
     "/solutions/{solution_id}/subcomponents",
     response_model=SubcomponentRead,
@@ -45,6 +55,7 @@ def create_subcomponent(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     solution = _ensure_solution(session, solution_id, space_ctx)
+    subcomponent_name = _required_subcomponent_name(payload.subcomponent_name)
     try:
         github_repo_url = normalize_github_repo_url(payload.github_repo_url)
     except ValueError as exc:
@@ -53,7 +64,7 @@ def create_subcomponent(
     conflict = (
         _subcomponent_query(session, space_ctx)
         .filter(Subcomponent.solution_id == solution_id)
-        .filter(Subcomponent.subcomponent_name == payload.subcomponent_name)
+        .filter(Subcomponent.subcomponent_name == subcomponent_name)
         .first()
     )
     if conflict:
@@ -64,6 +75,7 @@ def create_subcomponent(
 
     now = datetime.now(timezone.utc)
     completed_at = now if payload.status == SubcomponentStatus.complete else None
+    blocked = payload.blocked or False
 
     assignee, assignee_user_soeid = _resolve_subcomponent_assignee(
         payload.assignee,
@@ -75,7 +87,7 @@ def create_subcomponent(
         space_id=space_ctx.space_id,
         project_id=solution.project_id,
         solution_id=solution_id,
-        subcomponent_name=payload.subcomponent_name,
+        subcomponent_name=subcomponent_name,
         status=payload.status,
         priority=payload.priority,
         due_date=payload.due_date,
@@ -84,8 +96,8 @@ def create_subcomponent(
         assignee_user_soeid=assignee_user_soeid,
         github_repo_url=github_repo_url,
         estimate_hours=payload.estimate_hours,
-        blocked=payload.blocked or False,
-        blocker_note=payload.blocker_note,
+        blocked=blocked,
+        blocker_note=payload.blocker_note if blocked else None,
         done_criteria=payload.done_criteria,
         capacity_hours=payload.capacity_hours or 0,
         created_at=now,
@@ -138,10 +150,14 @@ def update_subcomponent(
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "subcomponent_name" in update_data:
+        update_data["subcomponent_name"] = _required_subcomponent_name(update_data["subcomponent_name"])
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
     if "blocked" in update_data and update_data["blocked"] is None:
         update_data["blocked"] = False
+    if update_data.get("blocked") is False:
+        update_data["blocker_note"] = None
     if "github_repo_url" in update_data:
         try:
             update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])

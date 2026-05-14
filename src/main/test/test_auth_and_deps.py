@@ -651,6 +651,60 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
 
 
 @pytest.mark.anyio
+async def test_bearer_api_token_takes_precedence_over_browser_cookie(auth_client, db_sessionmaker):
+    await _login_local_session(
+        auth_client,
+        db_sessionmaker,
+        soeid="COOKIEPAT1",
+        display_name="Cookie User",
+        role="global_admin",
+    )
+    with db_sessionmaker() as session:
+        cookie_user = session.query(User).filter(User.soeid == "cookiepat1").first()
+        assert cookie_user is not None
+        cookie_user.role = "global_admin"
+        service_user = User(
+            soeid="svcmixed1",
+            email="svcmixed1@citi.com",
+            display_name="Service Mixed",
+            password_hash=hash_password("ServicePassword123"),
+            role="global_admin",
+            is_active=True,
+            is_service_account=True,
+        )
+        session.add_all([cookie_user, service_user])
+        session.commit()
+        service_user_id = service_user.user_id
+
+    issued = await auth_client.post(
+        f"/project-manager/api/users/{service_user_id}/api-tokens",
+        json={"name": "Mixed credentials"},
+    )
+    assert issued.status_code == 201, issued.text
+    token_value = issued.json()["token"]
+
+    auth_client.cookies.set("access_token", "not-a-valid-cookie-token")
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["soeid"] == "svcmixed1"
+
+
+@pytest.mark.anyio
+async def test_non_sipm_bearer_token_is_rejected_as_api_token(auth_client):
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers={"Authorization": "Bearer eyJnot-a-sipm-token"},
+    )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid API token"
+
+
+@pytest.mark.anyio
 async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_token(auth_client, db_sessionmaker):
     await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT2", display_name="Admin PAT", role="global_admin")
     with db_sessionmaker() as session:

@@ -88,6 +88,7 @@ export function resetBoardState(spaceId) {
   boardState.spaceId = spaceId || "";
   boardState.loaded = false;
   boardState.loading = false;
+  boardState.pendingLoadOptions = null;
   boardState.error = "";
   boardState.personSearch = "";
   boardState.topPanel = "";

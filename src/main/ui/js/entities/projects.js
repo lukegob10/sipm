@@ -1,3 +1,25 @@
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function nullableTextValue(value) {
+  const text = textValue(value);
+  return text || null;
+}
+
+export function buildProjectPayload(data) {
+  return {
+    project_name: textValue(data.get("project_name")),
+    status: data.get("status"),
+    description: data.get("description"),
+    success_criteria: nullableTextValue(data.get("success_criteria")),
+    sponsor: textValue(data.get("sponsor")),
+    sponsor_user_soeid: nullableTextValue(data.get("sponsor_user_soeid")),
+    strategic_objective: nullableTextValue(data.get("strategic_objective")),
+    priority: Number(data.get("priority") || 3),
+  };
+}
+
 export function createProjectEntityController({
   state,
   els,
@@ -75,16 +97,7 @@ export function createProjectEntityController({
       const data = new FormData(els.projectForm);
       const id = (data.get("project_id") || "").toString().trim();
       const isEditing = !!id;
-      const payload = {
-        project_name: data.get("project_name"),
-        status: data.get("status"),
-        description: data.get("description"),
-        success_criteria: data.get("success_criteria") || null,
-        sponsor: data.get("sponsor"),
-        sponsor_user_soeid: data.get("sponsor_user_soeid") || null,
-        strategic_objective: data.get("strategic_objective") || null,
-        priority: Number(data.get("priority") || 3),
-      };
+      const payload = buildProjectPayload(data);
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.projectFormStatus, "Saving project...");

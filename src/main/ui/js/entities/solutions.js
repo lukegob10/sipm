@@ -1,8 +1,46 @@
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function nullableTextValue(value) {
+  const text = textValue(value);
+  return text || null;
+}
+
+export function buildSolutionPayload(data, { hoursFromFteInput }) {
+  return {
+    solution_name: textValue(data.get("solution_name")),
+    github_repo_url: nullableTextValue(data.get("github_repo_url")),
+    version: textValue(data.get("version")),
+    status: data.get("status"),
+    priority: Number(data.get("priority") || 3),
+    due_date: data.get("due_date") || null,
+    planned_start_date: data.get("planned_start_date") || null,
+    current_phase: data.get("current_phase") || null,
+    description: data.get("description"),
+    problem_statement: nullableTextValue(data.get("problem_statement")),
+    success_criteria: nullableTextValue(data.get("success_criteria")),
+    impact_confidence: data.get("impact_confidence") || null,
+    owner: textValue(data.get("owner")),
+    owner_user_soeid: nullableTextValue(data.get("owner_user_soeid")),
+    assignee: textValue(data.get("assignee")),
+    assignee_user_soeid: nullableTextValue(data.get("assignee_user_soeid")),
+    approver: nullableTextValue(data.get("approver")),
+    approver_user_soeid: nullableTextValue(data.get("approver_user_soeid")),
+    key_stakeholder: textValue(data.get("key_stakeholder")),
+    rag_confidence: data.get("rag_confidence") ? Number(data.get("rag_confidence")) : null,
+    blockers: nullableTextValue(data.get("blockers")),
+    risks: nullableTextValue(data.get("risks")),
+    capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
+    rag_status: data.get("rag_status") || "green",
+    rag_reason: nullableTextValue(data.get("rag_reason")),
+  };
+}
+
 export function createSolutionEntityController({
   state,
   els,
   api,
-  numberOr,
   hoursFromFteInput,
   fteFromHoursForInput,
   markIgnoreRefresh,
@@ -30,38 +68,6 @@ export function createSolutionEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
-  function buildSolutionPayload(data) {
-    const payload = {
-      solution_name: data.get("solution_name"),
-      github_repo_url: data.get("github_repo_url") || null,
-      version: data.get("version"),
-      status: data.get("status"),
-      priority: Number(data.get("priority") || 3),
-      due_date: data.get("due_date") || null,
-      planned_start_date: data.get("planned_start_date") || null,
-      current_phase: data.get("current_phase") || null,
-      description: data.get("description"),
-      problem_statement: data.get("problem_statement") || null,
-      success_criteria: data.get("success_criteria") || null,
-      impact_confidence: data.get("impact_confidence") || null,
-      owner: data.get("owner"),
-      owner_user_soeid: data.get("owner_user_soeid") || null,
-      assignee: data.get("assignee") || "",
-      assignee_user_soeid: data.get("assignee_user_soeid") || (data.get("assignee") || null),
-      approver: data.get("approver") || null,
-      approver_user_soeid: data.get("approver_user_soeid") || null,
-      key_stakeholder: data.get("key_stakeholder"),
-      rag_confidence: data.get("rag_confidence") ? Number(data.get("rag_confidence")) : null,
-      blockers: data.get("blockers") || null,
-      risks: data.get("risks") || null,
-      capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-      capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-      rag_status: data.get("rag_status") || "green",
-      rag_reason: data.get("rag_reason") || null,
-    };
-    return payload;
-  }
-
   function fillSolutionForm(solution = null) {
     if (!els.solutionForm) return;
     els.solutionForm.reset();
@@ -173,7 +179,7 @@ export function createSolutionEntityController({
         );
         return;
       }
-      const payload = buildSolutionPayload(data);
+      const payload = buildSolutionPayload(data, { hoursFromFteInput });
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");

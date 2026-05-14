@@ -89,6 +89,10 @@ class AnalyticsSummaryCardsRead(BaseModel):
     failure_count: int
     median_load_ms: Optional[int] = None
     p95_load_ms: Optional[int] = None
+    navigation_median_load_ms: Optional[int] = None
+    navigation_p95_load_ms: Optional[int] = None
+    route_transition_median_load_ms: Optional[int] = None
+    route_transition_p95_load_ms: Optional[int] = None
 
 
 class AnalyticsDailyPointRead(BaseModel):
@@ -142,6 +146,10 @@ class AnalyticsPerformanceSummaryRead(BaseModel):
     route_transition_samples: int
     median_load_ms: Optional[int] = None
     p95_load_ms: Optional[int] = None
+    navigation_median_load_ms: Optional[int] = None
+    navigation_p95_load_ms: Optional[int] = None
+    route_transition_median_load_ms: Optional[int] = None
+    route_transition_p95_load_ms: Optional[int] = None
 
 
 class AnalyticsPerformanceRouteRead(BaseModel):

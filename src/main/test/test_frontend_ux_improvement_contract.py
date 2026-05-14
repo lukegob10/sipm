@@ -203,7 +203,7 @@ def test_solution_modal_workflow_moves_into_shared_entities_layer():
     assert "function fillSolutionForm(solution = null) {" not in app_text
     assert "function setSolutionActionButtonLabel(isEditing) {" not in app_text
     assert "export function createSolutionEntityController({" in solution_text
-    assert "function buildSolutionPayload(data) {" in solution_text
+    assert "export function buildSolutionPayload(data, { hoursFromFteInput }) {" in solution_text
     assert "function fillSolutionForm(solution = null) {" in solution_text
     assert "function setSolutionActionButtonLabel(isEditing) {" in solution_text
     assert "function setSubcomponentCreateAvailability(solutionId) {" in solution_text
@@ -228,7 +228,7 @@ def test_subcomponent_modal_workflow_moves_into_shared_entities_layer():
     assert "function buildSubcomponentPayload(data) {" not in app_text
     assert "function prepareSubcomponentCreateForm(solution, options = {}) {" not in app_text
     assert "export function createSubcomponentEntityController({" in subcomponent_text
-    assert "function buildSubcomponentPayload(data) {" in subcomponent_text
+    assert "export function buildSubcomponentPayload(" in subcomponent_text
     assert "function prepareSubcomponentCreateForm(solution, options = {}) {" in subcomponent_text
     assert "function fillSubcomponentForm(sub) {" in subcomponent_text
     assert "function bindSubcomponentForm() {" in subcomponent_text
@@ -403,8 +403,8 @@ def test_solution_and_subcomponent_forms_include_github_repo_fields():
     assert 'name="github_repo_url"' in html_text
     assert 'GitHub Repo Override' in html_text
     assert 'id="subcomponent-repo-preview"' in html_text
-    assert 'github_repo_url: data.get("github_repo_url") || null,' in solution_text
-    assert 'github_repo_url: data.get("github_repo_url") || null,' in subcomponent_text
+    assert 'github_repo_url: nullableTextValue(data.get("github_repo_url")),' in solution_text
+    assert 'github_repo_url: nullableTextValue(data.get("github_repo_url")),' in subcomponent_text
     assert "function updateSubcomponentRepoPreview(solutionId, overrideUrl) {" in app_text
 
 

@@ -12,20 +12,22 @@ function jsonResponse(body, { status = 200 } = {}) {
   };
 }
 
-function createHarness() {
-  const state = {
+function createHarness(overrides = {}) {
+  const state = overrides.state || {
     authed: false,
     activeSpace: { space_id: "space-1" },
     user: null,
   };
+  const els = overrides.els || {};
   const viewFromLocationPath = vi.fn(() => "team-capacity");
   const setView = vi.fn();
   const refreshSpaceContext = vi.fn().mockResolvedValue(undefined);
   const startLiveSync = vi.fn();
   const setAuthVisible = vi.fn();
+  const stopLiveSync = vi.fn();
   const controller = createSessionController({
     state,
-    els: {},
+    els,
     apiBase: "/api",
     accessRefreshIntervalMs: 60_000,
     buildAppUrl: (path) => `/project-manager${path}`,
@@ -49,9 +51,9 @@ function createHarness() {
     refreshSpaceContext,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
     startLiveSync,
-    stopLiveSync: vi.fn(),
+    stopLiveSync,
   });
-  return { controller, viewFromLocationPath, setView, refreshSpaceContext, startLiveSync, setAuthVisible };
+  return { controller, viewFromLocationPath, setView, refreshSpaceContext, startLiveSync, stopLiveSync, setAuthVisible };
 }
 
 
@@ -105,5 +107,32 @@ describe("session controller", () => {
     expect(setView).not.toHaveBeenCalled();
     expect(setAuthVisible).toHaveBeenCalledTimes(1);
     expect(setAuthVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("clears local realtime session state when session expiry is handled", () => {
+    const { controller, stopLiveSync, setAuthVisible } = createHarness();
+
+    controller.handleAuthError({ status: 401 });
+
+    expect(stopLiveSync).toHaveBeenCalledTimes(1);
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("clears local realtime session state after explicit logout", async () => {
+    const logoutButton = document.createElement("button");
+    const { controller, stopLiveSync } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+      els: { logoutBtn: logoutButton },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/logout")) return jsonResponse({}, { status: 204 });
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    controller.bindAuthUI();
+    logoutButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(stopLiveSync).toHaveBeenCalledTimes(1);
   });
 });

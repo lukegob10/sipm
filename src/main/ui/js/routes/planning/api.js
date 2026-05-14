@@ -88,7 +88,14 @@ async function refreshGlobal(ctx, entity) {
 
 export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
   const startedAt = Date.now();
-  if (boardState.loading) return;
+  if (boardState.loading) {
+    boardState.pendingLoadOptions = {
+      allocationsOnly: boardState.pendingLoadOptions
+        ? boardState.pendingLoadOptions.allocationsOnly && !!allocationsOnly
+        : !!allocationsOnly,
+    };
+    return;
+  }
   boardState.loading = true;
   boardState.error = "";
   rerenderPlanning();
@@ -126,6 +133,11 @@ export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
     rerenderPlanning();
     if (typeof ctx?.noteRouteDataLoaded === "function") {
       ctx.noteRouteDataLoaded(Date.now() - startedAt);
+    }
+    const pendingLoadOptions = boardState.pendingLoadOptions;
+    if (pendingLoadOptions) {
+      boardState.pendingLoadOptions = null;
+      void loadBoard(ctx, pendingLoadOptions);
     }
   }
 }

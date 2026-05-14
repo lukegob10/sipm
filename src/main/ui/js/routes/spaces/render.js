@@ -107,7 +107,7 @@ export function createSpaceGovernanceRenderer({
         <td>
           <div class="space-member-cell">
             <strong>${esc(memberLabel(row))}</strong>
-            <div class="space-member-meta">${soeid}${soeid && email ? " • " : ""}${email}</div>
+            <div class="space-member-meta">${soeid}${soeid && email ? " / " : ""}${email}</div>
           </div>
         </td>
         <td><span class="pill ${normalizeSpaceRole(row.role) === "space_admin" ? "" : "muted"}">${esc(row.role)}</span></td>
@@ -527,12 +527,12 @@ export function createSpaceGovernanceRenderer({
       const serviceText = user.is_service_account ? "service" : "interactive";
       return `<tr data-user-id="${escapeAttr(user.user_id)}" data-soeid="${escapeAttr(user.soeid)}">
         <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
-        <td>${esc(user.soeid || "—")}</td>
-        <td>${esc(user.email || "—")}</td>
+        <td>${esc(user.soeid || "-")}</td>
+        <td>${esc(user.email || "-")}</td>
         <td>${esc(user.role || "user")}</td>
         <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
         <td><span class="pill ${user.is_service_account ? "warn" : "muted"}">${esc(serviceText)}</span></td>
-        <td>${esc(user.team_tag || "—")}</td>
+        <td>${esc(user.team_tag || "-")}</td>
         <td>${esc(formatDateTime(user.last_login_at) || "Never")}</td>
         <td>
           <div class="platform-access-actions">
@@ -566,7 +566,7 @@ export function createSpaceGovernanceRenderer({
         const statusText = user.is_active ? "active" : "inactive";
         return `<tr data-user-id="${escapeAttr(user.user_id)}" data-soeid="${escapeAttr(user.soeid)}">
           <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
-          <td>${esc(user.soeid || "—")}</td>
+          <td>${esc(user.soeid || "-")}</td>
           <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
           <td>
             <div class="platform-access-actions">

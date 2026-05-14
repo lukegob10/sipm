@@ -19,6 +19,7 @@ from ..schemas import (
 )
 from ..services.spaces import SpaceContext
 from ..services.usage_analytics import (
+    build_dashboard_payload,
     build_performance_stats_payload,
     build_route_stats_payload,
     build_summary_payload,
@@ -205,26 +206,12 @@ def get_usage_analytics_dashboard(
         requested_space_id=space_id,
     )
     validate_requested_analytics_space(session, scope_space_id=scope_space_id)
-    return {
-        "summary": build_summary_payload(
-            session,
-            days=validated_days,
-            all_spaces=all_spaces,
-            scope_space_id=scope_space_id,
-        ),
-        "routes": build_route_stats_payload(
-            session,
-            days=validated_days,
-            all_spaces=all_spaces,
-            scope_space_id=scope_space_id,
-        ),
-        "performance": build_performance_stats_payload(
-            session,
-            days=validated_days,
-            all_spaces=all_spaces,
-            scope_space_id=scope_space_id,
-        ),
-    }
+    return build_dashboard_payload(
+        session,
+        days=validated_days,
+        all_spaces=all_spaces,
+        scope_space_id=scope_space_id,
+    )
 
 
 __all__ = ["router"]

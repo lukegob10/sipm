@@ -199,3 +199,45 @@ async def test_planning_task_create_preserves_explicit_zero_fte_as_minimum(clien
     payload = response.json()
     assert payload["title"] == "Planning Zero Effort Task"
     assert payload["fte_months"] == pytest.approx(0.05, abs=1e-6)
+
+
+@pytest.mark.anyio
+async def test_planning_month_parameters_reject_impossible_months(client):
+    for path in [
+        "/project-manager/api/planning/work-allocation/board?month=2026-13",
+        "/project-manager/api/planning/work-allocation/tasks?month=2026-00",
+        "/project-manager/api/planning/work-allocation/allocations?month=2026-99",
+        "/project-manager/api/planning/work-allocation/report.pdf?month=2026-13",
+    ]:
+        response = await client.get(path)
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == "month must use YYYY-MM"
+
+
+@pytest.mark.anyio
+async def test_planning_team_and_person_updates_reject_blank_names(client):
+    team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Named Team"},
+    )
+    assert team_resp.status_code == 201, team_resp.text
+
+    blank_team = await client.patch(
+        f"/project-manager/api/planning/work-allocation/teams/{team_resp.json()['id']}",
+        json={"name": "   "},
+    )
+    assert blank_team.status_code == 400, blank_team.text
+    assert blank_team.json()["detail"] == "Team name is required"
+
+    person_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/people",
+        json={"name": "Named Person", "capacity_fte_months": 1.0},
+    )
+    assert person_resp.status_code == 201, person_resp.text
+
+    blank_person = await client.patch(
+        f"/project-manager/api/planning/work-allocation/people/{person_resp.json()['id']}",
+        json={"name": "   "},
+    )
+    assert blank_person.status_code == 400, blank_person.text
+    assert blank_person.json()["detail"] == "Person name is required"

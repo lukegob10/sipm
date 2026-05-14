@@ -19,6 +19,19 @@ function sortByName(items, fieldName) {
   return [...(items || [])].sort((a, b) => String(a?.[fieldName] || "").localeCompare(String(b?.[fieldName] || "")));
 }
 
+function resolveCalendarMonth(value) {
+  const monthMatch = typeof value === "string" ? value.match(/^(\d{4})-(\d{2})$/) : null;
+  if (monthMatch) {
+    const year = Number(monthMatch[1]);
+    const monthIndex = Number(monthMatch[2]) - 1;
+    if (monthIndex >= 0 && monthIndex <= 11) return new Date(year, monthIndex, 1);
+  }
+  const dateOnly = typeof value === "string" ? parseDateOnly(value) : null;
+  if (dateOnly) return new Date(dateOnly.year, dateOnly.monthIndex, 1);
+  const month = value ? new Date(value) : new Date();
+  return Number.isNaN(month.getTime()) ? new Date() : month;
+}
+
 function renderCalendarPreviewTitle(item, type, titleField) {
   const title = item?.[titleField] || "Untitled";
   if (type === "solution" && item?.solution_id) {
@@ -70,7 +83,7 @@ export function renderCalendar(ctx) {
   } = ctx;
   if (!els.calendarGrid) return;
 
-  const baseMonth = state.calendarMonth ? new Date(state.calendarMonth) : new Date();
+  const baseMonth = resolveCalendarMonth(state.calendarMonth);
   const year = baseMonth.getFullYear();
   const month = baseMonth.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -160,7 +173,7 @@ export function openCalendarModal(day, ctx) {
   } = ctx;
   if (!els.calendarModal) return;
 
-  const baseMonth = state.calendarMonth || new Date();
+  const baseMonth = resolveCalendarMonth(state.calendarMonth);
   const date = new Date(baseMonth.getFullYear(), baseMonth.getMonth(), day || 1);
   const solutions = sortByName(itemsForDay(filteredSolutionsForCalendar(), date), "solution_name");
   const subcomponents = sortByName(itemsForDay(filteredSubcomponentsForCalendar(), date), "subcomponent_name");

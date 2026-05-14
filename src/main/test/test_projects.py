@@ -71,6 +71,28 @@ async def test_create_project_defaults_sponsor_and_priority(client):
 
 
 @pytest.mark.anyio
+async def test_project_crud_normalizes_and_rejects_blank_names(client):
+    blank_create = await client.post("/project-manager/api/projects/", json={"project_name": "   "})
+    assert blank_create.status_code == 400, blank_create.text
+    assert blank_create.json()["detail"] == "project_name is required"
+
+    create = await client.post(
+        "/project-manager/api/projects/",
+        json={"project_name": "  Trimmed Project  "},
+    )
+    assert create.status_code == 201, create.text
+    project = create.json()
+    assert project["project_name"] == "Trimmed Project"
+
+    blank_update = await client.patch(
+        f"/project-manager/api/projects/{project['project_id']}",
+        json={"project_name": "\t"},
+    )
+    assert blank_update.status_code == 400, blank_update.text
+    assert blank_update.json()["detail"] == "project_name is required"
+
+
+@pytest.mark.anyio
 async def test_project_name_uniqueness(client):
     payload = {
         "project_name": "Access Controls",

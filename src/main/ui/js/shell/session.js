@@ -192,12 +192,16 @@ export function createSessionController({
   }
 
   function handleSessionExpired() {
+    clearLocalSession();
+    setStatus("Session expired", "warn");
+    showAuthNotice("Your session expired due to inactivity. Please sign in again.");
+  }
+
+  function clearLocalSession() {
     stopLiveSync();
     sessionRefreshPromise = null;
     lastSessionRefreshAt = 0;
     setAuthed(null);
-    setStatus("Session expired", "warn");
-    showAuthNotice("Your session expired due to inactivity. Please sign in again.");
   }
 
   function handleAuthError(err) {
@@ -317,7 +321,7 @@ export function createSessionController({
       } catch (err) {
         console.warn("Logout error", err);
       } finally {
-        setAuthed(null);
+        clearLocalSession();
         setAuthVisible(true);
       }
     });
@@ -340,7 +344,7 @@ export function createSessionController({
       } catch (err) {
         console.warn("Logout error", err);
       } finally {
-        setAuthed(null);
+        clearLocalSession();
         setAuthVisible(true);
       }
     });

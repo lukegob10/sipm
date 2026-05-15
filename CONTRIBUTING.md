@@ -2,7 +2,7 @@
 
 ## Working Rules
 - Preserve public API paths, schema contracts, UI routes, and DOM IDs by default.
-- Keep wave-1 changes behavior-preserving unless `docs/codebase-review/04-review-required.md` explicitly records a different decision.
+- Keep production-review changes behavior-preserving unless `docs/stepwise-production-review-process.md` explicitly records a different decision.
 - Prefer small PRs that close one logical issue set at a time.
 - Do not move code out of a hotspot by creating a new oversized hotspot.
 
@@ -14,17 +14,15 @@
   - `npm run lint:ui`
   - `npm run test:ui`
   - `npm run test:ui:smoke`
-- Repo tooling or review-workspace changes:
-  - `pytest -q -s src/main/test/test_codebase_review_tooling.py`
-  - `python3 scripts/codebase_review.py quality-gates`
+- Dependency changes:
+  - `python3 scripts/check_requirements_lock.py`
 
-## Code-Review Workspace Expectations
-- `docs/project-assessment-2026-03-25.md` is the executive assessment artifact.
-- `docs/codebase-review/05-enterprise-roadmap.md` is the forward execution plan.
-- `docs/codebase-review/04-review-required.md` is the open risk and architecture register.
-- `docs/codebase-review/03-fix-queue.md` is frozen historical cleanup history; do not add new forward work there.
+## Production-Review Workspace Expectations
+- `docs/stepwise-production-review-process.md` is the active production-readiness review ledger.
+- New production-readiness passes should add a completion ledger with findings, implementation notes, validation, and migration status.
+- Do not mark a section complete unless the relevant focused tests and full smoke path have been run or the skipped validation is explicitly recorded.
 
 ## Ownership Defaults
-- Runtime and API changes should touch `docs/codebase-review/00-system-map.md` or `02-dependency-map.md` when they materially alter ownership boundaries.
-- Any temporary exception to the quality budgets must be recorded in `docs/codebase-review/04-review-required.md`.
-- If a change adds a new recurring operator expectation, update `docs/codebase-review/07-repo-operability.md`.
+- Runtime, API, or operator-flow changes should update `src/main/README.md` when they materially alter deployment, readiness, or validation expectations.
+- Any temporary exception to the quality bar must be recorded in `docs/stepwise-production-review-process.md`.
+- If a change adds a new recurring operator expectation, update `src/main/README.md` and the relevant SQL or deployment docs.

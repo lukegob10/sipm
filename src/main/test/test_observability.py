@@ -49,6 +49,7 @@ async def test_readiness_skips_db_check_during_tests(client):
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
+            "coordination": {"status": "ok", "backend": "memory"},
             "frontend": {"status": "ok"},
             "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
         },
@@ -61,6 +62,7 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
 
     monkeypatch.setattr(main_module, "_startup_db_disabled", lambda: False)
     monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: "redis")
 
     def _ok_db_check():
         calls["db"] += 1
@@ -74,6 +76,7 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
         "status": "ok",
         "checks": {
             "auth": {"status": "ok"},
+            "coordination": {"status": "ok", "backend": "redis"},
             "frontend": {"status": "ok"},
             "db": {"status": "ok"},
         },
@@ -85,6 +88,7 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
 async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
     monkeypatch.setattr(main_module, "_startup_db_disabled", lambda: False)
     monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: "redis")
     monkeypatch.setattr(main_module, "check_db_connection", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
 
     response = await client.get("/health/ready")
@@ -94,8 +98,32 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
+            "coordination": {"status": "ok", "backend": "redis"},
             "frontend": {"status": "ok"},
             "db": {"status": "error", "detail": "db down"},
+        },
+    }
+
+
+@pytest.mark.anyio
+async def test_readiness_returns_503_when_coordination_config_fails(client, monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(
+        main_module.coordination,
+        "validate_configuration",
+        lambda: (_ for _ in ()).throw(RuntimeError("redis required")),
+    )
+
+    response = await client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "not_ready",
+        "checks": {
+            "auth": {"status": "ok"},
+            "coordination": {"status": "error", "detail": "redis required"},
+            "frontend": {"status": "ok"},
+            "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
         },
     }
 

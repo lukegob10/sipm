@@ -64,8 +64,8 @@ import { createCalendarRouteController } from "./routes/calendar/interactions.js
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
-import { createSpaceGovernanceController } from "./routes/spaces/interactions.js?v=12";
-import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js?v=12";
+import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
+import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
 import { safeExternalUrl } from "./utils/external-url.js";
 
 const HOURS_PER_FTE_MONTH = 160;

@@ -5,6 +5,23 @@ import pytest
 import backend.main as main_module
 
 
+def test_index_uses_unpinned_app_and_stylesheet_entrypoints():
+    html_text = (main_module.FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert 'href="styles.css"' in html_text
+    assert 'src="js/app.js"' in html_text
+    assert "styles.css?v=" not in html_text
+    assert "js/app.js?v=" not in html_text
+
+
+def test_shell_buttons_have_explicit_types():
+    html_text = (main_module.FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "<button data-view=" not in html_text
+    assert '<button id="logout-btn"' not in html_text
+    assert '<button id="theme-toggle"' not in html_text
+
+
 @pytest.mark.anyio
 async def test_frontend_root_returns_503_when_frontend_bundle_is_missing(client, monkeypatch):
     monkeypatch.setattr(
@@ -38,6 +55,7 @@ async def test_readiness_reports_frontend_bundle_failure(client, monkeypatch):
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
+            "coordination": {"status": "ok", "backend": "memory"},
             "frontend": {
                 "status": "error",
                 "detail": "Frontend bundle missing required files: ui/index.html",

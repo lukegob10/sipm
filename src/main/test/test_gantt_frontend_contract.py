@@ -18,7 +18,7 @@ def test_gantt_route_is_registered_and_rendered():
     app_text = APP_JS.read_text(encoding="utf-8")
     dom_text = DOM_JS.read_text(encoding="utf-8")
 
-    assert 'button data-view="gantt" class="nav-btn">Gantt</button>' in index_text
+    assert 'type="button" data-view="gantt" class="nav-btn">Gantt</button>' in index_text
     work_section = index_text[index_text.index("<p class=\"nav-label\">Work</p>"):index_text.index("<p class=\"nav-label\">Insight</p>")]
     insight_section = index_text[index_text.index("<p class=\"nav-label\">Insight</p>"):index_text.index("<div id=\"nav-admin-section\"")]
     assert 'data-view="gantt"' not in work_section

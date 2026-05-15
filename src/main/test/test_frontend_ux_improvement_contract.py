@@ -886,6 +886,8 @@ def test_space_governance_modal_and_action_bindings_move_into_route_local_module
 
     assert 'from "./routes/spaces/interactions.js' in app_text
     assert 'from "./routes/spaces/render.js' in app_text
+    assert 'from "./routes/spaces/interactions.js?v=' not in app_text
+    assert 'from "./routes/spaces/render.js?v=' not in app_text
     assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
     assert "const spaceGovernanceRenderer = createSpaceGovernanceRenderer({" in app_text
     assert "function bindSpaceAdminControls() {" in app_text

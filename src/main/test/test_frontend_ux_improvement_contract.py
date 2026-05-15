@@ -327,7 +327,7 @@ def test_master_invalid_preset_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in filters_text
+    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);' in filters_text
     assert 'state.deliverablesPreset = String(stored.deliverablesPreset || "");' in app_text
     assert "if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {" in app_text
     assert 'state.deliverablesPreset = "";' in app_text
@@ -342,7 +342,7 @@ def test_master_invalid_type_filter_is_auto_cleared_and_persisted():
 
     assert 'export const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);' in filters_text
     assert 'const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};' in app_text
-    assert "export function normalizeMasterFilters(filters = {}, preset = \"\") {" in filters_text
+    assert "export function normalizeMasterFilters(filters = {}, _preset = \"\") {" in filters_text
     assert "next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : \"\";" in filters_text
     assert 'state.filters = normalized.filters;' in app_text
     assert "if (changed) persistMasterViewState();" in app_text
@@ -369,27 +369,29 @@ def test_master_priority_and_progress_filters_self_heal_to_valid_ranges():
     assert "const progress = normalizeMasterProgressFilter(source.progress);" in filters_text
 
 
-def test_master_engineering_hidden_filters_self_heal_on_restore_and_preset_switch():
+def test_master_deliverables_presets_do_not_hide_project_rows_or_columns():
     app_text = APP_JS.read_text(encoding="utf-8")
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
     interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
+    route_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
 
-    assert 'export const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];' in filters_text
-    assert 'if (preset === "engineering") {' in filters_text
-    assert "MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {" in filters_text
-    assert 'if (next.type === "project") {' in filters_text
-    assert 'next.type = "";' in filters_text
+    assert "engineering" not in filters_text
+    assert "presetEngineering" not in interactions_text
+    assert 'const includeProjectRows = f.type !== "solution";' in filters_text
+    assert 'value="project"' in route_text
+    assert 'value="solution"' in route_text
+    assert "<th>Version</th>" in route_text
+    assert "<th>Repo</th>" not in route_text
     assert "const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);" in interactions_text
     assert 'state.filters = normalized.filters;' in app_text
 
 
-def test_master_repo_presence_filter_self_heals_when_engineering_preset_is_not_active():
+def test_master_legacy_repo_presence_filter_self_heals_out_of_storage():
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'export const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in filters_text
-    assert 'next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";' in filters_text
-    assert "} else if (next.repo_presence) {" in filters_text
-    assert 'next.repo_presence = "";' in filters_text
+    assert "VALID_DELIVERABLE_REPO_PRESENCE" not in filters_text
+    assert 'export const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in filters_text
+    assert "if (source.repo_presence) {" in filters_text
     assert "changed = true;" in filters_text
 
 

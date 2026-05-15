@@ -104,7 +104,6 @@ export function queryShellElements() {
     presetMy: document.getElementById("preset-my"),
     presetOverdue: document.getElementById("preset-overdue"),
     presetBlocked: document.getElementById("preset-blocked"),
-    presetEngineering: document.getElementById("preset-engineering"),
     presetClear: document.getElementById("preset-clear"),
     bulkSelectedCount: document.getElementById("bulk-selected-count"),
     bulkAction: document.getElementById("bulk-action"),

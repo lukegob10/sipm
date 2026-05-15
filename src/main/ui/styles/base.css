@@ -805,7 +805,6 @@ label.wide {
 .deliverables-table col.deliverable-project { width: 150px; }
 .deliverables-table col.deliverable-sponsor { width: 130px; }
 .deliverables-table col.deliverable-solution { width: 160px; }
-.deliverables-table col.deliverable-repo { width: 220px; }
 .deliverables-table col.deliverable-version { width: 90px; }
 .deliverables-table col.deliverable-owner { width: 120px; }
 .deliverables-table col.deliverable-phase { width: 150px; }
@@ -845,7 +844,6 @@ label.wide {
 #master-table .deliverables-table col.deliverable-project { width: 180px; }
 #master-table .deliverables-table col.deliverable-sponsor { width: 150px; }
 #master-table .deliverables-table col.deliverable-solution { width: 190px; }
-#master-table .deliverables-table col.deliverable-repo { width: 240px; }
 #master-table .deliverables-table col.deliverable-owner { width: 145px; }
 #master-table .deliverables-table col.deliverable-phase { width: 140px; }
 #master-table .deliverables-table col.deliverable-priority { width: 96px; }
@@ -1032,67 +1030,15 @@ label.wide {
   font-size: 16px;
   font-weight: 700;
 }
-#master-table .deliverables-table.deliverables-table-engineering {
-  min-width: 1320px;
-}
-#master-table .deliverables-table.deliverables-table-engineering th:nth-child(9),
-#master-table .deliverables-table.deliverables-table-engineering td:nth-child(9),
-#master-table .deliverables-table.deliverables-table-engineering th:nth-child(10),
-#master-table .deliverables-table.deliverables-table-engineering td:nth-child(10) {
-  width: var(--master-rag-status-width);
-  min-width: var(--master-rag-status-width);
-  max-width: var(--master-rag-status-width);
-  text-align: center;
-  vertical-align: middle;
-}
-#master-table .deliverables-table.deliverables-table-engineering th:nth-child(11),
-#master-table .deliverables-table.deliverables-table-engineering td:nth-child(11) {
-  width: 1%;
-  white-space: nowrap;
-}
-#master-table .deliverables-table.deliverables-table-engineering td:nth-child(9) .inline-select,
-#master-table .deliverables-table.deliverables-table-engineering td:nth-child(10) .inline-select {
-  display: block;
-  margin: 0 auto;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100%;
-  min-height: var(--master-control-height);
-  height: var(--master-control-height);
-  box-sizing: border-box;
-  font-family: inherit;
-  font-size: var(--master-row-font-size);
-  font-weight: var(--master-row-font-weight);
-  letter-spacing: 0.005em;
-  text-align: center;
-  text-align-last: center;
-}
-
-.deliverables-repo-link,
 .repo-external-link {
   color: var(--text);
   text-decoration: none;
   text-underline-offset: 0.12em;
 }
-.deliverables-repo-link:hover,
-.deliverables-repo-link:focus-visible,
 .repo-external-link:hover,
 .repo-external-link:focus-visible {
   text-decoration: underline;
 }
-.deliverables-repo-link {
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.deliverables-repo-missing {
-  color: var(--muted);
-  font-size: 12px;
-}
-
 .phase-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

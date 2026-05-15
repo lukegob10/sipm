@@ -1,8 +1,6 @@
-export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);
+export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);
 export const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);
-export const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);
 export const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];
-export const MASTER_ENGINEERING_HIDDEN_FILTER_KEYS = ["sponsor", "version", "current_phase", "priority", "progress"];
 
 function lower(value) {
   return String(value || "").toLowerCase();
@@ -24,7 +22,7 @@ export function normalizeMasterProgressFilter(value) {
   return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : "";
 }
 
-export function normalizeMasterFilters(filters = {}, preset = "") {
+export function normalizeMasterFilters(filters = {}, _preset = "") {
   const source = filters && typeof filters === "object" ? filters : {};
   const next = {};
   let changed = filters !== source;
@@ -40,9 +38,6 @@ export function normalizeMasterFilters(filters = {}, preset = "") {
   const type = String(source.type || "");
   next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : "";
   if (next.type !== type) changed = true;
-  const repoPresence = String(source.repo_presence || "");
-  next.repo_presence = VALID_DELIVERABLE_REPO_PRESENCE.has(repoPresence) ? repoPresence : "";
-  if (next.repo_presence !== repoPresence) changed = true;
   const priority = normalizeMasterPriorityFilter(source.priority);
   const progress = normalizeMasterProgressFilter(source.progress);
   if (priority !== String(source.priority || "")) changed = true;
@@ -50,18 +45,7 @@ export function normalizeMasterFilters(filters = {}, preset = "") {
   next.priority = priority;
   next.progress = progress;
 
-  if (preset === "engineering") {
-    MASTER_ENGINEERING_HIDDEN_FILTER_KEYS.forEach((key) => {
-      if (!next[key]) return;
-      next[key] = "";
-      changed = true;
-    });
-    if (next.type === "project") {
-      next.type = "";
-      changed = true;
-    }
-  } else if (next.repo_presence) {
-    next.repo_presence = "";
+  if (source.repo_presence) {
     changed = true;
   }
 
@@ -89,7 +73,7 @@ function projectMatchesDeliverablesFilters(ctx, project, filters, preset) {
 }
 
 export function filteredSolutions(ctx) {
-  const { state, hideClosedDeliverables, isClosedSolutionStatus, solutionProgress, repoDisplayUrl } = ctx;
+  const { state, hideClosedDeliverables, isClosedSolutionStatus, solutionProgress } = ctx;
   const f = state.filters || {};
   if (f.type && f.type !== "solution") return [];
   const preset = state.deliverablesPreset || "";
@@ -110,11 +94,6 @@ export function filteredSolutions(ctx) {
     if (f.rag && !lower(solution.rag_status).includes(lower(f.rag))) return false;
     if (f.status && !lower(solution.status).includes(lower(f.status))) return false;
     if (f.progress && solutionProgress(solution) > Number(f.progress)) return false;
-    if (preset === "engineering") {
-      const hasRepo = !!repoDisplayUrl(solution.github_repo_url);
-      if (f.repo_presence === "has_repo" && !hasRepo) return false;
-      if (f.repo_presence === "missing_repo" && hasRepo) return false;
-    }
     if (preset === "my") {
       const ownerMatch = lower(solution.owner).includes(userName);
       const assigneeMatch = lower(solution.assignee).includes(userName);
@@ -139,7 +118,7 @@ export function filteredDeliverables(ctx) {
   const f = state.filters || {};
   const preset = state.deliverablesPreset || "";
   const rows = [];
-  const includeProjectRows = preset !== "engineering" && f.type !== "solution";
+  const includeProjectRows = f.type !== "solution";
   const includeSolutionRows = f.type !== "project";
   const hasSolutionColumnFilters = Boolean(
     f.solution || f.version || f.owner || f.current_phase || f.due || f.rag || f.progress

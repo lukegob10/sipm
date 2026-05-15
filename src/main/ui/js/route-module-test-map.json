@@ -1,7 +1,9 @@
 {
   "modules": {
     "calendar.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
+      "src/main/test/test_ui_route_modules_exports.py",
+      "src/main/test/test_calendar_frontend_contract.py",
+      "src/main/ui/test/unit/calendar.test.js"
     ],
     "dashboard.js": [
       "src/main/test/test_ui_route_modules_exports.py"
@@ -14,7 +16,9 @@
       "src/main/test/test_gantt_frontend_contract.py"
     ],
     "kanban.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
+      "src/main/test/test_ui_route_modules_exports.py",
+      "src/main/test/test_kanban_frontend_contract.py",
+      "src/main/ui/test/unit/kanban.test.js"
     ],
     "master.js": [
       "src/main/test/test_ui_route_modules_exports.py"

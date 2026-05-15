@@ -175,7 +175,7 @@ def _db_keepwarm_interval_seconds() -> int:
 async def _db_keepwarm_loop(interval_seconds: int) -> None:
     while True:
         await asyncio.sleep(interval_seconds)
-        check_db_connection()
+        await asyncio.to_thread(check_db_connection)
 
 
 def _request_id_for(request: Request) -> str:
@@ -239,6 +239,12 @@ def _readiness_payload() -> tuple[int, dict]:
     except Exception as exc:
         ready = False
         checks["auth"] = {"status": "error", "detail": str(exc)}
+
+    try:
+        checks["coordination"] = {"status": "ok", "backend": coordination.validate_configuration()}
+    except Exception as exc:
+        ready = False
+        checks["coordination"] = {"status": "error", "detail": str(exc)}
 
     frontend_error = _frontend_bundle_error()
     if frontend_error:

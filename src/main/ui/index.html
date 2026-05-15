@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SIPM</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="auth-screen" class="auth-screen hidden">
@@ -92,23 +92,23 @@
       <div class="brand">SIPM</div>
       <div class="nav-group nav-section">
         <p class="nav-label">Work</p>
-        <button data-view="master" class="nav-btn active">Deliverables</button>
-        <button data-view="planning" class="nav-btn">Planning</button>
-        <button data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
-        <button data-view="kanban" class="nav-btn">Kanban</button>
-        <button data-view="calendar" class="nav-btn">Calendar</button>
+        <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
+        <button type="button" data-view="planning" class="nav-btn">Planning</button>
+        <button type="button" data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
+        <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
+        <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
       </div>
       <div class="nav-group nav-section">
         <p class="nav-label">Insight</p>
-        <button data-view="dashboard" class="nav-btn">Dashboard</button>
-        <button data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
-        <button data-view="gantt" class="nav-btn">Gantt</button>
+        <button type="button" data-view="dashboard" class="nav-btn">Dashboard</button>
+        <button type="button" data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
+        <button type="button" data-view="gantt" class="nav-btn">Gantt</button>
       </div>
       <div id="nav-admin-section" class="nav-group nav-section">
         <p class="nav-label">Admin</p>
-        <button data-view="team-capacity" class="nav-btn">Team Capacity</button>
-        <button data-view="spaces" class="nav-btn">Spaces</button>
-        <button data-view="analytics" class="nav-btn">Usage Analytics</button>
+        <button type="button" data-view="team-capacity" class="nav-btn">Team Capacity</button>
+        <button type="button" data-view="spaces" class="nav-btn">Spaces</button>
+        <button type="button" data-view="analytics" class="nav-btn">Usage Analytics</button>
       </div>
     </aside>
 
@@ -195,8 +195,8 @@
           >
             Show Completed: Off
           </button>
-          <button id="logout-btn" class="secondary">Logout</button>
-          <button id="theme-toggle" class="secondary">Light Mode</button>
+          <button type="button" id="logout-btn" class="secondary">Logout</button>
+          <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
         </div>
       </header>
 
@@ -997,6 +997,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/app.js?v=12"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

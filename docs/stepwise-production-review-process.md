@@ -573,6 +573,8 @@ Mode: read-heavy route correctness and polish pass.
 
 ### 7. Data Store, Router, Live Sync, And Shell
 
+Status: completed on 2026-05-15.
+
 Goal: make shared frontend infrastructure predictable and low-waste.
 
 Primary files:
@@ -606,7 +608,47 @@ Exit criteria:
 
 - Shared shell behavior is stable enough that route-specific work does not need defensive workarounds.
 
+Completion ledger:
+
+```markdown
+## Pass: Data Store, Router, Live Sync, And Shell
+
+Mode: correctness cleanup with shared-shell performance hardening.
+
+### Findings
+
+- High / must-fix: if a user changed routes while a data load was already in flight, the data store collapsed the follow-up into a generic `loadData()` call and dropped the queued route module readiness promise. That could render the new route before its lazy module was loaded.
+- Medium / should-fix: delayed view prefetch captured the missing entity list when scheduled, so an entity loaded by the active route before the timer fired could still be fetched again.
+- Medium / should-fix: `app.js` had hard-coded `?v=12` cache-busting on space governance static imports instead of the shared asset-versioning convention, creating stale-module risk after deploys.
+
+### Implemented
+
+- Added a pending-load option queue in the data store so queued route loads preserve `entities`, `routeReady`, `force`, and `silent` behavior.
+- Recomputed prefetch entity needs at timer execution time and cleared the timer handle when it fires.
+- Removed manual version pins from space governance static imports.
+- Added UI unit coverage for queued route readiness and stale prefetch avoidance.
+- Added a frontend contract assertion to prevent reintroducing hard-coded space governance import version pins.
+
+### Validation
+
+- `npm run test:ui -- src/main/ui/test/unit/data-store.test.js`: 5 passed.
+- `npm run test:ui -- src/main/ui/test/unit/data-store.test.js src/main/ui/test/unit/router.test.js src/main/ui/test/unit/live-sync.test.js src/main/ui/test/unit/session.test.js src/main/ui/test/unit/telemetry.test.js`: 24 passed.
+- `pytest -q src/main/test/test_frontend_ux_improvement_contract.py src/main/test/test_ui_route_modules_exports.py src/main/test/test_live_sync_session_frontend_contract.py src/main/test/test_team_capacity_frontend_contract.py src/main/test/test_space_governance_frontend_contract.py`: 85 passed.
+- `npm run lint:ui`: passed.
+- `npm run test:ui`: 42 passed.
+- `cd src/main; pytest -q`: 493 passed, 1 skipped.
+- `$env:SIPM_UI_SMOKE_PORT='8016'; npm run test:ui:smoke`: 2 passed.
+- `git diff --check`: passed.
+
+### Remaining
+
+- No SQL migration is needed for this pass.
+- `app.js` is still a large orchestration module. The active route and shell boundaries are now safer, but further extraction should be done only around clear ownership groups with characterization coverage.
+```
+
 ### 8. Backend Runtime, Database, Readiness, And Observability
+
+Status: completed on 2026-05-15.
 
 Goal: make the server operationally predictable.
 
@@ -638,6 +680,44 @@ Validation:
 Exit criteria:
 
 - Operators can reason about startup, readiness, logs, and schema requirements without tribal knowledge.
+
+Completion ledger:
+
+```markdown
+## Pass: Backend Runtime, Database, Readiness, And Observability
+
+Mode: operational hardening with Oracle-readiness cleanup.
+
+### Findings
+
+- High / must-fix: DB readiness, pool prewarm, and keepwarm used `SELECT 1`, which is not Oracle-safe without `FROM DUAL`; that could make production readiness fail even when the database is healthy.
+- Medium / must-fix: the async DB keepwarm loop called the synchronous DB check directly on the event loop, allowing a periodic Oracle probe to block API/WebSocket handling.
+- Medium / must-fix: startup validated coordination backend configuration, but `/health/ready` did not report coordination readiness, so Redis misconfiguration could be invisible to platform health checks.
+- Low / should-fix: ops docs did not list the DB pool/prewarm/keepwarm environment knobs and described request logs as `key=value` even though the app emits compact JSON.
+
+### Implemented
+
+- Centralized the DB healthcheck SQL as Oracle-safe `SELECT 1 FROM DUAL` and reused it for readiness and pool warmup.
+- Moved background keepwarm DB probes through `asyncio.to_thread` so the event loop stays responsive.
+- Added a `coordination` readiness check that reports the configured backend or fails readiness on invalid Redis/coordination setup.
+- Updated ops documentation for compact JSON request logs and DB runtime environment controls.
+- Added regression coverage for Oracle-safe healthcheck SQL, coordination readiness failure, frontend-bundle readiness shape, and runtime env documentation.
+
+### Validation
+
+- `pytest -q src/main/test/test_db_config.py src/main/test/test_observability.py src/main/test/test_runtime_path_resolution.py src/main/test/test_seed_and_db.py src/main/test/test_models_schema_contract.py src/main/test/test_request_audit_correlation.py src/main/test/test_coordination_backend.py`: 64 passed, 1 skipped.
+- `python -m compileall -q src/main/backend`: passed.
+- `npm run lint:ui`: passed.
+- `npm run test:ui`: 42 passed.
+- `cd src/main; pytest -q`: 496 passed, 1 skipped.
+- `$env:SIPM_UI_SMOKE_PORT='8017'; npm run test:ui:smoke`: 2 passed.
+- `git diff --check`: passed with CRLF normalization warnings only.
+
+### Remaining
+
+- No SQL migration is needed for this pass.
+- Real Oracle execution against the target UAT/prod TAConnection profile still needs environment-level verification because local tests mock or compile the runtime paths rather than connecting to the production Oracle service.
+```
 
 ### 9. Import, Export, Migration, And UAT Rehearsal
 
@@ -703,6 +783,58 @@ Validation:
 Exit criteria:
 
 - A new maintainer can run the same validation path locally and in CI.
+
+### Final Integration Pass
+
+Status: completed on 2026-05-15.
+
+Completion ledger:
+
+```markdown
+## Pass: Final Integration Review Across Completed Production Sections
+
+Mode: full-surface review with contract alignment and operational hardening.
+
+### Findings
+
+- Medium / must-fix: the HTML entrypoint still pinned `styles.css?v=8` and `js/app.js?v=12`, creating manual cache-busting drift after the route module versioning cleanup.
+- Medium / must-fix: shell navigation and account buttons lacked explicit `type="button"`, leaving future form/layout edits exposed to accidental submit behavior.
+- Medium / should-fix: `CONTRIBUTING.md` still referenced the removed `docs/codebase-review` workspace and non-existent review tooling commands.
+- Low / should-fix: `route-module-test-map.json` did not point calendar and Kanban route modules to their new focused regression tests.
+- Low / advisory: `npm audit --audit-level=high` exits successfully, but reports moderate dev-tooling advisories. Non-forced remediation updates only some transitive packages; full remediation requires a breaking Vitest/Vite major upgrade.
+- Low / advisory: `python -m pip check` reports conflicts from packages outside this repo's requirements (`cfbd`, `google-auth-oauthlib`) in the shared local environment. The repo lock itself is current.
+
+### Implemented
+
+- Removed fixed query-string pins from the root HTML stylesheet and app module entrypoints.
+- Added explicit button types to shell navigation, logout, and theme buttons.
+- Added frontend bundle contract tests for unpinned app/style entrypoints and explicit shell button types.
+- Updated the Gantt frontend contract to accept the safer typed button markup.
+- Updated route-module test mapping so calendar and Kanban include their focused frontend/unit coverage.
+- Replaced stale contribution/review-workspace instructions with the active production review ledger and current validation helpers.
+
+### Validation
+
+- `python scripts/check_route_module_test_mapping.py`: passed.
+- `python scripts/check_requirements_lock.py`: passed.
+- `python -m compileall -q src/main/backend scripts`: passed.
+- HTML structural check for duplicate IDs, label targets, and missing button types: passed.
+- `pytest -q src/main/test/test_frontend_bundle_operability.py src/main/test/test_ui_route_module_test_mapping_gate.py src/main/test/test_ui_route_modules_exports.py`: 7 passed.
+- `pytest -q src/main/test/test_gantt_frontend_contract.py src/main/test/test_frontend_bundle_operability.py src/main/test/test_ui_route_module_test_mapping_gate.py src/main/test/test_ui_route_modules_exports.py`: 10 passed.
+- `npm ci`: passed.
+- `npm run lint:ui`: passed.
+- `npm run test:ui`: 42 passed.
+- `cd src/main; pytest -q`: 498 passed, 1 skipped.
+- `$env:SIPM_UI_SMOKE_PORT='8019'; npm run test:ui:smoke`: 2 passed.
+- `npm audit --audit-level=high`: passed with moderate-only dev-tooling advisories.
+
+### Remaining
+
+- No SQL migration is needed for this pass.
+- Before production cutover, run a real UAT rehearsal against the target Oracle/TAConnection profile and platform Redis configuration; local tests validate contracts but do not prove the target infrastructure.
+- Decide whether to schedule a controlled Vitest/Vite major upgrade to clear the remaining moderate npm dev-tooling audit findings.
+- Use a clean project virtual environment for final release validation; the current shared Python environment contains unrelated package conflicts outside `requirements.in`.
+```
 
 ## Per-Pass Output Format
 

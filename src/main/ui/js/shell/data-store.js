@@ -20,6 +20,7 @@ export function createDataStoreController({
   const ignoreNextRefresh = new Set();
   let viewPrefetchTimer = null;
   let pendingLoadOptions = null;
+  let pendingLoadWaiters = [];
 
   function createTeamCapacityState() {
     return {
@@ -245,6 +246,24 @@ export function createDataStoreController({
     };
   }
 
+  function waitForPendingLoad() {
+    return new Promise((resolve, reject) => {
+      pendingLoadWaiters.push({ resolve, reject });
+    });
+  }
+
+  function settlePendingLoadWaiters(error = null) {
+    const waiters = pendingLoadWaiters;
+    pendingLoadWaiters = [];
+    waiters.forEach(({ resolve, reject }) => {
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
+    });
+  }
+
   async function loadData(options = {}) {
     const loadStartedAt = Date.now();
     const force = !!options.force;
@@ -277,7 +296,7 @@ export function createDataStoreController({
     if (state.loading) {
       state.pendingRefresh = true;
       rememberPendingLoad(options);
-      return;
+      return waitForPendingLoad();
     }
     state.loading = true;
     try {
@@ -366,7 +385,9 @@ export function createDataStoreController({
         state.pendingRefresh = false;
         const queuedOptions = pendingLoadOptions || {};
         pendingLoadOptions = null;
-        loadData(queuedOptions);
+        loadData(queuedOptions)
+          .then(() => settlePendingLoadWaiters())
+          .catch((err) => settlePendingLoadWaiters(err));
       }
       if (pendingRefreshEntities.size) {
         const pending = Array.from(pendingRefreshEntities);

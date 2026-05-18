@@ -164,7 +164,7 @@ describe("data store controller", () => {
     const firstLoad = controller.loadData({ entities: ["projects"], silent: true });
     await Promise.resolve();
     state.currentView = "gantt";
-    await controller.loadData({ entities: ["subcomponents"], routeReady: routeReady.promise, silent: true });
+    const queuedLoad = controller.loadData({ entities: ["subcomponents"], routeReady: routeReady.promise, silent: true });
 
     firstProjects.resolve([{ project_id: "project-1" }]);
     await firstLoad;
@@ -175,7 +175,41 @@ describe("data store controller", () => {
     expect(renderActiveView).toHaveBeenCalledTimes(1);
 
     routeReady.resolve({});
+    await queuedLoad;
     await vi.waitFor(() => expect(renderActiveView).toHaveBeenCalledTimes(2));
+  });
+
+  it("waits for a queued forced load to finish before resolving callers", async () => {
+    const firstProjects = deferred();
+    const queuedSolutions = deferred();
+    const api = vi.fn((path) => {
+      if (path === "/projects") return firstProjects.promise;
+      if (path === "/solutions") return queuedSolutions.promise;
+      return Promise.resolve([]);
+    });
+    const renderActiveView = vi.fn();
+    const { controller, state } = createHarness(api, { renderActiveView });
+
+    const firstLoad = controller.loadData({ entities: ["projects"], silent: true });
+    await Promise.resolve();
+    const queuedLoad = controller.loadData({ entities: ["solutions"], force: true, silent: true });
+
+    let queuedResolved = false;
+    queuedLoad.then(() => {
+      queuedResolved = true;
+    });
+
+    firstProjects.resolve([{ project_id: "project-1" }]);
+    await firstLoad;
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/solutions"));
+    expect(queuedResolved).toBe(false);
+
+    queuedSolutions.resolve([{ solution_id: "solution-1" }]);
+    await queuedLoad;
+
+    expect(state.solutions).toEqual([{ solution_id: "solution-1" }]);
+    expect(queuedResolved).toBe(true);
+    expect(renderActiveView).toHaveBeenCalledTimes(2);
   });
 
   it("rechecks loaded entities before running delayed prefetches", async () => {

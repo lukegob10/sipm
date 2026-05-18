@@ -213,6 +213,25 @@ describe("session controller", () => {
     );
   });
 
+  it("bypasses browser caches for API requests", async () => {
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).endsWith("/projects")) {
+        return jsonResponse([]);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { controller } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+    });
+
+    await controller.api("/projects");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects", expect.objectContaining({
+      cache: "no-store",
+    }));
+  });
+
   it("uses non-technical copy for expired sessions", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/projects")) {

@@ -41,6 +41,16 @@ async def test_security_headers_are_app_owned_and_frame_compatible(client):
 
 
 @pytest.mark.anyio
+async def test_api_responses_are_not_browser_or_proxy_cached(client):
+    response = await client.get("/project-manager/api/projects/")
+
+    assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-store"
+    assert response.headers.get("Pragma") == "no-cache"
+    assert response.headers.get("Expires") == "0"
+
+
+@pytest.mark.anyio
 async def test_readiness_skips_db_check_during_tests(client):
     response = await client.get("/health/ready")
 

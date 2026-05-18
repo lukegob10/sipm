@@ -250,6 +250,7 @@ export function createSessionController({
     try {
       const res = await fetch(`${apiBase}${path}`, {
         credentials: "include",
+        cache: "no-store",
         ...requestOptions,
         headers,
         signal: requestOptions.signal || controller?.signal,

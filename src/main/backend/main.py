@@ -373,6 +373,10 @@ async def request_observability_middleware(request: Request, call_next):
     response.headers[REQUEST_ID_HEADER] = request_id
     for header_name, header_value in SECURITY_HEADERS.items():
         response.headers.setdefault(header_name, header_value)
+    if request.url.path.startswith(f"{API_PREFIX}/"):
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
     logger.info(
         _request_log_line(
             request,

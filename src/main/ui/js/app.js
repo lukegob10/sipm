@@ -2707,6 +2707,12 @@ function downloadCsvTemplate(kind, resultEl) {
   }
 }
 
+function csvImportRefreshEntities(kind) {
+  if (kind === "projects") return ["projects"];
+  if (kind === "solutions") return ["projects", "solutions"];
+  return [];
+}
+
 function setCsvUploadStatus(message, tone = "") {
   if (!els.csvUploadStatus) return;
   els.csvUploadStatus.textContent = message || "";
@@ -2819,7 +2825,10 @@ async function uploadCsvFile(kind, file, resultEl) {
     if (kind === "users") {
       await loadTeamCapacityData({ force: true });
     } else {
-      await loadData();
+      await loadData({
+        force: true,
+        entities: csvImportRefreshEntities(kind),
+      });
     }
     telemetryController?.trackWorkflow?.("csv", "import", errs.length ? "failure" : "success", {
       kind,

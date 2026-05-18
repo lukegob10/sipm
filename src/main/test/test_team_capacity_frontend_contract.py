@@ -22,6 +22,13 @@ def test_users_csv_import_refreshes_team_capacity_pipeline():
     assert "await loadTeamCapacityData({ force: true });" in text
 
 
+def test_projects_and_solutions_csv_imports_force_entity_refresh():
+    text = APP_JS.read_text(encoding="utf-8")
+    assert 'function csvImportRefreshEntities(kind) {' in text
+    assert 'if (kind === "projects") return ["projects"];' in text
+    assert 'if (kind === "solutions") return ["projects", "solutions"];' in text
+    assert "await loadData({\n        force: true,\n        entities: csvImportRefreshEntities(kind),\n      });" in text
+
 def test_team_capacity_route_supports_explicit_load_state_rendering():
     text = TEAM_CAPACITY_ROUTE.read_text(encoding="utf-8")
     assert "teamCapacityState" in text

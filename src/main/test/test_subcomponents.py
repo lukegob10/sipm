@@ -110,6 +110,48 @@ async def test_create_subcomponent_defaults_assignee_and_priority(client, db_ses
 
 
 @pytest.mark.anyio
+async def test_subcomponent_crud_normalizes_names_and_clears_stale_blocker_note(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+
+    blank_create = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={"subcomponent_name": "  "},
+    )
+    assert blank_create.status_code == 400, blank_create.text
+    assert blank_create.json()["detail"] == "subcomponent_name is required"
+
+    create = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json={
+            "subcomponent_name": "  Trimmed Task  ",
+            "blocked": True,
+            "blocker_note": "Waiting on access",
+        },
+    )
+    assert create.status_code == 201, create.text
+    subcomponent = create.json()
+    assert subcomponent["subcomponent_name"] == "Trimmed Task"
+    assert subcomponent["blocked"] is True
+    assert subcomponent["blocker_note"] == "Waiting on access"
+
+    blank_update = await client.patch(
+        f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}",
+        json={"subcomponent_name": "\t"},
+    )
+    assert blank_update.status_code == 400, blank_update.text
+    assert blank_update.json()["detail"] == "subcomponent_name is required"
+
+    unblocked = await client.patch(
+        f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}",
+        json={"blocked": False},
+    )
+    assert unblocked.status_code == 200, unblocked.text
+    assert unblocked.json()["blocked"] is False
+    assert unblocked.json()["blocker_note"] is None
+
+
+@pytest.mark.anyio
 async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
     project, _ = await create_project_solution(client)

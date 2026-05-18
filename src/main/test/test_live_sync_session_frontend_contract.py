@@ -52,3 +52,29 @@ def test_bootstrap_auth_reapplies_requested_route_from_location_after_session_re
     assert 'setView(nextView, { fromHistory: true });' in text
     assert "viewFromLocationPath," in app_text
     assert "setView," in app_text
+
+
+def test_session_controller_preserves_auth_error_codes_and_terminal_messages():
+    text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js").read_text(encoding="utf-8")
+
+    assert 'err.code = res.headers?.get?.("X-Error-Code") || "";' in text
+    assert 'err.code === "PASSWORD_RESET_REQUIRED"' in text
+    assert 'err.code === "ACCOUNT_LOCKED"' in text
+    assert 'err.code === "TOKEN_REVOKED"' in text
+    terminal_block = text[text.index("const terminalCodes = new Set(["):text.index("if (err.code) return terminalCodes.has(err.code);")]
+    assert '"LOGIN_FAILED"' not in terminal_block
+    assert "const terminalCodes = new Set([" in text
+    assert "function isTerminalAuthFailure(err)" in text
+    assert 'handleSessionExpired({ message: authErrorMessage(err) });' in text
+
+
+def test_auth_forms_disable_submit_buttons_while_requests_are_pending():
+    text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js").read_text(encoding="utf-8")
+
+    assert "const pendingAuthActions = new Set();" in text
+    assert "async function withPendingAuthAction(key, form, action)" in text
+    assert 'button.setAttribute("aria-busy", "true");' in text
+    assert 'button.removeAttribute("aria-busy");' in text
+    assert 'withPendingAuthAction("login", els.loginForm' in text
+    assert 'withPendingAuthAction("register", els.registerForm' in text
+    assert 'withPendingAuthAction("reset-password", els.resetForm' in text

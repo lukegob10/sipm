@@ -171,6 +171,7 @@ export function renderAnalytics(ctx) {
   }
 
   const summary = analyticsState.summary?.summary || {};
+  const performanceSummary = analyticsState.performance?.summary || {};
   const daily = analyticsState.summary?.daily || [];
   const topRoutes = analyticsState.routes?.top_routes || [];
   const topWorkflows = analyticsState.routes?.top_workflows || [];
@@ -213,7 +214,9 @@ export function renderAnalytics(ctx) {
         <div class="analytics-card"><span class="analytics-card-label">Route Views</span><strong>${numberOrDash(summary.route_views)}</strong></div>
         <div class="analytics-card"><span class="analytics-card-label">Workflow Actions</span><strong>${numberOrDash(summary.workflow_actions)}</strong></div>
         <div class="analytics-card"><span class="analytics-card-label">Failures</span><strong>${numberOrDash(summary.failure_count)}</strong></div>
-        <div class="analytics-card"><span class="analytics-card-label">Median / P95 Load</span><strong>${numberOrDash(summary.median_load_ms)} / ${numberOrDash(summary.p95_load_ms)} ms</strong></div>
+        <div class="analytics-card"><span class="analytics-card-label">Combined Median / P95 Load</span><strong>${numberOrDash(summary.median_load_ms)} / ${numberOrDash(summary.p95_load_ms)} ms</strong></div>
+        <div class="analytics-card"><span class="analytics-card-label">Page Load Median / P95</span><strong>${numberOrDash(performanceSummary.navigation_median_load_ms)} / ${numberOrDash(performanceSummary.navigation_p95_load_ms)} ms</strong></div>
+        <div class="analytics-card"><span class="analytics-card-label">Route Transition Median / P95</span><strong>${numberOrDash(performanceSummary.route_transition_median_load_ms)} / ${numberOrDash(performanceSummary.route_transition_p95_load_ms)} ms</strong></div>
       </div>
       <div class="analytics-grid">
         <section class="panel analytics-panel">
@@ -228,7 +231,7 @@ export function renderAnalytics(ctx) {
                   <th>Route Views</th>
                   <th>Workflow Actions</th>
                   <th>Failures</th>
-                  <th>Median / P95 Load</th>
+                  <th>Combined Median / P95 Load</th>
                 </tr>
               </thead>
               <tbody>
@@ -318,7 +321,7 @@ export function renderAnalytics(ctx) {
                 <tr>
                   <th>View</th>
                   <th>Samples</th>
-                  <th>Median / P95 Load</th>
+                  <th>Combined Median / P95 Load</th>
                   <th>Median Data / Render</th>
                   <th>CLS Avg</th>
                 </tr>

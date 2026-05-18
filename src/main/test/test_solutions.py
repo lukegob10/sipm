@@ -50,6 +50,43 @@ async def test_create_solution_defaults_owner_and_version(client):
 
 
 @pytest.mark.anyio
+async def test_solution_crud_normalizes_required_identifiers(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Identifier Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+
+    blank_create = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={"solution_name": "   "},
+    )
+    assert blank_create.status_code == 400, blank_create.text
+    assert blank_create.json()["detail"] == "solution_name is required"
+
+    create = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={"solution_name": "  Trimmed Solution  ", "version": "  1.0.0  "},
+    )
+    assert create.status_code == 201, create.text
+    solution = create.json()
+    assert solution["solution_name"] == "Trimmed Solution"
+    assert solution["version"] == "1.0.0"
+
+    blank_name = await client.patch(
+        f"/project-manager/api/solutions/{solution['solution_id']}",
+        json={"solution_name": "\n"},
+    )
+    assert blank_name.status_code == 400, blank_name.text
+    assert blank_name.json()["detail"] == "solution_name is required"
+
+    blank_version = await client.patch(
+        f"/project-manager/api/solutions/{solution['solution_id']}",
+        json={"version": "   "},
+    )
+    assert blank_version.status_code == 400, blank_version.text
+    assert blank_version.json()["detail"] == "version is required"
+
+
+@pytest.mark.anyio
 async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
     project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Audit Fallback Project"})
     assert project_resp.status_code == 201, project_resp.text

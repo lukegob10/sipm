@@ -1,10 +1,45 @@
+function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+function nullableTextValue(value) {
+  const text = textValue(value);
+  return text || null;
+}
+
+export function buildSubcomponentPayload(
+  data,
+  {
+    findUserBySoeid,
+    hoursFromFteInput,
+    hoursFromNullableFteInput,
+  }
+) {
+  const assigneeUserId = textValue(data.get("assignee"));
+  const assigneeUser = findUserBySoeid(assigneeUserId);
+  const blocked = !!data.get("blocked");
+  return {
+    subcomponent_name: textValue(data.get("subcomponent_name")),
+    github_repo_url: nullableTextValue(data.get("github_repo_url")),
+    status: data.get("status"),
+    priority: Number(data.get("priority") || 3),
+    due_date: data.get("due_date") || null,
+    assignee: assigneeUser?.display_name || "",
+    assignee_user_soeid: assigneeUserId || null,
+    estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
+    blocked,
+    blocker_note: blocked ? nullableTextValue(data.get("blocker_note")) : null,
+    done_criteria: nullableTextValue(data.get("done_criteria")),
+    capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
+  };
+}
+
 export function createSubcomponentEntityController({
   state,
   els,
   api,
   findUserBySoeid,
   resolveAssigneeSelectValue,
-  numberOr,
   hoursFromFteInput,
   hoursFromNullableFteInput,
   fteFromHoursForInput,
@@ -21,27 +56,6 @@ export function createSubcomponentEntityController({
   timestampLabel,
   trackWorkflow = null,
 }) {
-  function buildSubcomponentPayload(data) {
-    const assigneeUserId = (data.get("assignee") || "").toString().trim();
-    const assigneeUser = findUserBySoeid(assigneeUserId);
-    return {
-      subcomponent_name: data.get("subcomponent_name"),
-      github_repo_url: data.get("github_repo_url") || null,
-      status: data.get("status"),
-      priority: Number(data.get("priority") || 3),
-      due_date: data.get("due_date") || null,
-      assignee: assigneeUser?.display_name || "",
-      assignee_user_soeid: assigneeUserId || null,
-      estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
-      estimate_fte_months: numberOr(data.get("estimate_hours"), 0),
-      blocked: data.get("blocked") ? true : false,
-      blocker_note: data.get("blocker_note") || null,
-      done_criteria: data.get("done_criteria") || null,
-      capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-      capacity_fte_months: numberOr(data.get("capacity_hours"), 0),
-    };
-  }
-
   function setSubcomponentActionButtonLabel(isEditing) {
     if (els.subcomponentSubmitBtn) {
       els.subcomponentSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Subcomponent";
@@ -149,7 +163,11 @@ export function createSubcomponentEntityController({
         setDeliverableFormNotice(els.subcomponentFormStatus, "Save the solution before adding subcomponents.", "error");
         return;
       }
-      const payload = buildSubcomponentPayload(data);
+      const payload = buildSubcomponentPayload(data, {
+        findUserBySoeid,
+        hoursFromFteInput,
+        hoursFromNullableFteInput,
+      });
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.subcomponentFormStatus, "Saving subcomponent...");

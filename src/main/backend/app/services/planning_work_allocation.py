@@ -137,7 +137,10 @@ def month_from_token(month_token: str) -> date:
     token = str(month_token or "").strip()
     if not re.fullmatch(r"\d{4}-\d{2}", token):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM")
-    return date.fromisoformat(f"{token}-01")
+    try:
+        return date.fromisoformat(f"{token}-01")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM") from exc
 
 
 def month_token(value: Optional[date]) -> str:

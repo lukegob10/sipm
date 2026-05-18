@@ -28,7 +28,7 @@ function setRagSelectVisualState(fieldEl, value) {
 export function updatePresetButtons(ctx) {
   const { els, state } = ctx;
   const preset = state.deliverablesPreset || "";
-  [els.presetMy, els.presetOverdue, els.presetBlocked, els.presetEngineering].forEach((btn) => {
+  [els.presetMy, els.presetOverdue, els.presetBlocked].forEach((btn) => {
     if (!btn) return;
     const match = btn.id === `preset-${preset}`;
     btn.classList.toggle("active", match);
@@ -263,7 +263,6 @@ export function bindDeliverablesControls(ctx) {
   els.presetMy?.addEventListener("click", () => setDeliverablesPreset(ctx, "my"));
   els.presetOverdue?.addEventListener("click", () => setDeliverablesPreset(ctx, "overdue"));
   els.presetBlocked?.addEventListener("click", () => setDeliverablesPreset(ctx, "blocked"));
-  els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset(ctx, "engineering"));
   els.presetClear?.addEventListener("click", () => clearDeliverablesFilters(ctx));
   els.bulkAction?.addEventListener("change", () => syncBulkInputs(ctx));
   els.bulkApply?.addEventListener("click", () => {

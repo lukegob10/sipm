@@ -60,7 +60,7 @@ function renderSolutionCards(cards, ctx) {
     .map((s) => {
       const phaseLabel = phaseDisplayName(s.current_phase) || "No phase";
       const versionMeta = s.version ? `<div class="meta">${esc(s.version)}</div>` : "";
-      return `<div class="kanban-card"><div class="kanban-card-title">${renderKanbanSolutionLink(s.solution_name, s.solution_id)}</div>${versionMeta}<div class="meta">Owner ${s.owner || "—"} • Assignee ${s.assignee || "—"}</div><div class="meta">P${s.priority ?? ""} • ${phaseLabel}</div><div class="meta">Due ${s.due_date || "—"} • ${formatStatus(s.status)}</div></div>`;
+      return `<div class="kanban-card"><div class="kanban-card-title">${renderKanbanSolutionLink(s.solution_name, s.solution_id)}</div>${versionMeta}<div class="meta">Owner ${esc(s.owner || "—")} • Assignee ${esc(s.assignee || "—")}</div><div class="meta">P${esc(s.priority ?? "")} • ${esc(phaseLabel)}</div><div class="meta">Due ${esc(s.due_date || "—")} • ${esc(formatStatus(s.status))}</div></div>`;
     })
     .join("");
 }
@@ -77,7 +77,7 @@ function renderSolutionSwimlane(items, phaseGroups, ctx) {
       const phase = state.phases.find((p) => p.phase_id === s.current_phase);
       return (phase?.phase_group || "Unassigned") === groupName;
     });
-    html += `<div class="kanban-column"><h4>${groupName}</h4>${renderSolutionCards(groupCards, ctx)}</div>`;
+    html += `<div class="kanban-column"><h4>${esc(groupName)}</h4>${renderSolutionCards(groupCards, ctx)}</div>`;
   });
   html += `</div>`;
   return html;

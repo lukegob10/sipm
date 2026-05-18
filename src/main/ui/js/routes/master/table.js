@@ -1,5 +1,3 @@
-import { safeExternalUrl } from "../../utils/external-url.js";
-
 function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -26,24 +24,17 @@ function solutionFteMonths(solution) {
 }
 
 function renderProjectNameLink(label, projectId) {
-  const text = String(label || "").trim() || "–";
+  const text = String(label || "").trim() || "-";
   const targetId = String(projectId || "").trim();
   if (!targetId) return esc(text);
   return `<button type="button" class="deliverables-name-link deliverables-name-link-project" data-action="edit" data-type="project" data-id="${esc(targetId)}">${esc(text)}</button>`;
 }
 
 function renderSolutionNameLink(label, solutionId) {
-  const text = String(label || "").trim() || "–";
+  const text = String(label || "").trim() || "-";
   const targetId = String(solutionId || "").trim();
   if (!targetId) return esc(text);
   return `<button type="button" class="deliverables-name-link deliverables-name-link-solution" data-action="edit" data-type="solution" data-id="${esc(targetId)}">${esc(text)}</button>`;
-}
-
-function renderRepoCell(solution) {
-  const raw = String(solution?.github_repo_url || "").trim();
-  const url = safeExternalUrl(raw);
-  if (!url) return `<span class="deliverables-repo-missing">Missing Repo</span>`;
-  return `<a class="deliverables-repo-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>`;
 }
 
 function rerenderDependentViews(ctx, rerenderMasterTable) {
@@ -64,7 +55,6 @@ export function buildMasterTable(ctx) {
     solutionProgress,
     deliverableKey,
   } = ctx;
-  const isEngineeringPreset = (state.deliverablesPreset || "") === "engineering";
   const rows = filteredDeliverables();
   const prevFilters = {
     type: state.filters.type || "",
@@ -79,31 +69,31 @@ export function buildMasterTable(ctx) {
     rag: state.filters.rag || "",
     status: state.filters.status || "",
     progress: state.filters.progress || "",
-    repo_presence: state.filters.repo_presence || "",
   };
   const colgroup = `<colgroup>
-      <col class="deliverable-select"><col class="deliverable-type"><col class="deliverable-project">${isEngineeringPreset ? "" : '<col class="deliverable-sponsor">'}
-      <col class="deliverable-solution">${isEngineeringPreset ? '<col class="deliverable-repo">' : '<col class="deliverable-version">'}<col class="deliverable-owner">
-      ${isEngineeringPreset ? "" : '<col class="deliverable-phase"><col class="deliverable-priority">'}<col class="deliverable-due"><col class="deliverable-fte"><col class="deliverable-rag">
-      <col class="deliverable-status">${isEngineeringPreset ? "" : '<col class="deliverable-progress">'}<col class="deliverable-actions">
+      <col class="deliverable-select"><col class="deliverable-type"><col class="deliverable-project"><col class="deliverable-sponsor">
+      <col class="deliverable-solution"><col class="deliverable-version"><col class="deliverable-owner">
+      <col class="deliverable-phase"><col class="deliverable-priority"><col class="deliverable-due"><col class="deliverable-fte"><col class="deliverable-rag">
+      <col class="deliverable-status"><col class="deliverable-progress"><col class="deliverable-actions">
     </colgroup>`;
   let html = `
-    <table class="deliverables-table${isEngineeringPreset ? " deliverables-table-engineering" : ""}">${colgroup}
+    <table class="deliverables-table">${colgroup}
       <thead>
         <tr>
           <th></th>
           <th>Type</th>
           <th>Project</th>
-          ${isEngineeringPreset ? "" : "<th>Sponsor</th>"}
+          <th>Sponsor</th>
           <th>Solution</th>
-          ${isEngineeringPreset ? "<th>Repo</th>" : "<th>Version</th>"}
+          <th>Version</th>
           <th>Owner</th>
-          ${isEngineeringPreset ? "" : "<th>Phase</th><th>Priority</th>"}
+          <th>Phase</th>
+          <th>Priority</th>
           <th>Due</th>
           <th>FTE-Months</th>
           <th>RAG</th>
           <th>Status</th>
-          ${isEngineeringPreset ? "" : "<th>%</th>"}
+          <th>%</th>
           <th></th>
         </tr>
         <tr class="filter-row">
@@ -111,28 +101,22 @@ export function buildMasterTable(ctx) {
           <td>
             <select id="filter-type">
               <option value="">All</option>
-              ${isEngineeringPreset ? "" : `<option value="project" ${prevFilters.type === "project" ? "selected" : ""}>Project</option>`}
+              <option value="project" ${prevFilters.type === "project" ? "selected" : ""}>Project</option>
               <option value="solution" ${prevFilters.type === "solution" ? "selected" : ""}>Solution</option>
             </select>
           </td>
           <td><input class="table-filter" type="text" id="filter-project" placeholder="Project" value="${esc(prevFilters.project)}" /></td>
-          ${isEngineeringPreset ? "" : `<td><input class="table-filter" type="text" id="filter-sponsor" placeholder="Sponsor" value="${esc(prevFilters.sponsor)}" /></td>`}
+          <td><input class="table-filter" type="text" id="filter-sponsor" placeholder="Sponsor" value="${esc(prevFilters.sponsor)}" /></td>
           <td><input class="table-filter" type="text" id="filter-solution" placeholder="Solution" value="${esc(prevFilters.solution)}" /></td>
-          ${isEngineeringPreset ? `<td>
-            <select id="filter-repo-presence">
-              <option value="" ${prevFilters.repo_presence === "" ? "selected" : ""}>All</option>
-              <option value="has_repo" ${prevFilters.repo_presence === "has_repo" ? "selected" : ""}>Has Repo</option>
-              <option value="missing_repo" ${prevFilters.repo_presence === "missing_repo" ? "selected" : ""}>Missing Repo</option>
-            </select>
-          </td>` : `<td><input class="table-filter" type="text" id="filter-version" placeholder="Version" value="${esc(prevFilters.version)}" /></td>`}
+          <td><input class="table-filter" type="text" id="filter-version" placeholder="Version" value="${esc(prevFilters.version)}" /></td>
           <td><input class="table-filter" type="text" id="filter-owner" placeholder="Owner" value="${esc(prevFilters.owner)}" /></td>
-          ${isEngineeringPreset ? "" : `<td><input class="table-filter" type="text" id="filter-current-phase" placeholder="Phase" value="${esc(prevFilters.current_phase)}" /></td>
-          <td><input class="table-filter table-filter-priority" type="number" id="filter-priority" min="0" max="5" placeholder="Priority" value="${esc(prevFilters.priority)}" /></td>`}
+          <td><input class="table-filter" type="text" id="filter-current-phase" placeholder="Phase" value="${esc(prevFilters.current_phase)}" /></td>
+          <td><input class="table-filter table-filter-priority" type="number" id="filter-priority" min="0" max="5" placeholder="Priority" value="${esc(prevFilters.priority)}" /></td>
           <td><input class="table-filter" type="text" id="filter-due" placeholder="Due" value="${esc(prevFilters.due)}" /></td>
           <td></td>
           <td><input class="table-filter" type="text" id="filter-rag" placeholder="RAG" value="${esc(prevFilters.rag)}" /></td>
           <td><input class="table-filter" type="text" id="filter-status" placeholder="Status" value="${esc(prevFilters.status)}" /></td>
-          ${isEngineeringPreset ? "" : `<td><input class="table-filter" type="number" id="filter-progress" min="0" max="100" placeholder="%" value="${esc(prevFilters.progress)}" /></td>`}
+          <td><input class="table-filter" type="number" id="filter-progress" min="0" max="100" placeholder="%" value="${esc(prevFilters.progress)}" /></td>
           <td></td>
         </tr>
       </thead>
@@ -181,17 +165,17 @@ export function buildMasterTable(ctx) {
       <td><input type="checkbox" class="deliverable-select" data-type="${row.type}" data-id="${itemId}" ${checked} /></td>
       <td>${deliverableChip}</td>
       <td>${renderProjectNameLink(project?.project_name, project?.project_id)}</td>
-      ${isEngineeringPreset ? "" : `<td>${project?.sponsor || "–"}</td>`}
+      <td>${project?.sponsor || "-"}</td>
       <td>${renderSolutionNameLink(solution?.solution_name, solution?.solution_id)}</td>
-      ${isEngineeringPreset ? `<td>${isSolution ? renderRepoCell(solution) : "—"}</td>` : `<td>${solution?.version || "–"}</td>`}
-      <td>${solution?.owner || "–"}</td>
-      ${isEngineeringPreset ? "" : `<td>${isSolution ? phaseDisplayName(solution.current_phase) || "–" : "—"}</td>
-      <td><input class="inline-input inline-input-priority" type="number" min="0" max="5" data-field="priority" data-type="${row.type}" data-id="${itemId}" value="${priorityValue ?? ""}" /></td>`}
-      <td>${isSolution ? solution.due_date || "" : "—"}</td>
+      <td>${solution?.version || "-"}</td>
+      <td>${solution?.owner || "-"}</td>
+      <td>${isSolution ? phaseDisplayName(solution.current_phase) || "-" : "-"}</td>
+      <td><input class="inline-input inline-input-priority" type="number" min="0" max="5" data-field="priority" data-type="${row.type}" data-id="${itemId}" value="${priorityValue ?? ""}" /></td>
+      <td>${isSolution ? solution.due_date || "" : "-"}</td>
       <td>${fteMonthsCell}</td>
       <td>${ragCell}</td>
       <td>${statusCell}</td>
-      ${isEngineeringPreset ? "" : `<td>${isSolution ? `${solutionProgress(solution)}%` : "—"}</td>`}
+      <td>${isSolution ? `${solutionProgress(solution)}%` : "-"}</td>
       <td>${deliverableActions}</td>
     </tr>`;
   });
@@ -270,14 +254,6 @@ export function bindMasterTableInteractions(ctx, { rerenderMasterTable }) {
     });
     el.addEventListener("change", apply);
   });
-
-  const repoPresenceSelect = els.masterTable?.querySelector("#filter-repo-presence");
-  if (repoPresenceSelect) {
-    repoPresenceSelect.addEventListener("change", () => {
-      setFilterValue("repo_presence", repoPresenceSelect.value);
-      rerenderMasterTable();
-    });
-  }
 
   const typeSelect = els.masterTable?.querySelector("#filter-type");
   if (typeSelect) {

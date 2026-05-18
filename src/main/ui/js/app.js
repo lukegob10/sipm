@@ -2713,6 +2713,15 @@ function csvImportRefreshEntities(kind) {
   return [];
 }
 
+function csvImportActiveViewRefreshEntities(kind) {
+  return [
+    ...new Set([
+      ...routerController.entitiesForView(state.currentView),
+      ...csvImportRefreshEntities(kind),
+    ]),
+  ];
+}
+
 function setCsvUploadStatus(message, tone = "") {
   if (!els.csvUploadStatus) return;
   els.csvUploadStatus.textContent = message || "";
@@ -2827,7 +2836,8 @@ async function uploadCsvFile(kind, file, resultEl) {
     } else {
       await loadData({
         force: true,
-        entities: csvImportRefreshEntities(kind),
+        silent: true,
+        entities: csvImportActiveViewRefreshEntities(kind),
       });
     }
     telemetryController?.trackWorkflow?.("csv", "import", errs.length ? "failure" : "success", {
@@ -3034,6 +3044,7 @@ function bindCsvControls() {
       setCsvUploadStatus(result.message, result.ok ? "success" : "error");
       if (result.ok) {
         closeCsvUploadModal();
+        window.requestAnimationFrame(() => renderActiveView());
       }
     });
     els.csvSubmitUpload._bound = true;

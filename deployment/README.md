@@ -6,7 +6,7 @@ This folder documents the environment expected by `docker-compose.yml` and
 ## Server Prerequisites
 
 - Self-hosted GitHub Actions runner on `homelab001` with labels
-  `self-hosted`, `homelab`, and `docker`.
+  `self-hosted`, `homelab`, `docker`, and `sipm`.
 - Docker Engine with the Compose plugin available as `docker compose`.
 - Network access from the SIPM container to the TA/Oracle runtime used by
   `treasury_analytics.TAConnection`.
@@ -34,6 +34,15 @@ Create these repository variables if the defaults are not right:
 ## Runtime Environment
 
 Use `.env.example` as the starting point for `HOMELAB_ENV_FILE`.
+
+Keep the SIPM deployment isolated from other apps on the same server:
+
+- Install the GitHub runner in a SIPM-specific directory and service. See
+  `deployment/runner-isolation.md`.
+- Keep `COMPOSE_PROJECT_NAME=sipm`.
+- Keep `SIPM_CONTAINER_NAME=sipm` and `SIPM_REDIS_CONTAINER_NAME=sipm-redis`,
+  or change them to another SIPM-specific pair if those names are already used.
+- Use a host port that does not conflict with another app.
 
 For HTTP-only home-lab deployment, use a local profile while keeping
 self-registration disabled:
@@ -116,7 +125,7 @@ already on `homelab001`, deployment runs directly with `docker compose up -d
 After the first deploy, check:
 
 ```bash
-cd ~/sipm
+cd ~/actions-runners/sipm/actions-runner/_work/sipm/sipm
 docker compose ps
 docker compose logs -f sipm
 curl -f http://127.0.0.1:8000/health

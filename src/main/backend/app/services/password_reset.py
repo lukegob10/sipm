@@ -19,10 +19,46 @@ from .audit_log import log_changes
 _TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 _MIN_TEMP_PASSWORD_RESET_MINUTES = 5
 _MAX_TEMP_PASSWORD_RESET_MINUTES = 24 * 60
+_MAX_TEMP_PASSWORD_ATTEMPTS = 5
+_TEMP_PASSWORD_LOCKOUT_MINUTES = 15
 
 
 def _generate_temp_password(length: int = 14) -> str:
     return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(max(int(length), 10)))
+
+
+def _is_user_locked(user: User, now: datetime) -> bool:
+    locked_until = user.locked_until
+    if not locked_until:
+        return False
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    return locked_until > now
+
+
+def _clear_expired_lockout(user: User, now: datetime) -> None:
+    if not user.locked_until or _is_user_locked(user, now):
+        return
+    user.failed_attempts = 0
+    user.locked_until = None
+
+
+def _reject_if_locked(user: User, now: datetime) -> None:
+    if _is_user_locked(user, now):
+        raise security_http_exception(
+            status_code=status.HTTP_423_LOCKED,
+            code="ACCOUNT_LOCKED",
+            message="Account locked. Try again later.",
+        )
+    _clear_expired_lockout(user, now)
+
+
+def _record_temp_password_failure(session: Session, user: User, now: datetime) -> None:
+    user.failed_attempts += 1
+    if user.failed_attempts >= _MAX_TEMP_PASSWORD_ATTEMPTS:
+        user.locked_until = now + timedelta(minutes=_TEMP_PASSWORD_LOCKOUT_MINUTES)
+    session.add(user)
+    session.commit()
 
 
 def issue_temp_password(
@@ -80,6 +116,7 @@ def reset_password_with_temp_password(
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
+    _reject_if_locked(user, now)
 
     if not user.temp_password_hash or not user.temp_password_expires_at:
         raise security_http_exception(
@@ -99,6 +136,7 @@ def reset_password_with_temp_password(
         )
 
     if not verify_password(temp_password, user.temp_password_hash):
+        _record_temp_password_failure(session, user, now)
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="TEMP_PASSWORD_INVALID",

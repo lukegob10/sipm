@@ -20,8 +20,10 @@ export function createLiveSyncController({
   clearDataState,
 }) {
   const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+  const LIVE_SYNC_HEARTBEAT_MS = 60000;
   let liveSyncSocket = null;
   let liveSyncRetryTimer = null;
+  let liveSyncHeartbeatTimer = null;
   let liveSyncRecoveryPromise = null;
   let liveSyncReconnectAttempt = 0;
   let liveSyncAuthRecoveryUsed = false;
@@ -54,6 +56,25 @@ export function createLiveSyncController({
     }
   }
 
+  function clearLiveSyncHeartbeat() {
+    if (liveSyncHeartbeatTimer) {
+      clearInterval(liveSyncHeartbeatTimer);
+      liveSyncHeartbeatTimer = null;
+    }
+  }
+
+  function startLiveSyncHeartbeat(socket) {
+    clearLiveSyncHeartbeat();
+    liveSyncHeartbeatTimer = window.setInterval(() => {
+      if (socket !== liveSyncSocket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        socket.send(JSON.stringify({ type: "ping" }));
+      } catch (err) {
+        console.warn("Live sync heartbeat failed", err);
+      }
+    }, LIVE_SYNC_HEARTBEAT_MS);
+  }
+
   function resetLiveSyncRecoveryFlags() {
     liveSyncReconnectAttempt = 0;
     liveSyncAuthRecoveryUsed = false;
@@ -64,6 +85,7 @@ export function createLiveSyncController({
     const socket = liveSyncSocket;
     liveSyncSocket = null;
     state.liveSync.socketSpaceId = "";
+    clearLiveSyncHeartbeat();
     if (!socket) return;
     try {
       if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
@@ -263,6 +285,7 @@ export function createLiveSyncController({
     socket.addEventListener("open", () => {
       if (socket !== liveSyncSocket) return;
       resetLiveSyncRecoveryFlags();
+      startLiveSyncHeartbeat(socket);
       setLiveSyncPhase("live");
     });
 
@@ -270,7 +293,12 @@ export function createLiveSyncController({
       if (socket !== liveSyncSocket) return;
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "refresh") refreshFromServer(msg.entity || "all");
+        if (msg.type === "refresh") {
+          reloadCurrentViewData({ force: true, silent: true }).catch((err) => {
+            console.warn("Live sync refresh failed", err);
+            refreshFromServer(msg.entity || "all");
+          });
+        }
       } catch (err) {
         console.warn("Live message parse failed", err);
       }
@@ -283,6 +311,7 @@ export function createLiveSyncController({
 
     socket.addEventListener("close", (event) => {
       if (socket !== liveSyncSocket) return;
+      clearLiveSyncHeartbeat();
       liveSyncSocket = null;
       state.liveSync.socketSpaceId = "";
       void handleLiveSyncClose(event);

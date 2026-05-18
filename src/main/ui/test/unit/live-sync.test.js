@@ -17,6 +17,7 @@ class FakeWebSocket {
     this.url = url;
     this.readyState = FakeWebSocket.CONNECTING;
     this.listeners = new Map();
+    this.sent = [];
     FakeWebSocket.instances.push(this);
   }
 
@@ -29,6 +30,10 @@ class FakeWebSocket {
   close(code = 1000, reason = "") {
     this.readyState = FakeWebSocket.CLOSED;
     this.emit("close", { code, reason });
+  }
+
+  send(message) {
+    this.sent.push(message);
   }
 
   emit(type, payload = {}) {
@@ -83,7 +88,7 @@ describe("live sync controller", () => {
       spaceNameForId: (spaceId) => spaceId,
       clearDataState: vi.fn(),
     });
-    return { controller, refreshSessionTokens };
+    return { controller, refreshSessionTokens, reloadCurrentViewData };
   }
 
   it("retries websocket auth failures by refreshing the session", async () => {
@@ -113,5 +118,31 @@ describe("live sync controller", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
     vi.runOnlyPendingTimers();
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
+  });
+
+  it("reloads the active view when a realtime refresh arrives", async () => {
+    const { controller, reloadCurrentViewData } = createHarness();
+
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("message", {
+      data: JSON.stringify({ type: "refresh", entity: "projects" }),
+    });
+    await Promise.resolve();
+
+    expect(reloadCurrentViewData).toHaveBeenCalledWith({ force: true, silent: true });
+  });
+
+  it("keeps active websocket connections alive with heartbeats", () => {
+    const { controller } = createHarness();
+
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    vi.advanceTimersByTime(60000);
+
+    expect(socket.sent).toEqual([JSON.stringify({ type: "ping" })]);
   });
 });

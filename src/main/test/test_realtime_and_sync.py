@@ -129,6 +129,22 @@ async def test_broadcast_prunes_idle_connections_with_reconnectable_close_code()
 
 
 @pytest.mark.anyio
+async def test_heartbeat_keeps_active_connection_eligible_for_broadcasts():
+    ws = StubWebSocket()
+
+    await realtime.register(ws)
+    realtime._connection_meta[ws].last_seen = realtime._utc_now() - timedelta(
+        seconds=realtime.IDLE_TIMEOUT_SECONDS + 1
+    )
+    realtime.heartbeat(ws)
+
+    await realtime.broadcast_refresh("projects")
+
+    assert ws.close_calls == []
+    assert ws.sent == [{"type": "refresh", "entity": "projects"}]
+
+
+@pytest.mark.anyio
 async def test_schedule_broadcast_creates_task_when_loop_running():
     ws = StubWebSocket()
     await realtime.register(ws)

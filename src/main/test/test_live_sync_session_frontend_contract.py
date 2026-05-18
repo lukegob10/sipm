@@ -43,6 +43,21 @@ def test_shell_keeps_existing_status_surface_for_live_sync_state():
     assert "state.liveSync.statusText" in text
 
 
+def test_live_sync_refreshes_active_view_instead_of_only_one_entity():
+    text = LIVE_SYNC_JS.read_text(encoding="utf-8")
+
+    assert 'if (msg.type === "refresh") {' in text
+    assert "reloadCurrentViewData({ force: true, silent: true })" in text
+    assert 'refreshFromServer(msg.entity || "all");' in text
+
+
+def test_live_sync_keeps_active_socket_alive_for_server_pushes():
+    text = LIVE_SYNC_JS.read_text(encoding="utf-8")
+
+    assert "LIVE_SYNC_HEARTBEAT_MS = 60000" in text
+    assert 'socket.send(JSON.stringify({ type: "ping" }))' in text
+
+
 def test_bootstrap_auth_reapplies_requested_route_from_location_after_session_restore():
     text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js").read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")

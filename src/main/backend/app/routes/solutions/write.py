@@ -33,6 +33,26 @@ from .common import (
 router = APIRouter()
 
 
+def _required_solution_name(value: object) -> str:
+    solution_name = normalize_str(value)
+    if not solution_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="solution_name is required",
+        )
+    return solution_name
+
+
+def _required_solution_version(value: object) -> str:
+    version = normalize_str(value)
+    if not version:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="version is required",
+        )
+    return version
+
+
 @router.post(
     "/projects/{project_id}/solutions",
     response_model=SolutionRead,
@@ -48,6 +68,7 @@ def create_solution(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
+    solution_name = _required_solution_name(payload.solution_name)
 
     current_phase = normalize_str(payload.current_phase) or None
     if current_phase:
@@ -79,7 +100,7 @@ def create_solution(
     conflict = (
         _solution_query(session, space_ctx)
         .filter(Solution.project_id == project_id)
-        .filter(Solution.solution_name == payload.solution_name)
+        .filter(Solution.solution_name == solution_name)
         .filter(Solution.version == version)
         .first()
     )
@@ -99,7 +120,7 @@ def create_solution(
     solution = Solution(
         space_id=space_ctx.space_id,
         project_id=project_id,
-        solution_name=payload.solution_name,
+        solution_name=solution_name,
         version=version,
         status=payload.status,
         rag_status=rag_status,
@@ -189,6 +210,10 @@ def update_solution(
 
     update_data = payload.model_dump(exclude_unset=True)
     rag_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in {"rag_status", "rag_reason"}}
+    if "solution_name" in update_data:
+        update_data["solution_name"] = _required_solution_name(update_data["solution_name"])
+    if "version" in update_data:
+        update_data["version"] = _required_solution_version(update_data["version"])
     if "priority" in update_data:
         update_data["priority"] = parse_priority(update_data["priority"], default=3)
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:

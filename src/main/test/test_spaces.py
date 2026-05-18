@@ -172,6 +172,30 @@ async def test_update_space_rejects_duplicate_name_with_clean_client_error(clien
 
 
 @pytest.mark.anyio
+async def test_space_create_and_update_reject_blank_names(client):
+    blank_create = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "   ", "slug": "blank-name-space"},
+    )
+    assert blank_create.status_code == 400, blank_create.text
+    assert blank_create.json()["detail"] == "Space name is required"
+
+    created = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Named Space", "slug": "named-space"},
+    )
+    assert created.status_code == 201, created.text
+    space_id = created.json()["space_id"]
+
+    blank_update = await client.patch(
+        f"/project-manager/api/spaces/{space_id}",
+        json={"name": "   "},
+    )
+    assert blank_update.status_code == 400, blank_update.text
+    assert blank_update.json()["detail"] == "Space name is required"
+
+
+@pytest.mark.anyio
 async def test_can_change_admin_membership_when_another_admin_exists(client, db_sessionmaker):
     space_id, admin_memberships, member_membership_id = _seed_space_with_members(
         db_sessionmaker,
@@ -198,6 +222,85 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
         assert delete_last_admin.json()["detail"] == "Space must retain at least one active space_admin"
     finally:
         _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_archived_space_memberships_are_read_only_until_reactivated(client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        archived_space = Space(
+            space_id="archived-membership-space",
+            name="Archived Membership Space",
+            slug="archived-membership-space",
+            is_active=False,
+        )
+        active_space = Space(
+            space_id="active-membership-space",
+            name="Active Membership Space",
+            slug="active-membership-space",
+            is_active=True,
+        )
+        target = User(
+            user_id="archived-member-target",
+            soeid="archtarget",
+            email="archtarget@example.com",
+            display_name="Archived Target",
+            password_hash="x",
+            role="user",
+            is_active=True,
+        )
+        existing = User(
+            user_id="archived-existing-target",
+            soeid="archexisting",
+            email="archexisting@example.com",
+            display_name="Archived Existing",
+            password_hash="x",
+            role="user",
+            is_active=True,
+        )
+        membership = SpaceMembership(
+            membership_id="archived-existing-membership",
+            space_id=archived_space.space_id,
+            user_id=existing.user_id,
+            role="member",
+            status="active",
+        )
+        session.add_all([archived_space, active_space, target, existing, membership])
+        session.commit()
+
+    listed = await client.get("/project-manager/api/spaces/archived-membership-space/members")
+    assert listed.status_code == 200, listed.text
+
+    created = await client.post(
+        "/project-manager/api/spaces/archived-membership-space/members/by-soeid",
+        json={"soeid": "archtarget", "role": "member", "status": "active"},
+    )
+    assert created.status_code == 400, created.text
+    assert created.json()["detail"] == "Reactivate the space before changing memberships"
+
+    updated = await client.patch(
+        "/project-manager/api/spaces/archived-membership-space/members/archived-existing-membership",
+        json={"role": "space_admin"},
+    )
+    assert updated.status_code == 400, updated.text
+    assert updated.json()["detail"] == "Reactivate the space before changing memberships"
+
+    deleted = await client.delete(
+        "/project-manager/api/spaces/archived-membership-space/members/archived-existing-membership",
+    )
+    assert deleted.status_code == 400, deleted.text
+    assert deleted.json()["detail"] == "Reactivate the space before changing memberships"
+
+    reactivated = await client.patch(
+        "/project-manager/api/spaces/archived-membership-space",
+        json={"is_active": True},
+    )
+    assert reactivated.status_code == 200, reactivated.text
+
+    allowed = await client.post(
+        "/project-manager/api/spaces/archived-membership-space/members/by-soeid",
+        json={"soeid": "archtarget", "role": "member", "status": "active"},
+    )
+    assert allowed.status_code == 201, allowed.text
 
 
 @pytest.mark.anyio

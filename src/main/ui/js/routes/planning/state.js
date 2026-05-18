@@ -53,6 +53,7 @@ export const boardState = {
   spaceId: "",
   loaded: false,
   loading: false,
+  pendingLoadOptions: null,
   error: "",
   month: currentMonthToken(),
   search: "",

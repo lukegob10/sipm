@@ -5,28 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SIPM</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico" />
-  <link rel="stylesheet" href="styles.css?v=8" />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div id="auth-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
+      <h1 class="auth-title">Sign in to SIPM</h1>
+      <p class="auth-note">Use your SOEID and password to access your active workspace.</p>
       <div id="auth-notice" class="auth-notice hidden" role="status"></div>
       <div class="auth-tabs" id="auth-tabs">
-        <button id="auth-tab-login" class="auth-tab active" type="button">Log in</button>
+        <button id="auth-tab-login" class="auth-tab active" type="button">Sign in</button>
         <button id="auth-tab-register" class="auth-tab" type="button">Create account</button>
       </div>
-      <form id="login-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+      <form id="login-form" class="auth-form" aria-describedby="auth-error auth-notice">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
-        <button type="submit">Log in</button>
+        <button type="submit">Sign in</button>
       </form>
       <div class="auth-links">
         <button type="button" id="reset-link" class="text-link">Use temporary password</button>
       </div>
-      <form id="register-form" class="auth-form hidden">
+      <form id="register-form" class="auth-form hidden" aria-describedby="auth-error auth-notice">
         <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Password <input type="password" name="password" autocomplete="new-password" required /></label>
         <button type="submit">Create account</button>
       </form>
@@ -40,10 +42,10 @@
       <div class="modal-header">
         <h3>Session Expiring</h3>
       </div>
-      <p class="muted">You’ve been inactive for a while. You’ll be signed out soon.</p>
+      <p class="muted">You've been inactive for a while. You'll be signed out soon.</p>
       <div class="form-actions">
         <button id="idle-stay" class="primary" type="button">Stay signed in</button>
-        <button id="idle-logout" class="secondary" type="button">Log out</button>
+        <button id="idle-logout" class="secondary" type="button">Sign out</button>
       </div>
     </div>
   </div>
@@ -51,17 +53,17 @@
   <div id="reset-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
-      <h3 class="auth-title">Reset Password</h3>
+      <h1 class="auth-title">Reset password</h1>
       <p class="auth-note">Enter your SOEID and the temporary password from your admin, then choose a new password.</p>
-      <form id="reset-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+      <form id="reset-form" class="auth-form" aria-describedby="reset-error reset-success">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Temporary Password <input type="password" name="temp_password" autocomplete="one-time-code" required /></label>
         <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
         <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
         <button type="submit">Set new password</button>
       </form>
       <div id="reset-error" class="auth-error" role="status"></div>
-      <div id="reset-success" class="auth-note"></div>
+      <div id="reset-success" class="auth-note" role="status"></div>
     </div>
   </div>
 
@@ -92,23 +94,23 @@
       <div class="brand">SIPM</div>
       <div class="nav-group nav-section">
         <p class="nav-label">Work</p>
-        <button data-view="master" class="nav-btn active">Deliverables</button>
-        <button data-view="planning" class="nav-btn">Planning</button>
-        <button data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
-        <button data-view="kanban" class="nav-btn">Kanban</button>
-        <button data-view="calendar" class="nav-btn">Calendar</button>
+        <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
+        <button type="button" data-view="planning" class="nav-btn">Planning</button>
+        <button type="button" data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
+        <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
+        <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
       </div>
       <div class="nav-group nav-section">
         <p class="nav-label">Insight</p>
-        <button data-view="dashboard" class="nav-btn">Dashboard</button>
-        <button data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
-        <button data-view="gantt" class="nav-btn">Gantt</button>
+        <button type="button" data-view="dashboard" class="nav-btn">Dashboard</button>
+        <button type="button" data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
+        <button type="button" data-view="gantt" class="nav-btn">Gantt</button>
       </div>
       <div id="nav-admin-section" class="nav-group nav-section">
         <p class="nav-label">Admin</p>
-        <button data-view="team-capacity" class="nav-btn">Team Capacity</button>
-        <button data-view="spaces" class="nav-btn">Spaces</button>
-        <button data-view="analytics" class="nav-btn">Usage Analytics</button>
+        <button type="button" data-view="team-capacity" class="nav-btn">Team Capacity</button>
+        <button type="button" data-view="spaces" class="nav-btn">Spaces</button>
+        <button type="button" data-view="analytics" class="nav-btn">Usage Analytics</button>
       </div>
     </aside>
 
@@ -195,8 +197,8 @@
           >
             Show Completed: Off
           </button>
-          <button id="logout-btn" class="secondary">Logout</button>
-          <button id="theme-toggle" class="secondary">Light Mode</button>
+          <button type="button" id="logout-btn" class="secondary">Sign out</button>
+          <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
         </div>
       </header>
 
@@ -213,7 +215,6 @@
               <button id="preset-my" class="secondary" type="button">My Items</button>
               <button id="preset-overdue" class="secondary" type="button">Overdue</button>
               <button id="preset-blocked" class="secondary" type="button">Blocked</button>
-              <button id="preset-engineering" class="secondary" type="button">Solutions</button>
               <button id="preset-clear" class="text-link" type="button">Clear Filters</button>
             </div>
             <div class="toolbar-group">
@@ -997,6 +998,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/app.js?v=12"></script>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>

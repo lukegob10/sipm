@@ -64,8 +64,8 @@ import { createCalendarRouteController } from "./routes/calendar/interactions.js
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
-import { createSpaceGovernanceController } from "./routes/spaces/interactions.js?v=12";
-import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js?v=12";
+import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
+import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
 import { safeExternalUrl } from "./utils/external-url.js";
 
 const HOURS_PER_FTE_MONTH = 160;
@@ -362,7 +362,6 @@ const solutionEntityController = createSolutionEntityController({
   state,
   els,
   api,
-  numberOr,
   hoursFromFteInput,
   fteFromHoursForInput,
   markIgnoreRefresh,
@@ -396,7 +395,6 @@ const subcomponentEntityController = createSubcomponentEntityController({
   api,
   findUserBySoeid,
   resolveAssigneeSelectValue,
-  numberOr,
   hoursFromFteInput,
   hoursFromNullableFteInput,
   fteFromHoursForInput,
@@ -1356,77 +1354,25 @@ function renderActiveView() {
 }
 
 function restoreSelections(projectId, solutionId, subcomponentId) {
-  if (projectId && els.projectForm) {
+  if (projectId) {
     const proj = state.projects.find((p) => p.project_id === projectId);
     if (proj) {
-      els.projectForm.querySelector('[name="project_id"]').value = proj.project_id;
-      els.projectForm.querySelector('[name="project_name"]').value = proj.project_name || "";
-      els.projectForm.querySelector('[name="status"]').value = proj.status || "";
-      els.projectForm.querySelector('[name="description"]').value = proj.description || "";
-      els.projectForm.querySelector('[name="success_criteria"]').value = proj.success_criteria || "";
-      els.projectForm.querySelector('[name="sponsor"]').value = proj.sponsor || "";
-      els.projectForm.querySelector('[name="sponsor_user_soeid"]').value = proj.sponsor_user_soeid || "";
-      els.projectForm.querySelector('[name="strategic_objective"]').value = proj.strategic_objective || "";
-      els.projectForm.querySelector('[name="priority"]').value = proj.priority ?? 3;
+      openProjectForm(proj);
     }
   }
 
-	  if (solutionId && els.solutionForm) {
-	    const sol = state.solutions.find((s) => s.solution_id === solutionId);
-	    if (sol) {
-	      els.solutionForm.querySelector('[name="solution_id"]').value = sol.solution_id;
-	      els.solutionForm.querySelector('[name="project_id"]').value = sol.project_id;
-	      els.solutionForm.querySelector('[name="solution_name"]').value = sol.solution_name || "";
-	      els.solutionForm.querySelector('[name="version"]').value = sol.version || "";
-	      els.solutionForm.querySelector('[name="status"]').value = sol.status || "";
-	      els.solutionForm.querySelector('[name="rag_status"]').value = sol.rag_status || "green";
-	      els.solutionForm.querySelector('[name="rag_reason"]').value = sol.rag_reason || "";
-	      els.solutionForm.querySelector('[name="priority"]').value = sol.priority ?? "";
-	      els.solutionForm.querySelector('[name="due_date"]').value = sol.due_date || "";
-        els.solutionForm.querySelector('[name="planned_start_date"]').value = sol.planned_start_date || "";
-	      els.solutionForm.querySelector('[name="description"]').value = sol.description || "";
-        els.solutionForm.querySelector('[name="problem_statement"]').value = sol.problem_statement || "";
-	      els.solutionForm.querySelector('[name="success_criteria"]').value = sol.success_criteria || "";
-        els.solutionForm.querySelector('[name="impact_confidence"]').value = sol.impact_confidence || "";
-	      els.solutionForm.querySelector('[name="owner"]').value = sol.owner || "";
-        els.solutionForm.querySelector('[name="owner_user_soeid"]').value = sol.owner_user_soeid || "";
-      els.solutionForm.querySelector('[name="assignee"]').value = sol.assignee || "";
-        els.solutionForm.querySelector('[name="assignee_user_soeid"]').value = sol.assignee_user_soeid || "";
-      els.solutionForm.querySelector('[name="approver"]').value = sol.approver || "";
-        els.solutionForm.querySelector('[name="approver_user_soeid"]').value = sol.approver_user_soeid || "";
-      els.solutionForm.querySelector('[name="key_stakeholder"]').value = sol.key_stakeholder || "";
-        els.solutionForm.querySelector('[name="rag_confidence"]').value = sol.rag_confidence ?? "";
-      els.solutionForm.querySelector('[name="blockers"]').value = sol.blockers || "";
-      els.solutionForm.querySelector('[name="risks"]').value = sol.risks || "";
-	      updateCurrentPhaseOptions(sol.solution_id);
-	      els.solutionForm.querySelector('[name="current_phase"]').value = sol.current_phase || "";
-	      renderSolutionPhases(sol.solution_id);
-	    }
-	  }
+  if (solutionId) {
+    const sol = state.solutions.find((s) => s.solution_id === solutionId);
+    if (sol) {
+      const activeTab = els.solutionModal?.querySelector(".modal-tabs .tab.active")?.dataset?.tab || "details";
+      openSolutionModal(sol, activeTab);
+    }
+  }
 
-  if (subcomponentId && els.subcomponentForm) {
+  if (subcomponentId) {
     const sub = state.subcomponents.find((s) => s.subcomponent_id === subcomponentId);
     if (sub) {
-      els.subcomponentForm.querySelector('[name="subcomponent_id"]').value = sub.subcomponent_id;
-      els.subcomponentForm.querySelector('[name="project_id"]').value = sub.project_id;
-      updateSubcomponentSolutionOptions(sub.project_id);
-      els.subcomponentForm.querySelector('[name="solution_id"]').value = sub.solution_id;
-      els.subcomponentForm.querySelector('[name="subcomponent_name"]').value = sub.subcomponent_name || "";
-      els.subcomponentForm.querySelector('[name="priority"]').value = sub.priority ?? "";
-      els.subcomponentForm.querySelector('[name="due_date"]').value = sub.due_date || "";
-      els.subcomponentForm.querySelector('[name="status"]').value = sub.status || "";
-      els.subcomponentForm.querySelector('[name="assignee"]').value = resolveAssigneeSelectValue(sub.assignee_user_soeid, sub.assignee);
-      els.subcomponentForm.querySelector('[name="assignee_user_soeid"]').value = sub.assignee_user_soeid || "";
-      els.subcomponentForm.querySelector('[name="estimate_hours"]').value =
-        sub.estimate_hours != null ? fteFromHoursForInput(sub.estimate_hours, 0) : "";
-      els.subcomponentForm.querySelector('[name="blocked"]').checked = !!sub.blocked;
-      els.subcomponentForm.querySelector('[name="blocker_note"]').value = sub.blocker_note || "";
-      els.subcomponentForm.querySelector('[name="done_criteria"]').value = sub.done_criteria || "";
-      els.subcomponentForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(sub.capacity_hours, 0);
-      if (els.deleteSubcomponentBtn) {
-        els.deleteSubcomponentBtn.disabled = !sub.subcomponent_id;
-      }
-      setSubcomponentActionButtonLabel(true);
+      fillSubcomponentForm(sub);
     }
   }
 }
@@ -2591,18 +2537,6 @@ function updateAllocationWindowHint() {
     els.allocationWindowHint.classList.remove("hidden");
     els.allocationWindowHint.classList.add("warn");
   }
-}
-
-function updateSubcomponentSolutionOptions(projectId) {
-  const solSel = els.subcomponentForm?.querySelector('[name="solution_id"]');
-  if (!solSel || solSel.tagName !== "SELECT") return;
-  if (!projectId) {
-    solSel.innerHTML = `<option value="">Select project first</option>`;
-    return;
-  }
-  const filteredSolutions = state.solutions.filter((s) => s.project_id === projectId);
-  const solutionOpts = filteredSolutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
-  solSel.innerHTML = `<option value="">Select</option>${solutionOpts}`;
 }
 
 function renderKanban() {

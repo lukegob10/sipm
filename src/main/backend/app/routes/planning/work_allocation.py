@@ -69,6 +69,13 @@ from .common import (
 router = APIRouter()
 
 
+def _nonblank_text(value: object, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} is required")
+    return text
+
+
 def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
     return (
         session.query(User)
@@ -187,9 +194,7 @@ def create_work_allocation_team(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTeamRead:
-    name = (payload.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team name is required")
+    name = _nonblank_text(payload.name, field_name="Team name")
 
     existing = (
         session.query(Team)
@@ -241,7 +246,7 @@ def update_work_allocation_team(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTeamRead:
     row = active_team(session, team_id, space_ctx)
-    next_name = (payload.name or "").strip() if payload.name is not None else None
+    next_name = _nonblank_text(payload.name, field_name="Team name") if payload.name is not None else None
     affected_user_ids: set[str] = set()
     if next_name:
         conflict = (
@@ -322,9 +327,7 @@ def create_work_allocation_person(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationPersonRead:
-    name = (payload.name or "").strip()
-    if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Person name is required")
+    name = _nonblank_text(payload.name, field_name="Person name")
     team = active_team(session, payload.team_id, space_ctx) if payload.team_id else None
     soeid = next_available_soeid(session, name)
     now = datetime.now(timezone.utc)
@@ -370,7 +373,7 @@ def update_work_allocation_person(
     updates = payload.model_dump(exclude_unset=True)
 
     if "name" in updates:
-        row.display_name = (str(updates.get("name") or "").strip() or row.display_name)
+        row.display_name = _nonblank_text(updates.get("name"), field_name="Person name")
 
     if "team_id" in updates:
         next_team_id = updates.get("team_id")
@@ -474,9 +477,7 @@ def create_work_allocation_task(
 ) -> WorkAllocationTaskRead:
     solution = board_solution(session, space_ctx)
     query = planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
-    title = (payload.title or "").strip()
-    if not title:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title is required")
+    title = _nonblank_text(payload.title, field_name="Task title")
     conflict = query.filter(func.lower(Subcomponent.subcomponent_name) == title.lower()).first()
     if conflict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")

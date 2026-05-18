@@ -12,8 +12,10 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, homelab, docker]
+    runs-on: [self-hosted, homelab, docker, sipm]
     timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: sipm
 
     steps:
       - name: Checkout

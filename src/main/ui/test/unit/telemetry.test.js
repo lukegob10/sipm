@@ -17,7 +17,7 @@ function buildHarness(overrides = {}) {
     fetchImpl,
     navigatorRef: { sendBeacon },
     documentRef: document,
-    performanceRef: {
+    performanceRef: overrides.performanceRef || {
       getEntriesByType: vi.fn((type) => {
         if (type !== "navigation") return [];
         return [
@@ -104,5 +104,42 @@ describe("telemetry controller", () => {
     const failures = payload.events.filter((event) => event.action_key === "api_failure");
     expect(failures).toHaveLength(2);
     expect(failures.every((event) => event.status_code === 408 || event.status_code === 500)).toBe(true);
+  });
+
+  it("waits for complete navigation timing before queueing the page-load performance sample", async () => {
+    const navigationEntry = {
+      type: "navigate",
+      responseStart: 50,
+      domInteractive: 0,
+      domContentLoadedEventEnd: 0,
+      loadEventEnd: 0,
+    };
+    const performanceRef = {
+      getEntriesByType: vi.fn((type) => (type === "navigation" ? [navigationEntry] : [])),
+    };
+    const readyStateSpy = vi.spyOn(document, "readyState", "get").mockReturnValue("loading");
+    const { controller, fetchImpl } = buildHarness({ performanceRef });
+
+    controller.syncRuntimeContext();
+    await controller.flush();
+
+    let payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(payload.performance_samples).toHaveLength(0);
+
+    readyStateSpy.mockReturnValue("complete");
+    navigationEntry.domInteractive = 120;
+    navigationEntry.domContentLoadedEventEnd = 180;
+    navigationEntry.loadEventEnd = 240;
+    window.dispatchEvent(new Event("load"));
+    await controller.flush();
+
+    payload = JSON.parse(fetchImpl.mock.calls[1][1].body);
+    expect(payload.performance_samples).toHaveLength(1);
+    expect(payload.performance_samples[0]).toMatchObject({
+      sample_kind: "navigation",
+      dom_interactive_ms: 120,
+      dom_content_loaded_ms: 180,
+      load_event_ms: 240,
+    });
   });
 });

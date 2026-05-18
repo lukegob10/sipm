@@ -8,6 +8,7 @@ from ..runtime import get_ta_connection_env
 
 
 _SESSION_LOCAL_LOCK = Lock()
+DB_HEALTHCHECK_SQL = text("SELECT 1 FROM DUAL")
 
 
 def _env_int(name: str, default: int) -> int:
@@ -114,7 +115,7 @@ def init_db(create_schema: bool = False) -> None:
 def check_db_connection() -> None:
     _ensure_session_local()
     with engine.connect() as connection:
-        connection.execute(text("SELECT 1"))
+        connection.execute(DB_HEALTHCHECK_SQL)
         connection.commit()
 
 
@@ -126,7 +127,7 @@ def warm_db_pool(connection_count: int = 1) -> None:
     try:
         for _ in range(connection_count):
             connection = engine.connect()
-            connection.execute(text("SELECT 1"))
+            connection.execute(DB_HEALTHCHECK_SQL)
             connection.commit()
             connections.append(connection)
     finally:

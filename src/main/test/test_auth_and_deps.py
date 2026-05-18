@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 from backend.app import deps as deps_module
 from backend.app.auth import auth as auth_module
+from backend.app.routes import auth as auth_routes_module
 from backend.app.auth.auth import (
     clear_auth_cookies,
     create_token,
@@ -591,6 +592,219 @@ async def test_local_login_rejects_inactive_existing_user(auth_client, db_sessio
 
 
 @pytest.mark.anyio
+async def test_login_performs_password_work_for_missing_and_inactive_users(
+    auth_client,
+    db_sessionmaker,
+    monkeypatch,
+):
+    calls = []
+
+    def _fake_verify(plain_password, hashed_password):
+        calls.append((plain_password, hashed_password))
+        return False
+
+    monkeypatch.setattr(auth_routes_module, "verify_password", _fake_verify)
+
+    missing = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "missingtiming1", "password": "Password123"},
+    )
+    assert missing.status_code == 401
+
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="inactivetiming1",
+                email="inactivetiming1@citi.com",
+                display_name="Inactive Timing",
+                password_hash="stored-hash",
+                role="user",
+                is_active=False,
+            )
+        )
+        session.commit()
+
+    inactive = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "inactivetiming1", "password": "Password123"},
+    )
+    assert inactive.status_code == 403
+    assert len(calls) == 2
+    assert calls[0][0] == "Password123"
+    assert calls[1] == ("Password123", "stored-hash")
+
+
+@pytest.mark.anyio
+async def test_login_clears_expired_lockout_before_counting_new_failures(auth_client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        user = User(
+            soeid="lockpast1",
+            email="lockpast1@citi.com",
+            display_name="Expired Lockout",
+            password_hash=hash_password("CorrectPassword123"),
+            role="user",
+            is_active=True,
+            failed_attempts=5,
+            locked_until=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        space = Space(space_id="lockpast-space", name="Lockpast Space", slug="lockpast-space", is_active=True)
+        session.add_all([user, space])
+        session.flush()
+        session.add(
+            SpaceMembership(
+                space_id=space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="active",
+            )
+        )
+        session.commit()
+
+    wrong = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "lockpast1", "password": "WrongPassword123"},
+    )
+    assert wrong.status_code == 401
+    assert wrong.headers["X-Error-Code"] == "LOGIN_FAILED"
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "lockpast1").first()
+        assert user is not None
+        assert user.failed_attempts == 1
+        assert user.locked_until is None
+
+    correct = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "lockpast1", "password": "CorrectPassword123"},
+    )
+    assert correct.status_code == 200, correct.text
+
+
+@pytest.mark.anyio
+async def test_login_only_reports_password_reset_required_after_password_verification(auth_client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="resetgate1",
+                email="resetgate1@citi.com",
+                display_name="Reset Gate",
+                password_hash=hash_password("CorrectPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+            )
+        )
+        session.commit()
+
+    wrong = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "resetgate1", "password": "WrongPassword123"},
+    )
+    assert wrong.status_code == 401
+    assert wrong.headers["X-Error-Code"] == "LOGIN_FAILED"
+    assert wrong.json()["detail"] == "Login failed. Check your username or password."
+
+    correct = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "resetgate1", "password": "CorrectPassword123"},
+    )
+    assert correct.status_code == 403
+    assert correct.headers["X-Error-Code"] == "PASSWORD_RESET_REQUIRED"
+    assert correct.json()["detail"] == "Password reset required"
+
+
+@pytest.mark.anyio
+async def test_temp_password_reset_attempts_lock_account_after_repeated_failures(auth_client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="tempfail1",
+                email="tempfail1@citi.com",
+                display_name="Temp Fail",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+                temp_password_hash=hash_password("TempPassword123"),
+                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+            )
+        )
+        session.commit()
+
+    for attempt in range(5):
+        resp = await auth_client.post(
+            "/project-manager/api/auth/reset-password",
+            json={
+                "soeid": "tempfail1",
+                "temp_password": "WrongTempPassword123",
+                "new_password": "NewPassword123",
+                "confirm_password": "NewPassword123",
+            },
+        )
+        assert resp.status_code == 401, attempt
+        assert resp.headers["X-Error-Code"] == "TEMP_PASSWORD_INVALID"
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "tempfail1").first()
+        assert user is not None
+        assert user.failed_attempts == 5
+        assert user.locked_until is not None
+
+    locked = await auth_client.post(
+        "/project-manager/api/auth/reset-password",
+        json={
+            "soeid": "tempfail1",
+            "temp_password": "TempPassword123",
+            "new_password": "NewPassword123",
+            "confirm_password": "NewPassword123",
+        },
+    )
+    assert locked.status_code == 423
+    assert locked.headers["X-Error-Code"] == "ACCOUNT_LOCKED"
+
+
+@pytest.mark.anyio
+async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="temppast1",
+                email="temppast1@citi.com",
+                display_name="Temp Past",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+                temp_password_hash=hash_password("TempPassword123"),
+                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                failed_attempts=5,
+                locked_until=datetime.now(timezone.utc) - timedelta(minutes=1),
+            )
+        )
+        session.commit()
+
+    resp = await auth_client.post(
+        "/project-manager/api/auth/reset-password",
+        json={
+            "soeid": "temppast1",
+            "temp_password": "TempPassword123",
+            "new_password": "NewPassword123",
+            "confirm_password": "NewPassword123",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "temppast1").first()
+        assert user is not None
+        assert user.failed_attempts == 0
+        assert user.locked_until is None
+        assert user.force_password_reset is False
+        assert user.temp_password_hash is None
+        assert verify_password("NewPassword123", user.password_hash) is True
+
+
+@pytest.mark.anyio
 async def test_admin_issued_service_account_api_token_authenticates_api(auth_client, db_sessionmaker):
     await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT1", display_name="Admin PAT", role="global_admin")
     with db_sessionmaker() as session:
@@ -648,6 +862,60 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
     with db_sessionmaker() as session:
         token_row = session.query(ApiToken).one()
         assert token_row.last_used_at == first_last_used_at
+
+
+@pytest.mark.anyio
+async def test_bearer_api_token_takes_precedence_over_browser_cookie(auth_client, db_sessionmaker):
+    await _login_local_session(
+        auth_client,
+        db_sessionmaker,
+        soeid="COOKIEPAT1",
+        display_name="Cookie User",
+        role="global_admin",
+    )
+    with db_sessionmaker() as session:
+        cookie_user = session.query(User).filter(User.soeid == "cookiepat1").first()
+        assert cookie_user is not None
+        cookie_user.role = "global_admin"
+        service_user = User(
+            soeid="svcmixed1",
+            email="svcmixed1@citi.com",
+            display_name="Service Mixed",
+            password_hash=hash_password("ServicePassword123"),
+            role="global_admin",
+            is_active=True,
+            is_service_account=True,
+        )
+        session.add_all([cookie_user, service_user])
+        session.commit()
+        service_user_id = service_user.user_id
+
+    issued = await auth_client.post(
+        f"/project-manager/api/users/{service_user_id}/api-tokens",
+        json={"name": "Mixed credentials"},
+    )
+    assert issued.status_code == 201, issued.text
+    token_value = issued.json()["token"]
+
+    auth_client.cookies.set("access_token", "not-a-valid-cookie-token")
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["soeid"] == "svcmixed1"
+
+
+@pytest.mark.anyio
+async def test_non_sipm_bearer_token_is_rejected_as_api_token(auth_client):
+    resp = await auth_client.get(
+        "/project-manager/api/auth/me",
+        headers={"Authorization": "Bearer eyJnot-a-sipm-token"},
+    )
+
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid API token"
 
 
 @pytest.mark.anyio

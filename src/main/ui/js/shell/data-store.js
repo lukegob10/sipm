@@ -19,6 +19,7 @@ export function createDataStoreController({
   const pendingRefreshEntities = new Set();
   const ignoreNextRefresh = new Set();
   let viewPrefetchTimer = null;
+  let pendingLoadOptions = null;
 
   function createTeamCapacityState() {
     return {
@@ -106,13 +107,16 @@ export function createDataStoreController({
     if (!needed.length) return;
     if (viewPrefetchTimer) window.clearTimeout(viewPrefetchTimer);
     viewPrefetchTimer = window.setTimeout(async () => {
+      viewPrefetchTimer = null;
       if (!state.authed || state.loading || refreshInFlight) return;
+      const entitiesToPrefetch = entitiesForView(targetView).filter((entity) => !state.loadedEntities.has(entity));
+      if (!entitiesToPrefetch.length) return;
       try {
-        const results = await Promise.allSettled(needed.map((entity) => fetchEntityData(entity)));
+        const results = await Promise.allSettled(entitiesToPrefetch.map((entity) => fetchEntityData(entity)));
         let changed = false;
         results.forEach((result, idx) => {
           if (result.status !== "fulfilled") return;
-          applyEntityData(needed[idx], result.value);
+          applyEntityData(entitiesToPrefetch[idx], result.value);
           changed = true;
         });
         if (changed) populateSelects();
@@ -234,6 +238,13 @@ export function createDataStoreController({
     }
   }
 
+  function rememberPendingLoad(options = {}) {
+    pendingLoadOptions = {
+      ...options,
+      force: !!options.force || !!pendingLoadOptions?.force,
+    };
+  }
+
   async function loadData(options = {}) {
     const loadStartedAt = Date.now();
     const force = !!options.force;
@@ -265,6 +276,7 @@ export function createDataStoreController({
     const selectedSubcomponentId = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
     if (state.loading) {
       state.pendingRefresh = true;
+      rememberPendingLoad(options);
       return;
     }
     state.loading = true;
@@ -352,7 +364,9 @@ export function createDataStoreController({
       state.loading = false;
       if (state.pendingRefresh) {
         state.pendingRefresh = false;
-        loadData();
+        const queuedOptions = pendingLoadOptions || {};
+        pendingLoadOptions = null;
+        loadData(queuedOptions);
       }
       if (pendingRefreshEntities.size) {
         const pending = Array.from(pendingRefreshEntities);

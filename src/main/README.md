@@ -53,7 +53,7 @@ Validation highlights:
 - `GET /health` is a shallow liveness check and remains the quick `{"status":"ok"}` endpoint.
 - `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
-- Request logs are emitted with simple `key=value` fields: `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, and `space_id`.
+- Request logs are emitted as compact JSON with `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, `space_id`, `user_id`, and `auth_method`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
 - The deployed artifact must include `src/main/ui` with at least `index.html`, `styles.css`, and `js/app.js`. If those files are missing, `/project-manager/` now returns `503` and readiness reports the bundle failure explicitly.
 - Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
@@ -65,6 +65,9 @@ Validation highlights:
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
 - `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
 - Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.
+- Database connectivity uses TAConnection with Oracle. `ENV=dev|uat|prod` selects the TAConnection profile, and the readiness query is Oracle-safe.
+- Database pool tuning is controlled by `SIPM_DB_POOL_SIZE`, `SIPM_DB_MAX_OVERFLOW`, `SIPM_DB_POOL_TIMEOUT_SECONDS`, `SIPM_DB_POOL_RECYCLE_SECONDS`, `SIPM_DB_POOL_PRE_PING`, and `SIPM_DB_POOL_USE_LIFO`.
+- Optional startup pool warming is controlled by `SIPM_DB_PREWARM_ON_STARTUP=true` and `SIPM_DB_PREWARM_CONNECTIONS`; optional background keepalive is controlled by `SIPM_DB_KEEPWARM_INTERVAL_SECONDS`.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
 - When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
 - Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql).

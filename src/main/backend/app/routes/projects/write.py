@@ -14,6 +14,7 @@ from ...models import Project, User
 from ...schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
+from ...utils import normalize_str
 from .common import (
     _active_project_name_conflict_query,
     _deleted_project_name,
@@ -32,6 +33,16 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _required_project_name(value: object) -> str:
+    project_name = normalize_str(value)
+    if not project_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="project_name is required",
+        )
+    return project_name
+
+
 def create_project(
     payload: ProjectCreate,
     session: Session = Depends(get_db),
@@ -40,9 +51,10 @@ def create_project(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ):
+    project_name = _required_project_name(payload.project_name)
     existing = _active_project_name_conflict_query(
         session,
-        project_name=payload.project_name,
+        project_name=project_name,
         space_id=space_ctx.space_id,
     ).first()
     if existing:
@@ -55,7 +67,7 @@ def create_project(
         session.query(Project)
         .filter(Project.deleted_at.is_not(None))
         .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.project_name == payload.project_name)
+        .filter(Project.project_name == project_name)
         .all()
     )
     for deleted in deleted_conflicts:
@@ -75,7 +87,7 @@ def create_project(
 
     project = Project(
         space_id=space_ctx.space_id,
-        project_name=payload.project_name,
+        project_name=project_name,
         status=payload.status,
         description=payload.description,
         success_criteria=payload.success_criteria,
@@ -118,7 +130,7 @@ def create_project(
             extra={
                 "space_id": space_ctx.space_id,
                 "user_id": current_user.user_id,
-                "project_name": payload.project_name,
+                "project_name": project_name,
             },
         )
         raise HTTPException(
@@ -142,6 +154,8 @@ def update_project(
     project = _get_project_or_404(session, project_id, space_ctx)
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "project_name" in update_data:
+        update_data["project_name"] = _required_project_name(update_data["project_name"])
     before = {field: getattr(project, field) for field in update_data.keys()}
     for field, value in update_data.items():
         setattr(project, field, value)

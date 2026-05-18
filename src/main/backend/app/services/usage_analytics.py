@@ -681,17 +681,51 @@ def _ranked_metric_stats_by_group(
     }
 
 
-def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+def _load_stats_by_sample_kind(session, *, filters: Iterable, load_expr) -> dict[str, dict[str, Optional[int]]]:
+    return {
+        str(kind): stats
+        for kind, stats in _ranked_metric_stats_by_group(
+            session,
+            group_expr=PerformanceSample.sample_kind,
+            metric_expr=load_expr,
+            filters=filters,
+        ).items()
+    }
+
+
+def _load_summary_stats(session, *, filters: Iterable, load_expr) -> dict[str, dict]:
+    return {
+        "overall": _ranked_metric_stats_by_group(
+            session,
+            group_expr=literal("all"),
+            metric_expr=load_expr,
+            filters=filters,
+        ).get("all", {}),
+        "by_kind": _load_stats_by_sample_kind(session, filters=filters, load_expr=load_expr),
+    }
+
+
+def build_summary_payload(
+    session,
+    *,
+    days: int,
+    all_spaces: bool,
+    scope_space_id: str | None,
+    load_summary_stats: dict[str, dict] | None = None,
+) -> dict:
     since = analytics_window_start(days)
     use_rollups = _rollups_have_data(session, since=since, scope_space_id=scope_space_id)
     sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
     load_expr = _sample_load_expr()
-    overall_load_stats = _ranked_metric_stats_by_group(
+    load_summary_stats = load_summary_stats or _load_summary_stats(
         session,
-        group_expr=literal("all"),
-        metric_expr=load_expr,
         filters=sample_filters,
-    ).get("all", {})
+        load_expr=load_expr,
+    )
+    overall_load_stats = load_summary_stats.get("overall", {})
+    load_stats_by_kind = load_summary_stats.get("by_kind", {})
+    navigation_load_stats = load_stats_by_kind.get("navigation", {})
+    route_transition_load_stats = load_stats_by_kind.get("route_transition", {})
     raw_daily_load_stats = _ranked_metric_stats_by_group(
         session,
         group_expr=_date_bucket_expr(session, PerformanceSample.occurred_at),
@@ -826,6 +860,10 @@ def build_summary_payload(session, *, days: int, all_spaces: bool, scope_space_i
             "failure_count": failure_count,
             "median_load_ms": overall_load_stats.get("median"),
             "p95_load_ms": overall_load_stats.get("p95"),
+            "navigation_median_load_ms": navigation_load_stats.get("median"),
+            "navigation_p95_load_ms": navigation_load_stats.get("p95"),
+            "route_transition_median_load_ms": route_transition_load_stats.get("median"),
+            "route_transition_p95_load_ms": route_transition_load_stats.get("p95"),
         },
         "daily": daily,
     }
@@ -1072,7 +1110,14 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
     }
 
 
-def build_performance_stats_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+def build_performance_stats_payload(
+    session,
+    *,
+    days: int,
+    all_spaces: bool,
+    scope_space_id: str | None,
+    load_summary_stats: dict[str, dict] | None = None,
+) -> dict:
     since = analytics_window_start(days)
     filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
     kind_rows = session.execute(
@@ -1082,22 +1127,25 @@ def build_performance_stats_payload(session, *, days: int, all_spaces: bool, sco
     ).all()
     kind_counts = {row.sample_kind: _int_value(row.total) for row in kind_rows}
     load_expr = _sample_load_expr()
-    total_load_stats = _ranked_metric_stats_by_group(
+    load_summary_stats = load_summary_stats or _load_summary_stats(
         session,
-        group_expr=literal("all"),
-        metric_expr=load_expr,
         filters=filters,
-    ).get("all", {})
-
+        load_expr=load_expr,
+    )
+    total_load_stats = load_summary_stats.get("overall", {})
+    load_stats_by_kind = load_summary_stats.get("by_kind", {})
+    navigation_load_stats = load_stats_by_kind.get("navigation", {})
+    route_transition_load_stats = load_stats_by_kind.get("route_transition", {})
     route_rows = session.execute(
         select(
             PerformanceSample.view_key.label("view_key"),
-            func.count().label("sample_count"),
+            func.count(load_expr).label("sample_count"),
             func.avg(PerformanceSample.cls_score).label("avg_cls_score"),
             func.coalesce(func.sum(func.coalesce(PerformanceSample.long_task_count, 0)), 0).label("long_task_count"),
         )
         .where(*filters)
         .group_by(PerformanceSample.view_key)
+        .having(func.count(load_expr) > 0)
     ).all()
     route_groups = {
         row.view_key: {
@@ -1167,8 +1215,41 @@ def build_performance_stats_payload(session, *, days: int, all_spaces: bool, sco
             "route_transition_samples": kind_counts.get("route_transition", 0),
             "median_load_ms": total_load_stats.get("median"),
             "p95_load_ms": total_load_stats.get("p95"),
+            "navigation_median_load_ms": navigation_load_stats.get("median"),
+            "navigation_p95_load_ms": navigation_load_stats.get("p95"),
+            "route_transition_median_load_ms": route_transition_load_stats.get("median"),
+            "route_transition_p95_load_ms": route_transition_load_stats.get("p95"),
         },
         "routes": routes[:10],
+    }
+
+
+def build_dashboard_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+    since = analytics_window_start(days)
+    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    load_expr = _sample_load_expr()
+    load_summary_stats = _load_summary_stats(session, filters=sample_filters, load_expr=load_expr)
+    return {
+        "summary": build_summary_payload(
+            session,
+            days=days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+            load_summary_stats=load_summary_stats,
+        ),
+        "routes": build_route_stats_payload(
+            session,
+            days=days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+        ),
+        "performance": build_performance_stats_payload(
+            session,
+            days=days,
+            all_spaces=all_spaces,
+            scope_space_id=scope_space_id,
+            load_summary_stats=load_summary_stats,
+        ),
     }
 
 
@@ -1181,6 +1262,7 @@ __all__ = [
     "ALLOWED_SAMPLE_KINDS",
     "analytics_scope_read",
     "analytics_window_days_query",
+    "build_dashboard_payload",
     "build_performance_stats_payload",
     "build_route_stats_payload",
     "build_summary_payload",

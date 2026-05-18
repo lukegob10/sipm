@@ -76,7 +76,7 @@ def test_master_type_chip_uses_colored_chip_styling():
     assert "background: var(--solution-pill-bg);" in text
 
 
-def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter():
+def test_master_table_keeps_broad_deliverables_columns_without_repo_mode():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     dom_text = DOM_JS.read_text(encoding="utf-8")
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
@@ -84,15 +84,15 @@ def test_master_engineering_preset_adds_repo_visibility_and_missing_repo_filter(
     route_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
     styles_text = read_ui_styles(STYLES_CSS)
 
-    assert 'id="preset-engineering"' in html_text
-    assert 'presetEngineering: document.getElementById("preset-engineering")' in dom_text
-    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked", "engineering"]);' in filters_text
-    assert 'export const VALID_DELIVERABLE_REPO_PRESENCE = new Set(["", "has_repo", "missing_repo"]);' in filters_text
-    assert 'els.presetEngineering?.addEventListener("click", () => setDeliverablesPreset(ctx, "engineering"));' in interactions_text
-    assert "const isEngineeringPreset = (state.deliverablesPreset || \"\") === \"engineering\";" in route_text
-    assert 'id="filter-repo-presence"' in route_text
-    assert 'Missing Repo' in route_text
-    assert 'class="deliverables-repo-link"' in route_text
-    assert 'deliverables-table-engineering' in route_text
-    assert ".deliverables-repo-link," in styles_text
-    assert ".deliverables-repo-missing {" in styles_text
+    assert 'id="preset-engineering"' not in html_text
+    assert "presetEngineering" not in dom_text
+    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);' in filters_text
+    assert "engineering" not in filters_text
+    assert "presetEngineering" not in interactions_text
+    assert "<th>Version</th>" in route_text
+    assert "<th>Repo</th>" not in route_text
+    assert 'id="filter-repo-presence"' not in route_text
+    assert 'value="project"' in route_text
+    assert 'value="solution"' in route_text
+    assert "deliverable-repo" not in styles_text
+    assert "deliverables-table-engineering" not in styles_text

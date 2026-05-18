@@ -42,6 +42,16 @@ def _space_or_404(session: Session, space_id: str) -> Space:
     return space
 
 
+def _space_or_404_for_membership_mutation(session: Session, space_id: str) -> Space:
+    space = _space_or_404(session, space_id)
+    if not space.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reactivate the space before changing memberships",
+        )
+    return space
+
+
 def _membership_or_404(session: Session, membership_id: str) -> SpaceMembership:
     row = (
         session.query(SpaceMembership)
@@ -131,6 +141,13 @@ def _validate_membership_status(raw_status: str | None) -> str:
     if status_val not in {"active", "inactive"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid membership status")
     return status_val
+
+
+def _validate_space_name(raw_name: str | None) -> str:
+    name = str(raw_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space name is required")
+    return name
 
 
 def _space_conflict_detail(exc: IntegrityError) -> str | None:
@@ -263,13 +280,14 @@ def create_space(
     _admin: User = Depends(require_global_admin),
 ) -> SpaceRead:
     now = datetime.now(timezone.utc)
-    slug = build_space_slug(payload.slug or payload.name)
+    name = _validate_space_name(payload.name)
+    slug = build_space_slug(payload.slug or name)
     existing = session.query(Space).filter(Space.slug == slug).filter(Space.deleted_at.is_(None)).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space slug already exists")
     space = Space(
         space_id=str(uuid4()),
-        name=payload.name.strip(),
+        name=name,
         slug=slug,
         is_active=True,
         created_at=now,
@@ -297,7 +315,7 @@ def update_space(
 ) -> SpaceRead:
     space = _space_or_404(session, space_id)
     if payload.name is not None:
-        space.name = payload.name.strip() or space.name
+        space.name = _validate_space_name(payload.name)
     if payload.is_active is not None:
         space.is_active = bool(payload.is_active)
         if not space.is_active:
@@ -344,7 +362,7 @@ def create_space_member(
     ctx=Depends(current_space),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
-    _space_or_404(session, space_id)
+    _space_or_404_for_membership_mutation(session, space_id)
     user = session.query(User).filter(User.user_id == payload.user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -369,7 +387,7 @@ def create_space_member_by_soeid(
     ctx=Depends(current_space),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
-    _space_or_404(session, space_id)
+    _space_or_404_for_membership_mutation(session, space_id)
     soeid_norm = (payload.soeid or "").strip().lower()
     if not soeid_norm:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SOEID is required")
@@ -398,7 +416,7 @@ def update_space_member(
     ctx=Depends(current_space),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
-    _space_or_404(session, space_id)
+    _space_or_404_for_membership_mutation(session, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")
@@ -430,7 +448,7 @@ def delete_space_member(
     ctx=Depends(current_space),
 ):
     _ensure_space_admin_access(ctx, space_id)
-    _space_or_404(session, space_id)
+    _space_or_404_for_membership_mutation(session, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")

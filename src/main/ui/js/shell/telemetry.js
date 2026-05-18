@@ -38,6 +38,11 @@ function safeDurationMs(value) {
   return Math.max(0, Math.round(numeric));
 }
 
+function positiveDurationMs(value) {
+  const duration = safeDurationMs(value);
+  return duration && duration > 0 ? duration : null;
+}
+
 function currentViewFromPath() {
   try {
     const relative = String(window.location.pathname || "/")
@@ -94,6 +99,7 @@ export function createTelemetryController({
   };
   let bootTracked = false;
   let navigationSampleQueued = false;
+  let navigationLoadListenerBound = false;
   let performanceObserversStarted = false;
   let flushTimerId = null;
   let pendingTransition = null;
@@ -207,15 +213,18 @@ export function createTelemetryController({
     const entry = performanceRef?.getEntriesByType?.("navigation")?.[0];
     if (!entry) return;
     navigationMetrics.navigationType = entry.type || "navigate";
-    navigationMetrics.ttfbMs = safeDurationMs(entry.responseStart);
-    navigationMetrics.domInteractiveMs = safeDurationMs(entry.domInteractive);
-    navigationMetrics.domContentLoadedMs = safeDurationMs(entry.domContentLoadedEventEnd);
-    navigationMetrics.loadEventMs = safeDurationMs(entry.loadEventEnd);
+    navigationMetrics.ttfbMs = positiveDurationMs(entry.responseStart);
+    navigationMetrics.domInteractiveMs = positiveDurationMs(entry.domInteractive);
+    navigationMetrics.domContentLoadedMs = positiveDurationMs(entry.domContentLoadedEventEnd);
+    navigationMetrics.loadEventMs = positiveDurationMs(entry.loadEventEnd);
   }
 
   function maybeQueueNavigationSample() {
-    if (navigationSampleQueued || !enabled()) return;
+    if (navigationSampleQueued || !enabled()) return true;
     collectNavigationTimingMetrics();
+    if (navigationMetrics.loadEventMs == null && documentRef?.readyState !== "complete") {
+      return false;
+    }
     enqueuePerformanceSample({
       view_key: currentView(),
       sample_kind: "navigation",
@@ -232,6 +241,16 @@ export function createTelemetryController({
       long_task_total_ms: navigationMetrics.longTaskTotalMs,
     });
     navigationSampleQueued = true;
+    return true;
+  }
+
+  function scheduleNavigationSample() {
+    if (maybeQueueNavigationSample()) return;
+    if (navigationLoadListenerBound || typeof window === "undefined") return;
+    navigationLoadListenerBound = true;
+    window.addEventListener("load", () => {
+      maybeQueueNavigationSample();
+    }, { once: true });
   }
 
   function maybeCompletePendingTransition() {
@@ -321,7 +340,7 @@ export function createTelemetryController({
       });
       bootTracked = true;
     }
-    maybeQueueNavigationSample();
+    scheduleNavigationSample();
   }
 
   function beginRouteTransition(viewKey, previousView = "", options = {}) {

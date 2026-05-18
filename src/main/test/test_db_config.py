@@ -6,6 +6,7 @@ import importlib
 import os
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,9 @@ import anyio.to_thread
 from backend import main as main_module
 from backend.app.db import db as db_module
 from backend.app import runtime as runtime_module
+
+
+README_PATH = Path(__file__).resolve().parents[1] / "README.md"
 
 
 def _reload_runtime_module():
@@ -329,7 +333,7 @@ def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
     class FakeConnection:
         def execute(self, statement):
             captured["execute"] += 1
-            assert str(statement) == "SELECT 1"
+            assert str(statement) == "SELECT 1 FROM DUAL"
 
         def commit(self):
             captured["commit"] += 1
@@ -356,6 +360,32 @@ def test_warm_db_pool_rejects_non_positive_connection_count():
 
     with pytest.raises(RuntimeError, match="connection_count must be >= 1."):
         module.warm_db_pool(connection_count=0)
+
+
+def test_db_healthcheck_sql_is_oracle_safe():
+    module = _reload_db_module()
+
+    assert str(module.DB_HEALTHCHECK_SQL) == "SELECT 1 FROM DUAL"
+
+
+def test_database_runtime_environment_knobs_are_documented():
+    readme = README_PATH.read_text(encoding="utf-8")
+
+    for expected in (
+        "TAConnection",
+        "SIPM_DB_POOL_SIZE",
+        "SIPM_DB_MAX_OVERFLOW",
+        "SIPM_DB_POOL_TIMEOUT_SECONDS",
+        "SIPM_DB_POOL_RECYCLE_SECONDS",
+        "SIPM_DB_POOL_PRE_PING",
+        "SIPM_DB_POOL_USE_LIFO",
+        "SIPM_DB_PREWARM_ON_STARTUP",
+        "SIPM_DB_PREWARM_CONNECTIONS",
+        "SIPM_DB_KEEPWARM_INTERVAL_SECONDS",
+        "compact JSON",
+        "auth_method",
+    ):
+        assert expected in readme
 
 
 def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):
@@ -485,8 +515,12 @@ async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
     def fake_check_db_connection() -> None:
         calls["check"] += 1
 
+    async def fake_to_thread(func):
+        return func()
+
     monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(main_module.asyncio, "to_thread", fake_to_thread)
 
     with pytest.raises(asyncio.CancelledError):
         await main_module._db_keepwarm_loop(15)

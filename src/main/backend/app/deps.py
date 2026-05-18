@@ -102,18 +102,25 @@ def ensure_token_not_revoked(user: User, token_issued_at: int | None) -> None:
         )
 
 
+def _bearer_credential(request: Request) -> str | None:
+    auth_header = str(request.headers.get("Authorization", "")).strip()
+    scheme, _, credential = auth_header.partition(" ")
+    if scheme.lower() == "bearer" and credential.strip():
+        return credential.strip()
+    return None
+
+
 def require_user(request: Request, session: Session = Depends(get_db)) -> User:
+    bearer_token = _bearer_credential(request)
+    if bearer_token:
+        user = authenticate_api_token(session, bearer_token)
+        request.state.auth_method = "api_token"
+        request.state.user = user
+        return user
     token = request.cookies.get("access_token")
     if token:
         user = authenticate_access_token(session, token)
         request.state.auth_method = "cookie"
-        request.state.user = user
-        return user
-    auth_header = str(request.headers.get("Authorization", "")).strip()
-    scheme, _, credential = auth_header.partition(" ")
-    if scheme.lower() == "bearer" and credential.strip():
-        user = authenticate_api_token(session, credential.strip())
-        request.state.auth_method = "api_token"
         request.state.user = user
         return user
     user = authenticate_access_token(session, None)

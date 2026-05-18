@@ -37,6 +37,7 @@ router = APIRouter()
 
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_MINUTES = 15
+_DUMMY_LOGIN_PASSWORD_HASH = hash_password("not-the-real-password")
 
 
 def _get_user_by_soeid(session: Session, soeid: str) -> Optional[User]:
@@ -50,6 +51,13 @@ def _is_user_locked(user: User, now: datetime) -> bool:
     if locked_until.tzinfo is None:
         locked_until = locked_until.replace(tzinfo=timezone.utc)
     return locked_until > now
+
+
+def _clear_expired_lockout(user: User, now: datetime) -> None:
+    if not user.locked_until or _is_user_locked(user, now):
+        return
+    user.failed_attempts = 0
+    user.locked_until = None
 
 
 def _email_from_soeid(soeid: str) -> str:
@@ -123,6 +131,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
     user = _get_user_by_soeid(session, soeid_norm)
     now = datetime.now(timezone.utc)
     if not user:
+        verify_password(payload.password, _DUMMY_LOGIN_PASSWORD_HASH)
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="LOGIN_FAILED",
@@ -130,6 +139,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
         )
 
     if not user.is_active:
+        verify_password(payload.password, user.password_hash)
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="USER_INACTIVE",
@@ -143,12 +153,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Account locked. Try again later.",
         )
 
-    if user.force_password_reset:
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="PASSWORD_RESET_REQUIRED",
-            message="Password reset required",
-        )
+    _clear_expired_lockout(user, now)
 
     if not verify_password(payload.password, user.password_hash):
         user.failed_attempts += 1
@@ -160,6 +165,13 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="LOGIN_FAILED",
             message="Login failed. Check your username or password.",
+        )
+
+    if user.force_password_reset:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="PASSWORD_RESET_REQUIRED",
+            message="Password reset required",
         )
 
     user.failed_attempts = 0

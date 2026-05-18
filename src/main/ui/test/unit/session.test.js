@@ -3,11 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionController } from "../../js/shell/session.js";
 
 
-function jsonResponse(body, { status = 200 } = {}) {
+function jsonResponse(body, { status = 200, errorCode = "" } = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
     statusText: status === 200 ? "OK" : "ERROR",
+    headers: {
+      get: (name) => (String(name).toLowerCase() === "x-error-code" ? errorCode : ""),
+    },
     text: async () => JSON.stringify(body),
   };
 }
@@ -25,6 +28,10 @@ function createHarness(overrides = {}) {
   const startLiveSync = vi.fn();
   const setAuthVisible = vi.fn();
   const stopLiveSync = vi.fn();
+  const showAuthNotice = vi.fn();
+  const showAuthError = vi.fn();
+  const showResetError = vi.fn();
+  const setStatus = vi.fn();
   const controller = createSessionController({
     state,
     els,
@@ -39,12 +46,12 @@ function createHarness(overrides = {}) {
       state.user = user;
       state.authed = !!user;
     }),
-    setStatus: vi.fn(),
+    setStatus,
     setAuthVisible,
     setResetVisible: vi.fn(),
-    showAuthError: vi.fn(),
-    showAuthNotice: vi.fn(),
-    showResetError: vi.fn(),
+    showAuthError,
+    showAuthNotice,
+    showResetError,
     showResetSuccess: vi.fn(),
     resetIdleTimer: vi.fn(),
     hideIdleModal: vi.fn(),
@@ -53,7 +60,19 @@ function createHarness(overrides = {}) {
     startLiveSync,
     stopLiveSync,
   });
-  return { controller, viewFromLocationPath, setView, refreshSpaceContext, startLiveSync, stopLiveSync, setAuthVisible };
+  return {
+    controller,
+    viewFromLocationPath,
+    setView,
+    refreshSpaceContext,
+    startLiveSync,
+    stopLiveSync,
+    setAuthVisible,
+    showAuthNotice,
+    showAuthError,
+    showResetError,
+    setStatus,
+  };
 }
 
 
@@ -109,6 +128,45 @@ describe("session controller", () => {
     expect(setAuthVisible).toHaveBeenCalledWith(true);
   });
 
+  it("handles terminal bootstrap auth failures without throwing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/me")) {
+        return jsonResponse({ detail: "Account locked" }, { status: 423, errorCode: "ACCOUNT_LOCKED" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const { controller, showAuthNotice, setAuthVisible, stopLiveSync } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+    });
+    await controller.bootstrapAuth();
+
+    expect(stopLiveSync).toHaveBeenCalledTimes(1);
+    expect(showAuthNotice).toHaveBeenCalledWith("Account locked. Try again later or contact an administrator.");
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("keeps bootstrap network failures in a controlled sign-in state", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/me")) {
+        throw new TypeError("Failed to fetch");
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const { controller, showAuthNotice, setAuthVisible, setStatus, stopLiveSync } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+    });
+    await controller.bootstrapAuth();
+
+    expect(stopLiveSync).toHaveBeenCalledTimes(1);
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+    expect(setStatus).toHaveBeenCalledWith("Connection issue", "warn");
+    expect(showAuthNotice).toHaveBeenCalledWith(
+      "Unable to reach the server. Check your connection and try again.",
+    );
+  });
+
   it("clears local realtime session state when session expiry is handled", () => {
     const { controller, stopLiveSync, setAuthVisible } = createHarness();
 
@@ -116,6 +174,188 @@ describe("session controller", () => {
 
     expect(stopLiveSync).toHaveBeenCalledTimes(1);
     expect(setAuthVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("does not treat bad login credentials as a terminal session failure", () => {
+    const { controller, stopLiveSync, setAuthVisible } = createHarness();
+
+    const handled = controller.handleAuthError({ status: 401, code: "LOGIN_FAILED", message: "Login failed" });
+
+    expect(handled).toBe(false);
+    expect(stopLiveSync).not.toHaveBeenCalled();
+    expect(setAuthVisible).not.toHaveBeenCalled();
+  });
+
+  it("uses server auth error codes for user-facing terminal session messages", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/projects")) {
+        return jsonResponse({ detail: "Token no longer valid" }, { status: 401, errorCode: "TOKEN_REVOKED" });
+      }
+      if (String(url).endsWith("/auth/refresh")) {
+        return jsonResponse({ detail: "Password reset required" }, { status: 403, errorCode: "PASSWORD_RESET_REQUIRED" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const { controller, stopLiveSync, setAuthVisible, showAuthNotice, setStatus } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+    });
+
+    await expect(controller.api("/projects")).rejects.toMatchObject({
+      status: 401,
+      code: "TOKEN_REVOKED",
+    });
+
+    expect(stopLiveSync).toHaveBeenCalledTimes(1);
+    expect(setAuthVisible).not.toHaveBeenCalled();
+    expect(setStatus).toHaveBeenCalledWith("Sign in required", "warn");
+    expect(showAuthNotice).toHaveBeenCalledWith(
+      "Password reset required. Use your temporary password to set a new one.",
+    );
+  });
+
+  it("uses non-technical copy for expired sessions", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/projects")) {
+        return jsonResponse({ detail: "Token expired" }, { status: 401, errorCode: "TOKEN_EXPIRED" });
+      }
+      if (String(url).endsWith("/auth/refresh")) {
+        return jsonResponse({ detail: "Token expired" }, { status: 401, errorCode: "TOKEN_EXPIRED" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const { controller, showAuthNotice } = createHarness({
+      state: { authed: true, activeSpace: { space_id: "space-1" }, user: { user_id: "user-1" } },
+    });
+
+    await expect(controller.api("/projects")).rejects.toMatchObject({
+      status: 401,
+      code: "TOKEN_EXPIRED",
+    });
+
+    expect(showAuthNotice).toHaveBeenCalledWith("Your session expired. Sign in again to continue.");
+  });
+
+  it("prevents duplicate login submissions while a request is pending", async () => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = `
+      <input name="soeid" value="user1" />
+      <input name="password" value="Password123" />
+      <button type="submit">Log in</button>
+    `;
+    const submitButton = loginForm.querySelector("button");
+    let resolveLogin;
+    const fetchMock = vi.fn((url) => {
+      if (String(url).endsWith("/auth/login")) {
+        return new Promise((resolve) => {
+          resolveLogin = () => resolve(jsonResponse({ user_id: "user-1", display_name: "User 1" }));
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { controller } = createHarness({
+      els: { loginForm },
+    });
+
+    controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(submitButton.disabled).toBe(true);
+    expect(submitButton.getAttribute("aria-busy")).toBe("true");
+
+    resolveLogin();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(submitButton.disabled).toBe(false);
+    expect(submitButton.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("keeps login failures on the form error surface", async () => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = `
+      <input name="soeid" value="user1" />
+      <input name="password" value="WrongPassword123" />
+      <button type="submit">Log in</button>
+    `;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/login")) {
+        return jsonResponse(
+          { detail: "Login failed. Check your username or password." },
+          { status: 401, errorCode: "LOGIN_FAILED" },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const { controller, showAuthError, showAuthNotice, stopLiveSync } = createHarness({
+      els: { loginForm },
+    });
+
+    controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(showAuthNotice).toHaveBeenCalledWith("");
+    expect(showAuthError).toHaveBeenCalledWith(
+      "The SOEID or password did not match. Try again, or use your temporary password if an admin reset your account.",
+    );
+    expect(stopLiveSync).not.toHaveBeenCalled();
+  });
+
+  it("shows a clear form error when login cannot reach the server", async () => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = `
+      <input name="soeid" value="user1" />
+      <input name="password" value="Password123" />
+      <button type="submit">Log in</button>
+    `;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/login")) throw new TypeError("Failed to fetch");
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const { controller, showAuthError, showAuthNotice, stopLiveSync } = createHarness({
+      els: { loginForm },
+    });
+
+    controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(showAuthNotice).toHaveBeenCalledWith("");
+    expect(showAuthError).toHaveBeenCalledWith("Unable to reach the server. Check your connection and try again.");
+    expect(stopLiveSync).not.toHaveBeenCalled();
+  });
+
+  it("shows actionable reset errors without exposing auth internals", async () => {
+    const resetForm = document.createElement("form");
+    resetForm.innerHTML = `
+      <input name="soeid" value="user1" />
+      <input name="temp_password" value="WrongTemp123" />
+      <input name="new_password" value="NewPassword123" />
+      <input name="confirm_password" value="NewPassword123" />
+      <button type="submit">Set new password</button>
+    `;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/reset-password")) {
+        return jsonResponse(
+          { detail: "Temporary password is invalid" },
+          { status: 401, errorCode: "TEMP_PASSWORD_INVALID" },
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const { controller, showResetError } = createHarness({
+      els: { resetForm },
+    });
+
+    controller.bindAuthUI();
+    resetForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(showResetError).toHaveBeenCalledWith(
+      "The SOEID or temporary password did not match. Check the reset details from your admin.",
+    );
   });
 
   it("clears local realtime session state after explicit logout", async () => {

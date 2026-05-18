@@ -29,7 +29,7 @@ async def test_project_manager_context_redirects_without_trailing_slash(client):
 async def test_reset_password_page_lives_under_project_manager_context(client):
     response = await client.get("/project-manager/reset-password")
     assert response.status_code == 200
-    assert "Reset Password" in response.text
+    assert "Reset password" in response.text
 
 
 @pytest.mark.anyio

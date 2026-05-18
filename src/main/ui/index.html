@@ -11,22 +11,24 @@
   <div id="auth-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
+      <h1 class="auth-title">Sign in to SIPM</h1>
+      <p class="auth-note">Use your SOEID and password to access your active workspace.</p>
       <div id="auth-notice" class="auth-notice hidden" role="status"></div>
       <div class="auth-tabs" id="auth-tabs">
-        <button id="auth-tab-login" class="auth-tab active" type="button">Log in</button>
+        <button id="auth-tab-login" class="auth-tab active" type="button">Sign in</button>
         <button id="auth-tab-register" class="auth-tab" type="button">Create account</button>
       </div>
-      <form id="login-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+      <form id="login-form" class="auth-form" aria-describedby="auth-error auth-notice">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
-        <button type="submit">Log in</button>
+        <button type="submit">Sign in</button>
       </form>
       <div class="auth-links">
         <button type="button" id="reset-link" class="text-link">Use temporary password</button>
       </div>
-      <form id="register-form" class="auth-form hidden">
+      <form id="register-form" class="auth-form hidden" aria-describedby="auth-error auth-notice">
         <label>Name <input type="text" name="display_name" autocomplete="name" required /></label>
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Password <input type="password" name="password" autocomplete="new-password" required /></label>
         <button type="submit">Create account</button>
       </form>
@@ -40,10 +42,10 @@
       <div class="modal-header">
         <h3>Session Expiring</h3>
       </div>
-      <p class="muted">You’ve been inactive for a while. You’ll be signed out soon.</p>
+      <p class="muted">You've been inactive for a while. You'll be signed out soon.</p>
       <div class="form-actions">
         <button id="idle-stay" class="primary" type="button">Stay signed in</button>
-        <button id="idle-logout" class="secondary" type="button">Log out</button>
+        <button id="idle-logout" class="secondary" type="button">Sign out</button>
       </div>
     </div>
   </div>
@@ -51,17 +53,17 @@
   <div id="reset-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
-      <h3 class="auth-title">Reset Password</h3>
+      <h1 class="auth-title">Reset password</h1>
       <p class="auth-note">Enter your SOEID and the temporary password from your admin, then choose a new password.</p>
-      <form id="reset-form" class="auth-form">
-        <label>SOEID <input type="text" name="soeid" autocomplete="username" required /></label>
+      <form id="reset-form" class="auth-form" aria-describedby="reset-error reset-success">
+        <label>SOEID <input type="text" name="soeid" autocomplete="username" autocapitalize="none" spellcheck="false" required /></label>
         <label>Temporary Password <input type="password" name="temp_password" autocomplete="one-time-code" required /></label>
         <label>New Password <input type="password" name="new_password" autocomplete="new-password" required /></label>
         <label>Confirm Password <input type="password" name="confirm_password" autocomplete="new-password" required /></label>
         <button type="submit">Set new password</button>
       </form>
       <div id="reset-error" class="auth-error" role="status"></div>
-      <div id="reset-success" class="auth-note"></div>
+      <div id="reset-success" class="auth-note" role="status"></div>
     </div>
   </div>
 
@@ -195,7 +197,7 @@
           >
             Show Completed: Off
           </button>
-          <button type="button" id="logout-btn" class="secondary">Logout</button>
+          <button type="button" id="logout-btn" class="secondary">Sign out</button>
           <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
         </div>
       </header>

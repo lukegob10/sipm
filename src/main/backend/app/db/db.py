@@ -1,144 +1,39 @@
-import os
-from threading import Lock
+from __future__ import annotations
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker
-
-from ..runtime import get_ta_connection_env
-
-
-_SESSION_LOCAL_LOCK = Lock()
-DB_HEALTHCHECK_SQL = text("SELECT 1 FROM DUAL")
-
-
-def _env_int(name: str, default: int) -> int:
-    raw = str(os.getenv(name, "")).strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError(f"{name} must be an integer.") from exc
+from .engine import DB_HEALTHCHECK_SQL
+from .engine import build_engine as _build_engine
+from .session import (
+    _ensure_session_local,
+    check_db_connection,
+    get_session,
+    init_db,
+    reset_session_state,
+    warm_db_pool,
+)
+from .settings import _env_bool, _env_int, _require_min, _require_min_or_disable
 
 
-def _require_min(name: str, value: int, minimum: int) -> int:
-    if value < minimum:
-        raise RuntimeError(f"{name} must be >= {minimum}.")
-    return value
+def __getattr__(name: str):
+    if name in {"engine", "SessionLocal"}:
+        from . import session
+
+        return getattr(session, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def _require_min_or_disable(name: str, value: int, disable_value: int, minimum: int) -> int:
-    if value == disable_value:
-        return value
-    if value < minimum:
-        raise RuntimeError(f"{name} must be {disable_value} or >= {minimum}.")
-    return value
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw = str(os.getenv(name, "")).strip().lower()
-    if not raw:
-        return default
-    if raw in {"1", "true", "yes", "on"}:
-        return True
-    if raw in {"0", "false", "no", "off"}:
-        return False
-    raise RuntimeError(f"{name} must be a boolean value.")
-
-
-def _build_engine():
-    # Always use TAConnection + Oracle for this application runtime.
-    def _ta_creator():
-        from treasury_analytics import TAConnection
-
-        ta = TAConnection(env=get_ta_connection_env())
-        return ta.connect()
-
-    return create_engine(
-        "oracle+oracledb://",
-        creator=_ta_creator,
-        pool_size=_require_min("SIPM_DB_POOL_SIZE", _env_int("SIPM_DB_POOL_SIZE", 5), 0),
-        max_overflow=_require_min_or_disable(
-            "SIPM_DB_MAX_OVERFLOW",
-            _env_int("SIPM_DB_MAX_OVERFLOW", 10),
-            -1,
-            0,
-        ),
-        pool_timeout=_require_min(
-            "SIPM_DB_POOL_TIMEOUT_SECONDS",
-            _env_int("SIPM_DB_POOL_TIMEOUT_SECONDS", 30),
-            0,
-        ),
-        pool_recycle=_require_min_or_disable(
-            "SIPM_DB_POOL_RECYCLE_SECONDS",
-            _env_int("SIPM_DB_POOL_RECYCLE_SECONDS", 1800),
-            -1,
-            0,
-        ),
-        pool_pre_ping=_env_bool("SIPM_DB_POOL_PRE_PING", True),
-        pool_use_lifo=_env_bool("SIPM_DB_POOL_USE_LIFO", False),
-    )
-
-
-engine = None
-SessionLocal = None
-
-
-def _ensure_session_local():
-    global engine, SessionLocal
-    if SessionLocal is None:
-        with _SESSION_LOCAL_LOCK:
-            if SessionLocal is None:
-                created_engine = _build_engine()
-                engine = created_engine
-                SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=created_engine)
-    return SessionLocal
-
-
-def init_db(create_schema: bool = False) -> None:
-    """
-    Optional DB bootstrap helper for TA/Oracle deployments.
-
-    - `create_schema=True` runs SQLAlchemy `create_all`.
-    Defaults keep startup non-mutating for managed Oracle environments.
-    """
-    if not create_schema:
-        return
-
-    _ensure_session_local()
-
-    from ..models import Base  # imported lazily to avoid circulars
-
-    Base.metadata.create_all(bind=engine)
-
-
-def check_db_connection() -> None:
-    _ensure_session_local()
-    with engine.connect() as connection:
-        connection.execute(DB_HEALTHCHECK_SQL)
-        connection.commit()
-
-
-def warm_db_pool(connection_count: int = 1) -> None:
-    if connection_count < 1:
-        raise RuntimeError("connection_count must be >= 1.")
-    _ensure_session_local()
-    connections = []
-    try:
-        for _ in range(connection_count):
-            connection = engine.connect()
-            connection.execute(DB_HEALTHCHECK_SQL)
-            connection.commit()
-            connections.append(connection)
-    finally:
-        while connections:
-            connections.pop().close()
-
-
-def get_session():
-    local_session = _ensure_session_local()
-    db = local_session()
-    try:
-        yield db
-    finally:
-        db.close()
+__all__ = [
+    "DB_HEALTHCHECK_SQL",
+    "SessionLocal",
+    "_build_engine",
+    "_ensure_session_local",
+    "_env_bool",
+    "_env_int",
+    "_require_min",
+    "_require_min_or_disable",
+    "check_db_connection",
+    "engine",
+    "get_session",
+    "init_db",
+    "reset_session_state",
+    "warm_db_pool",
+]

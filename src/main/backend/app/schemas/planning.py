@@ -1,14 +1,22 @@
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field
 
 
+Name180 = Annotated[str, Field(min_length=1, max_length=180)]
+OptionalName180 = Annotated[Optional[str], Field(min_length=1, max_length=180)]
+Title240 = Annotated[str, Field(min_length=1, max_length=240)]
+OptionalTitle240 = Annotated[Optional[str], Field(min_length=1, max_length=240)]
+RequiredId = Annotated[str, Field(min_length=1)]
+MonthToken = Annotated[str, Field(min_length=7, max_length=7)]
+
+
 class WorkAllocationTeamCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=180)
+    name: Name180
 
 
 class WorkAllocationTeamUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=180)
+    name: OptionalName180 = None
 
 
 class WorkAllocationTeamRead(BaseModel):
@@ -17,13 +25,13 @@ class WorkAllocationTeamRead(BaseModel):
 
 
 class WorkAllocationPersonCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=180)
+    name: Name180
     team_id: Optional[str] = None
     capacity_fte_months: float = 1.0
 
 
 class WorkAllocationPersonUpdate(BaseModel):
-    name: Optional[str] = Field(default=None, min_length=1, max_length=180)
+    name: OptionalName180 = None
     team_id: Optional[str] = None
     capacity_fte_months: Optional[float] = None
     active: Optional[bool] = None
@@ -38,12 +46,12 @@ class WorkAllocationPersonRead(BaseModel):
 
 
 class WorkAllocationTaskCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=240)
+    title: Title240
     fte_months: float = 0.25
 
 
 class WorkAllocationTaskUpdate(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=1, max_length=240)
+    title: OptionalTitle240 = None
     fte_months: Optional[float] = None
 
 
@@ -55,16 +63,16 @@ class WorkAllocationTaskRead(BaseModel):
 
 
 class WorkAllocationAssignmentCreate(BaseModel):
-    task_id: str = Field(min_length=1)
+    task_id: RequiredId
     assignee_type: Literal["person", "team"]
-    assignee_id: str = Field(min_length=1)
-    month: str = Field(min_length=7, max_length=7)
+    assignee_id: RequiredId
+    month: MonthToken
     fte_months_allocated: Optional[float] = None
 
 
 class WorkAllocationAssignmentUpdate(BaseModel):
     assignee_type: Literal["person", "team"]
-    assignee_id: str = Field(min_length=1)
+    assignee_id: RequiredId
     fte_months_allocated: Optional[float] = None
 
 

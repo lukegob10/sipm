@@ -1,12 +1,11 @@
 from datetime import date, datetime
 from typing import Optional
-from uuid import uuid4
 
 from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.table_names import fk_target, physical_table_name
-from .base import Base, _utcnow_naive
+from .base import Base, _utcnow_naive, uuid_str
 
 
 class UsageEvent(Base):
@@ -20,7 +19,7 @@ class UsageEvent(Base):
         Index("idx_usage_events_view_created", "view_key", "occurred_at"),
     )
 
-    event_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    event_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, nullable=False)
     session_id: Mapped[str] = mapped_column(String, nullable=False)
@@ -51,7 +50,7 @@ class PerformanceSample(Base):
         Index("idx_performance_samples_view_created", "view_key", "occurred_at"),
     )
 
-    sample_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    sample_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, nullable=False)
     session_id: Mapped[str] = mapped_column(String, nullable=False)

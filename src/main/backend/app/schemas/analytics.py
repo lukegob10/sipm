@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 _MAX_DURATION_MS = 24 * 60 * 60 * 1000
+TokenField = Annotated[str, Field(min_length=1, max_length=255)]
+OptionalTokenField = Annotated[Optional[str], Field(max_length=255)]
+MetricMsField = Annotated[Optional[int], Field(ge=0, le=_MAX_DURATION_MS)]
 
 
 def _normalized_token(value: object) -> str:
@@ -17,13 +20,13 @@ class UsageEventIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     occurred_at: datetime
-    session_id: str = Field(min_length=1, max_length=255)
-    view_key: str = Field(min_length=1, max_length=255)
-    category: str = Field(min_length=1, max_length=255)
-    feature_key: str = Field(min_length=1, max_length=255)
-    action_key: str = Field(min_length=1, max_length=255)
-    outcome: str = Field(min_length=1, max_length=255)
-    duration_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
+    session_id: TokenField
+    view_key: TokenField
+    category: TokenField
+    feature_key: TokenField
+    action_key: TokenField
+    outcome: TokenField
+    duration_ms: MetricMsField = None
     status_code: Optional[int] = Field(default=None, ge=100, le=599)
     details: dict[str, object] = Field(default_factory=dict)
 
@@ -37,22 +40,22 @@ class PerformanceSampleIn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     occurred_at: datetime
-    session_id: str = Field(min_length=1, max_length=255)
-    view_key: str = Field(min_length=1, max_length=255)
-    sample_kind: str = Field(min_length=1, max_length=255)
-    navigation_type: Optional[str] = Field(default=None, max_length=255)
-    data_load_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    render_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    ttfb_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    dom_interactive_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    dom_content_loaded_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    load_event_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    first_paint_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    first_contentful_paint_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
-    largest_contentful_paint_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
+    session_id: TokenField
+    view_key: TokenField
+    sample_kind: TokenField
+    navigation_type: OptionalTokenField = None
+    data_load_ms: MetricMsField = None
+    render_ms: MetricMsField = None
+    ttfb_ms: MetricMsField = None
+    dom_interactive_ms: MetricMsField = None
+    dom_content_loaded_ms: MetricMsField = None
+    load_event_ms: MetricMsField = None
+    first_paint_ms: MetricMsField = None
+    first_contentful_paint_ms: MetricMsField = None
+    largest_contentful_paint_ms: MetricMsField = None
     cls_score: Optional[float] = Field(default=None, ge=0, le=10)
     long_task_count: Optional[int] = Field(default=None, ge=0, le=100000)
-    long_task_total_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
+    long_task_total_ms: MetricMsField = None
 
     @field_validator("session_id", "view_key", "sample_kind", "navigation_type", mode="before")
     @classmethod

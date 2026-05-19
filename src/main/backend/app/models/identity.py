@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -16,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.table_names import fk_target, physical_table_name
-from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
+from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive, uuid_str
 
 
 class User(TimestampMixin, Base):
@@ -26,7 +25,7 @@ class User(TimestampMixin, Base):
         UniqueConstraint("soeid", name="uix_user_soeid"),
     )
 
-    user_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     soeid: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
@@ -58,7 +57,7 @@ class ApiToken(TimestampMixin, Base):
         Index("idx_api_token_user", "user_id"),
     )
 
-    token_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    token_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     user_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("users", "user_id")),
@@ -79,7 +78,7 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
         UniqueConstraint("name", name="uix_space_name"),
     )
 
-    space_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    space_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
@@ -92,7 +91,7 @@ class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
         UniqueConstraint("space_id", "user_id", name="uix_space_membership"),
     )
 
-    membership_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    membership_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -116,7 +115,7 @@ class ChangeLog(Base):
         Index("idx_change_user_created", "user_id", "created_at"),
     )
 
-    change_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    change_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
     action: Mapped[str] = mapped_column(String, nullable=False)
@@ -143,7 +142,7 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("teams")
     __table_args__ = (UniqueConstraint("space_id", "name", name="uix_team_space_name"),)
 
-    team_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    team_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -161,7 +160,7 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
 class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("team_members")
 
-    team_member_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    team_member_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -185,6 +184,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 
 __all__ = [
+    "ApiToken",
     "ChangeLog",
     "Space",
     "SpaceMembership",

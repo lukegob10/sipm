@@ -14,6 +14,9 @@ import pytest
 from backend.app import config as config_module
 from backend.app import lifespan as lifespan_module
 from backend.app.db import db as db_module
+from backend.app.db import engine as engine_module
+from backend.app.db import session as session_module
+from backend.app.db import settings as settings_module
 from backend.app import runtime as runtime_module
 
 
@@ -26,6 +29,18 @@ def _reload_runtime_module():
 
 def _reload_db_module():
     return importlib.reload(db_module)
+
+
+def _reload_engine_module():
+    return importlib.reload(engine_module)
+
+
+def _reload_session_module():
+    return importlib.reload(session_module)
+
+
+def _reload_settings_module():
+    return importlib.reload(settings_module)
 
 
 def test_get_ta_connection_env_uses_profile_value(monkeypatch):
@@ -86,7 +101,7 @@ def test_db_engine_uses_sqlalchemy_pooling_with_pre_ping(monkeypatch):
     ):
         monkeypatch.delenv(key, raising=False)
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     captured = {}
 
     def fake_create_engine(url: str, **kwargs):
@@ -96,7 +111,7 @@ def test_db_engine_uses_sqlalchemy_pooling_with_pre_ping(monkeypatch):
 
     monkeypatch.setattr(module, "create_engine", fake_create_engine)
 
-    module._build_engine()
+    module.build_engine()
 
     kwargs = captured["kwargs"]
     assert captured["url"] == "oracle+oracledb://"
@@ -117,7 +132,7 @@ def test_db_engine_uses_pooling_env_overrides(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_PRE_PING", "false")
     monkeypatch.setenv("SIPM_DB_POOL_USE_LIFO", "true")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     captured = {}
 
     def fake_create_engine(url: str, **kwargs):
@@ -126,7 +141,7 @@ def test_db_engine_uses_pooling_env_overrides(monkeypatch):
 
     monkeypatch.setattr(module, "create_engine", fake_create_engine)
 
-    module._build_engine()
+    module.build_engine()
 
     kwargs = captured["kwargs"]
     assert kwargs["pool_size"] == 7
@@ -143,7 +158,7 @@ def test_db_engine_allows_documented_zero_or_disabled_pool_values(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "0")
     monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "-1")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     captured = {}
 
     def fake_create_engine(url: str, **kwargs):
@@ -152,7 +167,7 @@ def test_db_engine_allows_documented_zero_or_disabled_pool_values(monkeypatch):
 
     monkeypatch.setattr(module, "create_engine", fake_create_engine)
 
-    module._build_engine()
+    module.build_engine()
 
     kwargs = captured["kwargs"]
     assert kwargs["pool_size"] == 0
@@ -164,7 +179,7 @@ def test_db_engine_allows_documented_zero_or_disabled_pool_values(monkeypatch):
 def test_db_engine_creator_uses_taconnection(monkeypatch):
     monkeypatch.setenv("ENV", "production")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     captured = {}
     fake_connection = object()
 
@@ -188,7 +203,7 @@ def test_db_engine_creator_uses_taconnection(monkeypatch):
 
     monkeypatch.setattr(module, "create_engine", fake_create_engine)
 
-    module._build_engine()
+    module.build_engine()
 
     assert captured["env"] == "prod"
     assert captured["connect_called"] is True
@@ -198,7 +213,7 @@ def test_db_engine_creator_uses_taconnection(monkeypatch):
 def test_db_engine_rejects_non_integer_pool_env(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_SIZE", "five")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -206,13 +221,13 @@ def test_db_engine_rejects_non_integer_pool_env(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be an integer."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_PRE_PING", "sometimes")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -220,13 +235,13 @@ def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_PRE_PING must be a boolean value."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_invalid_boolean_pool_use_lifo_env(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_USE_LIFO", "sometimes")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -234,13 +249,13 @@ def test_db_engine_rejects_invalid_boolean_pool_use_lifo_env(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_USE_LIFO must be a boolean value."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_negative_pool_size(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_SIZE", "-2")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -248,13 +263,13 @@ def test_db_engine_rejects_negative_pool_size(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be >= 0."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_invalid_negative_max_overflow(monkeypatch):
     monkeypatch.setenv("SIPM_DB_MAX_OVERFLOW", "-2")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -262,13 +277,13 @@ def test_db_engine_rejects_invalid_negative_max_overflow(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_MAX_OVERFLOW must be -1 or >= 0."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_negative_pool_timeout(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "-1")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -276,13 +291,13 @@ def test_db_engine_rejects_negative_pool_timeout(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_TIMEOUT_SECONDS must be >= 0."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_db_engine_rejects_invalid_negative_pool_recycle(monkeypatch):
     monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "-2")
 
-    module = _reload_db_module()
+    module = _reload_engine_module()
     monkeypatch.setattr(
         module,
         "create_engine",
@@ -290,13 +305,12 @@ def test_db_engine_rejects_invalid_negative_pool_recycle(monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_RECYCLE_SECONDS must be -1 or >= 0."):
-        module._build_engine()
+        module.build_engine()
 
 
 def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
-    module = _reload_db_module()
-    module.engine = None
-    module.SessionLocal = None
+    module = _reload_session_module()
+    module.reset_session_state()
 
     captured = {"build_calls": 0, "sessionmaker_calls": 0}
     sentinel_engine = object()
@@ -314,7 +328,7 @@ def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
         assert bind is sentinel_engine
         return sentinel_session_local
 
-    monkeypatch.setattr(module, "_build_engine", fake_build_engine)
+    monkeypatch.setattr(module, "build_engine", fake_build_engine)
     monkeypatch.setattr(module, "sessionmaker", fake_sessionmaker)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
@@ -325,7 +339,7 @@ def test_ensure_session_local_initializes_once_under_concurrency(monkeypatch):
 
 
 def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
-    module = _reload_db_module()
+    module = _reload_session_module()
     module.SessionLocal = object()
 
     captured = {"open_now": 0, "max_open": 0, "execute": 0, "commit": 0, "close": 0}
@@ -356,7 +370,7 @@ def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
 
 
 def test_warm_db_pool_rejects_non_positive_connection_count():
-    module = _reload_db_module()
+    module = _reload_session_module()
 
     with pytest.raises(RuntimeError, match="connection_count must be >= 1."):
         module.warm_db_pool(connection_count=0)
@@ -366,6 +380,44 @@ def test_db_healthcheck_sql_is_oracle_safe():
     module = _reload_db_module()
 
     assert str(module.DB_HEALTHCHECK_SQL) == "SELECT 1 FROM DUAL"
+
+
+def test_db_facade_preserves_public_runtime_exports():
+    module = _reload_db_module()
+
+    for name in (
+        "DB_HEALTHCHECK_SQL",
+        "SessionLocal",
+        "_build_engine",
+        "_ensure_session_local",
+        "check_db_connection",
+        "engine",
+        "get_session",
+        "init_db",
+        "warm_db_pool",
+    ):
+        assert hasattr(module, name)
+
+
+def test_db_settings_loader_exposes_immutable_pool_settings(monkeypatch):
+    monkeypatch.setenv("SIPM_DB_POOL_SIZE", "3")
+    monkeypatch.setenv("SIPM_DB_MAX_OVERFLOW", "4")
+    monkeypatch.setenv("SIPM_DB_POOL_TIMEOUT_SECONDS", "5")
+    monkeypatch.setenv("SIPM_DB_POOL_RECYCLE_SECONDS", "6")
+    monkeypatch.setenv("SIPM_DB_POOL_PRE_PING", "off")
+    monkeypatch.setenv("SIPM_DB_POOL_USE_LIFO", "on")
+    module = _reload_settings_module()
+
+    settings = module.load_database_pool_settings()
+
+    assert settings == module.DatabasePoolSettings(
+        pool_size=3,
+        max_overflow=4,
+        pool_timeout_seconds=5,
+        pool_recycle_seconds=6,
+        pool_pre_ping=False,
+        pool_use_lifo=True,
+    )
 
 
 def test_database_runtime_environment_knobs_are_documented():

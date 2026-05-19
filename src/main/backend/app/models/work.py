@@ -1,6 +1,5 @@
 from datetime import date, datetime
 from typing import Optional
-from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -25,14 +24,14 @@ from ..utils.enums import (
     SolutionStatus,
     SubcomponentStatus,
 )
-from .base import Base, SoftDeleteMixin, TimestampMixin
+from .base import Base, SoftDeleteMixin, TimestampMixin, uuid_str
 
 
 class Project(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("projects")
     __table_args__ = (UniqueConstraint("space_id", "project_name", name="uix_project_space_name"),)
 
-    project_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    project_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -65,7 +64,7 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
         ),
     )
 
-    solution_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    solution_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -134,7 +133,7 @@ class SolutionPhase(TimestampMixin, Base):
         UniqueConstraint("solution_id", "phase_id", name="uix_solution_phase"),
     )
 
-    solution_phase_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    solution_phase_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     solution_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("solutions", "solution_id")),
@@ -159,7 +158,7 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
         ),
     )
 
-    subcomponent_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    subcomponent_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -214,7 +213,7 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
         ),
     )
 
-    allocation_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    allocation_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -249,7 +248,7 @@ class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
         UniqueConstraint("name", name="uix_planning_window_name"),
     )
 
-    window_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    window_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),

@@ -50,13 +50,47 @@ def _audit_permission_denied(
         session.rollback()
 
 
+def _raise_auth_required() -> None:
+    raise security_http_exception(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        code="AUTH_REQUIRED",
+        message="Not authenticated",
+    )
+
+
+def _raise_forbidden_space() -> None:
+    raise security_http_exception(
+        status_code=status.HTTP_403_FORBIDDEN,
+        code="FORBIDDEN_SPACE",
+        message="Space is not accessible",
+    )
+
+
+def _raise_forbidden_role(message: str) -> None:
+    raise security_http_exception(
+        status_code=status.HTTP_403_FORBIDDEN,
+        code="FORBIDDEN_ROLE",
+        message=message,
+    )
+
+
+def _ensure_user_not_locked(user: User) -> None:
+    if not user.locked_until:
+        return
+    locked_until = user.locked_until
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    if locked_until > datetime.now(timezone.utc):
+        raise security_http_exception(
+            status_code=status.HTTP_423_LOCKED,
+            code="ACCOUNT_LOCKED",
+            message="Account locked",
+        )
+
+
 def authenticate_access_token(session: Session, token: str | None) -> User:
     if not token:
-        raise security_http_exception(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="AUTH_REQUIRED",
-            message="Not authenticated",
-        )
+        _raise_auth_required()
     payload = decode_token(token, expected_type="access")
     user_id = payload.get("sub")
     if not user_id:
@@ -73,16 +107,7 @@ def authenticate_access_token(session: Session, token: str | None) -> User:
             message="User inactive or missing",
         )
     ensure_token_not_revoked(user, payload.get("iat"))
-    if user.locked_until:
-        locked_until = user.locked_until
-        if locked_until.tzinfo is None:
-            locked_until = locked_until.replace(tzinfo=timezone.utc)
-        if locked_until > datetime.now(timezone.utc):
-            raise security_http_exception(
-                status_code=status.HTTP_423_LOCKED,
-                code="ACCOUNT_LOCKED",
-                message="Account locked",
-            )
+    _ensure_user_not_locked(user)
     return user
 
 
@@ -110,33 +135,42 @@ def _bearer_credential(request: Request) -> str | None:
     return None
 
 
+def _cookie_access_token(request: Request) -> str | None:
+    return request.cookies.get("access_token")
+
+
+def _set_authenticated_user(request: Request, user: User, *, auth_method: str) -> User:
+    request.state.auth_method = auth_method
+    request.state.user = user
+    return user
+
+
 def require_user(request: Request, session: Session = Depends(get_db)) -> User:
     bearer_token = _bearer_credential(request)
     if bearer_token:
         user = authenticate_api_token(session, bearer_token)
-        request.state.auth_method = "api_token"
-        request.state.user = user
-        return user
-    token = request.cookies.get("access_token")
+        return _set_authenticated_user(request, user, auth_method="api_token")
+    token = _cookie_access_token(request)
     if token:
         user = authenticate_access_token(session, token)
-        request.state.auth_method = "cookie"
-        request.state.user = user
-        return user
-    user = authenticate_access_token(session, None)
-    request.state.user = user
-    return user
+        return _set_authenticated_user(request, user, auth_method="cookie")
+    return authenticate_access_token(session, None)
 
 
 def current_user(request: Request) -> User:
     user = getattr(request.state, "user", None)
     if not user:
-        raise security_http_exception(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            code="AUTH_REQUIRED",
-            message="Not authenticated",
-        )
+        _raise_auth_required()
     return user
+
+
+def _requested_space_id(request: Request) -> str | None:
+    return request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
+
+
+def _ensure_space_matches_request(requested_space_id: str | None, ctx: SpaceContext) -> None:
+    if requested_space_id and ctx.space_id != requested_space_id:
+        _raise_forbidden_space()
 
 
 def current_space(
@@ -144,14 +178,9 @@ def current_space(
     session: Session = Depends(get_db),
     user: User = Depends(require_user),
 ) -> SpaceContext:
-    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
+    requested_space_id = _requested_space_id(request)
     ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
-    if requested_space_id and ctx.space_id != requested_space_id:
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="FORBIDDEN_SPACE",
-            message="Space is not accessible",
-        )
+    _ensure_space_matches_request(requested_space_id, ctx)
     request.state.space_context = ctx
     return ctx
 
@@ -169,11 +198,7 @@ def require_global_admin(
             action="forbidden_global_admin",
             reason="Global admin required",
         )
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="FORBIDDEN_ROLE",
-            message="Global admin required",
-        )
+        _raise_forbidden_role("Global admin required")
     return user
 
 
@@ -183,6 +208,17 @@ _SPACE_ROLE_ORDER = {"member": 1, "space_admin": 2}
 def _normalize_space_role(value: str | None) -> str:
     normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
     return normalized
+
+
+def _resolve_space_role_dependency_args(
+    request: Request | SpaceContext,
+    ctx: SpaceContext,
+) -> tuple[Request | None, SpaceContext]:
+    if isinstance(request, SpaceContext):
+        return None, request
+    if not isinstance(ctx, SpaceContext):
+        raise RuntimeError("Space context dependency was not resolved")
+    return request, ctx
 
 
 def require_space_role(min_role: str):
@@ -196,11 +232,7 @@ def require_space_role(min_role: str):
         session: Session = Depends(get_db),
         ctx: SpaceContext = Depends(current_space),
     ) -> SpaceContext:
-        if isinstance(request, SpaceContext):
-            ctx = request
-            request = None  # type: ignore[assignment]
-        if not isinstance(ctx, SpaceContext):
-            raise RuntimeError("Space context dependency was not resolved")
+        request, ctx = _resolve_space_role_dependency_args(request, ctx)
         if ctx.is_global_admin:
             return ctx
         current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
@@ -214,11 +246,7 @@ def require_space_role(min_role: str):
                     action="forbidden_space_role",
                     reason=f"Insufficient space role for '{min_norm}'",
                 )
-            raise security_http_exception(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="FORBIDDEN_ROLE",
-                message="Insufficient space role",
-            )
+            _raise_forbidden_role("Insufficient space role")
         return ctx
 
     return _dep

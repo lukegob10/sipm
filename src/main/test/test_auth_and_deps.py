@@ -468,6 +468,105 @@ def test_require_space_role_rejects_member_for_space_admin_threshold():
     assert exc.value.detail == "Insufficient space role"
 
 
+def test_require_user_sets_api_token_state_and_prefers_bearer(monkeypatch):
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"authorization", b"Bearer service-token")],
+        }
+    )
+    request._cookies = {"access_token": "cookie-token"}
+    api_user = User(user_id="api-user", soeid="api", email="api@example.com", display_name="API")
+
+    def fake_api_token(_session, token):
+        assert token == "service-token"
+        return api_user
+
+    def reject_cookie_auth(_session, _token):
+        raise AssertionError("cookie auth should not be used when bearer auth is present")
+
+    monkeypatch.setattr(deps_module, "authenticate_api_token", fake_api_token)
+    monkeypatch.setattr(deps_module, "authenticate_access_token", reject_cookie_auth)
+
+    assert deps_module.require_user(request, session=object()) is api_user
+    assert request.state.user is api_user
+    assert request.state.auth_method == "api_token"
+
+
+def test_require_user_sets_cookie_auth_state(monkeypatch):
+    request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
+    request._cookies = {"access_token": "cookie-token"}
+    cookie_user = User(user_id="cookie-user", soeid="cookie", email="cookie@example.com", display_name="Cookie")
+
+    def fake_cookie_auth(_session, token):
+        assert token == "cookie-token"
+        return cookie_user
+
+    monkeypatch.setattr(deps_module, "authenticate_access_token", fake_cookie_auth)
+
+    assert deps_module.require_user(request, session=object()) is cookie_user
+    assert request.state.user is cookie_user
+    assert request.state.auth_method == "cookie"
+
+
+def test_current_space_rejects_resolved_space_mismatch(monkeypatch):
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-space-id", b"requested-space")],
+        }
+    )
+    user = User(user_id="space-user", soeid="space", email="space@example.com", display_name="Space")
+
+    monkeypatch.setattr(
+        deps_module,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: SpaceContext(
+            space_id="different-space",
+            space_name="Different",
+            is_global_admin=False,
+            space_role="member",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        deps_module.current_space(request, session=object(), user=user)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Space is not accessible"
+
+
+def test_permission_audit_rolls_back_when_logging_fails(monkeypatch):
+    calls = {"rollback": 0, "commit": 0}
+
+    class SessionStub:
+        def commit(self):
+            calls["commit"] += 1
+
+        def rollback(self):
+            calls["rollback"] += 1
+
+    monkeypatch.setattr(
+        deps_module,
+        "log_changes",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("audit failed")),
+    )
+
+    deps_module._audit_permission_denied(
+        SessionStub(),
+        user_id="user-1",
+        space_id="space-1",
+        action="forbidden_space_role",
+        reason="Insufficient space role",
+    )
+
+    assert calls == {"rollback": 1, "commit": 0}
+
+
 @pytest.mark.anyio
 async def test_local_login_sets_session_cookies_and_supports_register_refresh_logout(
     auth_client,

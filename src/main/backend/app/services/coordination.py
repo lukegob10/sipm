@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import threading
 from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
@@ -27,10 +26,6 @@ _REFRESH_CHANNEL = "sipm:realtime:refresh"
 _SCOPE_VERSION_KEY_PREFIX = "sipm:cache:scope:"
 
 
-def _running_tests() -> bool:
-    return "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
-
-
 def _normalized_profile() -> str:
     raw = str(os.getenv("ENV", "")).strip().lower()
     return _PROFILE_ALIASES.get(raw, raw or "dev")
@@ -39,8 +34,6 @@ def _normalized_profile() -> str:
 def _configured_backend_name() -> str:
     raw = str(os.getenv("SIPM_COORDINATION_BACKEND", "")).strip().lower()
     profile = _normalized_profile()
-    if _running_tests():
-        return raw or "memory"
     if profile in {"uat", "prod"}:
         if raw and raw != "redis":
             raise RuntimeError("SIPM_COORDINATION_BACKEND must be 'redis' when ENV resolves to uat or prod.")

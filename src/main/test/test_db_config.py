@@ -10,9 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import anyio.to_thread
 
-from backend import main as main_module
+from backend.app import config as config_module
+from backend.app import lifespan as lifespan_module
 from backend.app.db import db as db_module
 from backend.app import runtime as runtime_module
 
@@ -396,7 +396,7 @@ def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):
     monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
     monkeypatch.setenv("SIPM_EMPTY_TEST", "")
 
-    main_module._load_env_file(env_file)
+    config_module.load_env_file(env_file)
 
     assert os.environ["SIPM_SECRET_KEY"] == "from-env"
     assert os.environ["SIPM_EMPTY_TEST"] == "from-file"
@@ -409,7 +409,7 @@ def test_load_env_file_can_override_when_enabled(monkeypatch, tmp_path):
     monkeypatch.setenv("SIPM_ENV_OVERRIDE", "true")
     monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
 
-    main_module._load_env_file(env_file)
+    config_module.load_env_file(env_file)
 
     assert os.environ["SIPM_SECRET_KEY"] == "from-file"
 
@@ -421,7 +421,7 @@ def test_load_env_file_accepts_truthy_env_override_values(monkeypatch, tmp_path)
     monkeypatch.setenv("SIPM_ENV_OVERRIDE", "yes")
     monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
 
-    main_module._load_env_file(env_file)
+    config_module.load_env_file(env_file)
 
     assert os.environ["SIPM_SECRET_KEY"] == "from-file"
 
@@ -433,7 +433,70 @@ def test_load_env_file_rejects_invalid_env_override_boolean(monkeypatch, tmp_pat
     monkeypatch.setenv("SIPM_ENV_OVERRIDE", "sometimes")
 
     with pytest.raises(RuntimeError, match="SIPM_ENV_OVERRIDE must be a boolean value."):
-        main_module._load_env_file(env_file)
+        config_module.load_env_file(env_file)
+
+
+def test_runtime_env_files_prefers_repo_root_env_files(tmp_path):
+    repo_dir = tmp_path / "repo"
+    base_dir = repo_dir / "src" / "main"
+    repo_dir.mkdir()
+    base_dir.mkdir(parents=True)
+    repo_env = repo_dir / ".env"
+    repo_env_local = repo_dir / ".env.local"
+    repo_env.write_text("SIPM_FROM_REPO=true\n", encoding="utf-8")
+    (base_dir / ".env").write_text("SIPM_FROM_LEGACY=true\n", encoding="utf-8")
+    paths = config_module.RuntimePaths(
+        base_dir=base_dir,
+        repo_dir=repo_dir,
+        frontend_dir=base_dir / "ui",
+        frontend_required_files=(),
+    )
+
+    assert config_module.runtime_env_files(paths) == (repo_env, repo_env_local)
+
+
+def test_runtime_env_files_uses_legacy_main_env_when_repo_env_absent(tmp_path):
+    repo_dir = tmp_path / "repo"
+    base_dir = repo_dir / "src" / "main"
+    base_dir.mkdir(parents=True)
+    paths = config_module.RuntimePaths(
+        base_dir=base_dir,
+        repo_dir=repo_dir,
+        frontend_dir=base_dir / "ui",
+        frontend_required_files=(),
+    )
+
+    assert config_module.runtime_env_files(paths) == (base_dir / ".env", base_dir / ".env.local")
+
+
+def test_load_runtime_env_is_idempotent_and_force_reloadable(monkeypatch, tmp_path):
+    repo_dir = tmp_path / "repo"
+    base_dir = repo_dir / "src" / "main"
+    base_dir.mkdir(parents=True)
+    env_file = repo_dir / ".env"
+    env_file.write_text("SIPM_RUNTIME_ONCE=one\n", encoding="utf-8")
+    paths = config_module.RuntimePaths(
+        base_dir=base_dir,
+        repo_dir=repo_dir,
+        frontend_dir=base_dir / "ui",
+        frontend_required_files=(),
+    )
+
+    monkeypatch.delenv("SIPM_RUNTIME_ONCE", raising=False)
+    monkeypatch.delenv("SIPM_RUNTIME_FORCE", raising=False)
+    monkeypatch.setattr(config_module, "_ENV_LOADED", False)
+
+    config_module.load_runtime_env(paths=paths)
+    env_file.write_text("SIPM_RUNTIME_ONCE=changed\nSIPM_RUNTIME_FORCE=two\n", encoding="utf-8")
+    config_module.load_runtime_env(paths=paths)
+
+    assert os.environ["SIPM_RUNTIME_ONCE"] == "one"
+    assert "SIPM_RUNTIME_FORCE" not in os.environ
+
+    config_module.load_runtime_env(paths=paths, force=True)
+
+    assert os.environ["SIPM_RUNTIME_ONCE"] == "one"
+    assert os.environ["SIPM_RUNTIME_FORCE"] == "two"
 
 
 @pytest.mark.anyio
@@ -443,32 +506,20 @@ async def test_app_lifespan_validates_auth_configuration(monkeypatch):
     def fake_validate() -> None:
         calls["count"] += 1
 
-    monkeypatch.setattr(main_module, "validate_auth_configuration", fake_validate)
+    monkeypatch.setattr(lifespan_module, "validate_auth_configuration", fake_validate)
 
-    async with main_module.app.router.lifespan_context(main_module.app):
+    from backend.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
         pass
 
     assert calls["count"] == 1
 
 
 @pytest.mark.anyio
-async def test_app_lifespan_restores_anyio_threadpool_patch(monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    original_run_sync = anyio.to_thread.run_sync
-
-    async with main_module.app.router.lifespan_context(main_module.app):
-        patched_run_sync = anyio.to_thread.run_sync
-        assert patched_run_sync is not original_run_sync
-        assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
-
-    assert anyio.to_thread.run_sync is original_run_sync
-
-
-@pytest.mark.anyio
 async def test_app_lifespan_accepts_truthy_disable_startup_value(monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
     monkeypatch.setenv("SIPM_DISABLE_STARTUP", "1")
 
     calls = {"init_db": 0}
@@ -476,30 +527,36 @@ async def test_app_lifespan_accepts_truthy_disable_startup_value(monkeypatch):
     def fake_init_db() -> None:
         calls["init_db"] += 1
 
-    monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(lifespan_module, "init_db", fake_init_db)
 
-    async with main_module.app.router.lifespan_context(main_module.app):
+    from backend.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
         pass
 
     assert calls["init_db"] == 0
 
 
 @pytest.mark.anyio
-async def test_app_lifespan_accepts_truthy_disable_threadpool_value(monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setenv("SIPM_DISABLE_THREADPOOL", "on")
+async def test_app_lifespan_does_not_disable_startup_for_pytest_presence(monkeypatch):
+    monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
 
-    original_run_sync = anyio.to_thread.run_sync
-    monkeypatch.setattr(main_module, "init_db", lambda: None)
+    calls = {"init_db": 0}
 
-    async with main_module.app.router.lifespan_context(main_module.app):
-        patched_run_sync = anyio.to_thread.run_sync
-        assert patched_run_sync is not original_run_sync
-        assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
+    def fake_init_db() -> None:
+        calls["init_db"] += 1
 
-    assert anyio.to_thread.run_sync is original_run_sync
+    monkeypatch.setattr(lifespan_module, "init_db", fake_init_db)
+
+    from backend.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        pass
+
+    assert calls["init_db"] == 1
 
 
 @pytest.mark.anyio
@@ -518,22 +575,21 @@ async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
     async def fake_to_thread(func):
         return func()
 
-    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
-    monkeypatch.setattr(main_module.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(lifespan_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(lifespan_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(lifespan_module.asyncio, "to_thread", fake_to_thread)
 
     with pytest.raises(asyncio.CancelledError):
-        await main_module._db_keepwarm_loop(15)
+        await lifespan_module.db_keepwarm_loop(15)
 
     assert calls == {"sleep": 2, "check": 1}
 
 
 @pytest.mark.anyio
 async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(lifespan_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
     monkeypatch.delenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", raising=False)
     monkeypatch.setenv("SIPM_DB_PREWARM_ON_STARTUP", "true")
     monkeypatch.setenv("SIPM_DB_PREWARM_CONNECTIONS", "2")
@@ -552,12 +608,15 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
     def fake_warm_db_pool(*, connection_count: int) -> None:
         calls["warm"].append(connection_count)
 
-    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
-    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
-    monkeypatch.setattr(main_module, "init_db", fake_init_db)
-    monkeypatch.setattr(main_module, "warm_db_pool", fake_warm_db_pool)
+    monkeypatch.setattr(lifespan_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(lifespan_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(lifespan_module, "init_db", fake_init_db)
+    monkeypatch.setattr(lifespan_module, "warm_db_pool", fake_warm_db_pool)
 
-    async with main_module.app.router.lifespan_context(main_module.app):
+    from backend.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
         pass
 
     assert calls == {"init_db": 1, "warm": [2]}
@@ -565,10 +624,9 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
 
 @pytest.mark.anyio
 async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
-    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(lifespan_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
     monkeypatch.delenv("SIPM_DB_PREWARM_ON_STARTUP", raising=False)
     monkeypatch.setenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", "60")
 
@@ -607,13 +665,16 @@ async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
         calls["create_task"] += 1
         return FakeTask(coro)
 
-    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
-    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
-    monkeypatch.setattr(main_module, "init_db", fake_init_db)
-    monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
-    monkeypatch.setattr(main_module.asyncio, "create_task", fake_create_task)
+    monkeypatch.setattr(lifespan_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(lifespan_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(lifespan_module, "init_db", fake_init_db)
+    monkeypatch.setattr(lifespan_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(lifespan_module.asyncio, "create_task", fake_create_task)
 
-    async with main_module.app.router.lifespan_context(main_module.app):
+    from backend.main import create_app
+
+    app = create_app()
+    async with app.router.lifespan_context(app):
         pass
 
     assert calls == {"init_db": 1, "check": 1, "create_task": 1}

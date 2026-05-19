@@ -5,8 +5,21 @@ import logging
 import httpx
 import pytest
 
-import backend.main as main_module
+from backend.app import health as health_module
 from backend.main import app as fastapi_app
+from backend.main import create_app
+
+
+def test_create_app_registers_core_routes_and_middleware():
+    app = create_app()
+    paths = {route.path for route in app.routes}
+
+    assert "/health" in paths
+    assert "/health/ready" in paths
+    assert "/project-manager/" in paths
+    assert "/project-manager/{frontend_path:path}" in paths
+    assert "/project-manager/api/projects/" in paths
+    assert app.user_middleware
 
 
 @pytest.mark.anyio
@@ -35,7 +48,8 @@ async def test_security_headers_are_app_owned_and_frame_compatible(client):
     csp = response.headers.get("Content-Security-Policy", "")
     assert "default-src 'self'" in csp
     assert "connect-src 'self' ws: wss:" in csp
-    assert "frame-ancestors 'self' https:" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert "frame-ancestors 'self' https:" not in csp
     assert response.headers.get("Referrer-Policy") == "strict-origin-when-cross-origin"
     assert "camera=()" in response.headers.get("Permissions-Policy", "")
 
@@ -61,7 +75,7 @@ async def test_readiness_skips_db_check_during_tests(client):
             "auth": {"status": "ok"},
             "coordination": {"status": "ok", "backend": "memory"},
             "frontend": {"status": "ok"},
-            "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
+            "db": {"status": "skipped", "detail": "startup disabled"},
         },
     }
 
@@ -70,14 +84,14 @@ async def test_readiness_skips_db_check_during_tests(client):
 async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatch):
     calls = {"db": 0}
 
-    monkeypatch.setattr(main_module, "_startup_db_disabled", lambda: False)
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: "redis")
+    monkeypatch.setattr(health_module, "startup_db_disabled", lambda: False)
+    monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(health_module.coordination, "validate_configuration", lambda: "redis")
 
     def _ok_db_check():
         calls["db"] += 1
 
-    monkeypatch.setattr(main_module, "check_db_connection", _ok_db_check)
+    monkeypatch.setattr(health_module, "check_db_connection", _ok_db_check)
 
     response = await client.get("/health/ready")
 
@@ -96,10 +110,10 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
 
 @pytest.mark.anyio
 async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
-    monkeypatch.setattr(main_module, "_startup_db_disabled", lambda: False)
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: "redis")
-    monkeypatch.setattr(main_module, "check_db_connection", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    monkeypatch.setattr(health_module, "startup_db_disabled", lambda: False)
+    monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(health_module.coordination, "validate_configuration", lambda: "redis")
+    monkeypatch.setattr(health_module, "check_db_connection", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
 
     response = await client.get("/health/ready")
 
@@ -117,9 +131,9 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
 
 @pytest.mark.anyio
 async def test_readiness_returns_503_when_coordination_config_fails(client, monkeypatch):
-    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
     monkeypatch.setattr(
-        main_module.coordination,
+        health_module.coordination,
         "validate_configuration",
         lambda: (_ for _ in ()).throw(RuntimeError("redis required")),
     )
@@ -133,7 +147,7 @@ async def test_readiness_returns_503_when_coordination_config_fails(client, monk
             "auth": {"status": "ok"},
             "coordination": {"status": "error", "detail": "redis required"},
             "frontend": {"status": "ok"},
-            "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
+            "db": {"status": "skipped", "detail": "startup disabled"},
         },
     }
 

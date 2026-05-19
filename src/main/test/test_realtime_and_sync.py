@@ -166,17 +166,33 @@ def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_websocket_endpoint_unregisters_on_disconnect():
-    ws = StubWebSocket(receive_exc=WebSocketDisconnect())
-    await websocket_endpoint(ws)
+async def test_websocket_endpoint_unregisters_on_disconnect(monkeypatch):
+    ws = StubWebSocket(cookies={"access_token": "good-token"}, receive_exc=WebSocketDisconnect())
+    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    await websocket_endpoint(ws, session=SessionStub())
+
     assert ws.accepted is True
     assert ws not in realtime.connections
 
 
 @pytest.mark.anyio
-async def test_websocket_endpoint_unregisters_on_unexpected_exception():
-    ws = StubWebSocket(receive_exc=RuntimeError("boom"))
-    await websocket_endpoint(ws)
+async def test_websocket_endpoint_unregisters_on_unexpected_exception(monkeypatch):
+    ws = StubWebSocket(cookies={"access_token": "good-token"}, receive_exc=RuntimeError("boom"))
+    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    await websocket_endpoint(ws, session=SessionStub())
+
     assert ws.accepted is True
     assert ws not in realtime.connections
 
@@ -217,7 +233,6 @@ async def test_websocket_endpoint_rejects_query_token_auth(monkeypatch):
 @pytest.mark.anyio
 async def test_websocket_endpoint_rejects_anonymous_session_outside_tests(monkeypatch):
     ws = StubWebSocket()
-    monkeypatch.setattr(sync_route, "_running_tests", lambda: False)
 
     await websocket_endpoint(ws)
 

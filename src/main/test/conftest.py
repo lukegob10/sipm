@@ -16,6 +16,7 @@ if str(MAIN_DIR) not in sys.path:
     sys.path.insert(0, str(MAIN_DIR))
 
 os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
+os.environ.setdefault("SIPM_DISABLE_STARTUP", "true")
 
 from backend.app.deps import current_user, get_db, require_user
 from backend.app.services import coordination

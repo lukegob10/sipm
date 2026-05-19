@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 
+from backend.app.config import load_runtime_env
+
+
+load_runtime_env()
+
 DEFAULT_CONTEXT_PATH = "/project-manager"
 
 

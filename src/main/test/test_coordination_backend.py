@@ -19,7 +19,6 @@ def test_coordination_defaults_to_memory_in_tests(monkeypatch):
 def test_prod_like_env_requires_redis(monkeypatch):
     monkeypatch.setenv("ENV", "prod")
     monkeypatch.setenv("SIPM_COORDINATION_BACKEND", "memory")
-    monkeypatch.setattr(coordination, "_running_tests", lambda: False)
 
     with pytest.raises(
         RuntimeError,

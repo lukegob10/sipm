@@ -8,7 +8,12 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ...auth.auth import hash_bootstrap_password
-from ...deps import current_space as current_space_dep, current_user as current_user_dep, get_db, require_space_role
+from ...deps import (
+    current_space as current_space_dep,
+    current_user as current_user_dep,
+    get_db,
+    require_space_role,
+)
 from ...models import ResourceAllocation, SpaceMembership, Subcomponent, Team, User
 from ...schemas.planning import (
     WorkAllocationAssignmentCreate,
@@ -42,7 +47,10 @@ from ...services.planning_work_allocation import (
 )
 from ...services.spaces import SpaceContext
 from ...services.smart_cache import cached_call, invalidate_space, make_scope_token
-from ...services.user_admin_guards import ensure_actor_can_modify_user, ensure_user_can_be_deactivated
+from ...services.user_admin_guards import (
+    ensure_actor_can_modify_user,
+    ensure_user_can_be_deactivated,
+)
 from ...utils.enums import SubcomponentStatus
 from .common import (
     _HOURS_PER_FTE_MONTH,
@@ -72,7 +80,9 @@ router = APIRouter()
 def _nonblank_text(value: object, *, field_name: str) -> str:
     text = str(value or "").strip()
     if not text:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} is required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} is required"
+        )
     return text
 
 
@@ -85,7 +95,9 @@ def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set[str]) -> None:
+def _invalidate_user_caches_for_user_memberships(
+    session: Session, user_ids: set[str]
+) -> None:
     if not user_ids:
         return
     rows = (
@@ -110,11 +122,17 @@ def _work_allocation_board_payload(
 ) -> WorkAllocationBoardRead:
     teams = team_query(session, space_ctx).order_by(Team.name.asc()).all()
     team_map = team_name_to_id_map(session, space_ctx)
-    people = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    people = (
+        active_space_user_query(session, space_ctx)
+        .order_by(User.display_name.asc())
+        .all()
+    )
     task_query = planning_task_query(session, space_ctx)
     if search:
         term = f"%{search.strip().lower()}%"
-        task_query = task_query.filter(func.lower(Subcomponent.subcomponent_name).like(term))
+        task_query = task_query.filter(
+            func.lower(Subcomponent.subcomponent_name).like(term)
+        )
     tasks = task_query.order_by(Subcomponent.created_at.asc()).all()
     task_ids = [task.subcomponent_id for task in tasks]
     allocations: list[ResourceAllocation] = []
@@ -133,7 +151,9 @@ def _work_allocation_board_payload(
         teams=[WorkAllocationTeamRead(id=row.team_id, name=row.name) for row in teams],
         people=[person_payload(row, team_map) for row in people],
         tasks=[task_payload(row, assigned_ids) for row in tasks],
-        allocations=[allocation_for_board_payload(row, space_ctx, session) for row in allocations],
+        allocations=[
+            allocation_for_board_payload(row, space_ctx, session) for row in allocations
+        ],
     )
 
 
@@ -173,7 +193,9 @@ def get_work_allocation_board(
     )
 
 
-@router.get("/planning/work-allocation/teams", response_model=List[WorkAllocationTeamRead])
+@router.get(
+    "/planning/work-allocation/teams", response_model=List[WorkAllocationTeamRead]
+)
 def list_work_allocation_teams(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
@@ -204,7 +226,9 @@ def create_work_allocation_team(
     )
     now = datetime.now(timezone.utc)
     if existing and existing.deleted_at is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team already exists")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Team already exists"
+        )
     if existing and existing.deleted_at is not None:
         existing.deleted_at = None
         existing.updated_at = now
@@ -237,7 +261,9 @@ def create_work_allocation_team(
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
 
-@router.patch("/planning/work-allocation/teams/{team_id}", response_model=WorkAllocationTeamRead)
+@router.patch(
+    "/planning/work-allocation/teams/{team_id}", response_model=WorkAllocationTeamRead
+)
 def update_work_allocation_team(
     team_id: str,
     payload: WorkAllocationTeamUpdate,
@@ -246,7 +272,11 @@ def update_work_allocation_team(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTeamRead:
     row = active_team(session, team_id, space_ctx)
-    next_name = _nonblank_text(payload.name, field_name="Team name") if payload.name is not None else None
+    next_name = (
+        _nonblank_text(payload.name, field_name="Team name")
+        if payload.name is not None
+        else None
+    )
     affected_user_ids: set[str] = set()
     if next_name:
         conflict = (
@@ -258,10 +288,17 @@ def update_work_allocation_team(
             .first()
         )
         if conflict:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Team name already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Team name already exists",
+            )
         old_name = row.name
         row.name = next_name
-        for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
+        for user in (
+            _space_user_membership_query(session, space_ctx)
+            .filter(User.team_tag == old_name)
+            .all()
+        ):
             user.team_tag = next_name
             session.add(user)
             affected_user_ids.add(user.user_id)
@@ -278,7 +315,9 @@ def update_work_allocation_team(
     return WorkAllocationTeamRead(id=row.team_id, name=row.name)
 
 
-@router.delete("/planning/work-allocation/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/planning/work-allocation/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_work_allocation_team(
     team_id: str,
     session: Session = Depends(get_db),
@@ -291,7 +330,11 @@ def delete_work_allocation_team(
     affected_user_ids: set[str] = set()
     row.deleted_at = now
     session.add(row)
-    for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
+    for user in (
+        _space_user_membership_query(session, space_ctx)
+        .filter(User.team_tag == old_name)
+        .all()
+    ):
         user.team_tag = None
         user.updated_at = now
         session.add(user)
@@ -305,14 +348,20 @@ def delete_work_allocation_team(
     return None
 
 
-@router.get("/planning/work-allocation/people", response_model=List[WorkAllocationPersonRead])
+@router.get(
+    "/planning/work-allocation/people", response_model=List[WorkAllocationPersonRead]
+)
 def list_work_allocation_people(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationPersonRead]:
     team_map = team_name_to_id_map(session, space_ctx)
-    rows = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    rows = (
+        active_space_user_query(session, space_ctx)
+        .order_by(User.display_name.asc())
+        .all()
+    )
     return [person_payload(row, team_map) for row in rows]
 
 
@@ -331,7 +380,9 @@ def create_work_allocation_person(
     team = active_team(session, payload.team_id, space_ctx) if payload.team_id else None
     soeid = next_available_soeid(session, name)
     now = datetime.now(timezone.utc)
-    raw_capacity = payload.capacity_fte_months if payload.capacity_fte_months is not None else 1.0
+    raw_capacity = (
+        payload.capacity_fte_months if payload.capacity_fte_months is not None else 1.0
+    )
     cap = max(float(raw_capacity), 0.0)
     row = User(
         soeid=soeid,
@@ -359,7 +410,10 @@ def create_work_allocation_person(
     return person_payload(row, team_map)
 
 
-@router.patch("/planning/work-allocation/people/{person_id}", response_model=WorkAllocationPersonRead)
+@router.patch(
+    "/planning/work-allocation/people/{person_id}",
+    response_model=WorkAllocationPersonRead,
+)
 def update_work_allocation_person(
     person_id: str,
     payload: WorkAllocationPersonUpdate,
@@ -380,7 +434,10 @@ def update_work_allocation_person(
         team = active_team(session, next_team_id, space_ctx) if next_team_id else None
         row.team_tag = team.name if team else None
 
-    if "capacity_fte_months" in updates and updates.get("capacity_fte_months") is not None:
+    if (
+        "capacity_fte_months" in updates
+        and updates.get("capacity_fte_months") is not None
+    ):
         cap = max(float(updates["capacity_fte_months"]), 0.0)
         row.capacity_fte_month = round(cap, 3)
         row.capacity_hours = max(int(round(cap * 40.0)), 0)
@@ -402,7 +459,10 @@ def update_work_allocation_person(
     return person_payload(row, team_map)
 
 
-@router.delete("/planning/work-allocation/people/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/planning/work-allocation/people/{person_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_work_allocation_person(
     person_id: str,
     session: Session = Depends(get_db),
@@ -435,7 +495,9 @@ def delete_work_allocation_person(
     return None
 
 
-@router.get("/planning/work-allocation/tasks", response_model=List[WorkAllocationTaskRead])
+@router.get(
+    "/planning/work-allocation/tasks", response_model=List[WorkAllocationTaskRead]
+)
 def list_work_allocation_tasks(
     month: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -476,11 +538,17 @@ def create_work_allocation_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTaskRead:
     solution = board_solution(session, space_ctx)
-    query = planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
+    query = planning_task_query(session, space_ctx).filter(
+        Subcomponent.solution_id == solution.solution_id
+    )
     title = _nonblank_text(payload.title, field_name="Task title")
-    conflict = query.filter(func.lower(Subcomponent.subcomponent_name) == title.lower()).first()
+    conflict = query.filter(
+        func.lower(Subcomponent.subcomponent_name) == title.lower()
+    ).first()
     if conflict:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists"
+        )
     raw_fte = payload.fte_months if payload.fte_months is not None else 0.25
     fte = round(max(float(raw_fte), 0.05), 3)
     hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
@@ -519,7 +587,9 @@ def create_work_allocation_task(
     return task_payload(row, assigned_ids)
 
 
-@router.patch("/planning/work-allocation/tasks/{task_id}", response_model=WorkAllocationTaskRead)
+@router.patch(
+    "/planning/work-allocation/tasks/{task_id}", response_model=WorkAllocationTaskRead
+)
 def update_work_allocation_task(
     task_id: str,
     month: Optional[str] = Query(None),
@@ -531,11 +601,15 @@ def update_work_allocation_task(
     query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
     if payload.title is not None:
         title = payload.title.strip()
         if not title:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title is required")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Task title is required"
+            )
         conflict = (
             query.filter(Subcomponent.solution_id == row.solution_id)
             .filter(func.lower(Subcomponent.subcomponent_name) == title.lower())
@@ -543,7 +617,10 @@ def update_work_allocation_task(
             .first()
         )
         if conflict:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Task title already exists",
+            )
         row.subcomponent_name = title
     if payload.fte_months is not None:
         fte = round(max(float(payload.fte_months), 0.05), 3)
@@ -571,7 +648,9 @@ def update_work_allocation_task(
     return task_payload(row, assigned_ids)
 
 
-@router.delete("/planning/work-allocation/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/planning/work-allocation/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_work_allocation_task(
     task_id: str,
     session: Session = Depends(get_db),
@@ -581,7 +660,9 @@ def delete_work_allocation_task(
     query = planning_task_query(session, space_ctx)
     row = query.filter(Subcomponent.subcomponent_id == task_id).first()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
     now = datetime.now(timezone.utc)
     row.deleted_at = now
     row.updated_at = now
@@ -603,7 +684,10 @@ def delete_work_allocation_task(
     return None
 
 
-@router.get("/planning/work-allocation/allocations", response_model=List[WorkAllocationAssignmentRead])
+@router.get(
+    "/planning/work-allocation/allocations",
+    response_model=List[WorkAllocationAssignmentRead],
+)
 def list_work_allocation_allocations(
     month: Optional[str] = Query(None),
     session: Session = Depends(get_db),
@@ -638,7 +722,11 @@ def download_work_allocation_report_pdf(
 
     team_rows = team_query(session, space_ctx).order_by(Team.name.asc()).all()
     team_map = team_name_to_id_map(session, space_ctx)
-    people_rows = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
+    people_rows = (
+        active_space_user_query(session, space_ctx)
+        .order_by(User.display_name.asc())
+        .all()
+    )
     people_payload = [person_payload(row, team_map).model_dump() for row in people_rows]
 
     task_query = planning_task_query(session, space_ctx)
@@ -647,7 +735,9 @@ def download_work_allocation_report_pdf(
         {
             "id": row.subcomponent_id,
             "title": row.subcomponent_name,
-            "fte_months": task_fte_months(row, hours_per_fte_month=_HOURS_PER_FTE_MONTH),
+            "fte_months": task_fte_months(
+                row, hours_per_fte_month=_HOURS_PER_FTE_MONTH
+            ),
         }
         for row in task_rows
     ]
@@ -677,7 +767,9 @@ def download_work_allocation_report_pdf(
     )
     filename = f"work-allocation-report-{month_token_value}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+    return StreamingResponse(
+        BytesIO(pdf_bytes), media_type="application/pdf", headers=headers
+    )
 
 
 @router.post(
@@ -695,7 +787,9 @@ def create_work_allocation_allocation(
     task_query = planning_task_query(session, space_ctx)
     task = task_query.filter(Subcomponent.subcomponent_id == payload.task_id).first()
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
 
     assignee_user_soeid, assignee_name, team_id = resolve_work_allocation_assignee(
         session, payload.assignee_type, payload.assignee_id, space_ctx
@@ -781,15 +875,29 @@ def update_work_allocation_allocation(
 ) -> WorkAllocationAssignmentRead:
     row = get_allocation(session, allocation_id, space_ctx)
     if row.work_item_type != "subcomponent":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation is not a planning task assignment")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Allocation is not a planning task assignment",
+        )
 
-    month_start = row.month_start or (row.week_start.replace(day=1) if row.week_start else None)
+    month_start = row.month_start or (
+        row.week_start.replace(day=1) if row.week_start else None
+    )
     if month_start is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation month is missing")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Allocation month is missing",
+        )
 
-    task = planning_task_query(session, space_ctx).filter(Subcomponent.subcomponent_id == row.work_item_id).first()
+    task = (
+        planning_task_query(session, space_ctx)
+        .filter(Subcomponent.subcomponent_id == row.work_item_id)
+        .first()
+    )
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
+        )
 
     assignee_user_soeid, assignee_name, team_id = resolve_work_allocation_assignee(
         session, payload.assignee_type, payload.assignee_id, space_ctx
@@ -863,7 +971,10 @@ def update_work_allocation_allocation(
     return allocation_for_board_payload(row, space_ctx, session)
 
 
-@router.delete("/planning/work-allocation/allocations/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/planning/work-allocation/allocations/{allocation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
 def delete_work_allocation_allocation(
     allocation_id: str,
     session: Session = Depends(get_db),

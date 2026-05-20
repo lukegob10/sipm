@@ -109,7 +109,9 @@ def validate_window_days(days: int) -> int:
 
 
 def analytics_window_days_query(default: int = 30) -> int:
-    return Query(default=default, ge=min(_ALLOWED_WINDOW_DAYS), le=max(_ALLOWED_WINDOW_DAYS))
+    return Query(
+        default=default, ge=min(_ALLOWED_WINDOW_DAYS), le=max(_ALLOWED_WINDOW_DAYS)
+    )
 
 
 def ensure_usage_analytics_available(session) -> None:
@@ -209,7 +211,9 @@ def validate_usage_event_payload(event) -> None:
             code="INVALID_ANALYTICS_OUTCOME",
             message="Invalid analytics outcome",
         )
-    if event.duration_ms is not None and not (0 <= int(event.duration_ms) <= _MAX_DURATION_MS):
+    if event.duration_ms is not None and not (
+        0 <= int(event.duration_ms) <= _MAX_DURATION_MS
+    ):
         raise security_http_exception(
             status_code=400,
             code="INVALID_ANALYTICS_DURATION",
@@ -224,7 +228,10 @@ def validate_performance_sample_payload(sample) -> None:
             code="INVALID_SAMPLE_KIND",
             message="Invalid performance sample kind",
         )
-    if sample.navigation_type and sample.navigation_type not in ALLOWED_NAVIGATION_TYPES:
+    if (
+        sample.navigation_type
+        and sample.navigation_type not in ALLOWED_NAVIGATION_TYPES
+    ):
         raise security_http_exception(
             status_code=400,
             code="INVALID_NAVIGATION_TYPE",
@@ -242,7 +249,9 @@ def enforce_batch_limits(events_count: int, performance_count: int) -> None:
         )
 
 
-def scope_space_id_for_request(*, current_space_id: str, all_spaces: bool, requested_space_id: str | None) -> str | None:
+def scope_space_id_for_request(
+    *, current_space_id: str, all_spaces: bool, requested_space_id: str | None
+) -> str | None:
     if all_spaces:
         return None
     requested = str(requested_space_id or "").strip()
@@ -258,7 +267,7 @@ def validate_requested_analytics_space(session, *, scope_space_id: str | None) -
         session.query(Space.space_id)
         .filter(Space.space_id == scope_space_id)
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active.is_(True))
         .first()
     )
     if exists:
@@ -273,10 +282,14 @@ def validate_requested_analytics_space(session, *, scope_space_id: str | None) -
 def analytics_window_start(days: int) -> datetime:
     today = datetime.now(timezone.utc).date()
     start = today - timedelta(days=max(days - 1, 0))
-    return datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).replace(tzinfo=None)
+    return datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).replace(
+        tzinfo=None
+    )
 
 
-def analytics_scope_read(*, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+def analytics_scope_read(
+    *, days: int, all_spaces: bool, scope_space_id: str | None
+) -> dict:
     return {
         "days": days,
         "all_spaces": all_spaces,
@@ -313,7 +326,11 @@ def _rollups_have_data(session, *, since: datetime, scope_space_id: str | None) 
     value = session.execute(
         select(func.count())
         .select_from(UsageDailyRollup)
-        .where(*_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id))
+        .where(
+            *_rollup_date_filters(
+                UsageDailyRollup, since=since, scope_space_id=scope_space_id
+            )
+        )
     ).scalar()
     return _int_value(value) > 0
 
@@ -330,7 +347,9 @@ def _event_rollup_key(event: UsageEvent) -> tuple:
     )
 
 
-def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iterable[PerformanceSample]) -> None:
+def update_usage_rollups(
+    session, *, events: Iterable[UsageEvent], samples: Iterable[PerformanceSample]
+) -> None:
     event_totals: dict[tuple, dict[str, object]] = {}
     identity_keys: set[tuple[date, str, str, str]] = set()
     route_identity_keys: set[tuple[date, str, str, str, str]] = set()
@@ -365,11 +384,15 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
         if event.session_id:
             identity_keys.add((rollup_date, space_id, "session", event.session_id))
             if event.action_key == "route_view":
-                route_identity_keys.add((rollup_date, space_id, event.view_key, "session", event.session_id))
+                route_identity_keys.add(
+                    (rollup_date, space_id, event.view_key, "session", event.session_id)
+                )
         if event.user_id:
             identity_keys.add((rollup_date, space_id, "user", event.user_id))
             if event.action_key == "route_view":
-                route_identity_keys.add((rollup_date, space_id, event.view_key, "user", event.user_id))
+                route_identity_keys.add(
+                    (rollup_date, space_id, event.view_key, "user", event.user_id)
+                )
 
     for sample in samples:
         rollup_date = sample.occurred_at.date()
@@ -471,7 +494,8 @@ def _sample_load_expr():
             PerformanceSample.sample_kind == "route_transition",
             case(
                 (
-                    PerformanceSample.data_load_ms.is_(None) & PerformanceSample.render_ms.is_(None),
+                    PerformanceSample.data_load_ms.is_(None)
+                    & PerformanceSample.render_ms.is_(None),
                     None,
                 ),
                 else_=func.coalesce(PerformanceSample.data_load_ms, 0)
@@ -482,20 +506,41 @@ def _sample_load_expr():
     )
 
 
-def _event_count(session, *, since: datetime, scope_space_id: str | None, extra_filters: Iterable = ()) -> int:
-    filters = [*_base_filters(UsageEvent, since=since, scope_space_id=scope_space_id), *extra_filters]
-    value = session.execute(select(func.count()).select_from(UsageEvent).where(*filters)).scalar()
+def _event_count(
+    session,
+    *,
+    since: datetime,
+    scope_space_id: str | None,
+    extra_filters: Iterable = (),
+) -> int:
+    filters = [
+        *_base_filters(UsageEvent, since=since, scope_space_id=scope_space_id),
+        *extra_filters,
+    ]
+    value = session.execute(
+        select(func.count()).select_from(UsageEvent).where(*filters)
+    ).scalar()
     return _int_value(value)
 
 
-def _distinct_token_count(session, *, token_name: str, since: datetime, scope_space_id: str | None) -> int:
+def _distinct_token_count(
+    session, *, token_name: str, since: datetime, scope_space_id: str | None
+) -> int:
     event_token = getattr(UsageEvent, token_name)
     sample_token = getattr(PerformanceSample, token_name)
-    event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
-    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    event_filters = _base_filters(
+        UsageEvent, since=since, scope_space_id=scope_space_id
+    )
+    sample_filters = _base_filters(
+        PerformanceSample, since=since, scope_space_id=scope_space_id
+    )
     tokens = union(
-        select(event_token.label("token")).where(*event_filters, event_token.isnot(None), event_token != ""),
-        select(sample_token.label("token")).where(*sample_filters, sample_token.isnot(None), sample_token != ""),
+        select(event_token.label("token")).where(
+            *event_filters, event_token.isnot(None), event_token != ""
+        ),
+        select(sample_token.label("token")).where(
+            *sample_filters, sample_token.isnot(None), sample_token != ""
+        ),
     ).subquery()
     value = session.execute(select(func.count()).select_from(tokens)).scalar()
     return _int_value(value)
@@ -511,9 +556,15 @@ def _daily_distinct_token_counts(
     event_token = getattr(UsageEvent, token_name)
     sample_token = getattr(PerformanceSample, token_name)
     event_bucket = _date_bucket_expr(session, UsageEvent.occurred_at).label("bucket")
-    sample_bucket = _date_bucket_expr(session, PerformanceSample.occurred_at).label("bucket")
-    event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
-    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    sample_bucket = _date_bucket_expr(session, PerformanceSample.occurred_at).label(
+        "bucket"
+    )
+    event_filters = _base_filters(
+        UsageEvent, since=since, scope_space_id=scope_space_id
+    )
+    sample_filters = _base_filters(
+        PerformanceSample, since=since, scope_space_id=scope_space_id
+    )
     tokens = union(
         select(event_bucket, event_token.label("token")).where(
             *event_filters,
@@ -532,7 +583,9 @@ def _daily_distinct_token_counts(
     return {_bucket_to_date(row.bucket): _int_value(row.total) for row in rows}
 
 
-def _daily_event_counts(session, *, since: datetime, scope_space_id: str | None) -> dict[date, dict[str, int]]:
+def _daily_event_counts(
+    session, *, since: datetime, scope_space_id: str | None
+) -> dict[date, dict[str, int]]:
     bucket = _date_bucket_expr(session, UsageEvent.occurred_at).label("bucket")
     filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
     route_views_expr = func.coalesce(
@@ -567,9 +620,13 @@ def _daily_event_counts(session, *, since: datetime, scope_space_id: str | None)
     }
 
 
-def _rollup_distinct_token_count(session, *, token_type: str, since: datetime, scope_space_id: str | None) -> int:
+def _rollup_distinct_token_count(
+    session, *, token_type: str, since: datetime, scope_space_id: str | None
+) -> int:
     filters = [
-        *_rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id),
+        *_rollup_date_filters(
+            UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id
+        ),
         UsageIdentityDailyRollup.token_type == token_type,
     ]
     tokens = (
@@ -592,7 +649,9 @@ def _rollup_daily_distinct_token_counts(
     rows = session.execute(
         select(UsageIdentityDailyRollup.rollup_date, func.count().label("total"))
         .where(
-            *_rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id),
+            *_rollup_date_filters(
+                UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id
+            ),
             UsageIdentityDailyRollup.token_type == token_type,
         )
         .group_by(UsageIdentityDailyRollup.rollup_date)
@@ -600,15 +659,27 @@ def _rollup_daily_distinct_token_counts(
     return {_bucket_to_date(row.rollup_date): _int_value(row.total) for row in rows}
 
 
-def _rollup_daily_event_counts(session, *, since: datetime, scope_space_id: str | None) -> dict[date, dict[str, int]]:
+def _rollup_daily_event_counts(
+    session, *, since: datetime, scope_space_id: str | None
+) -> dict[date, dict[str, int]]:
     rows = session.execute(
         select(
             UsageDailyRollup.rollup_date,
-            func.coalesce(func.sum(UsageDailyRollup.route_view_count), 0).label("route_views"),
-            func.coalesce(func.sum(UsageDailyRollup.workflow_action_count), 0).label("workflow_actions"),
-            func.coalesce(func.sum(UsageDailyRollup.failure_count), 0).label("failure_count"),
+            func.coalesce(func.sum(UsageDailyRollup.route_view_count), 0).label(
+                "route_views"
+            ),
+            func.coalesce(func.sum(UsageDailyRollup.workflow_action_count), 0).label(
+                "workflow_actions"
+            ),
+            func.coalesce(func.sum(UsageDailyRollup.failure_count), 0).label(
+                "failure_count"
+            ),
         )
-        .where(*_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id))
+        .where(
+            *_rollup_date_filters(
+                UsageDailyRollup, since=since, scope_space_id=scope_space_id
+            )
+        )
         .group_by(UsageDailyRollup.rollup_date)
     ).all()
     return {
@@ -621,11 +692,15 @@ def _rollup_daily_event_counts(session, *, since: datetime, scope_space_id: str 
     }
 
 
-def _rollup_event_count(session, *, since: datetime, scope_space_id: str | None, metric_name: str) -> int:
+def _rollup_event_count(
+    session, *, since: datetime, scope_space_id: str | None, metric_name: str
+) -> int:
     metric = getattr(UsageDailyRollup, metric_name)
     value = session.execute(
         select(func.coalesce(func.sum(metric), 0)).where(
-            *_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id)
+            *_rollup_date_filters(
+                UsageDailyRollup, since=since, scope_space_id=scope_space_id
+            )
         )
     ).scalar()
     return _int_value(value)
@@ -667,10 +742,11 @@ def _ranked_metric_stats_by_group(
                 func.avg(case((median_condition, ranked.c.metric_value), else_=None))
             ).label("median_value"),
             func.round(
-                func.max(case((ranked.c.rn == p95_rank, ranked.c.metric_value), else_=None))
+                func.max(
+                    case((ranked.c.rn == p95_rank, ranked.c.metric_value), else_=None)
+                )
             ).label("p95_value"),
-        )
-        .group_by(ranked.c.group_key)
+        ).group_by(ranked.c.group_key)
     ).all()
     return {
         row.group_key: {
@@ -681,7 +757,9 @@ def _ranked_metric_stats_by_group(
     }
 
 
-def _load_stats_by_sample_kind(session, *, filters: Iterable, load_expr) -> dict[str, dict[str, Optional[int]]]:
+def _load_stats_by_sample_kind(
+    session, *, filters: Iterable, load_expr
+) -> dict[str, dict[str, Optional[int]]]:
     return {
         str(kind): stats
         for kind, stats in _ranked_metric_stats_by_group(
@@ -701,7 +779,9 @@ def _load_summary_stats(session, *, filters: Iterable, load_expr) -> dict[str, d
             metric_expr=load_expr,
             filters=filters,
         ).get("all", {}),
-        "by_kind": _load_stats_by_sample_kind(session, filters=filters, load_expr=load_expr),
+        "by_kind": _load_stats_by_sample_kind(
+            session, filters=filters, load_expr=load_expr
+        ),
     }
 
 
@@ -714,8 +794,12 @@ def build_summary_payload(
     load_summary_stats: dict[str, dict] | None = None,
 ) -> dict:
     since = analytics_window_start(days)
-    use_rollups = _rollups_have_data(session, since=since, scope_space_id=scope_space_id)
-    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    use_rollups = _rollups_have_data(
+        session, since=since, scope_space_id=scope_space_id
+    )
+    sample_filters = _base_filters(
+        PerformanceSample, since=since, scope_space_id=scope_space_id
+    )
     load_expr = _sample_load_expr()
     load_summary_stats = load_summary_stats or _load_summary_stats(
         session,
@@ -733,11 +817,12 @@ def build_summary_payload(
         filters=sample_filters,
     )
     daily_load_stats = {
-        _bucket_to_date(bucket): stats
-        for bucket, stats in raw_daily_load_stats.items()
+        _bucket_to_date(bucket): stats for bucket, stats in raw_daily_load_stats.items()
     }
     if use_rollups:
-        daily_event_counts = _rollup_daily_event_counts(session, since=since, scope_space_id=scope_space_id)
+        daily_event_counts = _rollup_daily_event_counts(
+            session, since=since, scope_space_id=scope_space_id
+        )
         daily_session_counts = _rollup_daily_distinct_token_counts(
             session,
             token_type="session",
@@ -781,7 +866,9 @@ def build_summary_payload(
             metric_name="failure_count",
         )
     else:
-        daily_event_counts = _daily_event_counts(session, since=since, scope_space_id=scope_space_id)
+        daily_event_counts = _daily_event_counts(
+            session, since=since, scope_space_id=scope_space_id
+        )
         daily_session_counts = _daily_distinct_token_counts(
             session,
             token_name="session_id",
@@ -851,7 +938,9 @@ def build_summary_payload(
         )
 
     return {
-        **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
+        **analytics_scope_read(
+            days=days, all_spaces=all_spaces, scope_space_id=scope_space_id
+        ),
         "summary": {
             "sessions": sessions,
             "active_users": active_users,
@@ -862,17 +951,23 @@ def build_summary_payload(
             "p95_load_ms": overall_load_stats.get("p95"),
             "navigation_median_load_ms": navigation_load_stats.get("median"),
             "navigation_p95_load_ms": navigation_load_stats.get("p95"),
-            "route_transition_median_load_ms": route_transition_load_stats.get("median"),
+            "route_transition_median_load_ms": route_transition_load_stats.get(
+                "median"
+            ),
             "route_transition_p95_load_ms": route_transition_load_stats.get("p95"),
         },
         "daily": daily,
     }
 
 
-def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+def build_route_stats_payload(
+    session, *, days: int, all_spaces: bool, scope_space_id: str | None
+) -> dict:
     since = analytics_window_start(days)
     if _rollups_have_data(session, since=since, scope_space_id=scope_space_id):
-        filters = _rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id)
+        filters = _rollup_date_filters(
+            UsageDailyRollup, since=since, scope_space_id=scope_space_id
+        )
         route_views_expr = func.coalesce(func.sum(UsageDailyRollup.route_view_count), 0)
         route_failure_expr = func.coalesce(func.sum(UsageDailyRollup.failure_count), 0)
         top_route_rows = session.execute(
@@ -917,8 +1012,9 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
                     distinct_route_tokens.c.view_key,
                     distinct_route_tokens.c.token_type,
                     func.count().label("total"),
+                ).group_by(
+                    distinct_route_tokens.c.view_key, distinct_route_tokens.c.token_type
                 )
-                .group_by(distinct_route_tokens.c.view_key, distinct_route_tokens.c.token_type)
             ).all()
             route_identity_counts = {
                 (row.view_key, row.token_type): _int_value(row.total)
@@ -929,16 +1025,24 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
             {
                 "view_key": row.view_key,
                 "route_views": _int_value(row.route_views),
-                "unique_sessions": route_identity_counts.get((row.view_key, "session"), 0),
+                "unique_sessions": route_identity_counts.get(
+                    (row.view_key, "session"), 0
+                ),
                 "active_users": route_identity_counts.get((row.view_key, "user"), 0),
                 "failure_count": _int_value(row.failure_count),
             }
             for row in top_route_rows
         ]
 
-        workflow_total_expr = func.coalesce(func.sum(UsageDailyRollup.workflow_action_count), 0)
-        workflow_success_expr = func.coalesce(func.sum(UsageDailyRollup.success_count), 0)
-        workflow_failure_expr = func.coalesce(func.sum(UsageDailyRollup.failure_count), 0)
+        workflow_total_expr = func.coalesce(
+            func.sum(UsageDailyRollup.workflow_action_count), 0
+        )
+        workflow_success_expr = func.coalesce(
+            func.sum(UsageDailyRollup.success_count), 0
+        )
+        workflow_failure_expr = func.coalesce(
+            func.sum(UsageDailyRollup.failure_count), 0
+        )
         workflow_rows = session.execute(
             select(
                 UsageDailyRollup.feature_key.label("feature_key"),
@@ -949,7 +1053,11 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
             )
             .where(*filters, UsageDailyRollup.category == "workflow")
             .group_by(UsageDailyRollup.feature_key, UsageDailyRollup.action_key)
-            .order_by(workflow_total_expr.desc(), UsageDailyRollup.feature_key.asc(), UsageDailyRollup.action_key.asc())
+            .order_by(
+                workflow_total_expr.desc(),
+                UsageDailyRollup.feature_key.asc(),
+                UsageDailyRollup.action_key.asc(),
+            )
             .limit(10)
         ).all()
         top_workflows = [
@@ -974,7 +1082,11 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
                 last_seen_expr.label("last_occurred_at"),
             )
             .where(*filters, UsageDailyRollup.failure_count > 0)
-            .group_by(UsageDailyRollup.view_key, UsageDailyRollup.feature_key, UsageDailyRollup.action_key)
+            .group_by(
+                UsageDailyRollup.view_key,
+                UsageDailyRollup.feature_key,
+                UsageDailyRollup.action_key,
+            )
             .order_by(last_seen_expr.desc(), failure_count_expr.desc())
             .limit(10)
         ).all()
@@ -990,7 +1102,9 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
         ]
 
         return {
-            **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
+            **analytics_scope_read(
+                days=days, all_spaces=all_spaces, scope_space_id=scope_space_id
+            ),
             "top_routes": top_routes,
             "top_workflows": top_workflows,
             "recent_failures": recent_failures[:10],
@@ -1011,12 +1125,18 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
             route_views_expr.label("route_views"),
             func.count(
                 func.distinct(
-                    case((UsageEvent.action_key == "route_view", UsageEvent.session_id), else_=None)
+                    case(
+                        (UsageEvent.action_key == "route_view", UsageEvent.session_id),
+                        else_=None,
+                    )
                 )
             ).label("unique_sessions"),
             func.count(
                 func.distinct(
-                    case((UsageEvent.action_key == "route_view", UsageEvent.user_id), else_=None)
+                    case(
+                        (UsageEvent.action_key == "route_view", UsageEvent.user_id),
+                        else_=None,
+                    )
                 )
             ).label("active_users"),
             route_failure_expr.label("failure_count"),
@@ -1062,7 +1182,11 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
         )
         .where(*filters, UsageEvent.category == "workflow")
         .group_by(UsageEvent.feature_key, UsageEvent.action_key)
-        .order_by(workflow_total_expr.desc(), UsageEvent.feature_key.asc(), UsageEvent.action_key.asc())
+        .order_by(
+            workflow_total_expr.desc(),
+            UsageEvent.feature_key.asc(),
+            UsageEvent.action_key.asc(),
+        )
         .limit(10)
     ).all()
     top_workflows = [
@@ -1103,7 +1227,9 @@ def build_route_stats_payload(session, *, days: int, all_spaces: bool, scope_spa
     ]
 
     return {
-        **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
+        **analytics_scope_read(
+            days=days, all_spaces=all_spaces, scope_space_id=scope_space_id
+        ),
         "top_routes": top_routes,
         "top_workflows": top_workflows,
         "recent_failures": recent_failures[:10],
@@ -1119,7 +1245,9 @@ def build_performance_stats_payload(
     load_summary_stats: dict[str, dict] | None = None,
 ) -> dict:
     since = analytics_window_start(days)
-    filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    filters = _base_filters(
+        PerformanceSample, since=since, scope_space_id=scope_space_id
+    )
     kind_rows = session.execute(
         select(PerformanceSample.sample_kind, func.count().label("total"))
         .where(*filters)
@@ -1141,7 +1269,9 @@ def build_performance_stats_payload(
             PerformanceSample.view_key.label("view_key"),
             func.count(load_expr).label("sample_count"),
             func.avg(PerformanceSample.cls_score).label("avg_cls_score"),
-            func.coalesce(func.sum(func.coalesce(PerformanceSample.long_task_count, 0)), 0).label("long_task_count"),
+            func.coalesce(
+                func.sum(func.coalesce(PerformanceSample.long_task_count, 0)), 0
+            ).label("long_task_count"),
         )
         .where(*filters)
         .group_by(PerformanceSample.view_key)
@@ -1195,21 +1325,25 @@ def build_performance_stats_payload(
         render_stats = render_stats_by_route.get(view_key, {})
         fcp_stats = fcp_stats_by_route.get(view_key, {})
         lcp_stats = lcp_stats_by_route.get(view_key, {})
-        routes.append({
-            **route,
-            "median_load_ms": load_stats.get("median"),
-            "p95_load_ms": load_stats.get("p95"),
-            "median_data_load_ms": data_stats.get("median"),
-            "p95_data_load_ms": data_stats.get("p95"),
-            "median_render_ms": render_stats.get("median"),
-            "p95_render_ms": render_stats.get("p95"),
-            "median_first_contentful_paint_ms": fcp_stats.get("median"),
-            "p95_largest_contentful_paint_ms": lcp_stats.get("p95"),
-        })
+        routes.append(
+            {
+                **route,
+                "median_load_ms": load_stats.get("median"),
+                "p95_load_ms": load_stats.get("p95"),
+                "median_data_load_ms": data_stats.get("median"),
+                "p95_data_load_ms": data_stats.get("p95"),
+                "median_render_ms": render_stats.get("median"),
+                "p95_render_ms": render_stats.get("p95"),
+                "median_first_contentful_paint_ms": fcp_stats.get("median"),
+                "p95_largest_contentful_paint_ms": lcp_stats.get("p95"),
+            }
+        )
     routes.sort(key=lambda row: (-(row["p95_load_ms"] or 0), row["view_key"]))
 
     return {
-        **analytics_scope_read(days=days, all_spaces=all_spaces, scope_space_id=scope_space_id),
+        **analytics_scope_read(
+            days=days, all_spaces=all_spaces, scope_space_id=scope_space_id
+        ),
         "summary": {
             "navigation_samples": kind_counts.get("navigation", 0),
             "route_transition_samples": kind_counts.get("route_transition", 0),
@@ -1217,18 +1351,26 @@ def build_performance_stats_payload(
             "p95_load_ms": total_load_stats.get("p95"),
             "navigation_median_load_ms": navigation_load_stats.get("median"),
             "navigation_p95_load_ms": navigation_load_stats.get("p95"),
-            "route_transition_median_load_ms": route_transition_load_stats.get("median"),
+            "route_transition_median_load_ms": route_transition_load_stats.get(
+                "median"
+            ),
             "route_transition_p95_load_ms": route_transition_load_stats.get("p95"),
         },
         "routes": routes[:10],
     }
 
 
-def build_dashboard_payload(session, *, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
+def build_dashboard_payload(
+    session, *, days: int, all_spaces: bool, scope_space_id: str | None
+) -> dict:
     since = analytics_window_start(days)
-    sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    sample_filters = _base_filters(
+        PerformanceSample, since=since, scope_space_id=scope_space_id
+    )
     load_expr = _sample_load_expr()
-    load_summary_stats = _load_summary_stats(session, filters=sample_filters, load_expr=load_expr)
+    load_summary_stats = _load_summary_stats(
+        session, filters=sample_filters, load_expr=load_expr
+    )
     return {
         "summary": build_summary_payload(
             session,

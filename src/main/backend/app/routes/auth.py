@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 import os
 
@@ -29,35 +29,31 @@ from ..schemas import (
     UserRead,
 )
 from ..security import security_http_exception
+from ..services.auth_state import (
+    DEFAULT_LOCKOUT_MINUTES,
+    DEFAULT_MAX_AUTH_FAILURES,
+    record_auth_failure,
+    reject_if_locked,
+    user_is_locked,
+)
 from ..services.password_reset import reset_password_with_temp_password
-from ..services.spaces import ensure_space_membership, get_or_create_default_space, resolve_active_space_context
+from ..services.spaces import (
+    ensure_space_membership,
+    get_or_create_default_space,
+    resolve_active_space_context,
+)
 from ..services.usage_analytics import usage_analytics_enabled
 
 router = APIRouter()
 
-MAX_FAILED_ATTEMPTS = 5
-LOCKOUT_MINUTES = 15
+MAX_FAILED_ATTEMPTS = DEFAULT_MAX_AUTH_FAILURES
+LOCKOUT_MINUTES = DEFAULT_LOCKOUT_MINUTES
 _DUMMY_LOGIN_PASSWORD_HASH = hash_password("not-the-real-password")
+_LOGIN_FAILED_MESSAGE = "Login failed. Check your username or password."
 
 
 def _get_user_by_soeid(session: Session, soeid: str) -> Optional[User]:
     return session.query(User).filter(User.soeid == soeid.lower()).first()
-
-
-def _is_user_locked(user: User, now: datetime) -> bool:
-    locked_until = user.locked_until
-    if not locked_until:
-        return False
-    if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    return locked_until > now
-
-
-def _clear_expired_lockout(user: User, now: datetime) -> None:
-    if not user.locked_until or _is_user_locked(user, now):
-        return
-    user.failed_attempts = 0
-    user.locked_until = None
 
 
 def _email_from_soeid(soeid: str) -> str:
@@ -69,11 +65,15 @@ def _requested_space_id(request: Request) -> str | None:
     return request.headers.get("X-Space-Id") or request.cookies.get(ACTIVE_SPACE_COOKIE)
 
 
-def _issue_session(response: Response, session: Session, user: User, requested_space_id: str | None) -> None:
+def _issue_session(
+    response: Response, session: Session, user: User, requested_space_id: str | None
+) -> None:
     access_token = create_token(user.user_id, user.role, "access")
     refresh_token = create_token(user.user_id, user.role, "refresh")
     set_auth_cookies(response, access_token, refresh_token)
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    active_ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
     set_active_space_cookie(response, active_ctx.space_id)
 
 
@@ -83,7 +83,9 @@ def _provision_self_registered_space(session: Session, user: User) -> None:
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, response: Response, session: Session = Depends(get_db)):
+def register(
+    payload: UserCreate, response: Response, session: Session = Depends(get_db)
+):
     if not allow_self_register():
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -126,7 +128,12 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
 
 
 @router.post("/login", response_model=UserRead)
-def login(payload: UserLogin, request: Request, response: Response, session: Session = Depends(get_db)):
+def login(
+    payload: UserLogin,
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_db),
+):
     soeid_norm = str(payload.soeid).strip().lower()
     user = _get_user_by_soeid(session, soeid_norm)
     now = datetime.now(timezone.utc)
@@ -135,7 +142,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="LOGIN_FAILED",
-            message="Login failed. Check your username or password.",
+            message=_LOGIN_FAILED_MESSAGE,
         )
 
     if not user.is_active:
@@ -143,28 +150,23 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="USER_INACTIVE",
-            message="Login failed. Check your username or password.",
+            message=_LOGIN_FAILED_MESSAGE,
         )
 
-    if _is_user_locked(user, now):
-        raise security_http_exception(
-            status_code=status.HTTP_423_LOCKED,
-            code="ACCOUNT_LOCKED",
-            message="Account locked. Try again later.",
-        )
-
-    _clear_expired_lockout(user, now)
+    reject_if_locked(user, now=now, message=_LOGIN_FAILED_MESSAGE)
 
     if not verify_password(payload.password, user.password_hash):
-        user.failed_attempts += 1
-        if user.failed_attempts >= MAX_FAILED_ATTEMPTS:
-            user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
-        session.add(user)
-        session.commit()
+        record_auth_failure(
+            session,
+            user,
+            now=now,
+            max_attempts=MAX_FAILED_ATTEMPTS,
+            lockout_minutes=LOCKOUT_MINUTES,
+        )
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="LOGIN_FAILED",
-            message="Login failed. Check your username or password.",
+            message=_LOGIN_FAILED_MESSAGE,
         )
 
     if user.force_password_reset:
@@ -181,7 +183,9 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
     session.commit()
     session.refresh(user)
 
-    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
+    _issue_session(
+        response, session, user, requested_space_id=_requested_space_id(request)
+    )
     return user
 
 
@@ -216,14 +220,16 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             code="PASSWORD_RESET_REQUIRED",
             message="Password reset required",
         )
-    if _is_user_locked(user, datetime.now(timezone.utc)):
+    if user_is_locked(user, datetime.now(timezone.utc)):
         raise security_http_exception(
             status_code=status.HTTP_423_LOCKED,
             code="ACCOUNT_LOCKED",
             message="Account locked",
         )
 
-    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
+    _issue_session(
+        response, session, user, requested_space_id=_requested_space_id(request)
+    )
     return user
 
 
@@ -306,7 +312,9 @@ def get_active_space(
     current_user: User = Depends(require_user),
 ):
     requested_space_id = _requested_space_id(request)
-    ctx = resolve_active_space_context(session, current_user, requested_space_id=requested_space_id)
+    ctx = resolve_active_space_context(
+        session, current_user, requested_space_id=requested_space_id
+    )
     cookie_space_id = request.cookies.get(ACTIVE_SPACE_COOKIE)
     if cookie_space_id != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)
@@ -326,7 +334,9 @@ def switch_active_space(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
-    ctx = resolve_active_space_context(session, current_user, requested_space_id=payload.space_id)
+    ctx = resolve_active_space_context(
+        session, current_user, requested_space_id=payload.space_id
+    )
     if ctx.space_id != payload.space_id:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,

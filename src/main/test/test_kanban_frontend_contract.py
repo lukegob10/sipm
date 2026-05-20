@@ -6,7 +6,9 @@ from ui_style_contract import read_ui_styles
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 KANBAN_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban.js"
-KANBAN_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban" / "interactions.js"
+KANBAN_INTERACTIONS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban" / "interactions.js"
+)
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -14,17 +16,19 @@ def test_kanban_route_renders_solution_titles_as_drilldown_links():
     text = KANBAN_ROUTE.read_text(encoding="utf-8")
 
     assert "function renderKanbanSolutionLink(label, solutionId) {" in text
-    assert 'function renderKanbanProjectLink(label, projectId, className = "") {' in text
+    assert (
+        'function renderKanbanProjectLink(label, projectId, className = "") {' in text
+    )
     assert 'data-kanban-action="open-project"' in text
     assert 'data-project-id="${esc(targetId)}"' in text
     assert 'class="kanban-project-link${classToken}"' in text
-    assert 'renderKanbanProjectLink(projName, pid)' in text
+    assert "renderKanbanProjectLink(projName, pid)" in text
     assert 'renderKanbanProjectLink(proj, s.project_id, "secondary")' not in text
     assert 'data-kanban-action="open-solution"' in text
     assert 'data-solution-id="${esc(targetId)}"' in text
     assert 'return `<button type="button" class="kanban-solution-link"' in text
     assert 'class="kanban-card-title"' in text
-    assert 'renderKanbanSolutionLink(s.solution_name, s.solution_id)' in text
+    assert "renderKanbanSolutionLink(s.solution_name, s.solution_id)" in text
 
 
 def test_kanban_route_handles_solution_drilldown_clicks():
@@ -34,9 +38,9 @@ def test_kanban_route_handles_solution_drilldown_clicks():
     assert 'document.getElementById("view-kanban")' in text
     assert 'const actionEl = event.target.closest("[data-kanban-action]")' in text
     assert 'if (action === "open-project") {' in text
-    assert 'kanbanState.ctx?.openKanbanProjectDrilldown' in text
+    assert "kanbanState.ctx?.openKanbanProjectDrilldown" in text
     assert 'if (action === "open-solution") {' in text
-    assert 'kanbanState.ctx.openKanbanSolutionDrilldown(solutionId);' in text
+    assert "kanbanState.ctx.openKanbanSolutionDrilldown(solutionId);" in text
     assert "kanbanState.ctx = ctx;" in text
     assert "bindKanbanEvents();" in text
 
@@ -47,9 +51,15 @@ def test_kanban_drilldown_helper_reuses_existing_solution_modal():
 
     assert 'from "./routes/kanban/interactions.js";' in app_text
     assert "function openKanbanProjectDrilldown(projectId) {" in app_text
-    assert "return kanbanRouteController.openKanbanProjectDrilldown(projectId);" in app_text
+    assert (
+        "return kanbanRouteController.openKanbanProjectDrilldown(projectId);"
+        in app_text
+    )
     assert "function openKanbanSolutionDrilldown(solutionId) {" in app_text
-    assert "return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);" in app_text
+    assert (
+        "return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);"
+        in app_text
+    )
     assert "openProjectForm(project);" in interactions_text
     assert 'openSolutionModal(solution, "details");' in interactions_text
     assert "openKanbanProjectDrilldown," in app_text
@@ -61,7 +71,10 @@ def test_kanban_solution_filtering_is_independent_from_deliverables_master_filte
 
     assert "function filteredSolutionsForKanban() {" in text
     assert "return (state.solutions || []).filter((solution) => {" in text
-    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(solution.status)) return false;" in text
+    assert (
+        "if (hideClosedDeliverables() && isClosedSolutionStatus(solution.status)) return false;"
+        in text
+    )
     assert "const base = filteredSolutions();" not in text
 
 
@@ -69,7 +82,9 @@ def test_kanban_filter_state_is_restored_and_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";' in app_text
+    assert (
+        'const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";' in app_text
+    )
     assert "function persistKanbanViewState() {" in app_text
     assert "return kanbanRouteController.persistKanbanViewState();" in app_text
     assert "function restoreKanbanViewState() {" in app_text
@@ -83,7 +98,10 @@ def test_kanban_filter_state_is_restored_and_persisted_per_space():
 def test_kanban_corrupt_scoped_view_state_is_rewritten_to_defaults():
     text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(kanbanViewStateKey), {});" in text
+    assert (
+        "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(kanbanViewStateKey), {});"
+        in text
+    )
     assert 'project: String(stored.filters?.project || ""),' in text
     assert 'owner: String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistKanbanViewState();" in text
@@ -102,8 +120,11 @@ def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
 
     assert "function normalizeScopedProjectFilter(filterState) {" in text
     assert 'const currentProjectId = String(filterState.project || "");' in text
-    assert "filterState.project = \"\";" in text
-    assert "const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);" in text
+    assert 'filterState.project = "";' in text
+    assert (
+        "const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);"
+        in text
+    )
     assert "if (kanbanProjectFilterChanged) {" in text
     assert "persistKanbanViewState();" in text
 
@@ -111,8 +132,14 @@ def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
 def test_kanban_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_solution_owner():
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {" in text
-    assert 'const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });' in text
+    assert (
+        "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {"
+        in text
+    )
+    assert (
+        "const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });"
+        in text
+    )
     assert 'filterState.owner = "";' in text
     assert "if (kanbanOwnerFilterChanged) {" in text
     assert "persistKanbanViewState();" in text

@@ -17,7 +17,9 @@ def normalize_context_path(value: str | None) -> str:
     return f"/{raw.strip('/')}"
 
 
-APP_CONTEXT_PATH = normalize_context_path(os.getenv("SIPM_CONTEXT_PATH", DEFAULT_CONTEXT_PATH))
+APP_CONTEXT_PATH = normalize_context_path(
+    os.getenv("SIPM_CONTEXT_PATH", DEFAULT_CONTEXT_PATH)
+)
 COOKIE_PATH = APP_CONTEXT_PATH or "/"
 
 

@@ -14,7 +14,15 @@ from ...deps import get_db, require_space_role
 from ...models import Project, Solution, Subcomponent, User
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv, read_text_value
+from ...utils import (
+    normalize_status,
+    normalize_str,
+    parse_date,
+    parse_datetime,
+    parse_priority,
+    read_csv,
+    read_text_value,
+)
 from ...utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 from .._mutations import commit_session
 from ..projects.common import _resolve_project_sponsor
@@ -58,7 +66,9 @@ def import_subcomponents(
     seen = set()
     dry_project_keys = set()
     dry_solution_keys = set()
-    projects_by_name = {p.project_name.lower(): p for p in _project_query(session, space_ctx).all()}
+    projects_by_name = {
+        p.project_name.lower(): p for p in _project_query(session, space_ctx).all()
+    }
     solutions_by_key = {
         (s.project_id, s.solution_name.lower(), s.version.lower()): s
         for s in _solution_query(session, space_ctx).all()
@@ -69,7 +79,9 @@ def import_subcomponents(
         solution_name = normalize_str(row.get("solution_name"))
         sub_name = normalize_str(row.get("subcomponent_name"))
         version_raw = normalize_str(row.get("version")) or "0.1.0"
-        solution_owner_val = normalize_str(row.get("solution_owner")) or normalize_str(row.get("owner"))
+        solution_owner_val = normalize_str(row.get("solution_owner")) or normalize_str(
+            row.get("owner")
+        )
         assignee_input = normalize_str(row.get("assignee"))
         assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
         blocker_note = normalize_str(row.get("blocker_note")) or None
@@ -80,13 +92,20 @@ def import_subcomponents(
             errors.append(f"Row {idx}: {exc}")
             continue
         blocked_raw = normalize_str(row.get("blocked"))
-        blocked_val = blocked_raw.lower() in {"true", "1", "yes", "y"} if blocked_raw else False
+        blocked_val = (
+            blocked_raw.lower() in {"true", "1", "yes", "y"} if blocked_raw else False
+        )
         if not project_name or not solution_name or not sub_name:
             errors.append(
                 f"Row {idx}: project_name, solution_name, and subcomponent_name are required"
             )
             continue
-        key = (project_name.lower(), solution_name.lower(), version_raw.lower(), sub_name.lower())
+        key = (
+            project_name.lower(),
+            solution_name.lower(),
+            version_raw.lower(),
+            sub_name.lower(),
+        )
         if key in seen:
             errors.append(
                 f"Row {idx}: duplicate subcomponent '{sub_name}' for solution '{solution_name}' in project '{project_name}' (strict-first policy)"
@@ -101,7 +120,11 @@ def import_subcomponents(
             priority_val = parse_priority(row.get("priority"), default=3)
             due_val = parse_date(row.get("due_date"))
             completed_at_val = parse_datetime(row.get("completed_at"))
-            estimate_hours = int(row.get("estimate_hours")) if normalize_str(row.get("estimate_hours")) else None
+            estimate_hours = (
+                int(row.get("estimate_hours"))
+                if normalize_str(row.get("estimate_hours"))
+                else None
+            )
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
@@ -114,7 +137,9 @@ def import_subcomponents(
                 projects_created += 1
             solution = None
             if project:
-                solution = solutions_by_key.get((project.project_id, solution_name.lower(), version_raw.lower()))
+                solution = solutions_by_key.get(
+                    (project.project_id, solution_name.lower(), version_raw.lower())
+                )
             solution_key = (project_key, solution_name.lower(), version_raw.lower())
             if not solution and solution_key not in dry_solution_keys:
                 dry_solution_keys.add(solution_key)
@@ -244,10 +269,12 @@ def import_subcomponents(
             now = datetime.now(timezone.utc)
             if existing:
                 if assignee_input:
-                    resolved_assignee, resolved_assignee_user_soeid = _resolve_subcomponent_assignee(
-                        assignee_input,
-                        assignee_user_soeid,
-                        current_user,
+                    resolved_assignee, resolved_assignee_user_soeid = (
+                        _resolve_subcomponent_assignee(
+                            assignee_input,
+                            assignee_user_soeid,
+                            current_user,
+                        )
                     )
                 else:
                     resolved_assignee = existing.assignee
@@ -283,7 +310,10 @@ def import_subcomponents(
                     next_status=status_enum,
                     now=now,
                 )
-                if status_enum == SubcomponentStatus.complete and completed_at_val is not None:
+                if (
+                    status_enum == SubcomponentStatus.complete
+                    and completed_at_val is not None
+                ):
                     existing.completed_at = completed_at_val
                 session.add(existing)
                 log_changes(
@@ -298,12 +328,24 @@ def import_subcomponents(
                         "priority": (before["priority"], existing.priority),
                         "due_date": (before["due_date"], existing.due_date),
                         "assignee": (before["assignee"], existing.assignee),
-                        "assignee_user_soeid": (before["assignee_user_soeid"], existing.assignee_user_soeid),
-                        "github_repo_url": (before["github_repo_url"], existing.github_repo_url),
-                        "estimate_hours": (before["estimate_hours"], existing.estimate_hours),
+                        "assignee_user_soeid": (
+                            before["assignee_user_soeid"],
+                            existing.assignee_user_soeid,
+                        ),
+                        "github_repo_url": (
+                            before["github_repo_url"],
+                            existing.github_repo_url,
+                        ),
+                        "estimate_hours": (
+                            before["estimate_hours"],
+                            existing.estimate_hours,
+                        ),
                         "blocked": (before["blocked"], existing.blocked),
                         "blocker_note": (before["blocker_note"], existing.blocker_note),
-                        "done_criteria": (before["done_criteria"], existing.done_criteria),
+                        "done_criteria": (
+                            before["done_criteria"],
+                            existing.done_criteria,
+                        ),
                         "completed_at": (before["completed_at"], existing.completed_at),
                     },
                     request_id=None,
@@ -311,13 +353,18 @@ def import_subcomponents(
                 commit_session(session)
                 updated += 1
             else:
-                resolved_assignee, resolved_assignee_user_soeid = _resolve_subcomponent_assignee(
-                    assignee_input,
-                    assignee_user_soeid,
-                    current_user,
+                resolved_assignee, resolved_assignee_user_soeid = (
+                    _resolve_subcomponent_assignee(
+                        assignee_input,
+                        assignee_user_soeid,
+                        current_user,
+                    )
                 )
-                completed_at = completed_at_val if status_enum == SubcomponentStatus.complete and completed_at_val is not None else (
-                    now if status_enum == SubcomponentStatus.complete else None
+                completed_at = (
+                    completed_at_val
+                    if status_enum == SubcomponentStatus.complete
+                    and completed_at_val is not None
+                    else (now if status_enum == SubcomponentStatus.complete else None)
                 )
                 subcomponent = Subcomponent(
                     space_id=space_ctx.space_id,
@@ -398,8 +445,15 @@ def export_subcomponents(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    subcomponents = _subcomponent_query(session, space_ctx).order_by(Subcomponent.created_at.asc()).all()
-    project_map = {project.project_id: project.project_name for project in _project_query(session, space_ctx)}
+    subcomponents = (
+        _subcomponent_query(session, space_ctx)
+        .order_by(Subcomponent.created_at.asc())
+        .all()
+    )
+    project_map = {
+        project.project_id: project.project_name
+        for project in _project_query(session, space_ctx)
+    }
     solution_map = {
         solution.solution_id: (solution.solution_name, solution.version)
         for solution in _solution_query(session, space_ctx)
@@ -425,26 +479,36 @@ def export_subcomponents(
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
     for subcomponent in subcomponents:
-        solution_name, solution_version = solution_map.get(subcomponent.solution_id, ("", ""))
+        solution_name, solution_version = solution_map.get(
+            subcomponent.solution_id, ("", "")
+        )
         writer.writerow(
             {
                 "project_name": project_map.get(subcomponent.project_id, ""),
                 "solution_name": solution_name,
                 "version": solution_version,
                 "subcomponent_name": subcomponent.subcomponent_name,
-                "status": subcomponent.status.value if hasattr(subcomponent.status, "value") else subcomponent.status,
+                "status": subcomponent.status.value
+                if hasattr(subcomponent.status, "value")
+                else subcomponent.status,
                 "priority": subcomponent.priority,
-                "due_date": subcomponent.due_date.isoformat() if subcomponent.due_date else "",
+                "due_date": subcomponent.due_date.isoformat()
+                if subcomponent.due_date
+                else "",
                 "assignee": subcomponent.assignee or "",
                 "assignee_user_soeid": subcomponent.assignee_user_soeid or "",
                 "github_repo_url": subcomponent.github_repo_url or "",
-                "estimate_hours": subcomponent.estimate_hours if subcomponent.estimate_hours is not None else "",
+                "estimate_hours": subcomponent.estimate_hours
+                if subcomponent.estimate_hours is not None
+                else "",
                 "blocked": subcomponent.blocked,
                 "blocker_note": read_text_value(subcomponent.blocker_note) or "",
                 "done_criteria": read_text_value(subcomponent.done_criteria) or "",
-                "completed_at": subcomponent.completed_at.isoformat() if subcomponent.completed_at else "",
+                "completed_at": subcomponent.completed_at.isoformat()
+                if subcomponent.completed_at
+                else "",
             }
         )
     buffer.seek(0)
-    headers = {"Content-Disposition": 'attachment; filename=\"subcomponents.csv\"'}
+    headers = {"Content-Disposition": 'attachment; filename="subcomponents.csv"'}
     return StreamingResponse(buffer, media_type="text/csv", headers=headers)

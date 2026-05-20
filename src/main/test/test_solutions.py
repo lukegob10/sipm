@@ -12,7 +12,10 @@ from backend.app.services.spaces import SpaceContext
 
 
 def _long_text(prefix: str, repeats: int = 40) -> str:
-    return "\n".join(f"{prefix} line {idx}: detailed context and measurable outcomes." for idx in range(1, repeats + 1))
+    return "\n".join(
+        f"{prefix} line {idx}: detailed context and measurable outcomes."
+        for idx in range(1, repeats + 1)
+    )
 
 
 async def create_project(client):
@@ -30,7 +33,9 @@ async def create_project(client):
 
 @pytest.mark.anyio
 async def test_create_solution_defaults_owner_and_version(client):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Minimal Project"})
+    project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Minimal Project"}
+    )
     assert project_resp.status_code == 201, project_resp.text
     project = project_resp.json()
 
@@ -51,7 +56,9 @@ async def test_create_solution_defaults_owner_and_version(client):
 
 @pytest.mark.anyio
 async def test_solution_crud_normalizes_required_identifiers(client):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Identifier Project"})
+    project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Identifier Project"}
+    )
     assert project_resp.status_code == 201, project_resp.text
     project = project_resp.json()
 
@@ -87,8 +94,13 @@ async def test_solution_crud_normalizes_required_identifiers(client):
 
 
 @pytest.mark.anyio
-async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Audit Fallback Project"})
+async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fails(
+    client, monkeypatch
+):
+    project_resp = await client.post(
+        "/project-manager/api/projects/",
+        json={"project_name": "Audit Fallback Project"},
+    )
     assert project_resp.status_code == 201, project_resp.text
     project = project_resp.json()
 
@@ -112,7 +124,9 @@ async def test_create_solution_with_long_text_succeeds_even_if_audit_logging_fai
 
 
 @pytest.mark.anyio
-async def test_create_solution_rolls_back_when_phase_enablement_fails(client, db_sessionmaker, monkeypatch):
+async def test_create_solution_rolls_back_when_phase_enablement_fails(
+    client, db_sessionmaker, monkeypatch
+):
     project = await create_project(client)
 
     def _fail_enable_all_phases(*_args, **_kwargs):
@@ -137,7 +151,9 @@ async def test_create_solution_rolls_back_when_phase_enablement_fails(client, db
 
 @pytest.mark.anyio
 async def test_solution_github_repo_url_is_normalized_and_can_be_cleared(client):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Repo Project"})
+    project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Repo Project"}
+    )
     assert project_resp.status_code == 201, project_resp.text
     project = project_resp.json()
 
@@ -174,7 +190,9 @@ async def test_solution_github_repo_url_is_normalized_and_can_be_cleared(client)
 
 @pytest.mark.anyio
 async def test_solution_rejects_invalid_github_repo_url(client):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Invalid Repo Project"})
+    project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Invalid Repo Project"}
+    )
     assert project_resp.status_code == 201, project_resp.text
     project = project_resp.json()
 
@@ -211,7 +229,9 @@ async def test_create_and_list_solutions(client):
     assert data["priority"] == 3
     assert data["success_criteria"] == "Enforce RBAC for top 10 apps and pass audit"
 
-    list_resp = await client.get(f"/project-manager/api/projects/{project['project_id']}/solutions")
+    list_resp = await client.get(
+        f"/project-manager/api/projects/{project['project_id']}/solutions"
+    )
     assert list_resp.status_code == 200
     items = list_resp.json()
     assert len(items) == 1
@@ -220,7 +240,10 @@ async def test_create_and_list_solutions(client):
 
 @pytest.mark.anyio
 async def test_list_and_export_solutions_hide_work_allocation_board_solution(client):
-    board_project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Work Allocation Board [bfab593b]"})
+    board_project_resp = await client.post(
+        "/project-manager/api/projects/",
+        json={"project_name": "Work Allocation Board [bfab593b]"},
+    )
     assert board_project_resp.status_code == 201, board_project_resp.text
     board_project_id = board_project_resp.json()["project_id"]
 
@@ -230,7 +253,9 @@ async def test_list_and_export_solutions_hide_work_allocation_board_solution(cli
     )
     assert board_solution_resp.status_code == 201, board_solution_resp.text
 
-    normal_project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Visible Project"})
+    normal_project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Visible Project"}
+    )
     assert normal_project_resp.status_code == 201, normal_project_resp.text
     normal_project_id = normal_project_resp.json()["project_id"]
 
@@ -246,9 +271,16 @@ async def test_list_and_export_solutions_hide_work_allocation_board_solution(cli
     rows = list_resp.json()
     ids = {row["solution_id"] for row in rows}
     assert visible_solution_id in ids
-    assert all(not (row["project_id"] == board_project_id and row["solution_name"] == "Backlog") for row in rows)
+    assert all(
+        not (
+            row["project_id"] == board_project_id and row["solution_name"] == "Backlog"
+        )
+        for row in rows
+    )
 
-    by_project_resp = await client.get(f"/project-manager/api/projects/{board_project_id}/solutions")
+    by_project_resp = await client.get(
+        f"/project-manager/api/projects/{board_project_id}/solutions"
+    )
     assert by_project_resp.status_code == 200, by_project_resp.text
     assert by_project_resp.json() == []
 
@@ -268,19 +300,25 @@ async def test_solution_uniqueness_per_project_version(client):
         "owner": "Solution Owner",
     }
     assert (
-        (await client.post(f"/project-manager/api/projects/{project['project_id']}/solutions", json=payload)).status_code
-        == 201
+        await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json=payload,
+        )
+    ).status_code == 201
+    dup_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions", json=payload
     )
-    dup_resp = await client.post(f"/project-manager/api/projects/{project['project_id']}/solutions", json=payload)
     assert dup_resp.status_code == 400
     assert "already exist" in dup_resp.json()["detail"]
 
     # Different version should be allowed
     payload["version"] = "0.2.0"
     assert (
-        (await client.post(f"/project-manager/api/projects/{project['project_id']}/solutions", json=payload)).status_code
-        == 201
-    )
+        await client.post(
+            f"/project-manager/api/projects/{project['project_id']}/solutions",
+            json=payload,
+        )
+    ).status_code == 201
 
 
 @pytest.mark.anyio
@@ -289,7 +327,11 @@ async def test_update_solution_status_and_description(client):
     created = (
         await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Portal", "version": "1.0.0", "owner": "Solution Owner"},
+            json={
+                "solution_name": "Portal",
+                "version": "1.0.0",
+                "owner": "Solution Owner",
+            },
         )
     ).json()
     solution_id = created["solution_id"]
@@ -306,7 +348,10 @@ async def test_update_solution_status_and_description(client):
     updated = update_resp.json()
     assert updated["status"] == "complete"
     assert updated["description"] == "Shipped"
-    assert updated["success_criteria"] == "100% traffic migrated; no Sev1 incidents for 30 days"
+    assert (
+        updated["success_criteria"]
+        == "100% traffic migrated; no Sev1 incidents for 30 days"
+    )
     assert updated["completed_at"] is not None
 
     audit_resp = await client.get(
@@ -397,7 +442,11 @@ async def test_delete_solution_soft_deletes(client):
     created = (
         await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Billing", "version": "0.1.0", "owner": "Solution Owner"},
+            json={
+                "solution_name": "Billing",
+                "version": "0.1.0",
+                "owner": "Solution Owner",
+            },
         )
     ).json()
     solution_id = created["solution_id"]
@@ -408,42 +457,58 @@ async def test_delete_solution_soft_deletes(client):
     get_resp = await client.get(f"/project-manager/api/solutions/{solution_id}")
     assert get_resp.status_code == 404
 
-    list_resp = await client.get(f"/project-manager/api/projects/{project['project_id']}/solutions")
+    list_resp = await client.get(
+        f"/project-manager/api/projects/{project['project_id']}/solutions"
+    )
     assert list_resp.status_code == 200
     assert list_resp.json() == []
 
 
 @pytest.mark.anyio
-async def test_soft_deleted_project_hides_solution_reads_and_clears_solution_cache(client):
+async def test_soft_deleted_project_hides_solution_reads_and_clears_solution_cache(
+    client,
+):
     clear_cache()
     try:
         project = await create_project(client)
         create_resp = await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Hidden With Project", "version": "1.0.0", "owner": "Solution Owner"},
+            json={
+                "solution_name": "Hidden With Project",
+                "version": "1.0.0",
+                "owner": "Solution Owner",
+            },
         )
         assert create_resp.status_code == 201, create_resp.text
         solution = create_resp.json()
 
         primed_list = await client.get("/project-manager/api/solutions")
         assert primed_list.status_code == 200, primed_list.text
-        assert [row["solution_id"] for row in primed_list.json()] == [solution["solution_id"]]
+        assert [row["solution_id"] for row in primed_list.json()] == [
+            solution["solution_id"]
+        ]
 
-        primed_detail = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}")
+        primed_detail = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}"
+        )
         assert primed_detail.status_code == 200, primed_detail.text
 
         primed_export = await client.get("/project-manager/api/solutions/export")
         assert primed_export.status_code == 200, primed_export.text
         assert "Hidden With Project" in primed_export.text
 
-        delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+        delete_resp = await client.delete(
+            f"/project-manager/api/projects/{project['project_id']}"
+        )
         assert delete_resp.status_code == 204, delete_resp.text
 
         list_resp = await client.get("/project-manager/api/solutions")
         assert list_resp.status_code == 200, list_resp.text
         assert list_resp.json() == []
 
-        detail_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}")
+        detail_resp = await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}"
+        )
         assert detail_resp.status_code == 404, detail_resp.text
         assert detail_resp.json()["detail"] == "Solution not found"
 
@@ -456,15 +521,22 @@ async def test_soft_deleted_project_hides_solution_reads_and_clears_solution_cac
 
 @pytest.mark.anyio
 async def test_member_can_delete_solution(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-solution",
-            space_name="Delete Solution Space",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-solution",
+                space_name="Delete Solution Space",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
-        project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Delete Guard Solution Project"})
+        project_resp = await client.post(
+            "/project-manager/api/projects/",
+            json={"project_name": "Delete Guard Solution Project"},
+        )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]
         solution_resp = await client.post(
@@ -474,11 +546,13 @@ async def test_member_can_delete_solution(client):
         assert solution_resp.status_code == 201, solution_resp.text
         solution_id = solution_resp.json()["solution_id"]
 
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-solution",
-            space_name="Delete Solution Space",
-            is_global_admin=False,
-            space_role="member",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-solution",
+                space_name="Delete Solution Space",
+                is_global_admin=False,
+                space_role="member",
+            )
         )
         allowed = await client.delete(f"/project-manager/api/solutions/{solution_id}")
         assert allowed.status_code == 204, allowed.text
@@ -486,7 +560,9 @@ async def test_member_can_delete_solution(client):
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+            fastapi_app.dependency_overrides[deps_module.current_space] = (
+                original_current_space
+            )
 
 
 @pytest.mark.anyio
@@ -508,11 +584,21 @@ async def test_solution_rag_auto_rules(client):
     assert created["rag_reason"] is None
 
     past = (date.today() - timedelta(days=1)).isoformat()
-    updated = (await client.patch(f"/project-manager/api/solutions/{created['solution_id']}", json={"due_date": past})).json()
+    updated = (
+        await client.patch(
+            f"/project-manager/api/solutions/{created['solution_id']}",
+            json={"due_date": past},
+        )
+    ).json()
     assert updated["rag_status"] == "green"
     assert updated["rag_reason"] is None
 
-    completed = (await client.patch(f"/project-manager/api/solutions/{created['solution_id']}", json={"status": "complete"})).json()
+    completed = (
+        await client.patch(
+            f"/project-manager/api/solutions/{created['solution_id']}",
+            json={"status": "complete"},
+        )
+    ).json()
     assert completed["rag_status"] == "green"
 
 

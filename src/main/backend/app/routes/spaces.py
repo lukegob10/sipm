@@ -38,7 +38,9 @@ def _space_or_404(session: Session, space_id: str) -> Space:
         .first()
     )
     if not space:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Space not found"
+        )
     return space
 
 
@@ -60,11 +62,15 @@ def _membership_or_404(session: Session, membership_id: str) -> SpaceMembership:
         .first()
     )
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found"
+        )
     return row
 
 
-def _count_active_space_admins(session: Session, space_id: str, exclude_membership_id: str | None = None) -> int:
+def _count_active_space_admins(
+    session: Session, space_id: str, exclude_membership_id: str | None = None
+) -> int:
     normalized_role = func.lower(
         func.replace(
             func.replace(func.coalesce(SpaceMembership.role, ""), "-", "_"),
@@ -78,7 +84,7 @@ def _count_active_space_admins(session: Session, space_id: str, exclude_membersh
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active.is_(True))
         .filter(normalized_role == "space_admin")
     )
     if exclude_membership_id:
@@ -96,7 +102,9 @@ def _ensure_space_retains_admin(
 ) -> None:
     current_role = _normalize_space_role(row.role)
     current_status = (row.status or "").strip().lower()
-    current_user = session.query(User.is_active).filter(User.user_id == row.user_id).scalar()
+    current_user = (
+        session.query(User.is_active).filter(User.user_id == row.user_id).scalar()
+    )
     currently_active_admin = (
         row.deleted_at is None
         and current_role == "space_admin"
@@ -106,13 +114,21 @@ def _ensure_space_retains_admin(
     if not currently_active_admin:
         return
 
-    role_after = _normalize_space_role(next_role if next_role is not None else current_role)
-    status_after = (next_status if next_status is not None else current_status).strip().lower()
-    remains_active_admin = (not deleting) and role_after == "space_admin" and status_after == "active"
+    role_after = _normalize_space_role(
+        next_role if next_role is not None else current_role
+    )
+    status_after = (
+        (next_status if next_status is not None else current_status).strip().lower()
+    )
+    remains_active_admin = (
+        (not deleting) and role_after == "space_admin" and status_after == "active"
+    )
     if remains_active_admin:
         return
 
-    remaining = _count_active_space_admins(session, row.space_id, exclude_membership_id=row.membership_id)
+    remaining = _count_active_space_admins(
+        session, row.space_id, exclude_membership_id=row.membership_id
+    )
     if remaining == 0:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -124,29 +140,39 @@ def _ensure_space_admin_access(ctx, target_space_id: str) -> None:
     if ctx.is_global_admin:
         return
     if ctx.space_id != target_space_id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage another space")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage another space"
+        )
     if _normalize_space_role(ctx.space_role) != "space_admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required"
+        )
 
 
 def _validate_space_role(raw_role: str | None) -> str:
     role = _normalize_space_role(raw_role)
     if role not in {"member", "space_admin"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid space role")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid space role"
+        )
     return role
 
 
 def _validate_membership_status(raw_status: str | None) -> str:
     status_val = (raw_status or "active").strip().lower()
     if status_val not in {"active", "inactive"}:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid membership status")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid membership status"
+        )
     return status_val
 
 
 def _validate_space_name(raw_name: str | None) -> str:
     name = str(raw_name or "").strip()
     if not name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space name is required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Space name is required"
+        )
     return name
 
 
@@ -185,7 +211,9 @@ def _space_conflict_detail(exc: IntegrityError) -> str | None:
     return "Space already exists"
 
 
-def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> list[SpaceMembershipRead]:
+def _serialize_memberships(
+    session: Session, rows: list[SpaceMembership]
+) -> list[SpaceMembershipRead]:
     if not rows:
         return []
     user_ids = sorted({row.user_id for row in rows if row.user_id})
@@ -215,7 +243,9 @@ def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> lis
     return output
 
 
-def _serialize_membership(session: Session, row: SpaceMembership) -> SpaceMembershipRead:
+def _serialize_membership(
+    session: Session, row: SpaceMembership
+) -> SpaceMembershipRead:
     return _serialize_memberships(session, [row])[0]
 
 
@@ -240,7 +270,10 @@ def _create_or_restore_membership(
     now = datetime.now(timezone.utc)
     if existing:
         if existing.deleted_at is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership already exists")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Membership already exists",
+            )
         existing.deleted_at = None
         existing.role = role
         existing.status = status_val
@@ -282,9 +315,16 @@ def create_space(
     now = datetime.now(timezone.utc)
     name = _validate_space_name(payload.name)
     slug = build_space_slug(payload.slug or name)
-    existing = session.query(Space).filter(Space.slug == slug).filter(Space.deleted_at.is_(None)).first()
+    existing = (
+        session.query(Space)
+        .filter(Space.slug == slug)
+        .filter(Space.deleted_at.is_(None))
+        .first()
+    )
     if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space slug already exists")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Space slug already exists"
+        )
     space = Space(
         space_id=str(uuid4()),
         name=name,
@@ -301,7 +341,9 @@ def create_space(
         session.rollback()
         detail = _space_conflict_detail(exc)
         if detail:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            ) from exc
         raise
     return space
 
@@ -331,7 +373,9 @@ def update_space(
         session.rollback()
         detail = _space_conflict_detail(exc)
         if detail:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
+            ) from exc
         raise
     return space
 
@@ -354,7 +398,11 @@ def list_space_members(
     return _serialize_memberships(session, rows)
 
 
-@router.post("/spaces/{space_id}/members", response_model=SpaceMembershipRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/spaces/{space_id}/members",
+    response_model=SpaceMembershipRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_space_member(
     space_id: str,
     payload: SpaceMembershipCreate,
@@ -365,7 +413,9 @@ def create_space_member(
     _space_or_404_for_membership_mutation(session, space_id)
     user = session.query(User).filter(User.user_id == payload.user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     role = _validate_space_role(payload.role)
     status_val = _validate_membership_status(payload.status)
     row = _create_or_restore_membership(
@@ -379,7 +429,11 @@ def create_space_member(
     return _serialize_membership(session, row)
 
 
-@router.post("/spaces/{space_id}/members/by-soeid", response_model=SpaceMembershipRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/spaces/{space_id}/members/by-soeid",
+    response_model=SpaceMembershipRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_space_member_by_soeid(
     space_id: str,
     payload: SpaceMembershipCreateBySoeid,
@@ -390,10 +444,14 @@ def create_space_member_by_soeid(
     _space_or_404_for_membership_mutation(session, space_id)
     soeid_norm = (payload.soeid or "").strip().lower()
     if not soeid_norm:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SOEID is required")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="SOEID is required"
+        )
     user = session.query(User).filter(User.soeid == soeid_norm).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     role = _validate_space_role(payload.role)
     status_val = _validate_membership_status(payload.status)
     row = _create_or_restore_membership(
@@ -407,7 +465,9 @@ def create_space_member_by_soeid(
     return _serialize_membership(session, row)
 
 
-@router.patch("/spaces/{space_id}/members/{membership_id}", response_model=SpaceMembershipRead)
+@router.patch(
+    "/spaces/{space_id}/members/{membership_id}", response_model=SpaceMembershipRead
+)
 def update_space_member(
     space_id: str,
     membership_id: str,
@@ -419,7 +479,10 @@ def update_space_member(
     _space_or_404_for_membership_mutation(session, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Membership does not belong to space",
+        )
     next_role = None
     if payload.role is not None:
         next_role = _validate_space_role(payload.role)
@@ -427,7 +490,9 @@ def update_space_member(
     if payload.status is not None:
         next_status = _validate_membership_status(payload.status)
 
-    _ensure_space_retains_admin(session, row, next_role=next_role, next_status=next_status)
+    _ensure_space_retains_admin(
+        session, row, next_role=next_role, next_status=next_status
+    )
     if next_role is not None:
         row.role = next_role
     if next_status is not None:
@@ -440,7 +505,9 @@ def update_space_member(
     return _serialize_membership(session, row)
 
 
-@router.delete("/spaces/{space_id}/members/{membership_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/spaces/{space_id}/members/{membership_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_space_member(
     space_id: str,
     membership_id: str,
@@ -451,7 +518,10 @@ def delete_space_member(
     _space_or_404_for_membership_mutation(session, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Membership does not belong to space",
+        )
     _ensure_space_retains_admin(session, row, deleting=True)
     row.deleted_at = datetime.now(timezone.utc)
     session.add(row)

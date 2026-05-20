@@ -25,11 +25,17 @@ MAX_CONNECTIONS_GLOBAL = _int_env_with_default("SIPM_WS_MAX_CONNECTIONS_GLOBAL",
 MAX_CONNECTIONS_PER_USER = _int_env_with_default("SIPM_WS_MAX_CONNECTIONS_PER_USER", 8)
 IDLE_TIMEOUT_SECONDS = _int_env_with_default("SIPM_WS_IDLE_TIMEOUT_SECONDS", 600)
 if MAX_CONNECTIONS_GLOBAL < 1:
-    raise RuntimeError("SIPM_WS_MAX_CONNECTIONS_GLOBAL must be greater than or equal to 1.")
+    raise RuntimeError(
+        "SIPM_WS_MAX_CONNECTIONS_GLOBAL must be greater than or equal to 1."
+    )
 if MAX_CONNECTIONS_PER_USER < 1:
-    raise RuntimeError("SIPM_WS_MAX_CONNECTIONS_PER_USER must be greater than or equal to 1.")
+    raise RuntimeError(
+        "SIPM_WS_MAX_CONNECTIONS_PER_USER must be greater than or equal to 1."
+    )
 if IDLE_TIMEOUT_SECONDS < 0:
-    raise RuntimeError("SIPM_WS_IDLE_TIMEOUT_SECONDS must be greater than or equal to 0.")
+    raise RuntimeError(
+        "SIPM_WS_IDLE_TIMEOUT_SECONDS must be greater than or equal to 0."
+    )
 DEFAULT_USER_ID = "anonymous"
 DEFAULT_SPACE_ID = "default"
 WS_CLOSE_AUTH_INVALID = 4401
@@ -88,7 +94,9 @@ async def _prune_idle_connections() -> None:
             unregister(ws)
 
 
-async def _broadcast_local_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
+async def _broadcast_local_refresh(
+    entity: str = "all", *, space_id: str | None = None
+) -> None:
     await _prune_idle_connections()
     dead = []
     for ws in list(connections):
@@ -120,13 +128,19 @@ async def register(
     space_id = (space_id or DEFAULT_SPACE_ID).strip() or DEFAULT_SPACE_ID
     await _prune_idle_connections()
     if len(connections) >= MAX_CONNECTIONS_GLOBAL:
-        raise WebSocketRejected(WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
+        raise WebSocketRejected(
+            WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached"
+        )
     if _user_connection_count(user_id) >= MAX_CONNECTIONS_PER_USER:
-        raise WebSocketRejected(WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached")
+        raise WebSocketRejected(
+            WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached"
+        )
 
     await ws.accept()
     connections.add(ws)
-    _connection_meta[ws] = ConnectionMeta(user_id=user_id, space_id=space_id, last_seen=_utc_now())
+    _connection_meta[ws] = ConnectionMeta(
+        user_id=user_id, space_id=space_id, last_seen=_utc_now()
+    )
     _user_connections.setdefault(user_id, set()).add(ws)
 
 
@@ -147,7 +161,9 @@ def heartbeat(ws: WebSocket) -> None:
     _touch(ws)
 
 
-async def broadcast_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
+async def broadcast_refresh(
+    entity: str = "all", *, space_id: str | None = None
+) -> None:
     if coordination.uses_redis():
         if coordination.publish_refresh(entity, space_id=space_id):
             return
@@ -156,7 +172,9 @@ async def broadcast_refresh(entity: str = "all", *, space_id: str | None = None)
 
 def schedule_broadcast(entity: str = "all", *, space_id: str | None = None) -> None:
     """Fire-and-forget broadcast; safe to call from sync contexts."""
-    if coordination.uses_redis() and coordination.publish_refresh(entity, space_id=space_id):
+    if coordination.uses_redis() and coordination.publish_refresh(
+        entity, space_id=space_id
+    ):
         return
     try:
         loop = asyncio.get_event_loop()

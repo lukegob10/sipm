@@ -55,7 +55,9 @@ def _cache_enabled() -> bool:
 def _cache_max_entries() -> int:
     configured = _int_env("SIPM_SMART_CACHE_MAX_ENTRIES", 4096)
     if configured <= 0:
-        raise RuntimeError("SIPM_SMART_CACHE_MAX_ENTRIES must be greater than or equal to 1.")
+        raise RuntimeError(
+            "SIPM_SMART_CACHE_MAX_ENTRIES must be greater than or equal to 1."
+        )
     return max(256, configured)
 
 
@@ -111,7 +113,9 @@ def build_scoped_cache_key(
         "role_scope": role_scope or "",
         "versions": versions,
     }
-    raw = json.dumps(payload, sort_keys=True, default=_json_default, separators=(",", ":"))
+    raw = json.dumps(
+        payload, sort_keys=True, default=_json_default, separators=(",", ":")
+    )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -136,7 +140,9 @@ def set_cached(key: str, value: Any, ttl_seconds: int) -> None:
     expires_at = now + float(ttl_seconds)
     with _LOCK:
         _purge_expired_locked(now)
-        _CACHE[key] = _CacheEntry(value=copy.deepcopy(value), expires_at=expires_at, created_at=now)
+        _CACHE[key] = _CacheEntry(
+            value=copy.deepcopy(value), expires_at=expires_at, created_at=now
+        )
         _evict_if_needed_locked(now)
 
 

@@ -36,19 +36,25 @@ def _configured_backend_name() -> str:
     profile = _normalized_profile()
     if profile in {"uat", "prod"}:
         if raw and raw != "redis":
-            raise RuntimeError("SIPM_COORDINATION_BACKEND must be 'redis' when ENV resolves to uat or prod.")
+            raise RuntimeError(
+                "SIPM_COORDINATION_BACKEND must be 'redis' when ENV resolves to uat or prod."
+            )
         return "redis"
     if not raw:
         return "memory"
     if raw not in {"memory", "redis"}:
-        raise RuntimeError("SIPM_COORDINATION_BACKEND must be either 'memory' or 'redis'.")
+        raise RuntimeError(
+            "SIPM_COORDINATION_BACKEND must be either 'memory' or 'redis'."
+        )
     return raw
 
 
 def _redis_url(required: bool) -> str:
     value = str(os.getenv("SIPM_REDIS_URL", "")).strip()
     if required and not value:
-        raise RuntimeError("SIPM_REDIS_URL is required when SIPM_COORDINATION_BACKEND=redis.")
+        raise RuntimeError(
+            "SIPM_REDIS_URL is required when SIPM_COORDINATION_BACKEND=redis."
+        )
     return value
 
 
@@ -142,9 +148,15 @@ class RedisCoordinationBackend(CoordinationBackend):
                     values[token] = value
             return values
         except Exception:
-            logger.warning("Redis scope-version read failed; using local fallback versions.", exc_info=True)
+            logger.warning(
+                "Redis scope-version read failed; using local fallback versions.",
+                exc_info=True,
+            )
             with self._lock:
-                return {token: self._fallback_scope_versions.get(token, 0) for token in tokens}
+                return {
+                    token: self._fallback_scope_versions.get(token, 0)
+                    for token in tokens
+                }
 
     def invalidate_scope_tokens(self, scope_tokens: Iterable[str]) -> None:
         tokens = [token for token in scope_tokens if token]
@@ -152,14 +164,19 @@ class RedisCoordinationBackend(CoordinationBackend):
             return
         with self._lock:
             for token in tokens:
-                self._fallback_scope_versions[token] = self._fallback_scope_versions.get(token, 0) + 1
+                self._fallback_scope_versions[token] = (
+                    self._fallback_scope_versions.get(token, 0) + 1
+                )
         try:
             pipeline = self._redis.pipeline()
             for token in tokens:
                 pipeline.incr(self._scope_key(token))
             pipeline.execute()
         except Exception:
-            logger.warning("Redis scope invalidation publish failed; continuing with local fallback.", exc_info=True)
+            logger.warning(
+                "Redis scope invalidation publish failed; continuing with local fallback.",
+                exc_info=True,
+            )
 
     def publish_refresh(self, entity: str, *, space_id: str | None = None) -> bool:
         payload = json.dumps({"entity": entity, "space_id": space_id or ""})
@@ -167,7 +184,10 @@ class RedisCoordinationBackend(CoordinationBackend):
             self._redis.publish(_REFRESH_CHANNEL, payload)
             return True
         except Exception:
-            logger.warning("Redis realtime publish failed; falling back to local broadcast.", exc_info=True)
+            logger.warning(
+                "Redis realtime publish failed; falling back to local broadcast.",
+                exc_info=True,
+            )
             return False
 
     async def start_refresh_listener(
@@ -179,7 +199,9 @@ class RedisCoordinationBackend(CoordinationBackend):
         self._handler = handler
         self._pubsub = self._aredis.pubsub(ignore_subscribe_messages=True)
         await self._pubsub.subscribe(_REFRESH_CHANNEL)
-        self._listener_task = asyncio.create_task(self._listen(), name="sipm-redis-refresh-listener")
+        self._listener_task = asyncio.create_task(
+            self._listen(), name="sipm-redis-refresh-listener"
+        )
 
     async def _listen(self) -> None:
         assert self._pubsub is not None
@@ -190,7 +212,10 @@ class RedisCoordinationBackend(CoordinationBackend):
                 try:
                     payload = json.loads(message.get("data") or "{}")
                 except json.JSONDecodeError:
-                    logger.warning("Ignoring invalid realtime coordination payload: %r", message.get("data"))
+                    logger.warning(
+                        "Ignoring invalid realtime coordination payload: %r",
+                        message.get("data"),
+                    )
                     continue
                 entity = str(payload.get("entity") or "all")
                 space_id = str(payload.get("space_id") or "").strip() or None
@@ -199,7 +224,9 @@ class RedisCoordinationBackend(CoordinationBackend):
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Redis realtime coordination listener stopped unexpectedly.")
+            logger.exception(
+                "Redis realtime coordination listener stopped unexpectedly."
+            )
             raise
 
     async def stop_refresh_listener(self) -> None:

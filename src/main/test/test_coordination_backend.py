@@ -28,10 +28,14 @@ def test_prod_like_env_requires_redis(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_redis_coordination_propagates_scope_versions_and_refresh_events(monkeypatch):
+async def test_redis_coordination_propagates_scope_versions_and_refresh_events(
+    monkeypatch,
+):
     redis_url = str(os.getenv("SIPM_REDIS_URL", "")).strip()
     if not redis_url:
-        pytest.skip("SIPM_REDIS_URL is not configured for Redis coordination integration testing.")
+        pytest.skip(
+            "SIPM_REDIS_URL is not configured for Redis coordination integration testing."
+        )
 
     backend_a = coordination.RedisCoordinationBackend(redis_url)
     backend_b = coordination.RedisCoordinationBackend(redis_url)
@@ -49,7 +53,9 @@ async def test_redis_coordination_propagates_scope_versions_and_refresh_events(m
         await asyncio.sleep(0.05)
         assert backend_a.scope_versions([scope_token])[scope_token] >= 1
 
-        assert backend_b.publish_refresh("solutions", space_id="space-redis-test") is True
+        assert (
+            backend_b.publish_refresh("solutions", space_id="space-redis-test") is True
+        )
         await asyncio.wait_for(event.wait(), timeout=2)
         assert received == [("solutions", "space-redis-test")]
     finally:

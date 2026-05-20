@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import DateTime, MetaData
 from sqlalchemy.ext.compiler import compiles
@@ -23,6 +24,10 @@ def _utcnow_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def uuid_str() -> str:
+    return str(uuid4())
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive)
     updated_at: Mapped[datetime] = mapped_column(
@@ -40,4 +45,4 @@ class SoftDeleteMixin:
     )
 
 
-__all__ = ["Base", "SoftDeleteMixin", "TimestampMixin", "_utcnow_naive"]
+__all__ = ["Base", "SoftDeleteMixin", "TimestampMixin", "_utcnow_naive", "uuid_str"]

@@ -1,4 +1,4 @@
-from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
+from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive, uuid_str
 from .analytics import (
     PerformanceSample,
     UsageDailyRollup,
@@ -49,4 +49,5 @@ __all__ = [
     "UsageRouteIdentityDailyRollup",
     "User",
     "_utcnow_naive",
+    "uuid_str",
 ]

@@ -10,6 +10,7 @@ import backend.app.routes.subcomponents as subcomponents_route
 from backend.app.models import Project, Solution, Subcomponent
 from backend.app.services.smart_cache import clear_cache
 
+
 @pytest.mark.anyio
 async def test_subcomponents_import_updates_creates_and_exports(client):
     project = (
@@ -21,7 +22,11 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     solution = (
         await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Access Controls", "version": "0.1.0", "owner": "Owner"},
+            json={
+                "solution_name": "Access Controls",
+                "version": "0.1.0",
+                "owner": "Owner",
+            },
         )
     ).json()
 
@@ -130,14 +135,22 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     assert data["total_rows"] == 5
     assert len(data["errors"]) == 2
 
-    updated = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
+    updated = await client.get(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}"
+    )
     assert updated.status_code == 200
     updated_json = updated.json()
     assert updated_json["status"] == "complete"
     assert updated_json["completed_at"] == "2026-03-04T05:06:07"
     assert updated_json["assignee"] == "Engineer Updated"
-    assert updated_json["github_repo_url"] == "https://github.com/example-org/platform-worker"
-    assert updated_json["effective_github_repo_url"] == "https://github.com/example-org/platform-worker"
+    assert (
+        updated_json["github_repo_url"]
+        == "https://github.com/example-org/platform-worker"
+    )
+    assert (
+        updated_json["effective_github_repo_url"]
+        == "https://github.com/example-org/platform-worker"
+    )
     assert updated_json["repo_source"] == "override"
 
     reopen_buf = StringIO()
@@ -164,7 +177,9 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
     )
     assert reopen_resp.status_code == 200, reopen_resp.text
 
-    reopened = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
+    reopened = await client.get(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}"
+    )
     assert reopened.status_code == 200
     reopened_json = reopened.json()
     assert reopened_json["status"] == "in_progress"
@@ -175,7 +190,9 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         params={"assignee_user_soeid": "tu12345"},
     )
     assert fallback_assignee.status_code == 200
-    assert [row["subcomponent_name"] for row in fallback_assignee.json()] == ["Missing Assignee"]
+    assert [row["subcomponent_name"] for row in fallback_assignee.json()] == [
+        "Missing Assignee"
+    ]
     assert fallback_assignee.json()[0]["assignee"] == "Test User"
 
     exported = await client.get("/project-manager/api/subcomponents/export")
@@ -194,11 +211,16 @@ async def test_subcomponents_import_updates_creates_and_exports(client):
         and r["assignee_user_soeid"] == "tu12345"
         for r in rows
     )
-    assert any(r["project_name"] == "Auto Project" and r["subcomponent_name"] == "Auto Task" for r in rows)
+    assert any(
+        r["project_name"] == "Auto Project" and r["subcomponent_name"] == "Auto Task"
+        for r in rows
+    )
 
 
 @pytest.mark.anyio
-async def test_subcomponents_import_auto_created_parents_refresh_project_solution_and_subcomponent_lists(client):
+async def test_subcomponents_import_auto_created_parents_refresh_project_solution_and_subcomponent_lists(
+    client,
+):
     clear_cache()
     try:
         primed_projects = await client.get("/project-manager/api/projects/")
@@ -236,17 +258,23 @@ async def test_subcomponents_import_auto_created_parents_refresh_project_solutio
 
         solutions = await client.get("/project-manager/api/solutions")
         assert solutions.status_code == 200, solutions.text
-        assert [row["solution_name"] for row in solutions.json()] == ["Imported Solution"]
+        assert [row["solution_name"] for row in solutions.json()] == [
+            "Imported Solution"
+        ]
 
         subcomponents = await client.get("/project-manager/api/subcomponents")
         assert subcomponents.status_code == 200, subcomponents.text
-        assert [row["subcomponent_name"] for row in subcomponents.json()] == ["Imported Task"]
+        assert [row["subcomponent_name"] for row in subcomponents.json()] == [
+            "Imported Task"
+        ]
     finally:
         clear_cache()
 
 
 @pytest.mark.anyio
-async def test_subcomponents_import_auto_created_parents_use_current_user_accountability(client):
+async def test_subcomponents_import_auto_created_parents_use_current_user_accountability(
+    client,
+):
     csv_text = "\n".join(
         [
             "project_name,solution_name,version,subcomponent_name,status,priority,due_date,assignee,solution_owner",
@@ -268,19 +296,33 @@ async def test_subcomponents_import_auto_created_parents_use_current_user_accoun
 
     projects = await client.get("/project-manager/api/projects/")
     assert projects.status_code == 200, projects.text
-    project = next(row for row in projects.json() if row["project_name"] == "Current User Project")
+    project = next(
+        row for row in projects.json() if row["project_name"] == "Current User Project"
+    )
     assert project["sponsor"] == "Test User"
     assert project["sponsor_user_soeid"] == "tu12345"
 
-    solutions = await client.get("/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"})
+    solutions = await client.get(
+        "/project-manager/api/solutions", params={"owner_user_soeid": "tu12345"}
+    )
     assert solutions.status_code == 200, solutions.text
-    solution = next(row for row in solutions.json() if row["solution_name"] == "Current User Workstream")
+    solution = next(
+        row
+        for row in solutions.json()
+        if row["solution_name"] == "Current User Workstream"
+    )
     assert solution["owner"] == "Test User"
     assert solution["owner_user_soeid"] == "tu12345"
 
-    subcomponents = await client.get("/project-manager/api/subcomponents", params={"assignee_user_soeid": "tu12345"})
+    subcomponents = await client.get(
+        "/project-manager/api/subcomponents", params={"assignee_user_soeid": "tu12345"}
+    )
     assert subcomponents.status_code == 200, subcomponents.text
-    subcomponent = next(row for row in subcomponents.json() if row["subcomponent_name"] == "Current User Deliverable")
+    subcomponent = next(
+        row
+        for row in subcomponents.json()
+        if row["subcomponent_name"] == "Current User Deliverable"
+    )
     assert subcomponent["assignee"] == "Test User"
     assert subcomponent["assignee_user_soeid"] == "tu12345"
 
@@ -312,7 +354,10 @@ async def test_update_subcomponent_sets_completed_at_and_rejects_name_conflict(c
         )
     ).json()
 
-    complete = await client.patch(f"/project-manager/api/subcomponents/{b['subcomponent_id']}", json={"status": "complete"})
+    complete = await client.patch(
+        f"/project-manager/api/subcomponents/{b['subcomponent_id']}",
+        json={"status": "complete"},
+    )
     assert complete.status_code == 200
     assert complete.json()["completed_at"] is not None
 
@@ -328,7 +373,9 @@ async def test_update_subcomponent_sets_completed_at_and_rejects_name_conflict(c
         json={"subcomponent_name": a["subcomponent_name"]},
     )
     assert conflict.status_code == 400
-    assert conflict.json()["detail"] == "Subcomponent name already exists in this solution"
+    assert (
+        conflict.json()["detail"] == "Subcomponent name already exists in this solution"
+    )
 
 
 @pytest.mark.anyio
@@ -340,7 +387,9 @@ async def test_subcomponents_import_rolls_back_auto_created_rows_when_phase_enab
     def _fail_enable_all_phases(*_args, **_kwargs):
         raise RuntimeError("phase seed failed")
 
-    monkeypatch.setattr(subcomponents_route, "enable_all_phases", _fail_enable_all_phases)
+    monkeypatch.setattr(
+        subcomponents_route, "enable_all_phases", _fail_enable_all_phases
+    )
 
     buf = StringIO()
     fieldnames = [
@@ -386,6 +435,21 @@ async def test_subcomponents_import_rolls_back_auto_created_rows_when_phase_enab
     assert "phase seed failed" in payload["errors"][0]
 
     with db_sessionmaker() as session:
-        assert session.query(Project).filter(Project.project_name == "Atomic Subcomponent Project").count() == 0
-        assert session.query(Solution).filter(Solution.solution_name == "Atomic Subcomponent Solution").count() == 0
-        assert session.query(Subcomponent).filter(Subcomponent.subcomponent_name == "Atomic Subcomponent Task").count() == 0
+        assert (
+            session.query(Project)
+            .filter(Project.project_name == "Atomic Subcomponent Project")
+            .count()
+            == 0
+        )
+        assert (
+            session.query(Solution)
+            .filter(Solution.solution_name == "Atomic Subcomponent Solution")
+            .count()
+            == 0
+        )
+        assert (
+            session.query(Subcomponent)
+            .filter(Subcomponent.subcomponent_name == "Atomic Subcomponent Task")
+            .count()
+            == 0
+        )

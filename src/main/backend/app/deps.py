@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """
 Shared FastAPI dependencies.
 
 This module is intentionally the canonical import target for `get_db` so tests can
 override it via `fastapi_app.dependency_overrides[deps.get_db] = ...`.
 """
+
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -19,7 +19,12 @@ from .models import User
 from .security import security_http_exception
 from .services.audit_log import log_changes
 from .services.api_tokens import authenticate_api_token
-from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
+from .services.auth_state import reject_if_locked
+from .services.spaces import (
+    SpaceContext,
+    is_global_admin_role,
+    resolve_active_space_context,
+)
 
 
 def get_db() -> Iterator[Session]:
@@ -75,17 +80,7 @@ def _raise_forbidden_role(message: str) -> None:
 
 
 def _ensure_user_not_locked(user: User) -> None:
-    if not user.locked_until:
-        return
-    locked_until = user.locked_until
-    if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    if locked_until > datetime.now(timezone.utc):
-        raise security_http_exception(
-            status_code=status.HTTP_423_LOCKED,
-            code="ACCOUNT_LOCKED",
-            message="Account locked",
-        )
+    reject_if_locked(user, message="Account locked")
 
 
 def authenticate_access_token(session: Session, token: str | None) -> User:
@@ -168,7 +163,9 @@ def _requested_space_id(request: Request) -> str | None:
     return request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
 
 
-def _ensure_space_matches_request(requested_space_id: str | None, ctx: SpaceContext) -> None:
+def _ensure_space_matches_request(
+    requested_space_id: str | None, ctx: SpaceContext
+) -> None:
     if requested_space_id and ctx.space_id != requested_space_id:
         _raise_forbidden_space()
 
@@ -179,7 +176,9 @@ def current_space(
     user: User = Depends(require_user),
 ) -> SpaceContext:
     requested_space_id = _requested_space_id(request)
-    ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
     _ensure_space_matches_request(requested_space_id, ctx)
     request.state.space_context = ctx
     return ctx

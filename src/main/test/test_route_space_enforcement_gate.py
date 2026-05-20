@@ -64,7 +64,6 @@ def test_protected_routes_require_space_or_global_admin_dependency():
         key = (relative_path, fn.name)
         if key in ALLOWED_NO_SPACE_DEP:
             continue
-        args = fn.args.args or []
         defaults = fn.args.defaults or []
         dep_targets = []
         for default_expr in defaults:
@@ -72,13 +71,10 @@ def test_protected_routes_require_space_or_global_admin_dependency():
             if target:
                 dep_targets.append(target)
         if not _is_space_enforced(dep_targets):
-            missing.append(
-                f"{relative_path}:{fn.lineno}:{fn.name} deps={dep_targets}"
-            )
+            missing.append(f"{relative_path}:{fn.lineno}:{fn.name} deps={dep_targets}")
 
     assert not missing, (
         "Routes missing space/global-admin enforcement dependency. "
         "Add `Depends(current_space_dep)`, `Depends(require_space_role(...))`, "
-        "or `Depends(require_global_admin)`.\n"
-        + "\n".join(sorted(missing))
+        "or `Depends(require_global_admin)`.\n" + "\n".join(sorted(missing))
     )

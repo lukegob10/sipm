@@ -8,9 +8,15 @@ APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
-MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
-MASTER_ROUTE_FILTERS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "filters.js"
-MASTER_ROUTE_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "interactions.js"
+MASTER_ROUTE_TABLE = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
+)
+MASTER_ROUTE_FILTERS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "filters.js"
+)
+MASTER_ROUTE_INTERACTIONS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "interactions.js"
+)
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -19,16 +25,27 @@ def test_master_route_renders_project_names_as_drilldown_links():
 
     assert "function renderProjectNameLink(label, projectId) {" in text
     assert "function renderSolutionNameLink(label, solutionId) {" in text
-    assert 'class="deliverables-name-link deliverables-name-link-project" data-action="edit" data-type="project"' in text
-    assert 'class="deliverables-name-link deliverables-name-link-solution" data-action="edit" data-type="solution"' in text
-    assert 'renderProjectNameLink(project?.project_name, project?.project_id)' in text
-    assert 'renderSolutionNameLink(solution?.solution_name, solution?.solution_id)' in text
+    assert (
+        'class="deliverables-name-link deliverables-name-link-project" data-action="edit" data-type="project"'
+        in text
+    )
+    assert (
+        'class="deliverables-name-link deliverables-name-link-solution" data-action="edit" data-type="solution"'
+        in text
+    )
+    assert "renderProjectNameLink(project?.project_name, project?.project_id)" in text
+    assert (
+        "renderSolutionNameLink(solution?.solution_name, solution?.solution_id)" in text
+    )
 
 
 def test_master_route_entry_delegates_to_route_local_table_helper():
     text = MASTER_ROUTE.read_text(encoding="utf-8")
 
-    assert 'import { bindMasterTableInteractions, buildMasterTable } from "./master/table.js";' in text
+    assert (
+        'import { bindMasterTableInteractions, buildMasterTable } from "./master/table.js";'
+        in text
+    )
     assert "const { html, rowCount } = buildMasterTable(ctx);" in text
     assert "bindMasterTableInteractions(ctx, {" in text
 
@@ -86,7 +103,10 @@ def test_master_table_keeps_broad_deliverables_columns_without_repo_mode():
 
     assert 'id="preset-engineering"' not in html_text
     assert "presetEngineering" not in dom_text
-    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);' in filters_text
+    assert (
+        'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);'
+        in filters_text
+    )
     assert "engineering" not in filters_text
     assert "presetEngineering" not in interactions_text
     assert "<th>Version</th>" in route_text

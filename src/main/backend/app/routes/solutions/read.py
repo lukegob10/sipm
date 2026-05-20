@@ -48,7 +48,9 @@ def list_all_solutions(
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
 ):
-    status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
+    status_val = (
+        status_filter.value if hasattr(status_filter, "value") else status_filter
+    )
     owner_norm = owner.strip().lower() if owner else None
     assignee_norm = assignee.strip().lower() if assignee else None
     params = {
@@ -66,7 +68,9 @@ def list_all_solutions(
     scope_token = make_scope_token("solutions", space_ctx.space_id)
 
     def _load():
-        query = _exclude_work_allocation_board_solutions(_solution_query(session, space_ctx), session, space_ctx)
+        query = _exclude_work_allocation_board_solutions(
+            _solution_query(session, space_ctx), session, space_ctx
+        )
         if project_id:
             query = query.filter(Solution.project_id == project_id)
         if status_filter:
@@ -122,7 +126,9 @@ def list_solutions(
     current_user: User = Depends(current_user_dep),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
-    status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
+    status_val = (
+        status_filter.value if hasattr(status_filter, "value") else status_filter
+    )
     owner_norm = owner.strip().lower() if owner else None
     assignee_norm = assignee.strip().lower() if assignee else None
     params = {
@@ -140,7 +146,9 @@ def list_solutions(
     scope_token = make_scope_token("solutions", space_ctx.space_id)
 
     def _load():
-        query = _exclude_work_allocation_board_solutions(_solution_query(session, space_ctx), session, space_ctx)
+        query = _exclude_work_allocation_board_solutions(
+            _solution_query(session, space_ctx), session, space_ctx
+        )
         query = query.filter(Solution.project_id == project_id)
         if status_filter:
             query = query.filter(Solution.status == status_filter)

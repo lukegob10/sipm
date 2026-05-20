@@ -51,7 +51,7 @@ def test_app_route_loader_registry_includes_split_views():
     app_text = ROUTER_JS.read_text(encoding="utf-8")
     for view_name, import_path in EXPECTED_ROUTE_LOADERS.items():
         candidates = [
-            f'{view_name}: () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
+            f"{view_name}: () => import(`../routes/{import_path.split('/')[-1]}?v=${{APP_ASSET_VERSION}}`)",
             f'"{view_name}": () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
             f"'{view_name}': () => import(`../routes/{import_path.split('/')[-1]}?v=${{APP_ASSET_VERSION}}`)",
         ]

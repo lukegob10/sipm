@@ -9,7 +9,12 @@ from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_space_role
 from ...models import Subcomponent, User
-from ...schemas import SubcomponentBatchUpdate, SubcomponentCreate, SubcomponentRead, SubcomponentUpdate
+from ...schemas import (
+    SubcomponentBatchUpdate,
+    SubcomponentCreate,
+    SubcomponentRead,
+    SubcomponentUpdate,
+)
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_str
@@ -134,7 +139,9 @@ def create_subcomponent(
         cache_keys=["subcomponents"],
         broadcast_channel="subcomponents",
     )
-    return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
+    return _subcomponent_payload(
+        subcomponent, solution_repo_url=solution.github_repo_url
+    )
 
 
 @router.patch("/subcomponents/{subcomponent_id}", response_model=SubcomponentRead)
@@ -151,7 +158,9 @@ def update_subcomponent(
 
     update_data = payload.model_dump(exclude_unset=True)
     if "subcomponent_name" in update_data:
-        update_data["subcomponent_name"] = _required_subcomponent_name(update_data["subcomponent_name"])
+        update_data["subcomponent_name"] = _required_subcomponent_name(
+            update_data["subcomponent_name"]
+        )
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
     if "blocked" in update_data and update_data["blocked"] is None:
@@ -160,9 +169,13 @@ def update_subcomponent(
         update_data["blocker_note"] = None
     if "github_repo_url" in update_data:
         try:
-            update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])
+            update_data["github_repo_url"] = normalize_github_repo_url(
+                update_data["github_repo_url"]
+            )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            )
     fields_to_compare = set(update_data.keys())
     if "status" in update_data:
         fields_to_compare.add("completed_at")
@@ -202,7 +215,10 @@ def update_subcomponent(
             user_id=current_user.user_id,
             action="update",
             space_id=space_ctx.space_id,
-            changes={field: (before.get(field), getattr(subcomponent, field)) for field in fields_to_compare},
+            changes={
+                field: (before.get(field), getattr(subcomponent, field))
+                for field in fields_to_compare
+            },
         )
     commit_refresh_and_publish(
         session,
@@ -212,7 +228,9 @@ def update_subcomponent(
         broadcast_channel="subcomponents",
     )
     solution = _ensure_solution(session, subcomponent.solution_id, space_ctx)
-    return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
+    return _subcomponent_payload(
+        subcomponent, solution_repo_url=solution.github_repo_url
+    )
 
 
 @router.patch("/subcomponents/actions/batch", response_model=list[SubcomponentRead])
@@ -271,7 +289,10 @@ def batch_update_subcomponents(
             track("status", payload.status)
             if payload.status == SubcomponentStatus.complete and not row.completed_at:
                 track("completed_at", now)
-            elif payload.status != SubcomponentStatus.complete and row.completed_at is not None:
+            elif (
+                payload.status != SubcomponentStatus.complete
+                and row.completed_at is not None
+            ):
                 track("completed_at", None)
         if payload.priority is not None:
             track("priority", payload.priority)
@@ -281,7 +302,9 @@ def batch_update_subcomponents(
         if payload.due_date is not None:
             track("due_date", payload.due_date)
         elif payload.due_date_shift_days is not None and row.due_date is not None:
-            track("due_date", row.due_date + timedelta(days=payload.due_date_shift_days))
+            track(
+                "due_date", row.due_date + timedelta(days=payload.due_date_shift_days)
+            )
 
         if payload.clear_assignee:
             track("assignee", "")
@@ -319,12 +342,16 @@ def batch_update_subcomponents(
         [row.solution_id for row in updated_rows],
     )
     return [
-        _subcomponent_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
+        _subcomponent_payload(
+            row, solution_repo_url=solution_repo_map.get(row.solution_id)
+        )
         for row in updated_rows
     ]
 
 
-@router.delete("/subcomponents/{subcomponent_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/subcomponents/{subcomponent_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_subcomponent(
     subcomponent_id: str,
     session: Session = Depends(get_db),

@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_space_role
+from ..deps import (
+    get_db,
+    current_user as current_user_dep,
+    current_space as current_space_dep,
+    require_space_role,
+)
 from ..models import Phase, Project, Solution, SolutionPhase, User
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
 from ..services.audit_log import log_changes
@@ -62,7 +67,9 @@ def set_solution_phases(
     for item in phases_data:
         data = SolutionPhaseInput.model_validate(item)
 
-        phase_exists = session.query(Phase).filter(Phase.phase_id == data.phase_id).first()
+        phase_exists = (
+            session.query(Phase).filter(Phase.phase_id == data.phase_id).first()
+        )
         if not phase_exists:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -109,13 +116,17 @@ def set_solution_phases(
 
     # If the solution's current_phase is now disabled, clear it to avoid invalid states.
     session.flush()
-    solution = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
+    solution = (
+        _active_solution_query(session, space_ctx)
+        .filter(Solution.solution_id == solution_id)
+        .first()
+    )
     if solution and solution.current_phase:
         enabled_ids = {
             row[0]
             for row in session.query(SolutionPhase.phase_id)
             .filter(SolutionPhase.solution_id == solution_id)
-            .filter(SolutionPhase.is_enabled == True)
+            .filter(SolutionPhase.is_enabled.is_(True))
             .all()
         }
         if solution.current_phase not in enabled_ids:
@@ -154,13 +165,23 @@ def list_solution_phases(
     return _ordered_solution_phases(session, solution_id, space_ctx)
 
 
-def _ensure_solution_exists(session: Session, solution_id: str, space_ctx: SpaceContext) -> None:
-    exists = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
+def _ensure_solution_exists(
+    session: Session, solution_id: str, space_ctx: SpaceContext
+) -> None:
+    exists = (
+        _active_solution_query(session, space_ctx)
+        .filter(Solution.solution_id == solution_id)
+        .first()
+    )
     if not exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found"
+        )
 
 
-def _ordered_solution_phases(session: Session, solution_id: str, space_ctx: SpaceContext) -> list[SolutionPhase]:
+def _ordered_solution_phases(
+    session: Session, solution_id: str, space_ctx: SpaceContext
+) -> list[SolutionPhase]:
     sort_key = func.coalesce(SolutionPhase.sequence_override, Phase.sequence)
     items = (
         session.query(SolutionPhase)
@@ -172,7 +193,9 @@ def _ordered_solution_phases(session: Session, solution_id: str, space_ctx: Spac
         .filter(Solution.space_id == space_ctx.space_id)
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
-        .order_by(sort_key.asc(), Phase.sequence.asc(), SolutionPhase.solution_phase_id.asc())
+        .order_by(
+            sort_key.asc(), Phase.sequence.asc(), SolutionPhase.solution_phase_id.asc()
+        )
         .all()
     )
     return items

@@ -63,7 +63,9 @@ async def test_create_allocation_legacy_hours_backfills_fte_months(client):
 
 
 @pytest.mark.anyio
-async def test_create_allocation_without_assignee_soeid_keeps_identity_field_empty(client):
+async def test_create_allocation_without_assignee_soeid_keeps_identity_field_empty(
+    client,
+):
     window_resp = await client.post(
         "/project-manager/api/planning/windows",
         json={"name": "FY26-Q2B", "start_date": "2026-04-01", "end_date": "2026-06-30"},
@@ -89,7 +91,14 @@ async def test_create_allocation_without_assignee_soeid_keeps_identity_field_emp
 
     listed = await client.get("/project-manager/api/resource-allocations")
     assert listed.status_code == 200, listed.text
-    created_row = next((row for row in listed.json() if row["allocation_id"] == payload["allocation_id"]), None)
+    created_row = next(
+        (
+            row
+            for row in listed.json()
+            if row["allocation_id"] == payload["allocation_id"]
+        ),
+        None,
+    )
     assert created_row is not None
     assert created_row["assignee"] == "Display Name Only"
     assert created_row["assignee_user_soeid"] is None
@@ -132,7 +141,9 @@ async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     )
     assert second.status_code == 201, second.text
 
-    summary = await client.get(f"/project-manager/api/resource-allocations/summary?window_id={window_id}")
+    summary = await client.get(
+        f"/project-manager/api/resource-allocations/summary?window_id={window_id}"
+    )
     assert summary.status_code == 200, summary.text
     rows = summary.json()
     assert len(rows) == 1
@@ -147,7 +158,11 @@ async def test_allocations_summary_groups_by_month_and_returns_fte(client):
 async def test_planning_windows_csv_import_export_updates_by_name(client):
     created = await client.post(
         "/project-manager/api/planning/windows",
-        json={"name": "FY26 Migration", "start_date": "2026-01-01", "end_date": "2026-03-31"},
+        json={
+            "name": "FY26 Migration",
+            "start_date": "2026-01-01",
+            "end_date": "2026-03-31",
+        },
     )
     assert created.status_code == 201, created.text
 
@@ -186,7 +201,9 @@ async def test_planning_windows_csv_import_export_updates_by_name(client):
 
 @pytest.mark.anyio
 async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(client):
-    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Allocation Project"})
+    project_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Allocation Project"}
+    )
     assert project_resp.status_code == 201, project_resp.text
     project_id = project_resp.json()["project_id"]
     solution_resp = await client.post(
@@ -203,10 +220,17 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
 
     window_resp = await client.post(
         "/project-manager/api/planning/windows",
-        json={"name": "Allocation Window", "start_date": "2026-05-01", "end_date": "2026-05-31"},
+        json={
+            "name": "Allocation Window",
+            "start_date": "2026-05-01",
+            "end_date": "2026-05-31",
+        },
     )
     assert window_resp.status_code == 201, window_resp.text
-    team_resp = await client.post("/project-manager/api/planning/work-allocation/teams", json={"name": "Allocation Team"})
+    team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Allocation Team"},
+    )
     assert team_resp.status_code == 201, team_resp.text
 
     buf = StringIO()

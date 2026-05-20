@@ -1,6 +1,5 @@
 from datetime import datetime
 from typing import Optional
-from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -16,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.table_names import fk_target, physical_table_name
-from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive
+from .base import Base, SoftDeleteMixin, TimestampMixin, _utcnow_naive, uuid_str
 
 
 class User(TimestampMixin, Base):
@@ -26,24 +25,32 @@ class User(TimestampMixin, Base):
         UniqueConstraint("soeid", name="uix_user_soeid"),
     )
 
-    user_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     soeid: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False)
     display_name: Mapped[str] = mapped_column(String, nullable=False)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_service_account: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     team_tag: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=40)
-    capacity_fte_month: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    capacity_fte_month: Mapped[float] = mapped_column(
+        Float, nullable=False, default=1.0
+    )
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     external_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     temp_password_hash: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    temp_password_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    force_password_reset: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    temp_password_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
+    force_password_reset: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
     password_changed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime,
         default=_utcnow_naive,
@@ -58,7 +65,7 @@ class ApiToken(TimestampMixin, Base):
         Index("idx_api_token_user", "user_id"),
     )
 
-    token_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    token_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     user_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("users", "user_id")),
@@ -69,7 +76,9 @@ class ApiToken(TimestampMixin, Base):
     created_by_user_id: Mapped[str] = mapped_column(String, nullable=False)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
 
 
 class Space(TimestampMixin, SoftDeleteMixin, Base):
@@ -79,11 +88,15 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
         UniqueConstraint("name", name="uix_space_name"),
     )
 
-    space_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    space_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
-    archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, index=True
+    )
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
 
 
 class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
@@ -92,7 +105,9 @@ class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
         UniqueConstraint("space_id", "user_id", name="uix_space_membership"),
     )
 
-    membership_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    membership_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=uuid_str
+    )
     space_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -105,8 +120,12 @@ class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
         nullable=False,
         index=True,
     )
-    role: Mapped[str] = mapped_column(String, nullable=False, default="member", index=True)
-    status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
+    role: Mapped[str] = mapped_column(
+        String, nullable=False, default="member", index=True
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default="active", index=True
+    )
 
 
 class ChangeLog(Base):
@@ -116,7 +135,7 @@ class ChangeLog(Base):
         Index("idx_change_user_created", "user_id", "created_at"),
     )
 
-    change_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    change_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
     action: Mapped[str] = mapped_column(String, nullable=False)
@@ -143,7 +162,7 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("teams")
     __table_args__ = (UniqueConstraint("space_id", "name", name="uix_team_space_name"),)
 
-    team_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    team_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -153,15 +172,21 @@ class Team(TimestampMixin, SoftDeleteMixin, Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     lead: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    default_capacity_per_week: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    default_capacity_fte_month: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    default_capacity_per_week: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    default_capacity_fte_month: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0
+    )
     capacity_unit: Mapped[str] = mapped_column(String, nullable=False, default="hours")
 
 
 class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("team_members")
 
-    team_member_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    team_member_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=uuid_str
+    )
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -185,6 +210,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 
 __all__ = [
+    "ApiToken",
     "ChangeLog",
     "Space",
     "SpaceMembership",

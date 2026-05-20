@@ -13,14 +13,12 @@ from backend.app import deps as deps_module
 from backend.app.auth import auth as auth_module
 from backend.app.routes import auth as auth_routes_module
 from backend.app.auth.auth import (
-    clear_auth_cookies,
-    create_token,
     decode_token,
     hash_password,
-    set_auth_cookies,
     verify_password,
 )
 from backend.app.models import ApiToken, Space, SpaceMembership, User
+from backend.app.services.api_tokens import hash_api_token
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -62,7 +60,9 @@ async def _login_local_session(
             session.flush()
         space = session.query(Space).filter(Space.slug == "main").first()
         if space is None:
-            space = Space(space_id="test-main-space", name="Main", slug="main", is_active=True)
+            space = Space(
+                space_id="test-main-space", name="Main", slug="main", is_active=True
+            )
             session.add(space)
             session.flush()
         membership = (
@@ -119,7 +119,9 @@ def test_password_hashing_and_verification_handles_long_passwords_and_bad_hashes
     assert verify_password(password, hashed) is True
     assert verify_password("wrong", hashed) is False
 
-    long_password = "x" * 80  # bcrypt truncates at 72 bytes; we pre-hash to avoid silent truncation
+    long_password = (
+        "x" * 80
+    )  # bcrypt truncates at 72 bytes; we pre-hash to avoid silent truncation
     long_hashed = hash_password(long_password)
     assert verify_password(long_password, long_hashed) is True
     assert verify_password(long_password, "not-a-bcrypt-hash") is False
@@ -252,7 +254,9 @@ def test_auth_module_rejects_invalid_access_minutes(monkeypatch):
     try:
         with monkeypatch.context() as env:
             env.setenv("SIPM_ACCESS_MINUTES", "sixty")
-            with pytest.raises(RuntimeError, match="SIPM_ACCESS_MINUTES must be an integer."):
+            with pytest.raises(
+                RuntimeError, match="SIPM_ACCESS_MINUTES must be an integer."
+            ):
                 importlib.reload(auth_module)
     finally:
         importlib.reload(auth_module)
@@ -264,7 +268,9 @@ def test_auth_module_rejects_invalid_bcrypt_rounds(monkeypatch):
     try:
         with monkeypatch.context() as env:
             env.setenv("SIPM_BCRYPT_ROUNDS", "twelve")
-            with pytest.raises(RuntimeError, match="SIPM_BCRYPT_ROUNDS must be an integer."):
+            with pytest.raises(
+                RuntimeError, match="SIPM_BCRYPT_ROUNDS must be an integer."
+            ):
                 importlib.reload(auth_module)
     finally:
         importlib.reload(auth_module)
@@ -325,11 +331,15 @@ def test_auth_cookie_helpers_set_lifetimes_and_clear(monkeypatch):
         reloaded.clear_auth_cookies(clear)
         cleared = clear.headers.getlist("set-cookie")
         assert any(
-            "access_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+            "access_token=" in cookie
+            and "Max-Age=0" in cookie
+            and "Path=/project-manager" in cookie
             for cookie in cleared
         )
         assert any(
-            "refresh_token=" in cookie and "Max-Age=0" in cookie and "Path=/project-manager" in cookie
+            "refresh_token=" in cookie
+            and "Max-Age=0" in cookie
+            and "Path=/project-manager" in cookie
             for cookie in cleared
         )
 
@@ -352,7 +362,9 @@ def test_validate_auth_configuration_rejects_invalid_cookie_samesite(monkeypatch
         importlib.reload(auth_module)
 
 
-def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(monkeypatch):
+def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(
+    monkeypatch,
+):
     import backend.app.auth.auth as auth_module
 
     try:
@@ -364,6 +376,25 @@ def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(
             reloaded = importlib.reload(auth_module)
             assert reloaded.SECURE_COOKIES is True
             reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_weak_non_dev_secret(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("ENV", "prod")
+            env.setenv("SIPM_SECRET_KEY", "short-secret")
+            env.setenv("SIPM_SECURE_COOKIES", "true")
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_SECRET_KEY must be at least 32 characters in non-dev environments.",
+            ):
+                reloaded.validate_auth_configuration()
     finally:
         importlib.reload(auth_module)
 
@@ -412,13 +443,17 @@ def test_auth_module_rejects_invalid_secure_cookie_boolean(monkeypatch):
     try:
         with monkeypatch.context() as env:
             env.setenv("SIPM_SECURE_COOKIES", "sometimes")
-            with pytest.raises(RuntimeError, match="SIPM_SECURE_COOKIES must be a boolean value."):
+            with pytest.raises(
+                RuntimeError, match="SIPM_SECURE_COOKIES must be a boolean value."
+            ):
                 importlib.reload(auth_module)
     finally:
         importlib.reload(auth_module)
 
 
-def test_validate_auth_configuration_requires_secure_cookies_for_samesite_none(monkeypatch):
+def test_validate_auth_configuration_requires_secure_cookies_for_samesite_none(
+    monkeypatch,
+):
     import backend.app.auth.auth as auth_module
 
     try:
@@ -478,14 +513,18 @@ def test_require_user_sets_api_token_state_and_prefers_bearer(monkeypatch):
         }
     )
     request._cookies = {"access_token": "cookie-token"}
-    api_user = User(user_id="api-user", soeid="api", email="api@example.com", display_name="API")
+    api_user = User(
+        user_id="api-user", soeid="api", email="api@example.com", display_name="API"
+    )
 
     def fake_api_token(_session, token):
         assert token == "service-token"
         return api_user
 
     def reject_cookie_auth(_session, _token):
-        raise AssertionError("cookie auth should not be used when bearer auth is present")
+        raise AssertionError(
+            "cookie auth should not be used when bearer auth is present"
+        )
 
     monkeypatch.setattr(deps_module, "authenticate_api_token", fake_api_token)
     monkeypatch.setattr(deps_module, "authenticate_access_token", reject_cookie_auth)
@@ -498,7 +537,12 @@ def test_require_user_sets_api_token_state_and_prefers_bearer(monkeypatch):
 def test_require_user_sets_cookie_auth_state(monkeypatch):
     request = Request({"type": "http", "method": "GET", "path": "/", "headers": []})
     request._cookies = {"access_token": "cookie-token"}
-    cookie_user = User(user_id="cookie-user", soeid="cookie", email="cookie@example.com", display_name="Cookie")
+    cookie_user = User(
+        user_id="cookie-user",
+        soeid="cookie",
+        email="cookie@example.com",
+        display_name="Cookie",
+    )
 
     def fake_cookie_auth(_session, token):
         assert token == "cookie-token"
@@ -520,7 +564,12 @@ def test_current_space_rejects_resolved_space_mismatch(monkeypatch):
             "headers": [(b"x-space-id", b"requested-space")],
         }
     )
-    user = User(user_id="space-user", soeid="space", email="space@example.com", display_name="Space")
+    user = User(
+        user_id="space-user",
+        soeid="space",
+        email="space@example.com",
+        display_name="Space",
+    )
 
     monkeypatch.setattr(
         deps_module,
@@ -606,7 +655,11 @@ async def test_local_login_sets_session_cookies_and_supports_register_refresh_lo
 
     registered = await auth_client.post(
         "/project-manager/api/auth/register",
-        json={"soeid": "newlocal1", "display_name": "New Local", "password": "Password123"},
+        json={
+            "soeid": "newlocal1",
+            "display_name": "New Local",
+            "password": "Password123",
+        },
     )
     assert registered.status_code == 201, registered.text
 
@@ -632,7 +685,9 @@ async def test_local_login_preserves_existing_role(auth_client, db_sessionmaker)
 
 
 @pytest.mark.anyio
-async def test_me_rejects_invalid_cookie_without_identity_bootstrap(auth_client, db_sessionmaker):
+async def test_me_rejects_invalid_cookie_without_identity_bootstrap(
+    auth_client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         session.add(
             User(
@@ -734,7 +789,9 @@ async def test_login_performs_password_work_for_missing_and_inactive_users(
 
 
 @pytest.mark.anyio
-async def test_login_clears_expired_lockout_before_counting_new_failures(auth_client, db_sessionmaker):
+async def test_login_clears_expired_lockout_before_counting_new_failures(
+    auth_client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         user = User(
             soeid="lockpast1",
@@ -746,7 +803,12 @@ async def test_login_clears_expired_lockout_before_counting_new_failures(auth_cl
             failed_attempts=5,
             locked_until=datetime.now(timezone.utc) - timedelta(minutes=1),
         )
-        space = Space(space_id="lockpast-space", name="Lockpast Space", slug="lockpast-space", is_active=True)
+        space = Space(
+            space_id="lockpast-space",
+            name="Lockpast Space",
+            slug="lockpast-space",
+            is_active=True,
+        )
         session.add_all([user, space])
         session.flush()
         session.add(
@@ -780,7 +842,9 @@ async def test_login_clears_expired_lockout_before_counting_new_failures(auth_cl
 
 
 @pytest.mark.anyio
-async def test_login_only_reports_password_reset_required_after_password_verification(auth_client, db_sessionmaker):
+async def test_login_only_reports_password_reset_required_after_password_verification(
+    auth_client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         session.add(
             User(
@@ -813,7 +877,9 @@ async def test_login_only_reports_password_reset_required_after_password_verific
 
 
 @pytest.mark.anyio
-async def test_temp_password_reset_attempts_lock_account_after_repeated_failures(auth_client, db_sessionmaker):
+async def test_temp_password_reset_attempts_lock_account_after_repeated_failures(
+    auth_client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         session.add(
             User(
@@ -825,7 +891,8 @@ async def test_temp_password_reset_attempts_lock_account_after_repeated_failures
                 is_active=True,
                 force_password_reset=True,
                 temp_password_hash=hash_password("TempPassword123"),
-                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                temp_password_expires_at=datetime.now(timezone.utc)
+                + timedelta(minutes=15),
             )
         )
         session.commit()
@@ -863,7 +930,9 @@ async def test_temp_password_reset_attempts_lock_account_after_repeated_failures
 
 
 @pytest.mark.anyio
-async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_client, db_sessionmaker):
+async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(
+    auth_client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         session.add(
             User(
@@ -875,7 +944,8 @@ async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_c
                 is_active=True,
                 force_password_reset=True,
                 temp_password_hash=hash_password("TempPassword123"),
-                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                temp_password_expires_at=datetime.now(timezone.utc)
+                + timedelta(minutes=15),
                 failed_attempts=5,
                 locked_until=datetime.now(timezone.utc) - timedelta(minutes=1),
             )
@@ -904,8 +974,77 @@ async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_c
 
 
 @pytest.mark.anyio
-async def test_admin_issued_service_account_api_token_authenticates_api(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT1", display_name="Admin PAT", role="global_admin")
+async def test_temp_password_reset_uses_generic_public_failures(
+    auth_client, db_sessionmaker
+):
+    expired_temp_password = "ExpiredTempPassword123"
+    with db_sessionmaker() as session:
+        inactive = User(
+            soeid="tempinactive1",
+            email="tempinactive1@citi.com",
+            display_name="Temp Inactive",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=False,
+            force_password_reset=True,
+            temp_password_hash=hash_password("TempPassword123"),
+            temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        )
+        missing_temp = User(
+            soeid="tempmissing1",
+            email="tempmissing1@citi.com",
+            display_name="Temp Missing",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+            force_password_reset=True,
+        )
+        expired = User(
+            soeid="tempexpired1",
+            email="tempexpired1@citi.com",
+            display_name="Temp Expired",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+            force_password_reset=True,
+            temp_password_hash=hash_password(expired_temp_password),
+            temp_password_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        session.add_all([inactive, missing_temp, expired])
+        session.commit()
+
+    cases = [
+        ("tempunknown1", "AnyTempPassword123"),
+        ("tempinactive1", "TempPassword123"),
+        ("tempmissing1", "TempPassword123"),
+        ("tempexpired1", expired_temp_password),
+    ]
+    for soeid, temp_password in cases:
+        resp = await auth_client.post(
+            "/project-manager/api/auth/reset-password",
+            json={
+                "soeid": soeid,
+                "temp_password": temp_password,
+                "new_password": "NewPassword123",
+                "confirm_password": "NewPassword123",
+            },
+        )
+        assert resp.status_code == 401, soeid
+        assert resp.headers["X-Error-Code"] == "TEMP_PASSWORD_INVALID"
+        assert resp.json()["detail"] == "Temporary password is invalid"
+
+
+@pytest.mark.anyio
+async def test_admin_issued_service_account_api_token_authenticates_api(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client,
+        db_sessionmaker,
+        soeid="ADMINPAT1",
+        display_name="Admin PAT",
+        role="global_admin",
+    )
     with db_sessionmaker() as session:
         admin = session.query(User).filter(User.soeid == "adminpat1").first()
         assert admin is not None
@@ -964,7 +1103,9 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
 
 
 @pytest.mark.anyio
-async def test_bearer_api_token_takes_precedence_over_browser_cookie(auth_client, db_sessionmaker):
+async def test_bearer_api_token_takes_precedence_over_browser_cookie(
+    auth_client, db_sessionmaker
+):
     await _login_local_session(
         auth_client,
         db_sessionmaker,
@@ -1018,8 +1159,16 @@ async def test_non_sipm_bearer_token_is_rejected_as_api_token(auth_client):
 
 
 @pytest.mark.anyio
-async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_token(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT2", display_name="Admin PAT", role="global_admin")
+async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_token(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client,
+        db_sessionmaker,
+        soeid="ADMINPAT2",
+        display_name="Admin PAT",
+        role="global_admin",
+    )
     with db_sessionmaker() as session:
         admin = session.query(User).filter(User.soeid == "adminpat2").first()
         assert admin is not None
@@ -1058,7 +1207,9 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
     )
     assert issued.status_code == 201, issued.text
     body = issued.json()
-    listed = await auth_client.get(f"/project-manager/api/users/{service_user_id}/api-tokens")
+    listed = await auth_client.get(
+        f"/project-manager/api/users/{service_user_id}/api-tokens"
+    )
     assert listed.status_code == 200
     assert "sipm_pat_" not in listed.text
     assert "token_hash" not in listed.text
@@ -1078,8 +1229,90 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
 
 
 @pytest.mark.anyio
+async def test_api_token_auth_rejects_expired_inactive_and_non_service_tokens_generically(
+    auth_client,
+    db_sessionmaker,
+):
+    token_cases = {
+        "expired": "sipm_pat_expired_token_value",
+        "inactive": "sipm_pat_inactive_token_value",
+        "normal": "sipm_pat_normal_token_value",
+    }
+    with db_sessionmaker() as session:
+        expired_user = User(
+            user_id="expired-token-user",
+            soeid="svcexpired1",
+            email="svcexpired1@citi.com",
+            display_name="Expired Token User",
+            password_hash=hash_password("ServicePassword123"),
+            role="user",
+            is_active=True,
+            is_service_account=True,
+        )
+        inactive_user = User(
+            user_id="inactive-token-user",
+            soeid="svcinactive1",
+            email="svcinactive1@citi.com",
+            display_name="Inactive Token User",
+            password_hash=hash_password("ServicePassword123"),
+            role="user",
+            is_active=False,
+            is_service_account=True,
+        )
+        normal_user = User(
+            user_id="normal-token-user",
+            soeid="normalpat2",
+            email="normalpat2@citi.com",
+            display_name="Normal Token User",
+            password_hash=hash_password("NormalPassword123"),
+            role="user",
+            is_active=True,
+            is_service_account=False,
+        )
+        session.add_all([expired_user, inactive_user, normal_user])
+        session.flush()
+        session.add_all(
+            [
+                ApiToken(
+                    user_id=expired_user.user_id,
+                    name="Expired",
+                    token_hash=hash_api_token(token_cases["expired"]),
+                    created_by_user_id="admin-user",
+                    expires_at=datetime.now(timezone.utc).replace(tzinfo=None)
+                    - timedelta(minutes=1),
+                ),
+                ApiToken(
+                    user_id=inactive_user.user_id,
+                    name="Inactive",
+                    token_hash=hash_api_token(token_cases["inactive"]),
+                    created_by_user_id="admin-user",
+                ),
+                ApiToken(
+                    user_id=normal_user.user_id,
+                    name="Normal",
+                    token_hash=hash_api_token(token_cases["normal"]),
+                    created_by_user_id="admin-user",
+                ),
+            ]
+        )
+        session.commit()
+
+    auth_client.cookies.clear()
+    for token_value in token_cases.values():
+        resp = await auth_client.get(
+            "/project-manager/api/auth/me",
+            headers={"Authorization": f"Bearer {token_value}"},
+        )
+        assert resp.status_code == 401
+        assert resp.headers["X-Error-Code"] == "API_TOKEN_INVALID"
+        assert resp.json()["detail"] == "Invalid API token"
+
+
+@pytest.mark.anyio
 async def test_refresh_preserves_active_space_selection(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="GA1", display_name="Global Admin")
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="GA1", display_name="Global Admin"
+    )
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "ga1").first()
@@ -1110,8 +1343,15 @@ async def test_refresh_preserves_active_space_selection(auth_client, db_sessionm
 
 
 @pytest.mark.anyio
-async def test_active_space_accepts_legacy_global_admin_role_format(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="LEGACYGA1", display_name="Legacy Global Admin")
+async def test_active_space_accepts_legacy_global_admin_role_format(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client,
+        db_sessionmaker,
+        soeid="LEGACYGA1",
+        display_name="Legacy Global Admin",
+    )
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "legacyga1").first()
@@ -1120,8 +1360,18 @@ async def test_active_space_accepts_legacy_global_admin_role_format(auth_client,
         session.add_all(
             [
                 user,
-                Space(space_id="legacy-space-a", name="Legacy Space A", slug="legacy-space-a", is_active=True),
-                Space(space_id="legacy-space-b", name="Legacy Space B", slug="legacy-space-b", is_active=True),
+                Space(
+                    space_id="legacy-space-a",
+                    name="Legacy Space A",
+                    slug="legacy-space-a",
+                    is_active=True,
+                ),
+                Space(
+                    space_id="legacy-space-b",
+                    name="Legacy Space B",
+                    slug="legacy-space-b",
+                    is_active=True,
+                ),
             ]
         )
         session.commit()
@@ -1136,8 +1386,12 @@ async def test_active_space_accepts_legacy_global_admin_role_format(auth_client,
 
 
 @pytest.mark.anyio
-async def test_refresh_rejects_token_issued_before_password_change(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="REVOKE1", display_name="Revoke User")
+async def test_refresh_rejects_token_issued_before_password_change(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="REVOKE1", display_name="Revoke User"
+    )
 
     with db_sessionmaker() as session:
         user = session.query(User).filter(User.soeid == "revoke1").first()
@@ -1152,8 +1406,12 @@ async def test_refresh_rejects_token_issued_before_password_change(auth_client, 
 
 
 @pytest.mark.anyio
-async def test_get_active_space_repairs_missing_active_space_cookie(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="COOKIE1", display_name="Cookie User")
+async def test_get_active_space_repairs_missing_active_space_cookie(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="COOKIE1", display_name="Cookie User"
+    )
 
     auth_client.cookies.pop("active_space_id", None)
 
@@ -1165,8 +1423,12 @@ async def test_get_active_space_repairs_missing_active_space_cookie(auth_client,
 
 
 @pytest.mark.anyio
-async def test_get_active_space_repairs_stale_active_space_cookie(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="COOKIE2", display_name="Stale Cookie User")
+async def test_get_active_space_repairs_stale_active_space_cookie(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="COOKIE2", display_name="Stale Cookie User"
+    )
 
     auth_client.cookies.set("active_space_id", "stale-space-id")
 
@@ -1179,9 +1441,13 @@ async def test_get_active_space_repairs_stale_active_space_cookie(auth_client, d
 
 
 @pytest.mark.anyio
-async def test_active_space_reports_usage_analytics_flag(auth_client, db_sessionmaker, monkeypatch):
+async def test_active_space_reports_usage_analytics_flag(
+    auth_client, db_sessionmaker, monkeypatch
+):
     monkeypatch.setenv("SIPM_USAGE_ANALYTICS_ENABLED", "true")
-    await _login_local_session(auth_client, db_sessionmaker, soeid="ANALYTICSFLAG1", display_name="Flag User")
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="ANALYTICSFLAG1", display_name="Flag User"
+    )
 
     resp = await auth_client.get("/project-manager/api/auth/active-space")
     assert resp.status_code == 200, resp.text
@@ -1189,8 +1455,12 @@ async def test_active_space_reports_usage_analytics_flag(auth_client, db_session
 
 
 @pytest.mark.anyio
-async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="SPACEFAIL1", display_name="Space Fail")
+async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="SPACEFAIL1", display_name="Space Fail"
+    )
 
     ok = await auth_client.get("/project-manager/api/projects/")
     assert ok.status_code == 200, ok.text
@@ -1204,8 +1474,12 @@ async def test_space_scoped_route_rejects_inaccessible_explicit_space_selection(
 
 
 @pytest.mark.anyio
-async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(auth_client, db_sessionmaker):
-    await _login_local_session(auth_client, db_sessionmaker, soeid="AUTH1", display_name="Auth")
+async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
+    auth_client, db_sessionmaker
+):
+    await _login_local_session(
+        auth_client, db_sessionmaker, soeid="AUTH1", display_name="Auth"
+    )
 
     auth_client.cookies.clear()
     missing_cookie = await auth_client.get("/project-manager/api/auth/me")
@@ -1236,7 +1510,11 @@ async def test_require_user_rejects_invalid_or_missing_subject_and_locked_users(
     auth_client.cookies.set(
         "access_token",
         _encode_test_token(
-            {"role": "user", "type": "access", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+            {
+                "role": "user",
+                "type": "access",
+                "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
+            },
         ),
     )
     no_subject = await auth_client.get("/project-manager/api/auth/me")

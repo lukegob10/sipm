@@ -6,7 +6,9 @@ from ui_style_contract import read_ui_styles
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 CALENDAR_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar.js"
-CALENDAR_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar" / "interactions.js"
+CALENDAR_INTERACTIONS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar" / "interactions.js"
+)
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -24,25 +26,44 @@ def test_calendar_solution_filtering_is_independent_from_deliverables_master_fil
 
     assert "function filteredSolutionsForCalendar() {" in text
     assert "return (state.solutions || []).filter((s) => {" in text
-    assert "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;" in text
-    assert "const base = filteredSolutions();" not in text[text.index("function filteredSolutionsForCalendar() {"):text.index("function filteredSubcomponentsForCalendar() {")]
+    assert (
+        "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;"
+        in text
+    )
+    assert (
+        "const base = filteredSolutions();"
+        not in text[
+            text.index("function filteredSolutionsForCalendar() {") : text.index(
+                "function filteredSubcomponentsForCalendar() {"
+            )
+        ]
+    )
 
 
 def test_calendar_month_state_is_restored_and_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";' in app_text
+    assert (
+        'const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";'
+        in app_text
+    )
     assert "function persistCalendarViewState() {" in app_text
     assert "return calendarRouteController.persistCalendarViewState();" in app_text
     assert "function restoreCalendarViewState() {" in app_text
     assert "return calendarRouteController.restoreCalendarViewState();" in app_text
     assert "activeSpaceScopedStorageKey(calendarViewStateKey)" in interactions_text
-    assert 'month: formatMonthInputValue(state.calendarMonth || new Date()),' in interactions_text
+    assert (
+        "month: formatMonthInputValue(state.calendarMonth || new Date()),"
+        in interactions_text
+    )
     assert "filters: {" in interactions_text
     assert 'project: state.calendarFilters?.project || "",' in interactions_text
     assert 'owner: state.calendarFilters?.owner || "",' in interactions_text
-    assert 'const parsedMonth = parseMonthInputValue(stored.month || "");' in interactions_text
+    assert (
+        'const parsedMonth = parseMonthInputValue(stored.month || "");'
+        in interactions_text
+    )
     assert "state.calendarFilters = {" in interactions_text
     assert "restoreCalendarViewState();" in app_text
     assert "persistCalendarViewState();" in app_text
@@ -51,7 +72,10 @@ def test_calendar_month_state_is_restored_and_persisted_per_space():
 def test_calendar_corrupt_scoped_view_state_is_rewritten_to_defaults():
     text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(calendarViewStateKey), {});" in text
+    assert (
+        "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(calendarViewStateKey), {});"
+        in text
+    )
     assert 'project: String(stored.filters?.project || ""),' in text
     assert 'owner: String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistCalendarViewState();" in text
@@ -70,8 +94,11 @@ def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh()
 
     assert "function normalizeScopedProjectFilter(filterState) {" in text
     assert 'const currentProjectId = String(filterState.project || "");' in text
-    assert "filterState.project = \"\";" in text
-    assert "const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);" in text
+    assert 'filterState.project = "";' in text
+    assert (
+        "const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);"
+        in text
+    )
     assert "if (calendarProjectFilterChanged) {" in text
     assert "persistCalendarViewState();" in text
 
@@ -79,8 +106,14 @@ def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh()
 def test_calendar_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_owner_or_assignee():
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {" in text
-    assert 'const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {' in text
+    assert (
+        "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {"
+        in text
+    )
+    assert (
+        "const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {"
+        in text
+    )
     assert "includeSubcomponents: true," in text
     assert 'filterState.owner = "";' in text
     assert "if (calendarOwnerFilterChanged) {" in text
@@ -119,10 +152,16 @@ def test_calendar_modal_actions_reuse_existing_detail_surfaces():
     assert "openProjectForm(project)" in interactions_text
     assert "function openCalendarSolutionDrilldown(solutionId)" in interactions_text
     assert 'openSolutionModal(solution, "details")' in interactions_text
-    assert "function openCalendarSubcomponentDrilldown(subcomponentId)" in interactions_text
+    assert (
+        "function openCalendarSubcomponentDrilldown(subcomponentId)"
+        in interactions_text
+    )
     assert 'openSolutionModal(solution, "subcomponents")' in interactions_text
     assert "fillSubcomponentForm(subcomponent)" in interactions_text
-    assert 'const previewActionEl = e.target.closest("[data-calendar-preview-action]")' in interactions_text
+    assert (
+        'const previewActionEl = e.target.closest("[data-calendar-preview-action]")'
+        in interactions_text
+    )
     assert 'if (action === "open-solution") {' in interactions_text
     assert 'closest("[data-calendar-action]")' in interactions_text
     assert 'if (action === "open-project") {' in interactions_text

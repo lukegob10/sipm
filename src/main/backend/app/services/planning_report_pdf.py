@@ -256,7 +256,10 @@ def _wrap_pdf_text(
             current = word
         else:
             chunk = word
-            while _estimate_pdf_text_width(chunk, font_size) > max_width and len(chunk) > 4:
+            while (
+                _estimate_pdf_text_width(chunk, font_size) > max_width
+                and len(chunk) > 4
+            ):
                 slice_size = max(int(max_width / (font_size * 0.52)), 1)
                 lines.append(chunk[:slice_size])
                 chunk = chunk[slice_size:]
@@ -330,9 +333,16 @@ def build_work_allocation_report_pdf(
             team_id = str(allocation.get("assignee_id") or "")
             allocations_by_team.setdefault(team_id, []).append(allocation)
 
-    total_capacity = sum(max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0) for person in people)
-    total_allocated = sum(max(_float_or(alloc.get("fte_months_allocated"), 0.0), 0.0) for alloc in allocations)
-    assigned_task_ids = {task_id for task_id, values in allocations_by_task.items() if values}
+    total_capacity = sum(
+        max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0) for person in people
+    )
+    total_allocated = sum(
+        max(_float_or(alloc.get("fte_months_allocated"), 0.0), 0.0)
+        for alloc in allocations
+    )
+    assigned_task_ids = {
+        task_id for task_id, values in allocations_by_task.items() if values
+    }
     backlog_count = max(len(tasks) - len(assigned_task_ids), 0)
     utilization = (total_allocated / total_capacity) if total_capacity > 0 else 0.0
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -350,7 +360,14 @@ def build_work_allocation_report_pdf(
         document.new_page()
         painter.rect(0, 0, document.width, document.height, fill=(245, 247, 252))
         painter.rect(0, 0, document.width, 74, fill=(21, 41, 86))
-        painter.text(left, 18, "Planning Report: Work Allocation Board", size=20, bold=True, color=(255, 255, 255))
+        painter.text(
+            left,
+            18,
+            "Planning Report: Work Allocation Board",
+            size=20,
+            bold=True,
+            color=(255, 255, 255),
+        )
         painter.text(
             left,
             46,
@@ -358,9 +375,21 @@ def build_work_allocation_report_pdf(
             size=9,
             color=(209, 220, 241),
         )
-        painter.text(document.width - 88, 20, f"Page {page_number}", size=9, color=(209, 220, 241))
+        painter.text(
+            document.width - 88,
+            20,
+            f"Page {page_number}",
+            size=9,
+            color=(209, 220, 241),
+        )
         painter.line(left, 78, right, 78, stroke=(211, 219, 232), line_width=1.2)
-        painter.text(left, document.height - 18, "SIPM planning snapshot", size=8, color=(129, 139, 158))
+        painter.text(
+            left,
+            document.height - 18,
+            "SIPM planning snapshot",
+            size=8,
+            color=(129, 139, 158),
+        )
         cursor_y = 92.0
 
     def ensure_space(height: float) -> None:
@@ -373,7 +402,9 @@ def build_work_allocation_report_pdf(
         ensure_space(28)
         painter.text(left, cursor_y, value, size=13, bold=True, color=(23, 35, 72))
         cursor_y += 20
-        painter.line(left, cursor_y, right, cursor_y, stroke=(218, 224, 235), line_width=1)
+        painter.line(
+            left, cursor_y, right, cursor_y, stroke=(218, 224, 235), line_width=1
+        )
         cursor_y += 8
 
     start_page()
@@ -429,12 +460,27 @@ def build_work_allocation_report_pdf(
 
     section_title("Team Capacity and Current Load")
     header_h = 22.0
-    painter.rect(left, cursor_y, content_width, header_h, fill=(230, 235, 245), stroke=(212, 219, 232))
+    painter.rect(
+        left,
+        cursor_y,
+        content_width,
+        header_h,
+        fill=(230, 235, 245),
+        stroke=(212, 219, 232),
+    )
     painter.text(left + 8, cursor_y + 6, "Team", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 286, cursor_y + 6, "People", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 352, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 430, cursor_y + 6, "Capacity Bar", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 690, cursor_y + 6, "Direct", size=9, bold=True, color=(44, 55, 80))
+    painter.text(
+        left + 286, cursor_y + 6, "People", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 352, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 430, cursor_y + 6, "Capacity Bar", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 690, cursor_y + 6, "Direct", size=9, bold=True, color=(44, 55, 80)
+    )
     cursor_y += header_h
 
     team_rows: list[tuple[str, str]] = []
@@ -444,45 +490,129 @@ def build_work_allocation_report_pdf(
         team_rows.append(("", "Unassigned"))
 
     if not team_rows:
-        painter.rect(left, cursor_y, content_width, 28, fill=(248, 250, 255), stroke=(220, 226, 237))
-        painter.text(left + 8, cursor_y + 9, "No team structure has been created yet.", size=9, color=(104, 112, 133))
+        painter.rect(
+            left,
+            cursor_y,
+            content_width,
+            28,
+            fill=(248, 250, 255),
+            stroke=(220, 226, 237),
+        )
+        painter.text(
+            left + 8,
+            cursor_y + 9,
+            "No team structure has been created yet.",
+            size=9,
+            color=(104, 112, 133),
+        )
         cursor_y += 36
     else:
         for idx, (team_id, team_name) in enumerate(team_rows):
             row_h = 28.0
             ensure_space(row_h + 4)
             fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
+            painter.rect(
+                left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241)
+            )
             team_people = people_by_team.get(team_id, [])
             team_people_count = len(team_people)
-            team_capacity = sum(max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0) for person in team_people)
+            team_capacity = sum(
+                max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0)
+                for person in team_people
+            )
             person_load = 0.0
             for person in team_people:
-                person_allocs = allocations_by_person.get(str(person.get("id") or ""), [])
-                person_load += sum(max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0) for a in person_allocs)
+                person_allocs = allocations_by_person.get(
+                    str(person.get("id") or ""), []
+                )
+                person_load += sum(
+                    max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0)
+                    for a in person_allocs
+                )
             team_direct_allocs = allocations_by_team.get(team_id, [])
-            direct_load = sum(max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0) for a in team_direct_allocs)
+            direct_load = sum(
+                max(_float_or(a.get("fte_months_allocated"), 0.0), 0.0)
+                for a in team_direct_allocs
+            )
             team_load = person_load + direct_load
-            ratio = (team_load / team_capacity) if team_capacity > 0 else (1.0 if team_load > 0 else 0.0)
+            ratio = (
+                (team_load / team_capacity)
+                if team_capacity > 0
+                else (1.0 if team_load > 0 else 0.0)
+            )
             ratio_clamped = max(0.0, min(ratio, 1.0))
             bar_color = utilization_color(ratio)
 
-            painter.text(left + 8, cursor_y + 9, team_name or "Unnamed Team", size=9, bold=True, color=(27, 38, 66))
-            painter.text(left + 302, cursor_y + 9, f"{team_people_count}", size=9, color=(39, 47, 63))
-            painter.text(left + 352, cursor_y + 9, f"{team_load:.2f} / {team_capacity:.2f}", size=9, color=(39, 47, 63))
-            painter.rect(left + 430, cursor_y + 9, 220, 10, fill=(224, 230, 241), stroke=(211, 219, 232))
-            painter.rect(left + 430, cursor_y + 9, 220 * ratio_clamped, 10, fill=bar_color)
-            painter.text(left + 690, cursor_y + 9, f"{len(team_direct_allocs)}", size=9, color=(39, 47, 63))
+            painter.text(
+                left + 8,
+                cursor_y + 9,
+                team_name or "Unnamed Team",
+                size=9,
+                bold=True,
+                color=(27, 38, 66),
+            )
+            painter.text(
+                left + 302,
+                cursor_y + 9,
+                f"{team_people_count}",
+                size=9,
+                color=(39, 47, 63),
+            )
+            painter.text(
+                left + 352,
+                cursor_y + 9,
+                f"{team_load:.2f} / {team_capacity:.2f}",
+                size=9,
+                color=(39, 47, 63),
+            )
+            painter.rect(
+                left + 430,
+                cursor_y + 9,
+                220,
+                10,
+                fill=(224, 230, 241),
+                stroke=(211, 219, 232),
+            )
+            painter.rect(
+                left + 430, cursor_y + 9, 220 * ratio_clamped, 10, fill=bar_color
+            )
+            painter.text(
+                left + 690,
+                cursor_y + 9,
+                f"{len(team_direct_allocs)}",
+                size=9,
+                color=(39, 47, 63),
+            )
             cursor_y += row_h
         cursor_y += 10
 
     section_title("Who Is Working On What")
     table_h = 22.0
-    painter.rect(left, cursor_y, content_width, table_h, fill=(230, 235, 245), stroke=(212, 219, 232))
-    painter.text(left + 8, cursor_y + 6, "Person", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 170, cursor_y + 6, "Team", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 300, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80))
-    painter.text(left + 370, cursor_y + 6, "Assigned Tasks", size=9, bold=True, color=(44, 55, 80))
+    painter.rect(
+        left,
+        cursor_y,
+        content_width,
+        table_h,
+        fill=(230, 235, 245),
+        stroke=(212, 219, 232),
+    )
+    painter.text(
+        left + 8, cursor_y + 6, "Person", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 170, cursor_y + 6, "Team", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 300, cursor_y + 6, "Load", size=9, bold=True, color=(44, 55, 80)
+    )
+    painter.text(
+        left + 370,
+        cursor_y + 6,
+        "Assigned Tasks",
+        size=9,
+        bold=True,
+        color=(44, 55, 80),
+    )
     cursor_y += table_h
 
     sorted_people = sorted(
@@ -496,8 +626,21 @@ def build_work_allocation_report_pdf(
         ),
     )
     if not sorted_people:
-        painter.rect(left, cursor_y, content_width, 28, fill=(248, 250, 255), stroke=(220, 226, 237))
-        painter.text(left + 8, cursor_y + 9, "No active people found in this space.", size=9, color=(104, 112, 133))
+        painter.rect(
+            left,
+            cursor_y,
+            content_width,
+            28,
+            fill=(248, 250, 255),
+            stroke=(220, 226, 237),
+        )
+        painter.text(
+            left + 8,
+            cursor_y + 9,
+            "No active people found in this space.",
+            size=9,
+            color=(104, 112, 133),
+        )
         cursor_y += 36
     else:
         for idx, person in enumerate(sorted_people):
@@ -507,8 +650,13 @@ def build_work_allocation_report_pdf(
             team_id = str(person.get("team_id") or "")
             if team_id:
                 team_name = str(team_by_id.get(team_id, {}).get("name") or "Unassigned")
-            person_capacity = max(_float_or(person.get("capacity_fte_months"), 1.0), 0.0)
-            person_load = sum(max(_float_or(row.get("fte_months_allocated"), 0.0), 0.0) for row in person_allocs)
+            person_capacity = max(
+                _float_or(person.get("capacity_fte_months"), 1.0), 0.0
+            )
+            person_load = sum(
+                max(_float_or(row.get("fte_months_allocated"), 0.0), 0.0)
+                for row in person_allocs
+            )
             if person_allocs:
                 task_text = "; ".join(
                     f"{str(task_by_id.get(str(row.get('task_id') or ''), {}).get('title') or row.get('task_id') or 'Task')} ({_float_or(row.get('fte_months_allocated'), 0.0):.2f})"
@@ -516,14 +664,33 @@ def build_work_allocation_report_pdf(
                 )
             else:
                 task_text = "No assignments this month."
-            wrapped = _wrap_pdf_text(task_text, max_width=430.0, font_size=8.8, max_lines=4)
+            wrapped = _wrap_pdf_text(
+                task_text, max_width=430.0, font_size=8.8, max_lines=4
+            )
             row_h = max(24.0, 8.0 + (len(wrapped) * 11.0))
             ensure_space(row_h + 4)
             fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
-            painter.text(left + 8, cursor_y + 8, str(person.get("name") or assignee_id), size=9, bold=True, color=(27, 38, 66))
-            painter.text(left + 170, cursor_y + 8, team_name, size=9, color=(44, 55, 80))
-            painter.text(left + 300, cursor_y + 8, f"{person_load:.2f}/{person_capacity:.2f}", size=9, color=(44, 55, 80))
+            painter.rect(
+                left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241)
+            )
+            painter.text(
+                left + 8,
+                cursor_y + 8,
+                str(person.get("name") or assignee_id),
+                size=9,
+                bold=True,
+                color=(27, 38, 66),
+            )
+            painter.text(
+                left + 170, cursor_y + 8, team_name, size=9, color=(44, 55, 80)
+            )
+            painter.text(
+                left + 300,
+                cursor_y + 8,
+                f"{person_load:.2f}/{person_capacity:.2f}",
+                size=9,
+                color=(44, 55, 80),
+            )
             line_y = cursor_y + 8
             for line in wrapped:
                 painter.text(left + 370, line_y, line, size=8.8, color=(44, 55, 80))
@@ -537,26 +704,63 @@ def build_work_allocation_report_pdf(
     ]
     backlog_tasks = sorted(
         backlog_tasks,
-        key=lambda task: (-_float_or(task.get("fte_months"), 0.0), str(task.get("title") or "").lower()),
+        key=lambda task: (
+            -_float_or(task.get("fte_months"), 0.0),
+            str(task.get("title") or "").lower(),
+        ),
     )
     if not backlog_tasks:
-        painter.rect(left, cursor_y, content_width, 28, fill=(237, 252, 243), stroke=(189, 225, 201))
-        painter.text(left + 8, cursor_y + 9, "All tasks have at least one assignment for this month.", size=9, color=(29, 110, 62))
+        painter.rect(
+            left,
+            cursor_y,
+            content_width,
+            28,
+            fill=(237, 252, 243),
+            stroke=(189, 225, 201),
+        )
+        painter.text(
+            left + 8,
+            cursor_y + 9,
+            "All tasks have at least one assignment for this month.",
+            size=9,
+            color=(29, 110, 62),
+        )
         cursor_y += 36
     else:
-        painter.rect(left, cursor_y, content_width, 22, fill=(230, 235, 245), stroke=(212, 219, 232))
-        painter.text(left + 8, cursor_y + 6, "Task", size=9, bold=True, color=(44, 55, 80))
-        painter.text(right - 90, cursor_y + 6, "FTE-mo", size=9, bold=True, color=(44, 55, 80))
+        painter.rect(
+            left,
+            cursor_y,
+            content_width,
+            22,
+            fill=(230, 235, 245),
+            stroke=(212, 219, 232),
+        )
+        painter.text(
+            left + 8, cursor_y + 6, "Task", size=9, bold=True, color=(44, 55, 80)
+        )
+        painter.text(
+            right - 90, cursor_y + 6, "FTE-mo", size=9, bold=True, color=(44, 55, 80)
+        )
         cursor_y += 22
         for idx, task in enumerate(backlog_tasks):
             row_h = 20.0
             ensure_space(row_h + 2)
             fill = (249, 251, 255) if idx % 2 == 0 else (244, 247, 252)
-            painter.rect(left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241))
+            painter.rect(
+                left, cursor_y, content_width, row_h, fill=fill, stroke=(224, 230, 241)
+            )
             title = str(task.get("title") or task.get("id") or "Task")
-            wrapped = _wrap_pdf_text(title, max_width=content_width - 128, font_size=9, max_lines=1)
+            wrapped = _wrap_pdf_text(
+                title, max_width=content_width - 128, font_size=9, max_lines=1
+            )
             painter.text(left + 8, cursor_y + 6, wrapped[0], size=9, color=(44, 55, 80))
-            painter.text(right - 84, cursor_y + 6, f"{_float_or(task.get('fte_months'), 0.0):.2f}", size=9, color=(44, 55, 80))
+            painter.text(
+                right - 84,
+                cursor_y + 6,
+                f"{_float_or(task.get('fte_months'), 0.0):.2f}",
+                size=9,
+                color=(44, 55, 80),
+            )
             cursor_y += row_h
 
     return document.build()

@@ -51,7 +51,9 @@ def main() -> int:
                 print(proc.stderr.strip())
             return proc.returncode
 
-        expected = requirements_txt.read_text(encoding="utf-8").splitlines(keepends=True)
+        expected = requirements_txt.read_text(encoding="utf-8").splitlines(
+            keepends=True
+        )
         actual = generated.read_text(encoding="utf-8").splitlines(keepends=True)
 
     if expected == actual:

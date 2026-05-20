@@ -5,11 +5,39 @@ from ui_style_contract import read_ui_styles
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
-SHARED_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "workbench-planning-admin.css"
-SUBCOMPONENTS_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "subcomponents-workbench.css"
-PLANNING_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "planning-work-allocation.css"
-TEAM_CAPACITY_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "team-capacity.css"
-SPACE_GOVERNANCE_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "space-governance.css"
+SHARED_STYLES = (
+    REPO_ROOT
+    / "src"
+    / "main"
+    / "ui"
+    / "styles"
+    / "routes"
+    / "workbench-planning-admin.css"
+)
+SUBCOMPONENTS_STYLES = (
+    REPO_ROOT
+    / "src"
+    / "main"
+    / "ui"
+    / "styles"
+    / "routes"
+    / "subcomponents-workbench.css"
+)
+PLANNING_STYLES = (
+    REPO_ROOT
+    / "src"
+    / "main"
+    / "ui"
+    / "styles"
+    / "routes"
+    / "planning-work-allocation.css"
+)
+TEAM_CAPACITY_STYLES = (
+    REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "team-capacity.css"
+)
+SPACE_GOVERNANCE_STYLES = (
+    REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "space-governance.css"
+)
 
 
 def test_styles_entrypoint_imports_route_partials():

@@ -32,11 +32,15 @@ async def create_regular_subcomponent(client, name: str, capacity_hours: int = 8
 async def test_planning_task_list_includes_regular_subcomponents(client):
     subcomponent = await create_regular_subcomponent(client, "Planning Visible Task")
 
-    response = await client.get("/project-manager/api/planning/work-allocation/tasks?month=2026-03")
+    response = await client.get(
+        "/project-manager/api/planning/work-allocation/tasks?month=2026-03"
+    )
     assert response.status_code == 200, response.text
 
     rows = response.json()
-    task = next((row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next(
+        (row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None
+    )
     assert task is not None
     assert task["title"] == "Planning Visible Task"
     assert task["fte_months"] == pytest.approx(0.5, abs=1e-6)
@@ -70,22 +74,32 @@ async def test_planning_allocation_can_target_regular_subcomponents(client):
     assert allocation["assignee_type"] == "team"
     assert allocation["assignee_id"] == team_id
 
-    tasks_resp = await client.get("/project-manager/api/planning/work-allocation/tasks?month=2026-03")
+    tasks_resp = await client.get(
+        "/project-manager/api/planning/work-allocation/tasks?month=2026-03"
+    )
     assert tasks_resp.status_code == 200, tasks_resp.text
     rows = tasks_resp.json()
-    task = next((row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next(
+        (row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None
+    )
     assert task is not None
     assert task["status"] == "assigned"
 
-    allocations_resp = await client.get("/project-manager/api/planning/work-allocation/allocations?month=2026-03")
+    allocations_resp = await client.get(
+        "/project-manager/api/planning/work-allocation/allocations?month=2026-03"
+    )
     assert allocations_resp.status_code == 200, allocations_resp.text
     allocations = allocations_resp.json()
     assert any(row["id"] == allocation["id"] for row in allocations)
 
 
 @pytest.mark.anyio
-async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocations(client):
-    subcomponent = await create_regular_subcomponent(client, "Planning Snapshot Task", capacity_hours=120)
+async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocations(
+    client,
+):
+    subcomponent = await create_regular_subcomponent(
+        client, "Planning Snapshot Task", capacity_hours=120
+    )
 
     team_resp = await client.post(
         "/project-manager/api/planning/work-allocation/teams",
@@ -107,18 +121,34 @@ async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocation
     assert allocation_resp.status_code == 201, allocation_resp.text
     allocation = allocation_resp.json()
 
-    response = await client.get("/project-manager/api/planning/work-allocation/board?month=2026-03")
+    response = await client.get(
+        "/project-manager/api/planning/work-allocation/board?month=2026-03"
+    )
     assert response.status_code == 200, response.text
 
     payload = response.json()
     assert set(payload) == {"tasks", "teams", "people", "allocations"}
-    task = next((row for row in payload["tasks"] if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next(
+        (
+            row
+            for row in payload["tasks"]
+            if row["id"] == subcomponent["subcomponent_id"]
+        ),
+        None,
+    )
     assert task is not None
     assert task["title"] == "Planning Snapshot Task"
     assert task["fte_months"] == pytest.approx(0.75, abs=1e-6)
     assert task["status"] == "assigned"
-    assert any(row["id"] == team["id"] and row["name"] == "Snapshot Team" for row in payload["teams"])
-    assert any(row["id"] == allocation["id"] and row["task_id"] == subcomponent["subcomponent_id"] for row in payload["allocations"])
+    assert any(
+        row["id"] == team["id"] and row["name"] == "Snapshot Team"
+        for row in payload["teams"]
+    )
+    assert any(
+        row["id"] == allocation["id"]
+        and row["task_id"] == subcomponent["subcomponent_id"]
+        for row in payload["allocations"]
+    )
     assert isinstance(payload["people"], list)
 
 
@@ -142,7 +172,11 @@ async def test_planning_allocation_can_move_between_teams_and_people(client):
 
     person_resp = await client.post(
         "/project-manager/api/planning/work-allocation/people",
-        json={"name": "Taylor Analyst", "team_id": second_team_id, "capacity_fte_months": 1.0},
+        json={
+            "name": "Taylor Analyst",
+            "team_id": second_team_id,
+            "capacity_fte_months": 1.0,
+        },
     )
     assert person_resp.status_code == 201, person_resp.text
     person_id = person_resp.json()["id"]
@@ -180,9 +214,15 @@ async def test_planning_allocation_can_move_between_teams_and_people(client):
     assert moved_person["assignee_type"] == "person"
     assert moved_person["assignee_id"] == person_id
 
-    allocations_resp = await client.get("/project-manager/api/planning/work-allocation/allocations?month=2026-03")
+    allocations_resp = await client.get(
+        "/project-manager/api/planning/work-allocation/allocations?month=2026-03"
+    )
     assert allocations_resp.status_code == 200, allocations_resp.text
-    task_allocations = [row for row in allocations_resp.json() if row["task_id"] == subcomponent["subcomponent_id"]]
+    task_allocations = [
+        row
+        for row in allocations_resp.json()
+        if row["task_id"] == subcomponent["subcomponent_id"]
+    ]
     assert len(task_allocations) == 1
     assert task_allocations[0]["assignee_type"] == "person"
     assert task_allocations[0]["assignee_id"] == person_id

@@ -6,7 +6,9 @@ from backend.app.models import ChangeLog
 
 
 @pytest.mark.anyio
-async def test_projects_import_reuses_inbound_request_id_for_audit_rows(client, db_sessionmaker):
+async def test_projects_import_reuses_inbound_request_id_for_audit_rows(
+    client, db_sessionmaker
+):
     request_id = "req-project-import-1"
     csv_text = "\n".join(
         [
@@ -34,7 +36,9 @@ async def test_projects_import_reuses_inbound_request_id_for_audit_rows(client, 
 
 
 @pytest.mark.anyio
-async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_rows(client, db_sessionmaker):
+async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_rows(
+    client, db_sessionmaker
+):
     project_resp = await client.post(
         "/project-manager/api/projects/",
         json={"project_name": "Audit Batch Project", "sponsor": "Finance"},
@@ -44,14 +48,22 @@ async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_row
 
     solution_resp = await client.post(
         f"/project-manager/api/projects/{project['project_id']}/solutions",
-        json={"solution_name": "Audit Batch Solution", "version": "1.0.0", "owner": "Owner"},
+        json={
+            "solution_name": "Audit Batch Solution",
+            "version": "1.0.0",
+            "owner": "Owner",
+        },
     )
     assert solution_resp.status_code == 201, solution_resp.text
     solution = solution_resp.json()
 
     sub_resp = await client.post(
         f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
-        json={"subcomponent_name": "Audit Batch Task", "status": "to_do", "assignee": "Engineer"},
+        json={
+            "subcomponent_name": "Audit Batch Task",
+            "status": "to_do",
+            "assignee": "Engineer",
+        },
     )
     assert sub_resp.status_code == 201, sub_resp.text
     subcomponent = sub_resp.json()
@@ -59,7 +71,10 @@ async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_row
     request_id = "req-subcomponent-batch-1"
     batch_resp = await client.patch(
         "/project-manager/api/subcomponents/actions/batch",
-        json={"subcomponent_ids": [subcomponent["subcomponent_id"]], "status": "in_progress"},
+        json={
+            "subcomponent_ids": [subcomponent["subcomponent_id"]],
+            "status": "in_progress",
+        },
         headers={"X-Request-ID": request_id},
     )
     assert batch_resp.status_code == 200, batch_resp.text

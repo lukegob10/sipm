@@ -33,18 +33,22 @@ def seed_phases(SessionLocal):
 async def create_project_and_solution(client):
     project = (
         await client.post(
-        "/project-manager/api/projects/",
-        json={
-            "project_name": "Data Platform",
-            "description": "Modernize data stack",
-            "sponsor": "CFO Office",
-        },
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Data Platform",
+                "description": "Modernize data stack",
+                "sponsor": "CFO Office",
+            },
         )
     ).json()
     solution = (
         await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Access Controls", "version": "0.1.0", "owner": "Solution Owner"},
+            json={
+                "solution_name": "Access Controls",
+                "version": "0.1.0",
+                "owner": "Solution Owner",
+            },
         )
     ).json()
     return project, solution
@@ -66,7 +70,10 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
     solution_id = solution["solution_id"]
 
     # Set the solution's current phase so we can verify it gets cleared if disabled.
-    resp = await client.patch(f"/project-manager/api/solutions/{solution_id}", json={"current_phase": "requirements"})
+    resp = await client.patch(
+        f"/project-manager/api/solutions/{solution_id}",
+        json={"current_phase": "requirements"},
+    )
     assert resp.status_code == 200, resp.text
     assert resp.json()["current_phase"] == "requirements"
 
@@ -75,7 +82,11 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
         json={
             "phases": [
                 {"phase_id": "backlog", "is_enabled": True},
-                {"phase_id": "requirements", "is_enabled": True, "sequence_override": 5},
+                {
+                    "phase_id": "requirements",
+                    "is_enabled": True,
+                    "sequence_override": 5,
+                },
                 {"phase_id": "uat", "is_enabled": False},
             ]
         },
@@ -100,17 +111,23 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
         json={"phases": [{"phase_id": "requirements", "is_enabled": False}]},
     )
     assert disable_resp.status_code == 200
-    updated_solution = (await client.get(f"/project-manager/api/solutions/{solution_id}")).json()
+    updated_solution = (
+        await client.get(f"/project-manager/api/solutions/{solution_id}")
+    ).json()
     assert updated_solution["current_phase"] is None
 
 
 @pytest.mark.anyio
-async def test_set_solution_phases_is_atomic_when_payload_contains_invalid_phase(client, db_sessionmaker):
+async def test_set_solution_phases_is_atomic_when_payload_contains_invalid_phase(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_and_solution(client)
     solution_id = solution["solution_id"]
 
-    before_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    before_resp = await client.get(
+        f"/project-manager/api/solutions/{solution_id}/phases"
+    )
     assert before_resp.status_code == 200, before_resp.text
     before_rows = before_resp.json()
 
@@ -126,13 +143,17 @@ async def test_set_solution_phases_is_atomic_when_payload_contains_invalid_phase
     assert failed.status_code == 400, failed.text
     assert failed.json()["detail"] == "Phase missing-phase does not exist"
 
-    after_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    after_resp = await client.get(
+        f"/project-manager/api/solutions/{solution_id}/phases"
+    )
     assert after_resp.status_code == 200, after_resp.text
     assert after_resp.json() == before_rows
 
 
 @pytest.mark.anyio
-async def test_soft_deleted_project_hides_solution_phase_routes(client, db_sessionmaker):
+async def test_soft_deleted_project_hides_solution_phase_routes(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     project, solution = await create_project_and_solution(client)
     solution_id = solution["solution_id"]
@@ -140,10 +161,14 @@ async def test_soft_deleted_project_hides_solution_phase_routes(client, db_sessi
     list_resp = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
     assert list_resp.status_code == 200, list_resp.text
 
-    delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+    delete_resp = await client.delete(
+        f"/project-manager/api/projects/{project['project_id']}"
+    )
     assert delete_resp.status_code == 204, delete_resp.text
 
-    hidden_list = await client.get(f"/project-manager/api/solutions/{solution_id}/phases")
+    hidden_list = await client.get(
+        f"/project-manager/api/solutions/{solution_id}/phases"
+    )
     assert hidden_list.status_code == 404, hidden_list.text
     assert hidden_list.json()["detail"] == "Solution not found"
 

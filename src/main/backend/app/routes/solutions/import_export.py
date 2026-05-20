@@ -14,7 +14,14 @@ from ...deps import get_db, require_space_role
 from ...models import Phase, Project, Solution, User
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
+from ...utils import (
+    normalize_status,
+    normalize_str,
+    parse_date,
+    parse_datetime,
+    parse_priority,
+    read_csv,
+)
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
 from .._mutations import commit_session
 from ..projects.common import _resolve_project_sponsor
@@ -47,7 +54,14 @@ def import_solutions(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "projects_created": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
+        return {
+            "created": 0,
+            "updated": 0,
+            "projects_created": 0,
+            "errors": errors,
+            "total_rows": 0,
+            "dry_run": dry_run,
+        }
     created = updated = projects_created = 0
     invalidate_subcomponents = False
     seen = set()
@@ -93,7 +107,9 @@ def import_solutions(
             completed_at_val = parse_datetime(row.get("completed_at"))
             rag_status_raw = _parse_rag_status(row.get("rag_status"))
             rag_confidence = (
-                float(row.get("rag_confidence")) if normalize_str(row.get("rag_confidence")) else None
+                float(row.get("rag_confidence"))
+                if normalize_str(row.get("rag_confidence"))
+                else None
             )
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
@@ -110,9 +126,13 @@ def import_solutions(
         rag_reason_val = normalize_str(row.get("rag_reason")) or None
         current_phase = normalize_str(row.get("current_phase")) or None
         if current_phase:
-            phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
+            phase_exists = (
+                session.query(Phase).filter(Phase.phase_id == current_phase).first()
+            )
             if not phase_exists:
-                errors.append(f"Row {idx}: current_phase '{current_phase}' does not exist")
+                errors.append(
+                    f"Row {idx}: current_phase '{current_phase}' does not exist"
+                )
                 continue
         blockers = normalize_str(row.get("blockers")) or None
         risks = normalize_str(row.get("risks")) or None
@@ -126,7 +146,9 @@ def import_solutions(
                     impact_confidence = candidate
                     break
             if impact_confidence is None:
-                errors.append(f"Row {idx}: invalid impact_confidence '{impact_conf_raw}'")
+                errors.append(
+                    f"Row {idx}: invalid impact_confidence '{impact_conf_raw}'"
+                )
                 continue
 
         project = projects_by_name.get(project_name.lower())
@@ -204,18 +226,22 @@ def import_solutions(
                     resolved_owner = existing.owner
                     resolved_owner_user_soeid = existing.owner_user_soeid
                 if assignee_input:
-                    resolved_assignee, resolved_assignee_user_soeid = _resolve_solution_assignee(
-                        assignee_input,
-                        assignee_user_soeid,
-                        owner=resolved_owner,
-                        owner_user_soeid=resolved_owner_user_soeid,
-                        current_user=current_user,
+                    resolved_assignee, resolved_assignee_user_soeid = (
+                        _resolve_solution_assignee(
+                            assignee_input,
+                            assignee_user_soeid,
+                            owner=resolved_owner,
+                            owner_user_soeid=resolved_owner_user_soeid,
+                            current_user=current_user,
+                        )
                     )
                 else:
                     resolved_assignee = existing.assignee
                     resolved_assignee_user_soeid = existing.assignee_user_soeid
                 if current_phase:
-                    _validate_current_phase(session, existing.solution_id, current_phase)
+                    _validate_current_phase(
+                        session, existing.solution_id, current_phase
+                    )
 
                 before = {
                     "status": existing.status,
@@ -273,7 +299,10 @@ def import_solutions(
                     next_status=status_enum,
                     now=now,
                 )
-                if status_enum == SolutionStatus.complete and completed_at_val is not None:
+                if (
+                    status_enum == SolutionStatus.complete
+                    and completed_at_val is not None
+                ):
                     existing.completed_at = completed_at_val
                 existing.updated_at = now
                 session.add(existing)
@@ -290,23 +319,56 @@ def import_solutions(
                         "rag_reason": (before["rag_reason"], existing.rag_reason),
                         "priority": (before["priority"], existing.priority),
                         "due_date": (before["due_date"], existing.due_date),
-                        "planned_start_date": (before["planned_start_date"], existing.planned_start_date),
-                        "current_phase": (before["current_phase"], existing.current_phase),
+                        "planned_start_date": (
+                            before["planned_start_date"],
+                            existing.planned_start_date,
+                        ),
+                        "current_phase": (
+                            before["current_phase"],
+                            existing.current_phase,
+                        ),
                         "description": (before["description"], existing.description),
-                        "success_criteria": (before["success_criteria"], existing.success_criteria),
-                        "problem_statement": (before["problem_statement"], existing.problem_statement),
-                        "github_repo_url": (before["github_repo_url"], existing.github_repo_url),
-                        "impact_confidence": (before["impact_confidence"], existing.impact_confidence),
+                        "success_criteria": (
+                            before["success_criteria"],
+                            existing.success_criteria,
+                        ),
+                        "problem_statement": (
+                            before["problem_statement"],
+                            existing.problem_statement,
+                        ),
+                        "github_repo_url": (
+                            before["github_repo_url"],
+                            existing.github_repo_url,
+                        ),
+                        "impact_confidence": (
+                            before["impact_confidence"],
+                            existing.impact_confidence,
+                        ),
                         "owner": (before["owner"], existing.owner),
-                        "owner_user_soeid": (before["owner_user_soeid"], existing.owner_user_soeid),
+                        "owner_user_soeid": (
+                            before["owner_user_soeid"],
+                            existing.owner_user_soeid,
+                        ),
                         "assignee": (before["assignee"], existing.assignee),
-                        "assignee_user_soeid": (before["assignee_user_soeid"], existing.assignee_user_soeid),
+                        "assignee_user_soeid": (
+                            before["assignee_user_soeid"],
+                            existing.assignee_user_soeid,
+                        ),
                         "approver": (before["approver"], existing.approver),
-                        "approver_user_soeid": (before["approver_user_soeid"], existing.approver_user_soeid),
-                        "key_stakeholder": (before["key_stakeholder"], existing.key_stakeholder),
+                        "approver_user_soeid": (
+                            before["approver_user_soeid"],
+                            existing.approver_user_soeid,
+                        ),
+                        "key_stakeholder": (
+                            before["key_stakeholder"],
+                            existing.key_stakeholder,
+                        ),
                         "blockers": (before["blockers"], existing.blockers),
                         "risks": (before["risks"], existing.risks),
-                        "rag_confidence": (before["rag_confidence"], existing.rag_confidence),
+                        "rag_confidence": (
+                            before["rag_confidence"],
+                            existing.rag_confidence,
+                        ),
                         "completed_at": (before["completed_at"], existing.completed_at),
                     },
                     request_id=None,
@@ -321,16 +383,21 @@ def import_solutions(
                     owner_user_soeid,
                     current_user,
                 )
-                resolved_assignee, resolved_assignee_user_soeid = _resolve_solution_assignee(
-                    assignee_input,
-                    assignee_user_soeid,
-                    owner=resolved_owner,
-                    owner_user_soeid=resolved_owner_user_soeid,
-                    current_user=current_user,
+                resolved_assignee, resolved_assignee_user_soeid = (
+                    _resolve_solution_assignee(
+                        assignee_input,
+                        assignee_user_soeid,
+                        owner=resolved_owner,
+                        owner_user_soeid=resolved_owner_user_soeid,
+                        current_user=current_user,
+                    )
                 )
                 now = datetime.now(timezone.utc)
-                completed_at = completed_at_val if status_enum == SolutionStatus.complete and completed_at_val is not None else (
-                    now if status_enum == SolutionStatus.complete else None
+                completed_at = (
+                    completed_at_val
+                    if status_enum == SolutionStatus.complete
+                    and completed_at_val is not None
+                    else (now if status_enum == SolutionStatus.complete else None)
                 )
                 solution = Solution(
                     space_id=space_ctx.space_id,
@@ -479,19 +546,29 @@ def export_solutions(
                 "project_name": project_map.get(solution.project_id, ""),
                 "solution_name": solution.solution_name,
                 "version": solution.version,
-                "status": solution.status.value if hasattr(solution.status, "value") else solution.status,
-                "rag_status": solution.rag_status.value if hasattr(solution.rag_status, "value") else solution.rag_status,
+                "status": solution.status.value
+                if hasattr(solution.status, "value")
+                else solution.status,
+                "rag_status": solution.rag_status.value
+                if hasattr(solution.rag_status, "value")
+                else solution.rag_status,
                 "rag_reason": read_text_value(solution.rag_reason) or "",
-                "rag_confidence": solution.rag_confidence if solution.rag_confidence is not None else "",
+                "rag_confidence": solution.rag_confidence
+                if solution.rag_confidence is not None
+                else "",
                 "priority": solution.priority,
                 "due_date": solution.due_date.isoformat() if solution.due_date else "",
-                "planned_start_date": solution.planned_start_date.isoformat() if solution.planned_start_date else "",
+                "planned_start_date": solution.planned_start_date.isoformat()
+                if solution.planned_start_date
+                else "",
                 "current_phase": solution.current_phase or "",
                 "description": read_text_value(solution.description) or "",
                 "problem_statement": read_text_value(solution.problem_statement) or "",
                 "success_criteria": read_text_value(solution.success_criteria) or "",
                 "github_repo_url": solution.github_repo_url or "",
-                "impact_confidence": solution.impact_confidence.value if hasattr(solution.impact_confidence, "value") else (solution.impact_confidence or ""),
+                "impact_confidence": solution.impact_confidence.value
+                if hasattr(solution.impact_confidence, "value")
+                else (solution.impact_confidence or ""),
                 "owner": solution.owner or "",
                 "owner_user_soeid": solution.owner_user_soeid or "",
                 "assignee": solution.assignee or "",
@@ -501,9 +578,11 @@ def export_solutions(
                 "key_stakeholder": solution.key_stakeholder or "",
                 "blockers": read_text_value(solution.blockers) or "",
                 "risks": read_text_value(solution.risks) or "",
-                "completed_at": solution.completed_at.isoformat() if solution.completed_at else "",
+                "completed_at": solution.completed_at.isoformat()
+                if solution.completed_at
+                else "",
             }
         )
     buffer.seek(0)
-    headers = {"Content-Disposition": 'attachment; filename=\"solutions.csv\"'}
+    headers = {"Content-Disposition": 'attachment; filename="solutions.csv"'}
     return StreamingResponse(buffer, media_type="text/csv", headers=headers)

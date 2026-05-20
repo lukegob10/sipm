@@ -36,7 +36,9 @@ def configure_sqlite_runtime() -> None:
         connect_args={"check_same_thread": False},
     )
     db_module.engine = engine
-    db_module.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db_module.SessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=engine
+    )
     Base.metadata.create_all(bind=engine)
 
 

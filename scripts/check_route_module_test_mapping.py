@@ -35,7 +35,9 @@ def validate_route_module_test_mapping(repo_root: Path) -> list[str]:
     for route_file in route_files:
         mapped_tests = modules.get(route_file)
         if not isinstance(mapped_tests, list) or not mapped_tests:
-            errors.append(f"{route_file} must map to at least one test file in {route_map_path}.")
+            errors.append(
+                f"{route_file} must map to at least one test file in {route_map_path}."
+            )
             continue
         for rel_test_path in mapped_tests:
             test_path = repo_root / rel_test_path

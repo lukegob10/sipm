@@ -73,13 +73,19 @@ def _restore_current_user_override(original):
 
 
 @pytest.mark.anyio
-async def test_space_admin_can_move_work_allocation_person_to_unassigned(client, db_sessionmaker):
+async def test_space_admin_can_move_work_allocation_person_to_unassigned(
+    client, db_sessionmaker
+):
     space_id, team_id, person_id = _seed_work_allocation_person(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
 
-        listed = await client.get("/project-manager/api/planning/work-allocation/people")
+        listed = await client.get(
+            "/project-manager/api/planning/work-allocation/people"
+        )
         assert listed.status_code == 200, listed.text
         rows = listed.json()
         assert len(rows) == 1
@@ -95,7 +101,9 @@ async def test_space_admin_can_move_work_allocation_person_to_unassigned(client,
         assert payload["id"] == person_id
         assert payload["team_id"] is None
 
-        refreshed = await client.get("/project-manager/api/planning/work-allocation/people")
+        refreshed = await client.get(
+            "/project-manager/api/planning/work-allocation/people"
+        )
         assert refreshed.status_code == 200, refreshed.text
         refreshed_rows = refreshed.json()
         assert len(refreshed_rows) == 1
@@ -105,9 +113,13 @@ async def test_space_admin_can_move_work_allocation_person_to_unassigned(client,
 
 
 @pytest.mark.anyio
-async def test_space_admin_can_create_work_allocation_person_with_zero_capacity(client, db_sessionmaker):
+async def test_space_admin_can_create_work_allocation_person_with_zero_capacity(
+    client, db_sessionmaker
+):
     space_id, team_id, _person_id = _seed_work_allocation_person(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
 
@@ -129,9 +141,13 @@ async def test_space_admin_can_create_work_allocation_person_with_zero_capacity(
 
 
 @pytest.mark.anyio
-async def test_planning_mutations_broadcast_live_refresh(client, db_sessionmaker, monkeypatch):
+async def test_planning_mutations_broadcast_live_refresh(
+    client, db_sessionmaker, monkeypatch
+):
     space_id, _team_id, _person_id = _seed_work_allocation_person(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     broadcasts: list[tuple[str, str | None]] = []
 
     monkeypatch.setattr(
@@ -153,9 +169,15 @@ async def test_planning_mutations_broadcast_live_refresh(client, db_sessionmaker
 
 
 @pytest.mark.anyio
-async def test_space_admin_cannot_modify_global_admin_through_planning_people(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
-    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+async def test_space_admin_cannot_modify_global_admin_through_planning_people(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
+    original_current_user = fastapi_app.dependency_overrides.get(
+        deps_module.current_user
+    )
     try:
         with db_sessionmaker() as session:
             space = Space(
@@ -198,16 +220,25 @@ async def test_space_admin_cannot_modify_global_admin_through_planning_people(cl
             json={"name": "Renamed Global Admin"},
         )
         assert resp.status_code == 403, resp.text
-        assert resp.json()["detail"] == "Only global admin can modify global admin accounts"
+        assert (
+            resp.json()["detail"]
+            == "Only global admin can modify global admin accounts"
+        )
     finally:
         _restore_current_space_override(original_current_space)
         _restore_current_user_override(original_current_user)
 
 
 @pytest.mark.anyio
-async def test_planning_people_update_cannot_deactivate_last_active_space_admin(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
-    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+async def test_planning_people_update_cannot_deactivate_last_active_space_admin(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
+    original_current_user = fastapi_app.dependency_overrides.get(
+        deps_module.current_user
+    )
     try:
         with db_sessionmaker() as session:
             space = Space(
@@ -250,16 +281,24 @@ async def test_planning_people_update_cannot_deactivate_last_active_space_admin(
             json={"active": False},
         )
         assert resp.status_code == 400, resp.text
-        assert resp.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            resp.json()["detail"] == "Space must retain at least one active space_admin"
+        )
     finally:
         _restore_current_space_override(original_current_space)
         _restore_current_user_override(original_current_user)
 
 
 @pytest.mark.anyio
-async def test_planning_people_delete_cannot_deactivate_last_global_admin(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
-    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+async def test_planning_people_delete_cannot_deactivate_last_global_admin(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
+    original_current_user = fastapi_app.dependency_overrides.get(
+        deps_module.current_user
+    )
     try:
         with db_sessionmaker() as session:
             space = Space(
@@ -294,7 +333,9 @@ async def test_planning_people_delete_cannot_deactivate_last_global_admin(client
             role="global_admin",
             is_active=True,
         )
-        _set_current_space_override("space-planning-last-global-admin", role="space_admin")
+        _set_current_space_override(
+            "space-planning-last-global-admin", role="space_admin"
+        )
         fastapi_app.dependency_overrides[deps_module.current_user] = lambda: actor
 
         resp = await client.delete(

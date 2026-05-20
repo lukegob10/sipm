@@ -15,50 +15,26 @@ from ..auth.auth import (
 from ..models import User
 from ..security import security_http_exception
 from .audit_log import log_changes
+from .auth_state import (
+    DEFAULT_LOCKOUT_MINUTES,
+    DEFAULT_MAX_AUTH_FAILURES,
+    ensure_aware_utc,
+    record_auth_failure,
+    reject_if_locked,
+)
 
 _TEMP_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 _MIN_TEMP_PASSWORD_RESET_MINUTES = 5
 _MAX_TEMP_PASSWORD_RESET_MINUTES = 24 * 60
-_MAX_TEMP_PASSWORD_ATTEMPTS = 5
-_TEMP_PASSWORD_LOCKOUT_MINUTES = 15
+_MAX_TEMP_PASSWORD_ATTEMPTS = DEFAULT_MAX_AUTH_FAILURES
+_TEMP_PASSWORD_LOCKOUT_MINUTES = DEFAULT_LOCKOUT_MINUTES
+_TEMP_PASSWORD_INVALID_MESSAGE = "Temporary password is invalid"
 
 
 def _generate_temp_password(length: int = 14) -> str:
-    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(max(int(length), 10)))
-
-
-def _is_user_locked(user: User, now: datetime) -> bool:
-    locked_until = user.locked_until
-    if not locked_until:
-        return False
-    if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    return locked_until > now
-
-
-def _clear_expired_lockout(user: User, now: datetime) -> None:
-    if not user.locked_until or _is_user_locked(user, now):
-        return
-    user.failed_attempts = 0
-    user.locked_until = None
-
-
-def _reject_if_locked(user: User, now: datetime) -> None:
-    if _is_user_locked(user, now):
-        raise security_http_exception(
-            status_code=status.HTTP_423_LOCKED,
-            code="ACCOUNT_LOCKED",
-            message="Account locked. Try again later.",
-        )
-    _clear_expired_lockout(user, now)
-
-
-def _record_temp_password_failure(session: Session, user: User, now: datetime) -> None:
-    user.failed_attempts += 1
-    if user.failed_attempts >= _MAX_TEMP_PASSWORD_ATTEMPTS:
-        user.locked_until = now + timedelta(minutes=_TEMP_PASSWORD_LOCKOUT_MINUTES)
-    session.add(user)
-    session.commit()
+    return "".join(
+        secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(max(int(length), 10))
+    )
 
 
 def issue_temp_password(
@@ -72,7 +48,10 @@ def issue_temp_password(
     ttl = ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES
     if expires_minutes is not None:
         ttl = int(expires_minutes)
-        if ttl < _MIN_TEMP_PASSWORD_RESET_MINUTES or ttl > _MAX_TEMP_PASSWORD_RESET_MINUTES:
+        if (
+            ttl < _MIN_TEMP_PASSWORD_RESET_MINUTES
+            or ttl > _MAX_TEMP_PASSWORD_RESET_MINUTES
+        ):
             raise ValueError(
                 "expires_minutes must be between "
                 f"{_MIN_TEMP_PASSWORD_RESET_MINUTES} and {_MAX_TEMP_PASSWORD_RESET_MINUTES}."
@@ -113,34 +92,38 @@ def reset_password_with_temp_password(
     if not user or not user.is_active:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            code="USER_INACTIVE_OR_MISSING",
-            message="User inactive or missing",
+            code="TEMP_PASSWORD_INVALID",
+            message=_TEMP_PASSWORD_INVALID_MESSAGE,
         )
-    _reject_if_locked(user, now)
+    reject_if_locked(user, now=now, message=_TEMP_PASSWORD_INVALID_MESSAGE)
 
     if not user.temp_password_hash or not user.temp_password_expires_at:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="TEMP_PASSWORD_INVALID",
-            message="Temporary password is invalid",
+            message=_TEMP_PASSWORD_INVALID_MESSAGE,
         )
 
-    expires_at = user.temp_password_expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    expires_at = ensure_aware_utc(user.temp_password_expires_at)
     if expires_at < now:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            code="TEMP_PASSWORD_EXPIRED",
-            message="Temporary password expired",
+            code="TEMP_PASSWORD_INVALID",
+            message=_TEMP_PASSWORD_INVALID_MESSAGE,
         )
 
     if not verify_password(temp_password, user.temp_password_hash):
-        _record_temp_password_failure(session, user, now)
+        record_auth_failure(
+            session,
+            user,
+            now=now,
+            max_attempts=_MAX_TEMP_PASSWORD_ATTEMPTS,
+            lockout_minutes=_TEMP_PASSWORD_LOCKOUT_MINUTES,
+        )
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="TEMP_PASSWORD_INVALID",
-            message="Temporary password is invalid",
+            message=_TEMP_PASSWORD_INVALID_MESSAGE,
         )
 
     user.password_hash = hash_password(new_password)

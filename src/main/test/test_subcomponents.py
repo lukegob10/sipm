@@ -33,18 +33,22 @@ def seed_phases(SessionLocal):
 async def create_project_solution(client):
     project = (
         await client.post(
-        "/project-manager/api/projects/",
-        json={
-            "project_name": "Data Platform",
-            "description": "Modernize data stack",
-            "sponsor": "CFO Office",
-        },
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Data Platform",
+                "description": "Modernize data stack",
+                "sponsor": "CFO Office",
+            },
         )
     ).json()
     solution = (
         await client.post(
             f"/project-manager/api/projects/{project['project_id']}/solutions",
-            json={"solution_name": "Access Controls", "version": "0.1.0", "owner": "Solution Owner"},
+            json={
+                "solution_name": "Access Controls",
+                "version": "0.1.0",
+                "owner": "Solution Owner",
+            },
         )
     ).json()
     return project, solution
@@ -83,7 +87,9 @@ async def test_create_and_list_subcomponents(client, db_sessionmaker):
     assert data["priority"] == 1
     assert data["assignee"] == "Engineer A"
 
-    list_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")
+    list_resp = await client.get(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+    )
     assert list_resp.status_code == 200
     items = list_resp.json()
     assert len(items) == 1
@@ -91,7 +97,9 @@ async def test_create_and_list_subcomponents(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
-async def test_create_subcomponent_defaults_assignee_and_priority(client, db_sessionmaker):
+async def test_create_subcomponent_defaults_assignee_and_priority(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
 
@@ -110,7 +118,9 @@ async def test_create_subcomponent_defaults_assignee_and_priority(client, db_ses
 
 
 @pytest.mark.anyio
-async def test_subcomponent_crud_normalizes_names_and_clears_stale_blocker_note(client, db_sessionmaker):
+async def test_subcomponent_crud_normalizes_names_and_clears_stale_blocker_note(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
 
@@ -152,7 +162,9 @@ async def test_subcomponent_crud_normalizes_names_and_clears_stale_blocker_note(
 
 
 @pytest.mark.anyio
-async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, db_sessionmaker):
+async def test_subcomponent_repo_override_inherits_overrides_and_clears(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     project, _ = await create_project_solution(client)
     solution_resp = await client.post(
@@ -174,7 +186,10 @@ async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, 
     assert create_resp.status_code == 201, create_resp.text
     created = create_resp.json()
     assert created["github_repo_url"] is None
-    assert created["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert (
+        created["effective_github_repo_url"]
+        == "https://github.com/example-org/platform-service"
+    )
     assert created["repo_source"] == "inherited"
 
     update_resp = await client.patch(
@@ -184,7 +199,10 @@ async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, 
     assert update_resp.status_code == 200, update_resp.text
     updated = update_resp.json()
     assert updated["github_repo_url"] == "https://github.com/example-org/frontend-app"
-    assert updated["effective_github_repo_url"] == "https://github.com/example-org/frontend-app"
+    assert (
+        updated["effective_github_repo_url"]
+        == "https://github.com/example-org/frontend-app"
+    )
     assert updated["repo_source"] == "override"
 
     clear_resp = await client.patch(
@@ -194,12 +212,17 @@ async def test_subcomponent_repo_override_inherits_overrides_and_clears(client, 
     assert clear_resp.status_code == 200, clear_resp.text
     cleared = clear_resp.json()
     assert cleared["github_repo_url"] is None
-    assert cleared["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert (
+        cleared["effective_github_repo_url"]
+        == "https://github.com/example-org/platform-service"
+    )
     assert cleared["repo_source"] == "inherited"
 
 
 @pytest.mark.anyio
-async def test_solution_repo_update_refreshes_cached_subcomponent_repo_inheritance(client, db_sessionmaker):
+async def test_solution_repo_update_refreshes_cached_subcomponent_repo_inheritance(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     clear_cache()
     try:
@@ -225,48 +248,70 @@ async def test_solution_repo_update_refreshes_cached_subcomponent_repo_inheritan
 
         primed_list = await client.get("/project-manager/api/subcomponents")
         assert primed_list.status_code == 200, primed_list.text
-        assert primed_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+        assert (
+            primed_list.json()[0]["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service"
+        )
 
         primed_solution_list = await client.get(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
         )
         assert primed_solution_list.status_code == 200, primed_solution_list.text
-        assert primed_solution_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+        assert (
+            primed_solution_list.json()[0]["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service"
+        )
 
         primed_detail = await client.get(
             f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
         )
         assert primed_detail.status_code == 200, primed_detail.text
-        assert primed_detail.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+        assert (
+            primed_detail.json()["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service"
+        )
 
         update_resp = await client.patch(
             f"/project-manager/api/solutions/{solution['solution_id']}",
-            json={"github_repo_url": "https://github.com/example-org/platform-service-v2"},
+            json={
+                "github_repo_url": "https://github.com/example-org/platform-service-v2"
+            },
         )
         assert update_resp.status_code == 200, update_resp.text
 
         list_resp = await client.get("/project-manager/api/subcomponents")
         assert list_resp.status_code == 200, list_resp.text
-        assert list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+        assert (
+            list_resp.json()[0]["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service-v2"
+        )
 
         solution_list_resp = await client.get(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
         )
         assert solution_list_resp.status_code == 200, solution_list_resp.text
-        assert solution_list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+        assert (
+            solution_list_resp.json()[0]["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service-v2"
+        )
 
         detail_resp = await client.get(
             f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
         )
         assert detail_resp.status_code == 200, detail_resp.text
-        assert detail_resp.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
+        assert (
+            detail_resp.json()["effective_github_repo_url"]
+            == "https://github.com/example-org/platform-service-v2"
+        )
         assert detail_resp.json()["repo_source"] == "inherited"
     finally:
         clear_cache()
 
 
 @pytest.mark.anyio
-async def test_subcomponent_rejects_invalid_github_repo_override(client, db_sessionmaker):
+async def test_subcomponent_rejects_invalid_github_repo_override(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
 
@@ -287,25 +332,25 @@ async def test_list_all_subcomponents_filter_by_assignee(client, db_sessionmaker
     _, solution = await create_project_solution(client)
 
     assert (
-        (await client.post(
+        await client.post(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Task A", "assignee": "Engineer A"},
-        )).status_code
-        == 201
-    )
+        )
+    ).status_code == 201
     assert (
-        (await client.post(
+        await client.post(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
             json={"subcomponent_name": "Task B", "assignee": "Engineer B"},
-        )).status_code
-        == 201
-    )
+        )
+    ).status_code == 201
 
     all_resp = await client.get("/project-manager/api/subcomponents")
     assert all_resp.status_code == 200
     assert len(all_resp.json()) == 2
 
-    filtered = await client.get("/project-manager/api/subcomponents", params={"assignee": "Engineer A"})
+    filtered = await client.get(
+        "/project-manager/api/subcomponents", params={"assignee": "Engineer A"}
+    )
     assert filtered.status_code == 200
     items = filtered.json()
     assert len(items) == 1
@@ -313,7 +358,9 @@ async def test_list_all_subcomponents_filter_by_assignee(client, db_sessionmaker
 
 
 @pytest.mark.anyio
-async def test_list_subcomponents_includes_actionability_metadata(client, db_sessionmaker):
+async def test_list_subcomponents_includes_actionability_metadata(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
     today = date.today()
@@ -428,7 +475,9 @@ async def test_batch_update_subcomponents(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
-async def test_batch_reopening_subcomponents_clears_completed_at(client, db_sessionmaker):
+async def test_batch_reopening_subcomponents_clears_completed_at(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
 
@@ -459,7 +508,9 @@ async def test_batch_reopening_subcomponents_clears_completed_at(client, db_sess
 
 
 @pytest.mark.anyio
-async def test_update_subcomponent_status_logs_completed_at_audit_field(client, db_sessionmaker):
+async def test_update_subcomponent_status_logs_completed_at_audit_field(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     _, solution = await create_project_solution(client)
 
@@ -496,7 +547,9 @@ async def test_update_subcomponent_status_logs_completed_at_audit_field(client, 
 
 
 @pytest.mark.anyio
-async def test_batch_update_subcomponents_preserves_inherited_repo_metadata(client, db_sessionmaker):
+async def test_batch_update_subcomponents_preserves_inherited_repo_metadata(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     project, _ = await create_project_solution(client)
 
@@ -522,7 +575,10 @@ async def test_batch_update_subcomponents_preserves_inherited_repo_metadata(clie
     )
     assert created_resp.status_code == 201, created_resp.text
     created = created_resp.json()
-    assert created["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert (
+        created["effective_github_repo_url"]
+        == "https://github.com/example-org/platform-service"
+    )
     assert created["repo_source"] == "inherited"
 
     batch_resp = await client.patch(
@@ -535,20 +591,27 @@ async def test_batch_update_subcomponents_preserves_inherited_repo_metadata(clie
     assert batch_resp.status_code == 200, batch_resp.text
     rows = batch_resp.json()
     assert len(rows) == 1
-    assert rows[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
+    assert (
+        rows[0]["effective_github_repo_url"]
+        == "https://github.com/example-org/platform-service"
+    )
     assert rows[0]["repo_source"] == "inherited"
 
 
 @pytest.mark.anyio
 async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-subcomponent-activity",
-            space_name="Subcomponent Activity Space",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-subcomponent-activity",
+                space_name="Subcomponent Activity Space",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
         _, solution = await create_project_solution(client)
         create_resp = await client.post(
@@ -563,13 +626,17 @@ async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
         )
         assert update_resp.status_code == 200, update_resp.text
 
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-subcomponent-activity",
-            space_name="Subcomponent Activity Space",
-            is_global_admin=False,
-            space_role="member",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-subcomponent-activity",
+                space_name="Subcomponent Activity Space",
+                is_global_admin=False,
+                space_role="member",
+            )
         )
-        activity_resp = await client.get(f"/project-manager/api/subcomponents/{subcomponent_id}/activity")
+        activity_resp = await client.get(
+            f"/project-manager/api/subcomponents/{subcomponent_id}/activity"
+        )
         assert activity_resp.status_code == 200, activity_resp.text
         rows = activity_resp.json()
         assert len(rows) >= 2
@@ -580,7 +647,9 @@ async def test_member_can_view_subcomponent_activity(client, db_sessionmaker):
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+            fastapi_app.dependency_overrides[deps_module.current_space] = (
+                original_current_space
+            )
 
 
 @pytest.mark.anyio
@@ -589,25 +658,45 @@ async def test_subcomponent_uniqueness_and_soft_delete(client, db_sessionmaker):
     _, solution = await create_project_solution(client)
 
     payload = {"subcomponent_name": "Billing UI", "assignee": "Engineer A"}
-    assert (await client.post(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents", json=payload)).status_code == 201
-    dup = await client.post(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents", json=payload)
+    assert (
+        await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+            json=payload,
+        )
+    ).status_code == 201
+    dup = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
+        json=payload,
+    )
     assert dup.status_code == 400
 
     # soft delete
-    created = (await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")).json()[0]
-    delete_resp = await client.delete(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
+    created = (
+        await client.get(
+            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+        )
+    ).json()[0]
+    delete_resp = await client.delete(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}"
+    )
     assert delete_resp.status_code == 204
 
-    get_resp = await client.get(f"/project-manager/api/subcomponents/{created['subcomponent_id']}")
+    get_resp = await client.get(
+        f"/project-manager/api/subcomponents/{created['subcomponent_id']}"
+    )
     assert get_resp.status_code == 404
 
-    list_resp = await client.get(f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents")
+    list_resp = await client.get(
+        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
+    )
     assert list_resp.status_code == 200
     assert list_resp.json() == []
 
 
 @pytest.mark.anyio
-async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcomponent_cache(client, db_sessionmaker):
+async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcomponent_cache(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     clear_cache()
     try:
@@ -621,13 +710,17 @@ async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcompo
 
         primed_list = await client.get("/project-manager/api/subcomponents")
         assert primed_list.status_code == 200, primed_list.text
-        assert [row["subcomponent_id"] for row in primed_list.json()] == [subcomponent["subcomponent_id"]]
+        assert [row["subcomponent_id"] for row in primed_list.json()] == [
+            subcomponent["subcomponent_id"]
+        ]
 
         primed_solution_list = await client.get(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
         )
         assert primed_solution_list.status_code == 200, primed_solution_list.text
-        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [subcomponent["subcomponent_id"]]
+        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [
+            subcomponent["subcomponent_id"]
+        ]
 
         primed_detail = await client.get(
             f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
@@ -638,7 +731,9 @@ async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcompo
         assert primed_export.status_code == 200, primed_export.text
         assert "Hidden Child Task" in primed_export.text
 
-        delete_resp = await client.delete(f"/project-manager/api/projects/{project['project_id']}")
+        delete_resp = await client.delete(
+            f"/project-manager/api/projects/{project['project_id']}"
+        )
         assert delete_resp.status_code == 204, delete_resp.text
 
         list_resp = await client.get("/project-manager/api/subcomponents")
@@ -665,34 +760,45 @@ async def test_soft_deleted_project_hides_subcomponent_reads_and_clears_subcompo
 
 
 @pytest.mark.anyio
-async def test_soft_deleted_solution_hides_subcomponent_reads_and_clears_subcomponent_cache(client, db_sessionmaker):
+async def test_soft_deleted_solution_hides_subcomponent_reads_and_clears_subcomponent_cache(
+    client, db_sessionmaker
+):
     seed_phases(db_sessionmaker)
     clear_cache()
     try:
         _project, solution = await create_project_solution(client)
         create_resp = await client.post(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
-            json={"subcomponent_name": "Hidden After Solution Delete", "assignee": "Engineer A"},
+            json={
+                "subcomponent_name": "Hidden After Solution Delete",
+                "assignee": "Engineer A",
+            },
         )
         assert create_resp.status_code == 201, create_resp.text
         subcomponent = create_resp.json()
 
         primed_list = await client.get("/project-manager/api/subcomponents")
         assert primed_list.status_code == 200, primed_list.text
-        assert [row["subcomponent_id"] for row in primed_list.json()] == [subcomponent["subcomponent_id"]]
+        assert [row["subcomponent_id"] for row in primed_list.json()] == [
+            subcomponent["subcomponent_id"]
+        ]
 
         primed_solution_list = await client.get(
             f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents"
         )
         assert primed_solution_list.status_code == 200, primed_solution_list.text
-        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [subcomponent["subcomponent_id"]]
+        assert [row["subcomponent_id"] for row in primed_solution_list.json()] == [
+            subcomponent["subcomponent_id"]
+        ]
 
         primed_detail = await client.get(
             f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
         )
         assert primed_detail.status_code == 200, primed_detail.text
 
-        delete_resp = await client.delete(f"/project-manager/api/solutions/{solution['solution_id']}")
+        delete_resp = await client.delete(
+            f"/project-manager/api/solutions/{solution['solution_id']}"
+        )
         assert delete_resp.status_code == 204, delete_resp.text
 
         list_resp = await client.get("/project-manager/api/subcomponents")
@@ -717,13 +823,17 @@ async def test_soft_deleted_solution_hides_subcomponent_reads_and_clears_subcomp
 @pytest.mark.anyio
 async def test_member_can_delete_subcomponent(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-subcomponent",
-            space_name="Delete Subcomponent Space",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-subcomponent",
+                space_name="Delete Subcomponent Space",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
         _, solution = await create_project_solution(client)
         create_resp = await client.post(
@@ -733,16 +843,22 @@ async def test_member_can_delete_subcomponent(client, db_sessionmaker):
         assert create_resp.status_code == 201, create_resp.text
         subcomponent_id = create_resp.json()["subcomponent_id"]
 
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-subcomponent",
-            space_name="Delete Subcomponent Space",
-            is_global_admin=False,
-            space_role="member",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-subcomponent",
+                space_name="Delete Subcomponent Space",
+                is_global_admin=False,
+                space_role="member",
+            )
         )
-        allowed = await client.delete(f"/project-manager/api/subcomponents/{subcomponent_id}")
+        allowed = await client.delete(
+            f"/project-manager/api/subcomponents/{subcomponent_id}"
+        )
         assert allowed.status_code == 204, allowed.text
     finally:
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+            fastapi_app.dependency_overrides[deps_module.current_space] = (
+                original_current_space
+            )

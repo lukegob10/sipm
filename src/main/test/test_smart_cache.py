@@ -22,7 +22,9 @@ def test_cache_enabled_rejects_invalid_boolean(monkeypatch):
     monkeypatch.setenv("SIPM_SMART_CACHE_ENABLED", "sometimes")
 
     module = _reload_smart_cache_module()
-    with pytest.raises(RuntimeError, match="SIPM_SMART_CACHE_ENABLED must be a boolean value."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_SMART_CACHE_ENABLED must be a boolean value."
+    ):
         module._cache_enabled()
 
 
@@ -30,7 +32,9 @@ def test_cache_max_entries_rejects_non_integer(monkeypatch):
     monkeypatch.setenv("SIPM_SMART_CACHE_MAX_ENTRIES", "many")
 
     module = _reload_smart_cache_module()
-    with pytest.raises(RuntimeError, match="SIPM_SMART_CACHE_MAX_ENTRIES must be an integer."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_SMART_CACHE_MAX_ENTRIES must be an integer."
+    ):
         module._cache_max_entries()
 
 

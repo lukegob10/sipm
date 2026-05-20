@@ -167,8 +167,12 @@ def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):
 
 @pytest.mark.anyio
 async def test_websocket_endpoint_unregisters_on_disconnect(monkeypatch):
-    ws = StubWebSocket(cookies={"access_token": "good-token"}, receive_exc=WebSocketDisconnect())
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    ws = StubWebSocket(
+        cookies={"access_token": "good-token"}, receive_exc=WebSocketDisconnect()
+    )
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -183,8 +187,12 @@ async def test_websocket_endpoint_unregisters_on_disconnect(monkeypatch):
 
 @pytest.mark.anyio
 async def test_websocket_endpoint_unregisters_on_unexpected_exception(monkeypatch):
-    ws = StubWebSocket(cookies={"access_token": "good-token"}, receive_exc=RuntimeError("boom"))
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    ws = StubWebSocket(
+        cookies={"access_token": "good-token"}, receive_exc=RuntimeError("boom")
+    )
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -242,10 +250,17 @@ async def test_websocket_endpoint_rejects_anonymous_session_outside_tests(monkey
 
 
 @pytest.mark.anyio
-async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mismatch(monkeypatch):
-    ws = StubWebSocket(cookies={"access_token": "good-token"}, query_params={"space_id": "requested-space"})
+async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mismatch(
+    monkeypatch,
+):
+    ws = StubWebSocket(
+        cookies={"access_token": "good-token"},
+        query_params={"space_id": "requested-space"},
+    )
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -265,8 +280,14 @@ async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mism
 async def test_websocket_endpoint_closes_with_per_user_limit_code(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
-    monkeypatch.setattr(sync_route, "resolve_active_space_context", lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"))
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
 
     async def reject_register(_ws, **_kwargs):
         raise realtime.WebSocketRejected(
@@ -280,7 +301,10 @@ async def test_websocket_endpoint_closes_with_per_user_limit_code(monkeypatch):
 
     assert ws.accepted is True
     assert ws.close_calls == [
-        (realtime.WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached")
+        (
+            realtime.WS_CLOSE_CONNECTION_LIMIT,
+            "Per-user websocket connection limit reached",
+        )
     ]
     assert ws not in realtime.connections
 
@@ -289,8 +313,14 @@ async def test_websocket_endpoint_closes_with_per_user_limit_code(monkeypatch):
 async def test_websocket_endpoint_closes_with_server_busy_code(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
-    monkeypatch.setattr(sync_route, "resolve_active_space_context", lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"))
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
 
     async def reject_register(_ws, **_kwargs):
         raise realtime.WebSocketRejected(
@@ -310,10 +340,14 @@ async def test_websocket_endpoint_closes_with_server_busy_code(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_websocket_endpoint_closes_with_server_busy_code_on_unexpected_register_error(monkeypatch):
+async def test_websocket_endpoint_closes_with_server_busy_code_on_unexpected_register_error(
+    monkeypatch,
+):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(
+        sync_route, "authenticate_access_token", lambda _session, _token: DummyUser()
+    )
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -336,7 +370,9 @@ def test_realtime_module_rejects_invalid_global_connection_limit(monkeypatch):
     try:
         with monkeypatch.context() as env:
             env.setenv("SIPM_WS_MAX_CONNECTIONS_GLOBAL", "many")
-            with pytest.raises(RuntimeError, match="SIPM_WS_MAX_CONNECTIONS_GLOBAL must be an integer."):
+            with pytest.raises(
+                RuntimeError, match="SIPM_WS_MAX_CONNECTIONS_GLOBAL must be an integer."
+            ):
                 importlib.reload(realtime)
     finally:
         importlib.reload(realtime)

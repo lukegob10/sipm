@@ -5,8 +5,12 @@ from ui_style_contract import read_ui_styles
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLANNING_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning.js"
-PLANNING_STATE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "state.js"
-PLANNING_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "render.js"
+PLANNING_STATE = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "state.js"
+)
+PLANNING_RENDER = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "render.js"
+)
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -38,9 +42,18 @@ def test_planning_board_uses_unassigned_right_rail_instead_of_virtual_center_col
     assert 'class="wab-unassigned-dropzone"' in text
     assert 'data-wab-action="move-person-to-unassigned"' in text
     assert "Unassigned People" in text
-    assert 'Drop tasks here to unassign them. Drop people here to move them into Unassigned.' not in text
-    assert '<option value="${UNASSIGNED_TEAM_ID}" ${boardState.teamFilter === UNASSIGNED_TEAM_ID ? "selected" : ""}>Unassigned Team</option>' not in text
-    assert 'columns.push({ id: UNASSIGNED_TEAM_ID, name: "Unassigned", virtual: true });' not in text
+    assert (
+        "Drop tasks here to unassign them. Drop people here to move them into Unassigned."
+        not in text
+    )
+    assert (
+        '<option value="${UNASSIGNED_TEAM_ID}" ${boardState.teamFilter === UNASSIGNED_TEAM_ID ? "selected" : ""}>Unassigned Team</option>'
+        not in text
+    )
+    assert (
+        'columns.push({ id: UNASSIGNED_TEAM_ID, name: "Unassigned", virtual: true });'
+        not in text
+    )
 
 
 def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
@@ -81,7 +94,10 @@ def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
     for snippet in snippets:
         assert snippet in text
 
-    assert "grid-template-columns:minmax(240px,280px)minmax(0,1fr)minmax(220px,260px);" in compact
+    assert (
+        "grid-template-columns:minmax(240px,280px)minmax(0,1fr)minmax(220px,260px);"
+        in compact
+    )
 
 
 def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_person_rows():

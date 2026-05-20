@@ -50,7 +50,11 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             code="API_TOKEN_INVALID",
             message=API_TOKEN_INVALID_MESSAGE,
         )
-    token_row = session.query(ApiToken).filter(ApiToken.token_hash == hash_api_token(raw)).first()
+    token_row = (
+        session.query(ApiToken)
+        .filter(ApiToken.token_hash == hash_api_token(raw))
+        .first()
+    )
     if not token_row or not api_token_is_active(token_row):
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -65,7 +69,10 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             message=API_TOKEN_INVALID_MESSAGE,
         )
     now = _utc_now_naive()
-    if token_row.last_used_at is None or token_row.last_used_at <= now - LAST_USED_WRITE_INTERVAL:
+    if (
+        token_row.last_used_at is None
+        or token_row.last_used_at <= now - LAST_USED_WRITE_INTERVAL
+    ):
         token_row.last_used_at = now
         session.add(token_row)
         session.commit()

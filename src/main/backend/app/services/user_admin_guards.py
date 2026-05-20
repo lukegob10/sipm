@@ -36,20 +36,22 @@ def normalized_space_admin_role_expr():
 def count_active_global_admins(session: Session) -> int:
     return (
         session.query(User)
-        .filter(User.is_active == True)
+        .filter(User.is_active.is_(True))
         .filter(normalized_global_role_expr() == "global_admin")
         .count()
     )
 
 
-def _count_other_active_space_admins(session: Session, *, space_id: str, exclude_user_id: str) -> int:
+def _count_other_active_space_admins(
+    session: Session, *, space_id: str, exclude_user_id: str
+) -> int:
     return (
         session.query(SpaceMembership)
         .join(User, User.user_id == SpaceMembership.user_id)
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active.is_(True))
         .filter(SpaceMembership.user_id != exclude_user_id)
         .filter(normalized_space_admin_role_expr() == "space_admin")
         .count()
@@ -88,7 +90,12 @@ def ensure_user_can_be_deactivated(session: Session, user: User) -> None:
         space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
         if not space_id:
             continue
-        if _count_other_active_space_admins(session, space_id=space_id, exclude_user_id=user.user_id) == 0:
+        if (
+            _count_other_active_space_admins(
+                session, space_id=space_id, exclude_user_id=user.user_id
+            )
+            == 0
+        ):
             raise security_http_exception(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 code="LAST_SPACE_ADMIN",

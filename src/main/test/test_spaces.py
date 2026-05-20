@@ -8,7 +8,9 @@ from backend.app.services.spaces import SpaceContext, resolve_active_space_conte
 from backend.main import app as fastapi_app
 
 
-def _seed_space_with_members(db_sessionmaker, *, admin_count: int, include_member: bool = False):
+def _seed_space_with_members(
+    db_sessionmaker, *, admin_count: int, include_member: bool = False
+):
     with db_sessionmaker() as session:
         space = Space(
             space_id="space-admin-guard",
@@ -82,7 +84,9 @@ def _restore_current_space_override(original):
         fastapi_app.dependency_overrides[deps_module.current_space] = original
 
 
-def test_resolve_active_space_does_not_create_default_membership_for_unassigned_user(db_sessionmaker):
+def test_resolve_active_space_does_not_create_default_membership_for_unassigned_user(
+    db_sessionmaker,
+):
     with db_sessionmaker() as session:
         user = User(
             user_id="space-unassigned-user",
@@ -101,14 +105,23 @@ def test_resolve_active_space_does_not_create_default_membership_for_unassigned_
 
         assert exc.value.status_code == 403
         assert exc.value.headers["X-Error-Code"] == "NO_ACTIVE_SPACE"
-        assert session.query(SpaceMembership).filter(SpaceMembership.user_id == user.user_id).count() == 0
+        assert (
+            session.query(SpaceMembership)
+            .filter(SpaceMembership.user_id == user.user_id)
+            .count()
+            == 0
+        )
 
 
 @pytest.mark.anyio
 async def test_cannot_remove_last_active_space_admin(client, db_sessionmaker):
-    space_id, admin_memberships, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
+    space_id, admin_memberships, _ = _seed_space_with_members(
+        db_sessionmaker, admin_count=1
+    )
     membership_id = admin_memberships[0]
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
         demote = await client.patch(
@@ -116,18 +129,29 @@ async def test_cannot_remove_last_active_space_admin(client, db_sessionmaker):
             json={"role": "member"},
         )
         assert demote.status_code == 400, demote.text
-        assert demote.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            demote.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
 
         deactivate = await client.patch(
             f"/project-manager/api/spaces/{space_id}/members/{membership_id}",
             json={"status": "inactive"},
         )
         assert deactivate.status_code == 400, deactivate.text
-        assert deactivate.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            deactivate.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
 
-        delete_resp = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{membership_id}")
+        delete_resp = await client.delete(
+            f"/project-manager/api/spaces/{space_id}/members/{membership_id}"
+        )
         assert delete_resp.status_code == 400, delete_resp.text
-        assert delete_resp.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            delete_resp.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
     finally:
         _restore_current_space_override(original_current_space)
 
@@ -196,7 +220,9 @@ async def test_space_create_and_update_reject_blank_names(client):
 
 
 @pytest.mark.anyio
-async def test_can_change_admin_membership_when_another_admin_exists(client, db_sessionmaker):
+async def test_can_change_admin_membership_when_another_admin_exists(
+    client, db_sessionmaker
+):
     space_id, admin_memberships, member_membership_id = _seed_space_with_members(
         db_sessionmaker,
         admin_count=2,
@@ -204,7 +230,9 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
     )
     first_admin = admin_memberships[0]
     second_admin = admin_memberships[1]
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
         demote = await client.patch(
@@ -214,18 +242,27 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
         assert demote.status_code == 200, demote.text
         assert demote.json()["role"] == "member"
 
-        delete_member = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}")
+        delete_member = await client.delete(
+            f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}"
+        )
         assert delete_member.status_code == 204, delete_member.text
 
-        delete_last_admin = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{second_admin}")
+        delete_last_admin = await client.delete(
+            f"/project-manager/api/spaces/{space_id}/members/{second_admin}"
+        )
         assert delete_last_admin.status_code == 400, delete_last_admin.text
-        assert delete_last_admin.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            delete_last_admin.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
     finally:
         _restore_current_space_override(original_current_space)
 
 
 @pytest.mark.anyio
-async def test_archived_space_memberships_are_read_only_until_reactivated(client, db_sessionmaker):
+async def test_archived_space_memberships_are_read_only_until_reactivated(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         archived_space = Space(
             space_id="archived-membership-space",
@@ -267,7 +304,9 @@ async def test_archived_space_memberships_are_read_only_until_reactivated(client
         session.add_all([archived_space, active_space, target, existing, membership])
         session.commit()
 
-    listed = await client.get("/project-manager/api/spaces/archived-membership-space/members")
+    listed = await client.get(
+        "/project-manager/api/spaces/archived-membership-space/members"
+    )
     assert listed.status_code == 200, listed.text
 
     created = await client.post(
@@ -275,20 +314,26 @@ async def test_archived_space_memberships_are_read_only_until_reactivated(client
         json={"soeid": "archtarget", "role": "member", "status": "active"},
     )
     assert created.status_code == 400, created.text
-    assert created.json()["detail"] == "Reactivate the space before changing memberships"
+    assert (
+        created.json()["detail"] == "Reactivate the space before changing memberships"
+    )
 
     updated = await client.patch(
         "/project-manager/api/spaces/archived-membership-space/members/archived-existing-membership",
         json={"role": "space_admin"},
     )
     assert updated.status_code == 400, updated.text
-    assert updated.json()["detail"] == "Reactivate the space before changing memberships"
+    assert (
+        updated.json()["detail"] == "Reactivate the space before changing memberships"
+    )
 
     deleted = await client.delete(
         "/project-manager/api/spaces/archived-membership-space/members/archived-existing-membership",
     )
     assert deleted.status_code == 400, deleted.text
-    assert deleted.json()["detail"] == "Reactivate the space before changing memberships"
+    assert (
+        deleted.json()["detail"] == "Reactivate the space before changing memberships"
+    )
 
     reactivated = await client.patch(
         "/project-manager/api/spaces/archived-membership-space",
@@ -304,7 +349,9 @@ async def test_archived_space_memberships_are_read_only_until_reactivated(client
 
 
 @pytest.mark.anyio
-async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admin(client, db_sessionmaker):
+async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admin(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         space = Space(
             space_id="space-inactive-admin-guard",
@@ -344,10 +391,20 @@ async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admi
             role="space_admin",
             status="active",
         )
-        session.add_all([space, active_admin, inactive_admin, active_membership, inactive_membership])
+        session.add_all(
+            [
+                space,
+                active_admin,
+                inactive_admin,
+                active_membership,
+                inactive_membership,
+            ]
+        )
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override("space-inactive-admin-guard", role="space_admin")
         demote = await client.patch(
@@ -355,13 +412,18 @@ async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admi
             json={"role": "member"},
         )
         assert demote.status_code == 400, demote.text
-        assert demote.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            demote.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
     finally:
         _restore_current_space_override(original_current_space)
 
 
 @pytest.mark.anyio
-async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, db_sessionmaker):
+async def test_add_member_by_soeid_and_restore_soft_deleted_membership(
+    client, db_sessionmaker
+):
     space_id, _, member_membership_id = _seed_space_with_members(
         db_sessionmaker,
         admin_count=1,
@@ -379,7 +441,9 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
         )
         session.add(new_user)
         session.commit()
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
 
@@ -391,7 +455,9 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
         assert created.json()["role"] == "member"
         assert created.json()["status"] == "active"
 
-        delete_resp = await client.delete(f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}")
+        delete_resp = await client.delete(
+            f"/project-manager/api/spaces/{space_id}/members/{member_membership_id}"
+        )
         assert delete_resp.status_code == 204, delete_resp.text
 
         restored = await client.post(
@@ -413,19 +479,25 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
 
 
 @pytest.mark.anyio
-async def test_list_space_members_includes_user_identity_fields(client, db_sessionmaker):
+async def test_list_space_members_includes_user_identity_fields(
+    client, db_sessionmaker
+):
     space_id, _, member_membership_id = _seed_space_with_members(
         db_sessionmaker,
         admin_count=1,
         include_member=True,
     )
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
         resp = await client.get(f"/project-manager/api/spaces/{space_id}/members")
         assert resp.status_code == 200, resp.text
         rows = resp.json()
-        target = next((row for row in rows if row["membership_id"] == member_membership_id), None)
+        target = next(
+            (row for row in rows if row["membership_id"] == member_membership_id), None
+        )
         assert target is not None
         assert target["user_soeid"] == "member0"
         assert target["user_display_name"] == "Member 0"
@@ -435,7 +507,9 @@ async def test_list_space_members_includes_user_identity_fields(client, db_sessi
 
 
 @pytest.mark.anyio
-async def test_space_membership_changes_invalidate_cached_user_roster(client, db_sessionmaker):
+async def test_space_membership_changes_invalidate_cached_user_roster(
+    client, db_sessionmaker
+):
     clear_cache()
     space_id, _admin_memberships, _member_membership_id = _seed_space_with_members(
         db_sessionmaker,
@@ -455,7 +529,9 @@ async def test_space_membership_changes_invalidate_cached_user_roster(client, db
         session.add(new_user)
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
 

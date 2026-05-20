@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 import pytest
 
@@ -169,4 +168,3 @@ def test_log_changes_reads_lob_values_and_skips_equal_text(db_sessionmaker):
         assert len(rows) == 1
         assert rows[0].field == "description"
         assert rows[0].new_value == "expanded project description"
-

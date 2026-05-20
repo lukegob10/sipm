@@ -11,7 +11,9 @@ def test_init_db_without_create_schema_is_noop(monkeypatch):
     monkeypatch.setattr(
         session_module,
         "_ensure_session_local",
-        lambda: (_ for _ in ()).throw(AssertionError("_ensure_session_local should not be called")),
+        lambda: (_ for _ in ()).throw(
+            AssertionError("_ensure_session_local should not be called")
+        ),
     )
     session_module.init_db()
 
@@ -59,7 +61,9 @@ def test_get_session_yields_and_closes(monkeypatch):
             self.closed = True
 
     session = _DummySession()
-    monkeypatch.setattr(session_module, "_ensure_session_local", lambda: (lambda: session))
+    monkeypatch.setattr(
+        session_module, "_ensure_session_local", lambda: (lambda: session)
+    )
 
     gen = session_module.get_session()
     yielded = next(gen)

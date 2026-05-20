@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session
 
 from ...models import Project, Solution, Subcomponent
 from ...schemas import SubcomponentRead
-from ...services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
+from ...services.github_repo_urls import (
+    normalize_github_repo_url,
+    resolve_effective_github_repo_url,
+)
 from ...services.spaces import SpaceContext
 from ...utils import enable_all_phases, normalize_str
 from ...utils.enums import SubcomponentStatus
@@ -33,7 +36,10 @@ def _is_done_status(status_value: SubcomponentStatus | str | None) -> bool:
     if status_value in _DONE_STATUSES:
         return True
     raw = status_value.value if hasattr(status_value, "value") else str(status_value)
-    return raw in {SubcomponentStatus.complete.value, SubcomponentStatus.abandoned.value}
+    return raw in {
+        SubcomponentStatus.complete.value,
+        SubcomponentStatus.abandoned.value,
+    }
 
 
 def _subcomponent_actionability(subcomponent: Subcomponent) -> dict:
@@ -63,7 +69,9 @@ def _subcomponent_actionability(subcomponent: Subcomponent) -> dict:
 
         blocked_score = 18 if subcomponent.blocked else 0
         stale_score = 10 if is_stale else 0
-        urgency_score = float(min(100, priority_score + due_score + blocked_score + stale_score))
+        urgency_score = float(
+            min(100, priority_score + due_score + blocked_score + stale_score)
+        )
 
     return {
         "is_overdue": is_overdue,
@@ -110,7 +118,11 @@ def _resolve_subcomponent_assignee(
     current_soeid = normalize_str(getattr(current_user, "soeid", None))
     assignee = normalize_str(assignee_value) or display_name or current_soeid or ""
     assignee_user_soeid = normalize_str(assignee_user_soeid_value) or None
-    if assignee_user_soeid is None and current_soeid and assignee in {display_name, current_soeid}:
+    if (
+        assignee_user_soeid is None
+        and current_soeid
+        and assignee in {display_name, current_soeid}
+    ):
         assignee_user_soeid = current_soeid
     return assignee, assignee_user_soeid
 
@@ -177,7 +189,9 @@ def _subcomponent_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _solution_repo_map(session: Session, space_ctx: SpaceContext, solution_ids: list[str]) -> dict[str, Optional[str]]:
+def _solution_repo_map(
+    session: Session, space_ctx: SpaceContext, solution_ids: list[str]
+) -> dict[str, Optional[str]]:
     valid_ids = [solution_id for solution_id in solution_ids if solution_id]
     if not valid_ids:
         return {}
@@ -189,25 +203,33 @@ def _solution_repo_map(session: Session, space_ctx: SpaceContext, solution_ids: 
     return {row.solution_id: row.github_repo_url for row in rows}
 
 
-def _ensure_solution(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
+def _ensure_solution(
+    session: Session, solution_id: str, space_ctx: SpaceContext
+) -> Solution:
     solution = (
         _solution_query(session, space_ctx)
         .filter(Solution.solution_id == solution_id)
         .first()
     )
     if not solution:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found"
+        )
     return solution
 
 
-def _get_subcomponent(session: Session, subcomponent_id: str, space_ctx: SpaceContext) -> Subcomponent:
+def _get_subcomponent(
+    session: Session, subcomponent_id: str, space_ctx: SpaceContext
+) -> Subcomponent:
     subcomponent = (
         _subcomponent_query(session, space_ctx)
         .filter(Subcomponent.subcomponent_id == subcomponent_id)
         .first()
     )
     if not subcomponent:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subcomponent not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Subcomponent not found"
+        )
     return subcomponent
 
 

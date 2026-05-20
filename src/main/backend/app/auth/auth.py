@@ -71,12 +71,16 @@ elif _refresh_days is not None:
 else:
     REFRESH_TOKEN_EXPIRE_MINUTES = 60
 RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_RESET_MINUTES", 30)
-ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_ONE_TIME_RESET_MINUTES", 30)
+ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default(
+    "SIPM_ONE_TIME_RESET_MINUTES", 30
+)
 ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS = max(ACCESS_TOKEN_EXPIRE_MINUTES, 0) * 60
 REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS = max(REFRESH_TOKEN_EXPIRE_MINUTES, 0) * 60
 
 SECURE_COOKIES = _bool_env("SIPM_SECURE_COOKIES", IS_NON_DEV)
-COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax").lower()
+COOKIE_SAMESITE = os.getenv(
+    "SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax"
+).lower()
 ACTIVE_SPACE_COOKIE = "active_space_id"
 _VALID_COOKIE_SAMESITE = {"lax", "strict", "none"}
 
@@ -115,15 +119,21 @@ def validate_auth_configuration() -> None:
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
     if IS_NON_DEV and ALLOW_SELF_REGISTER:
-        raise RuntimeError("SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments.")
+        raise RuntimeError(
+            "SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments."
+        )
     if COOKIE_SAMESITE not in _VALID_COOKIE_SAMESITE:
         raise RuntimeError("SIPM_COOKIE_SAMESITE must be one of: lax, strict, none.")
     if COOKIE_SAMESITE == "none" and not SECURE_COOKIES:
-        raise RuntimeError("SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true.")
+        raise RuntimeError(
+            "SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true."
+        )
     try:
         bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     except ValueError as exc:
-        raise RuntimeError("SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value.") from exc
+        raise RuntimeError(
+            "SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value."
+        ) from exc
 
 
 def _password_bytes_for_bcrypt(password: str) -> bytes:

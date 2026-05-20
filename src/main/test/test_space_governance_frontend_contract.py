@@ -8,8 +8,12 @@ APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 SPACES_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces.js"
-SPACES_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "interactions.js"
-SPACES_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "render.js"
+SPACES_INTERACTIONS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "interactions.js"
+)
+SPACES_RENDER = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "render.js"
+)
 ACCESS_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "access.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
@@ -43,21 +47,29 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
     assert 'const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";' in app_text
-    assert "const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });" in app_text
+    assert (
+        "const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });"
+        in app_text
+    )
     assert "const normalizedRecent = recent" in app_text
-    assert "if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {" in app_text
+    assert (
+        "if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {"
+        in app_text
+    )
     assert "function viewDomIdForRoute(view)" in router_text
     assert 'return normalized === "access" ? "spaces" : normalized;' in router_text
-    assert 'if (normalized === "access") return userCanAccessAdminViews();' in router_text
+    assert (
+        'if (normalized === "access") return userCanAccessAdminViews();' in router_text
+    )
     assert "recordRecentSpace(spaceId)" in app_text
-    assert "renderGovernanceHub(preferredSection = \"\")" in app_text
+    assert 'renderGovernanceHub(preferredSection = "")' in app_text
     assert "Issue Password Reset" in render_text
     assert 'data-space-action="issue-password-reset"' in render_text
     assert 'data-space-action="copy-temp-password"' in render_text
     assert 'data-space-action="copy-reset-link"' in render_text
     assert 'from "./routes/spaces/interactions.js' in app_text
     assert 'from "./routes/spaces/render.js' in app_text
-    assert 'event.composedPath()' in interactions_text
+    assert "event.composedPath()" in interactions_text
     assert 'classList.contains("space-member-actions")' in interactions_text
     assert "Workspace atlas" in render_text
     assert "space-directory-card-fact" in render_text
@@ -77,17 +89,26 @@ def test_space_governance_controls_move_into_route_local_module():
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
 
     assert 'from "./routes/spaces/interactions.js' in app_text
-    assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
+    assert (
+        "const spaceGovernanceController = createSpaceGovernanceController({"
+        in app_text
+    )
     assert "function closeSpaceDirectoryModal() {" in app_text
     assert "return spaceGovernanceController.closeSpaceDirectoryModal();" in app_text
     assert "async function refreshGlobalAdmins() {" in app_text
     assert "return spaceGovernanceController.refreshGlobalAdmins();" in app_text
     assert "async function refreshSpaceMembers(spaceId, options = {}) {" in app_text
-    assert "return spaceGovernanceController.refreshSpaceMembers(spaceId, options);" in app_text
+    assert (
+        "return spaceGovernanceController.refreshSpaceMembers(spaceId, options);"
+        in app_text
+    )
     assert "function bindSpaceAdminControls() {" in app_text
     assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
-    assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
-    assert "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert 'function renderGovernanceHub(preferredSection = "") {' in app_text
+    assert (
+        "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);"
+        in app_text
+    )
     assert "function renderSpaceDirectoryModal() {" in app_text
     assert "return spaceGovernanceRenderer.renderSpaceDirectoryModal();" in app_text
     assert "export function createSpaceGovernanceController({" in interactions_text

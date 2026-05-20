@@ -25,18 +25,26 @@ def _restore_current_space(original):
 
 @pytest.mark.anyio
 async def test_team_name_uniqueness_is_scoped_to_active_space(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space("space-team-a", "Team Space A")
-        first = await client.post("/project-manager/api/teams", json={"name": "Platform"})
+        first = await client.post(
+            "/project-manager/api/teams", json={"name": "Platform"}
+        )
         assert first.status_code == 201, first.text
 
-        same_space_duplicate = await client.post("/project-manager/api/teams", json={"name": "Platform"})
+        same_space_duplicate = await client.post(
+            "/project-manager/api/teams", json={"name": "Platform"}
+        )
         assert same_space_duplicate.status_code == 400, same_space_duplicate.text
         assert same_space_duplicate.json()["detail"] == "Team name already exists"
 
         _set_current_space("space-team-b", "Team Space B")
-        other_space_same_name = await client.post("/project-manager/api/teams", json={"name": "Platform"})
+        other_space_same_name = await client.post(
+            "/project-manager/api/teams", json={"name": "Platform"}
+        )
         assert other_space_same_name.status_code == 201, other_space_same_name.text
         assert other_space_same_name.json()["name"] == "Platform"
     finally:
@@ -45,7 +53,9 @@ async def test_team_name_uniqueness_is_scoped_to_active_space(client):
 
 @pytest.mark.anyio
 async def test_planning_work_allocation_team_name_is_scoped_to_active_space(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space("space-planning-team-a", "Planning Team Space A")
         first = await client.post(
@@ -74,12 +84,16 @@ async def test_planning_work_allocation_team_name_is_scoped_to_active_space(clie
 
 @pytest.mark.anyio
 async def test_restoring_soft_deleted_team_invalidates_cached_team_list(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-cache", "Team Cache Space")
 
-        created = await client.post("/project-manager/api/teams", json={"name": "Platform"})
+        created = await client.post(
+            "/project-manager/api/teams", json={"name": "Platform"}
+        )
         assert created.status_code == 201, created.text
         team_id = created.json()["team_id"]
 
@@ -94,7 +108,9 @@ async def test_restoring_soft_deleted_team_invalidates_cached_team_list(client):
         assert empty.status_code == 200, empty.text
         assert empty.json() == []
 
-        restored = await client.post("/project-manager/api/teams", json={"name": "Platform"})
+        restored = await client.post(
+            "/project-manager/api/teams", json={"name": "Platform"}
+        )
         assert restored.status_code == 201, restored.text
         assert restored.json()["team_id"] == team_id
 
@@ -108,7 +124,9 @@ async def test_restoring_soft_deleted_team_invalidates_cached_team_list(client):
 
 @pytest.mark.anyio
 async def test_team_create_and_read_preserve_configured_default_capacity(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-defaults", "Team Defaults Space")
@@ -123,14 +141,18 @@ async def test_team_create_and_read_preserve_configured_default_capacity(client)
         assert created.status_code == 201, created.text
         created_payload = created.json()
         team_id = created_payload["team_id"]
-        assert created_payload["default_capacity_fte_month"] == pytest.approx(1.5, abs=1e-6)
+        assert created_payload["default_capacity_fte_month"] == pytest.approx(
+            1.5, abs=1e-6
+        )
         assert created_payload["default_capacity_per_week"] == 60
         created_updated_at = created_payload["updated_at"]
 
         detail = await client.get(f"/project-manager/api/teams/{team_id}")
         assert detail.status_code == 200, detail.text
         detail_payload = detail.json()
-        assert detail_payload["default_capacity_fte_month"] == pytest.approx(1.5, abs=1e-6)
+        assert detail_payload["default_capacity_fte_month"] == pytest.approx(
+            1.5, abs=1e-6
+        )
         assert detail_payload["default_capacity_per_week"] == 60
         assert detail_payload["updated_at"] == created_updated_at
 
@@ -149,7 +171,9 @@ async def test_team_create_and_read_preserve_configured_default_capacity(client)
 
 @pytest.mark.anyio
 async def test_team_create_honors_default_capacity_per_week_when_fte_is_omitted(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-hours-defaults", "Team Hours Defaults Space")
@@ -171,13 +195,19 @@ async def test_team_create_honors_default_capacity_per_week_when_fte_is_omitted(
 
 
 @pytest.mark.anyio
-async def test_restored_team_honors_default_capacity_per_week_when_fte_is_omitted(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_restored_team_honors_default_capacity_per_week_when_fte_is_omitted(
+    client,
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-hours-restore", "Team Hours Restore Space")
 
-        created = await client.post("/project-manager/api/teams", json={"name": "Restore Hours Team"})
+        created = await client.post(
+            "/project-manager/api/teams", json={"name": "Restore Hours Team"}
+        )
         assert created.status_code == 201, created.text
         team_id = created.json()["team_id"]
 
@@ -195,15 +225,21 @@ async def test_restored_team_honors_default_capacity_per_week_when_fte_is_omitte
         restored_payload = restored.json()
         assert restored_payload["team_id"] == team_id
         assert restored_payload["default_capacity_per_week"] == 52
-        assert restored_payload["default_capacity_fte_month"] == pytest.approx(1.3, abs=1e-6)
+        assert restored_payload["default_capacity_fte_month"] == pytest.approx(
+            1.3, abs=1e-6
+        )
     finally:
         clear_cache()
         _restore_current_space(original_current_space)
 
 
 @pytest.mark.anyio
-async def test_team_rename_updates_active_space_user_team_tags_and_invalidates_user_cache(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_team_rename_updates_active_space_user_team_tags_and_invalidates_user_cache(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-rename", "Team Rename Space")
@@ -262,8 +298,12 @@ async def test_team_rename_updates_active_space_user_team_tags_and_invalidates_u
 
 
 @pytest.mark.anyio
-async def test_team_rename_updates_inactive_space_user_team_tags(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_team_rename_updates_inactive_space_user_team_tags(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-rename-inactive", "Team Rename Inactive Space")
@@ -309,7 +349,11 @@ async def test_team_rename_updates_inactive_space_user_team_tags(client, db_sess
         assert renamed.status_code == 200, renamed.text
 
         with db_sessionmaker() as session:
-            refreshed_user = session.query(User).filter(User.user_id == "team-rename-inactive-user").first()
+            refreshed_user = (
+                session.query(User)
+                .filter(User.user_id == "team-rename-inactive-user")
+                .first()
+            )
             assert refreshed_user is not None
             assert refreshed_user.team_tag == "Core Platform"
     finally:
@@ -318,8 +362,12 @@ async def test_team_rename_updates_inactive_space_user_team_tags(client, db_sess
 
 
 @pytest.mark.anyio
-async def test_team_rename_invalidates_shared_user_cache_in_other_space(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_team_rename_invalidates_shared_user_cache_in_other_space(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         with db_sessionmaker() as session:
@@ -367,7 +415,16 @@ async def test_team_rename_invalidates_shared_user_cache_in_other_space(client, 
                 default_capacity_fte_month=0.0,
                 capacity_unit="fte_month",
             )
-            session.add_all([source_space, other_space, user, source_membership, other_membership, team])
+            session.add_all(
+                [
+                    source_space,
+                    other_space,
+                    user,
+                    source_membership,
+                    other_membership,
+                    team,
+                ]
+            )
             session.commit()
 
         _set_current_space("space-team-rename-other", "Team Rename Other Space")
@@ -392,8 +449,12 @@ async def test_team_rename_invalidates_shared_user_cache_in_other_space(client, 
 
 
 @pytest.mark.anyio
-async def test_team_delete_clears_active_space_user_team_tags_and_invalidates_user_cache(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_team_delete_clears_active_space_user_team_tags_and_invalidates_user_cache(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
         _set_current_space("space-team-delete", "Team Delete Space")
@@ -448,11 +509,17 @@ async def test_team_delete_clears_active_space_user_team_tags_and_invalidates_us
 
 
 @pytest.mark.anyio
-async def test_planning_team_delete_clears_inactive_space_user_team_tags(client, db_sessionmaker):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+async def test_planning_team_delete_clears_inactive_space_user_team_tags(
+    client, db_sessionmaker
+):
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     clear_cache()
     try:
-        _set_current_space("space-planning-team-delete-inactive", "Planning Team Delete Inactive Space")
+        _set_current_space(
+            "space-planning-team-delete-inactive", "Planning Team Delete Inactive Space"
+        )
         with db_sessionmaker() as session:
             space = Space(
                 space_id="space-planning-team-delete-inactive",
@@ -494,7 +561,11 @@ async def test_planning_team_delete_clears_inactive_space_user_team_tags(client,
         assert deleted.status_code == 204, deleted.text
 
         with db_sessionmaker() as session:
-            refreshed_user = session.query(User).filter(User.user_id == "planning-team-delete-inactive-user").first()
+            refreshed_user = (
+                session.query(User)
+                .filter(User.user_id == "planning-team-delete-inactive-user")
+                .first()
+            )
             assert refreshed_user is not None
             assert refreshed_user.team_tag is None
     finally:

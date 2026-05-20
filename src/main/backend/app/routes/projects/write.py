@@ -59,7 +59,8 @@ def create_project(
     ).first()
     if existing:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project name already exists",
         )
 
     now = datetime.now(timezone.utc)
@@ -155,7 +156,9 @@ def update_project(
 
     update_data = payload.model_dump(exclude_unset=True)
     if "project_name" in update_data:
-        update_data["project_name"] = _required_project_name(update_data["project_name"])
+        update_data["project_name"] = _required_project_name(
+            update_data["project_name"]
+        )
     before = {field: getattr(project, field) for field in update_data.keys()}
     for field, value in update_data.items():
         setattr(project, field, value)
@@ -170,7 +173,8 @@ def update_project(
         )
         if conflict:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project name already exists",
             )
 
     try:
@@ -230,7 +234,9 @@ def delete_project(
     previous_name = project.project_name
     project.deleted_at = now
     project.updated_at = now
-    project.project_name = _deleted_project_name(project.project_name, project.project_id, now)
+    project.project_name = _deleted_project_name(
+        project.project_name, project.project_id, now
+    )
     session.add(project)
     safe_log_changes(
         session,

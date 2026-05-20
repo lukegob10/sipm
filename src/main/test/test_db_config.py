@@ -217,7 +217,9 @@ def test_db_engine_rejects_non_integer_pool_env(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be an integer."):
@@ -231,10 +233,14 @@ def test_db_engine_rejects_invalid_boolean_pool_env(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
-    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_PRE_PING must be a boolean value."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_DB_POOL_PRE_PING must be a boolean value."
+    ):
         module.build_engine()
 
 
@@ -245,10 +251,14 @@ def test_db_engine_rejects_invalid_boolean_pool_use_lifo_env(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
-    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_USE_LIFO must be a boolean value."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_DB_POOL_USE_LIFO must be a boolean value."
+    ):
         module.build_engine()
 
 
@@ -259,7 +269,9 @@ def test_db_engine_rejects_negative_pool_size(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_POOL_SIZE must be >= 0."):
@@ -273,7 +285,9 @@ def test_db_engine_rejects_invalid_negative_max_overflow(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
     with pytest.raises(RuntimeError, match="SIPM_DB_MAX_OVERFLOW must be -1 or >= 0."):
@@ -287,10 +301,14 @@ def test_db_engine_rejects_negative_pool_timeout(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
-    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_TIMEOUT_SECONDS must be >= 0."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_DB_POOL_TIMEOUT_SECONDS must be >= 0."
+    ):
         module.build_engine()
 
 
@@ -301,10 +319,14 @@ def test_db_engine_rejects_invalid_negative_pool_recycle(monkeypatch):
     monkeypatch.setattr(
         module,
         "create_engine",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("create_engine should not be called")),
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("create_engine should not be called")
+        ),
     )
 
-    with pytest.raises(RuntimeError, match="SIPM_DB_POOL_RECYCLE_SECONDS must be -1 or >= 0."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_DB_POOL_RECYCLE_SECONDS must be -1 or >= 0."
+    ):
         module.build_engine()
 
 
@@ -366,7 +388,13 @@ def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
 
     module.warm_db_pool(connection_count=2)
 
-    assert captured == {"open_now": 0, "max_open": 2, "execute": 2, "commit": 2, "close": 2}
+    assert captured == {
+        "open_now": 0,
+        "max_open": 2,
+        "execute": 2,
+        "commit": 2,
+        "close": 2,
+    }
 
 
 def test_warm_db_pool_rejects_non_positive_connection_count():
@@ -442,7 +470,9 @@ def test_database_runtime_environment_knobs_are_documented():
 
 def test_load_env_file_respects_explicit_env_by_default(monkeypatch, tmp_path):
     env_file = tmp_path / ".env"
-    env_file.write_text("SIPM_SECRET_KEY=from-file\nSIPM_EMPTY_TEST=from-file\n", encoding="utf-8")
+    env_file.write_text(
+        "SIPM_SECRET_KEY=from-file\nSIPM_EMPTY_TEST=from-file\n", encoding="utf-8"
+    )
 
     monkeypatch.delenv("SIPM_ENV_OVERRIDE", raising=False)
     monkeypatch.setenv("SIPM_SECRET_KEY", "from-env")
@@ -484,7 +514,9 @@ def test_load_env_file_rejects_invalid_env_override_boolean(monkeypatch, tmp_pat
 
     monkeypatch.setenv("SIPM_ENV_OVERRIDE", "sometimes")
 
-    with pytest.raises(RuntimeError, match="SIPM_ENV_OVERRIDE must be a boolean value."):
+    with pytest.raises(
+        RuntimeError, match="SIPM_ENV_OVERRIDE must be a boolean value."
+    ):
         config_module.load_env_file(env_file)
 
 
@@ -518,7 +550,10 @@ def test_runtime_env_files_uses_legacy_main_env_when_repo_env_absent(tmp_path):
         frontend_required_files=(),
     )
 
-    assert config_module.runtime_env_files(paths) == (base_dir / ".env", base_dir / ".env.local")
+    assert config_module.runtime_env_files(paths) == (
+        base_dir / ".env",
+        base_dir / ".env.local",
+    )
 
 
 def test_load_runtime_env_is_idempotent_and_force_reloadable(monkeypatch, tmp_path):
@@ -539,7 +574,9 @@ def test_load_runtime_env_is_idempotent_and_force_reloadable(monkeypatch, tmp_pa
     monkeypatch.setattr(config_module, "_ENV_LOADED", False)
 
     config_module.load_runtime_env(paths=paths)
-    env_file.write_text("SIPM_RUNTIME_ONCE=changed\nSIPM_RUNTIME_FORCE=two\n", encoding="utf-8")
+    env_file.write_text(
+        "SIPM_RUNTIME_ONCE=changed\nSIPM_RUNTIME_FORCE=two\n", encoding="utf-8"
+    )
     config_module.load_runtime_env(paths=paths)
 
     assert os.environ["SIPM_RUNTIME_ONCE"] == "one"
@@ -628,7 +665,9 @@ async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
         return func()
 
     monkeypatch.setattr(lifespan_module.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(lifespan_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(
+        lifespan_module, "check_db_connection", fake_check_db_connection
+    )
     monkeypatch.setattr(lifespan_module.asyncio, "to_thread", fake_to_thread)
 
     with pytest.raises(asyncio.CancelledError):
@@ -640,7 +679,9 @@ async def test_db_keepwarm_loop_checks_connection_each_interval(monkeypatch):
 @pytest.mark.anyio
 async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
     monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(lifespan_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(
+        lifespan_module.coordination, "validate_configuration", lambda: None
+    )
     monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
     monkeypatch.delenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", raising=False)
     monkeypatch.setenv("SIPM_DB_PREWARM_ON_STARTUP", "true")
@@ -677,7 +718,9 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
 @pytest.mark.anyio
 async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
     monkeypatch.setattr(lifespan_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(lifespan_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(
+        lifespan_module.coordination, "validate_configuration", lambda: None
+    )
     monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
     monkeypatch.delenv("SIPM_DB_PREWARM_ON_STARTUP", raising=False)
     monkeypatch.setenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", "60")
@@ -720,7 +763,9 @@ async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
     monkeypatch.setattr(lifespan_module, "start_realtime_runtime", fake_start_runtime)
     monkeypatch.setattr(lifespan_module, "stop_realtime_runtime", fake_stop_runtime)
     monkeypatch.setattr(lifespan_module, "init_db", fake_init_db)
-    monkeypatch.setattr(lifespan_module, "check_db_connection", fake_check_db_connection)
+    monkeypatch.setattr(
+        lifespan_module, "check_db_connection", fake_check_db_connection
+    )
     monkeypatch.setattr(lifespan_module.asyncio, "create_task", fake_create_task)
 
     from backend.main import create_app

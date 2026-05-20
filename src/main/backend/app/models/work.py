@@ -29,7 +29,9 @@ from .base import Base, SoftDeleteMixin, TimestampMixin, uuid_str
 
 class Project(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("projects")
-    __table_args__ = (UniqueConstraint("space_id", "project_name", name="uix_project_space_name"),)
+    __table_args__ = (
+        UniqueConstraint("space_id", "project_name", name="uix_project_space_name"),
+    )
 
     project_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(
@@ -48,7 +50,9 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sponsor: Mapped[str] = mapped_column(String, nullable=False, default="")
-    sponsor_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    sponsor_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     strategic_objective: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
 
@@ -92,19 +96,31 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
         default=RagStatus.green,
     )
     rag_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(
+        Integer, default=3, nullable=False, index=True
+    )
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
-    current_phase: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    current_phase: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     problem_statement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     github_repo_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     owner: Mapped[str] = mapped_column(String, nullable=False, default="")
-    owner_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    assignee: Mapped[str] = mapped_column(String, nullable=False, default="", index=True)
-    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    owner_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
+    assignee: Mapped[str] = mapped_column(
+        String, nullable=False, default="", index=True
+    )
+    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     approver: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    approver_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    approver_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     key_stakeholder: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     blockers: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     risks: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -133,7 +149,9 @@ class SolutionPhase(TimestampMixin, Base):
         UniqueConstraint("solution_id", "phase_id", name="uix_solution_phase"),
     )
 
-    solution_phase_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
+    solution_phase_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=uuid_str
+    )
     solution_id: Mapped[str] = mapped_column(
         String,
         ForeignKey(fk_target("solutions", "solution_id")),
@@ -145,7 +163,9 @@ class SolutionPhase(TimestampMixin, Base):
         nullable=False,
     )
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    sequence_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    sequence_override: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, index=True
+    )
 
 
 class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
@@ -158,7 +178,9 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
         ),
     )
 
-    subcomponent_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
+    subcomponent_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=uuid_str
+    )
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -184,14 +206,20 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
         nullable=False,
         default=SubcomponentStatus.to_do,
     )
-    priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False, index=True)
+    priority: Mapped[int] = mapped_column(
+        Integer, default=3, nullable=False, index=True
+    )
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     assignee: Mapped[str] = mapped_column(String, nullable=False, default="")
     github_repo_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     estimate_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    blocked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, index=True
+    )
     blocker_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     done_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -213,7 +241,9 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
         ),
     )
 
-    allocation_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
+    allocation_id: Mapped[str] = mapped_column(
+        String, primary_key=True, default=uuid_str
+    )
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -222,7 +252,9 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
     )
     work_item_type: Mapped[str] = mapped_column(String, nullable=False)
     work_item_id: Mapped[str] = mapped_column(String, nullable=False)
-    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     assignee: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     team_id: Mapped[Optional[str]] = mapped_column(
         String,
@@ -244,9 +276,7 @@ class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
 
 class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("planning_windows")
-    __table_args__ = (
-        UniqueConstraint("name", name="uix_planning_window_name"),
-    )
+    __table_args__ = (UniqueConstraint("name", name="uix_planning_window_name"),)
 
     window_id: Mapped[str] = mapped_column(String, primary_key=True, default=uuid_str)
     space_id: Mapped[Optional[str]] = mapped_column(

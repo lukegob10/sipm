@@ -27,7 +27,9 @@ class SpaceContext:
 
 
 def _normalize_slug(value: str) -> str:
-    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in (value or "").strip())
+    cleaned = "".join(
+        ch.lower() if ch.isalnum() else "-" for ch in (value or "").strip()
+    )
     while "--" in cleaned:
         cleaned = cleaned.replace("--", "-")
     cleaned = cleaned.strip("-")
@@ -142,7 +144,7 @@ def list_user_spaces(session: Session, user: User) -> Iterable[Space]:
         return (
             session.query(Space)
             .filter(Space.deleted_at.is_(None))
-            .filter(Space.is_active == True)
+            .filter(Space.is_active.is_(True))
             .order_by(Space.name.asc())
             .all()
         )
@@ -154,7 +156,7 @@ def list_user_spaces(session: Session, user: User) -> Iterable[Space]:
         .filter(SpaceMembership.status == "active")
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active.is_(True))
         .order_by(Space.name.asc())
         .all()
     )
@@ -176,7 +178,7 @@ def resolve_active_space_context(
                 session.query(Space)
                 .filter(Space.space_id == requested_space_id)
                 .filter(Space.deleted_at.is_(None))
-                .filter(Space.is_active == True)
+                .filter(Space.is_active.is_(True))
                 .first()
             )
         if not target:
@@ -195,7 +197,7 @@ def resolve_active_space_context(
         .filter(SpaceMembership.status == "active")
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active.is_(True))
         .order_by(Space.name.asc())
         .all()
     )

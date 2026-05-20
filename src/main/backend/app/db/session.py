@@ -26,7 +26,9 @@ def _ensure_session_local():
             if SessionLocal is None:
                 created_engine = build_engine()
                 engine = created_engine
-                SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=created_engine)
+                SessionLocal = sessionmaker(
+                    autocommit=False, autoflush=False, bind=created_engine
+                )
     return SessionLocal
 
 

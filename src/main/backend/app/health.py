@@ -22,7 +22,10 @@ def readiness_payload() -> tuple[int, dict]:
         checks["auth"] = {"status": "error", "detail": str(exc)}
 
     try:
-        checks["coordination"] = {"status": "ok", "backend": coordination.validate_configuration()}
+        checks["coordination"] = {
+            "status": "ok",
+            "backend": coordination.validate_configuration(),
+        }
     except Exception as exc:
         ready = False
         checks["coordination"] = {"status": "error", "detail": str(exc)}
@@ -44,7 +47,10 @@ def readiness_payload() -> tuple[int, dict]:
             ready = False
             checks["db"] = {"status": "error", "detail": str(exc)}
 
-    return (200 if ready else 503), {"status": "ok" if ready else "not_ready", "checks": checks}
+    return (200 if ready else 503), {
+        "status": "ok" if ready else "not_ready",
+        "checks": checks,
+    }
 
 
 def register_health_routes(app: FastAPI) -> None:

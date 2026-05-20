@@ -13,7 +13,14 @@ from ..deps import (
     require_space_role,
 )
 from ..models import SpaceMembership, Team, TeamMember, User
-from ..schemas import TeamCreate, TeamRead, TeamUpdate, TeamMemberCreate, TeamMemberRead, TeamMemberUpdate
+from ..schemas import (
+    TeamCreate,
+    TeamRead,
+    TeamUpdate,
+    TeamMemberCreate,
+    TeamMemberRead,
+    TeamMemberUpdate,
+)
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 
@@ -54,7 +61,9 @@ def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set[str]) -> None:
+def _invalidate_user_caches_for_user_memberships(
+    session: Session, user_ids: set[str]
+) -> None:
     if not user_ids:
         return
     rows = (
@@ -71,17 +80,17 @@ def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set
 
 
 def _active_team(session: Session, team_id: str, space_ctx: SpaceContext) -> Team:
-    team = (
-        _team_query(session, space_ctx)
-        .filter(Team.team_id == team_id)
-        .first()
-    )
+    team = _team_query(session, space_ctx).filter(Team.team_id == team_id).first()
     if not team:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Team not found"
+        )
     return team
 
 
-def _active_member(session: Session, member_id: str, team_id: str, space_ctx: SpaceContext) -> TeamMember:
+def _active_member(
+    session: Session, member_id: str, team_id: str, space_ctx: SpaceContext
+) -> TeamMember:
     member = (
         _member_query(session, space_ctx)
         .filter(TeamMember.team_member_id == member_id)
@@ -89,7 +98,9 @@ def _active_member(session: Session, member_id: str, team_id: str, space_ctx: Sp
         .first()
     )
     if not member:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Team member not found"
+        )
     return member
 
 
@@ -98,7 +109,9 @@ def _fte_from_hours(hours: Optional[int]) -> float:
 
 
 def _hours_from_fte(fte_month: Optional[float]) -> int:
-    return max(int(round(max(float(fte_month or 0.0), 0.0) * _HOURS_PER_FTE_CAPACITY)), 0)
+    return max(
+        int(round(max(float(fte_month or 0.0), 0.0) * _HOURS_PER_FTE_CAPACITY)), 0
+    )
 
 
 def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
@@ -125,7 +138,9 @@ def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
     return "tb_ta_pm_teams" in text or "team" in text
 
 
-def _member_capacity_fields(payload: TeamMemberCreate | TeamMemberUpdate) -> tuple[Optional[int], Optional[float]]:
+def _member_capacity_fields(
+    payload: TeamMemberCreate | TeamMemberUpdate,
+) -> tuple[Optional[int], Optional[float]]:
     if payload.capacity_fte_month is not None:
         fte = round(max(float(payload.capacity_fte_month), 0.0), 3)
         return _hours_from_fte(fte), fte
@@ -148,7 +163,9 @@ def _team_capacity_defaults(
     return None, None
 
 
-def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) -> TeamRead:
+def _team_with_members(
+    session: Session, team: Team, space_ctx: SpaceContext
+) -> TeamRead:
     members = (
         _member_query(session, space_ctx)
         .filter(TeamMember.team_id == team.team_id)
@@ -160,7 +177,9 @@ def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) ->
     return data
 
 
-def _recompute_team_capacity(session: Session, team_id: str, space_ctx: SpaceContext) -> None:
+def _recompute_team_capacity(
+    session: Session, team_id: str, space_ctx: SpaceContext
+) -> None:
     total = (
         session.query(func.coalesce(func.sum(TeamMember.hours_capacity), 0))
         .filter(TeamMember.team_id == team_id)
@@ -189,11 +208,7 @@ def list_teams(
     scope_token = make_scope_token("teams", space_ctx.space_id)
 
     def _load():
-        rows = (
-            _team_query(session, space_ctx)
-            .order_by(Team.created_at.asc())
-            .all()
-        )
+        rows = _team_query(session, space_ctx).order_by(Team.created_at.asc()).all()
         return [
             _team_with_members(session, row, space_ctx).model_dump(mode="json")
             for row in rows
@@ -237,8 +252,13 @@ def create_team(
         existing.lead = payload.lead
         existing.updated_at = now
         existing.capacity_unit = payload.capacity_unit or "fte_month"
-        default_capacity_per_week, default_capacity_fte_month = _team_capacity_defaults(payload)
-        if default_capacity_per_week is not None and default_capacity_fte_month is not None:
+        default_capacity_per_week, default_capacity_fte_month = _team_capacity_defaults(
+            payload
+        )
+        if (
+            default_capacity_per_week is not None
+            and default_capacity_fte_month is not None
+        ):
             existing.default_capacity_per_week = default_capacity_per_week
             existing.default_capacity_fte_month = default_capacity_fte_month
         session.add(existing)
@@ -247,7 +267,9 @@ def create_team(
         invalidate_space(space_ctx.space_id, ["teams"])
         return _team_with_members(session, existing, space_ctx)
 
-    default_capacity_per_week, default_capacity_fte_month = _team_capacity_defaults(payload)
+    default_capacity_per_week, default_capacity_fte_month = _team_capacity_defaults(
+        payload
+    )
     team = Team(
         space_id=space_ctx.space_id,
         name=payload.name,
@@ -317,15 +339,25 @@ def update_team(
         if val is not None:
             setattr(team, field, val)
     if payload.default_capacity_fte_month is not None:
-        team.default_capacity_fte_month = round(max(float(payload.default_capacity_fte_month), 0.0), 3)
-        team.default_capacity_per_week = _hours_from_fte(team.default_capacity_fte_month)
+        team.default_capacity_fte_month = round(
+            max(float(payload.default_capacity_fte_month), 0.0), 3
+        )
+        team.default_capacity_per_week = _hours_from_fte(
+            team.default_capacity_fte_month
+        )
     elif payload.default_capacity_per_week is not None:
         team.default_capacity_per_week = max(int(payload.default_capacity_per_week), 0)
-        team.default_capacity_fte_month = _fte_from_hours(team.default_capacity_per_week)
+        team.default_capacity_fte_month = _fte_from_hours(
+            team.default_capacity_per_week
+        )
     if payload.capacity_unit is not None:
         team.capacity_unit = payload.capacity_unit
     if team.name != old_name:
-        for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
+        for user in (
+            _space_user_membership_query(session, space_ctx)
+            .filter(User.team_tag == old_name)
+            .all()
+        ):
             user.team_tag = team.name
             user.updated_at = datetime.now(timezone.utc)
             session.add(user)
@@ -360,8 +392,14 @@ def delete_team(
     old_name = team.name
     affected_user_ids: set[str] = set()
     team.deleted_at = now
-    _member_query(session, space_ctx).filter(TeamMember.team_id == team_id).update({"deleted_at": now})
-    for user in _space_user_membership_query(session, space_ctx).filter(User.team_tag == old_name).all():
+    _member_query(session, space_ctx).filter(TeamMember.team_id == team_id).update(
+        {"deleted_at": now}
+    )
+    for user in (
+        _space_user_membership_query(session, space_ctx)
+        .filter(User.team_tag == old_name)
+        .all()
+    ):
         user.team_tag = None
         user.updated_at = now
         session.add(user)
@@ -391,7 +429,10 @@ def list_team_members(
             .order_by(TeamMember.created_at.asc())
             .all()
         )
-        return [TeamMemberRead.model_validate(member).model_dump(mode="json") for member in members]
+        return [
+            TeamMemberRead.model_validate(member).model_dump(mode="json")
+            for member in members
+        ]
 
     return cached_call(
         endpoint="teams:members",
@@ -405,7 +446,11 @@ def list_team_members(
     )
 
 
-@router.post("/teams/{team_id}/members", response_model=TeamMemberRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/teams/{team_id}/members",
+    response_model=TeamMemberRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_team_member(
     team_id: str,
     payload: TeamMemberCreate,
@@ -456,7 +501,9 @@ def update_team_member(
     if capacity_fte_month is not None:
         member.capacity_fte_month = capacity_fte_month
     if hours_capacity is not None or capacity_fte_month is not None:
-        member.capacity_unit = payload.capacity_unit or member.capacity_unit or "fte_month"
+        member.capacity_unit = (
+            payload.capacity_unit or member.capacity_unit or "fte_month"
+        )
     for field in ["points_capacity", "percent_capacity"]:
         if getattr(payload, field) is not None:
             setattr(member, field, getattr(payload, field))
@@ -469,7 +516,9 @@ def update_team_member(
     return TeamMemberRead.model_validate(member)
 
 
-@router.delete("/teams/{team_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/teams/{team_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_team_member(
     team_id: str,
     member_id: str,
@@ -485,5 +534,3 @@ def delete_team_member(
     _recompute_team_capacity(session, team_id, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
     return None
-
-

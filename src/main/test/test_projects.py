@@ -10,7 +10,10 @@ from backend.app.services.spaces import SpaceContext
 
 
 def _long_text(prefix: str, repeats: int = 40) -> str:
-    return "\n".join(f"{prefix} line {idx}: detailed context and measurable outcomes." for idx in range(1, repeats + 1))
+    return "\n".join(
+        f"{prefix} line {idx}: detailed context and measurable outcomes."
+        for idx in range(1, repeats + 1)
+    )
 
 
 @pytest.mark.anyio
@@ -28,7 +31,10 @@ async def test_create_and_list_projects(client):
     data = resp.json()
     assert data["project_name"] == "Data Platform"
     assert data["status"] == "not_started"
-    assert data["success_criteria"] == "Reduce run time by 30% and decommission legacy tooling"
+    assert (
+        data["success_criteria"]
+        == "Reduce run time by 30% and decommission legacy tooling"
+    )
 
     list_resp = await client.get("/project-manager/api/projects/")
     assert list_resp.status_code == 200
@@ -40,10 +46,14 @@ async def test_create_and_list_projects(client):
 @pytest.mark.anyio
 async def test_list_and_export_projects_hide_work_allocation_board_project(client):
     board_name = "Work Allocation Board [bfab593b]"
-    board_resp = await client.post("/project-manager/api/projects/", json={"project_name": board_name})
+    board_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": board_name}
+    )
     assert board_resp.status_code == 201, board_resp.text
 
-    visible_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Visible Project"})
+    visible_resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Visible Project"}
+    )
     assert visible_resp.status_code == 201, visible_resp.text
 
     list_resp = await client.get("/project-manager/api/projects/")
@@ -60,7 +70,9 @@ async def test_list_and_export_projects_hide_work_allocation_board_project(clien
 
 @pytest.mark.anyio
 async def test_create_project_defaults_sponsor_and_priority(client):
-    resp = await client.post("/project-manager/api/projects/", json={"project_name": "Minimal Project"})
+    resp = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "Minimal Project"}
+    )
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["project_name"] == "Minimal Project"
@@ -72,7 +84,9 @@ async def test_create_project_defaults_sponsor_and_priority(client):
 
 @pytest.mark.anyio
 async def test_project_crud_normalizes_and_rejects_blank_names(client):
-    blank_create = await client.post("/project-manager/api/projects/", json={"project_name": "   "})
+    blank_create = await client.post(
+        "/project-manager/api/projects/", json={"project_name": "   "}
+    )
     assert blank_create.status_code == 400, blank_create.text
     assert blank_create.json()["detail"] == "project_name is required"
 
@@ -99,7 +113,9 @@ async def test_project_name_uniqueness(client):
         "status": "active",
         "sponsor": "CFO Office",
     }
-    assert (await client.post("/project-manager/api/projects/", json=payload)).status_code == 201
+    assert (
+        await client.post("/project-manager/api/projects/", json=payload)
+    ).status_code == 201
     dup_resp = await client.post("/project-manager/api/projects/", json=payload)
     assert dup_resp.status_code == 400
     assert dup_resp.json()["detail"] == "Project name already exists"
@@ -147,20 +163,29 @@ def test_project_conflict_detector_handles_oracle_wrapped_unique_error():
     exc_new_constraint = IntegrityError(
         statement='INSERT INTO "TB_TA_PM_PROJECTS" (space_id, project_name) VALUES (:space_id, :project_name)',
         params={"space_id": "space-a", "project_name": "Enhancements"},
-        orig=Exception("ORA-00001: unique constraint (APP.UIX_PROJECT_SPACE_NAME) violated"),
+        orig=Exception(
+            "ORA-00001: unique constraint (APP.UIX_PROJECT_SPACE_NAME) violated"
+        ),
     )
-    assert projects_module._is_project_name_conflict_integrity_error(exc_new_constraint) is True
+    assert (
+        projects_module._is_project_name_conflict_integrity_error(exc_new_constraint)
+        is True
+    )
 
 
 @pytest.mark.anyio
 async def test_create_project_allows_same_name_in_different_spaces(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-a",
-            space_name="Space A",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-a",
+                space_name="Space A",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
         first = await client.post(
             "/project-manager/api/projects/",
@@ -168,11 +193,13 @@ async def test_create_project_allows_same_name_in_different_spaces(client):
         )
         assert first.status_code == 201, first.text
 
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-b",
-            space_name="Space B",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-b",
+                space_name="Space B",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
         same_name_other_space = await client.post(
             "/project-manager/api/projects/",
@@ -184,19 +211,21 @@ async def test_create_project_allows_same_name_in_different_spaces(client):
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+            fastapi_app.dependency_overrides[deps_module.current_space] = (
+                original_current_space
+            )
 
 
 @pytest.mark.anyio
 async def test_update_project_status_and_description(client):
     create = (
         await client.post(
-        "/project-manager/api/projects/",
-        json={
-            "project_name": "Portal",
-            "status": "active",
-            "sponsor": "CFO Office",
-        },
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Portal",
+                "status": "active",
+                "sponsor": "CFO Office",
+            },
         )
     ).json()
     project_id = create["project_id"]
@@ -252,7 +281,9 @@ async def test_project_create_and_update_support_long_text_fields(client):
 
 
 @pytest.mark.anyio
-async def test_create_project_with_long_text_succeeds_even_if_audit_logging_fails(client, monkeypatch):
+async def test_create_project_with_long_text_succeeds_even_if_audit_logging_fails(
+    client, monkeypatch
+):
     description = _long_text("Project description")
 
     def _broken_log_changes(*args, **kwargs):
@@ -276,11 +307,11 @@ async def test_create_project_with_long_text_succeeds_even_if_audit_logging_fail
 async def test_delete_project_soft_deletes(client):
     create = (
         await client.post(
-        "/project-manager/api/projects/",
-        json={
-            "project_name": "Billing",
-            "sponsor": "CFO Office",
-        },
+            "/project-manager/api/projects/",
+            json={
+                "project_name": "Billing",
+                "sponsor": "CFO Office",
+            },
         )
     ).json()
     project_id = create["project_id"]
@@ -298,13 +329,17 @@ async def test_delete_project_soft_deletes(client):
 
 @pytest.mark.anyio
 async def test_member_can_delete_project(client):
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-project",
-            space_name="Delete Project Space",
-            is_global_admin=False,
-            space_role="space_admin",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-project",
+                space_name="Delete Project Space",
+                is_global_admin=False,
+                space_role="space_admin",
+            )
         )
         create_resp = await client.post(
             "/project-manager/api/projects/",
@@ -316,11 +351,13 @@ async def test_member_can_delete_project(client):
         assert create_resp.status_code == 201, create_resp.text
         project_id = create_resp.json()["project_id"]
 
-        fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
-            space_id="space-delete-project",
-            space_name="Delete Project Space",
-            is_global_admin=False,
-            space_role="member",
+        fastapi_app.dependency_overrides[deps_module.current_space] = (
+            lambda: SpaceContext(
+                space_id="space-delete-project",
+                space_name="Delete Project Space",
+                is_global_admin=False,
+                space_role="member",
+            )
         )
         allowed = await client.delete(f"/project-manager/api/projects/{project_id}")
         assert allowed.status_code == 204, allowed.text
@@ -328,4 +365,6 @@ async def test_member_can_delete_project(client):
         if original_current_space is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+            fastapi_app.dependency_overrides[deps_module.current_space] = (
+                original_current_space
+            )

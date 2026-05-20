@@ -72,7 +72,9 @@ def create_solution(
 
     current_phase = normalize_str(payload.current_phase) or None
     if current_phase:
-        phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
+        phase_exists = (
+            session.query(Phase).filter(Phase.phase_id == current_phase).first()
+        )
         if not phase_exists:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -209,9 +211,15 @@ def update_solution(
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
     update_data = payload.model_dump(exclude_unset=True)
-    rag_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in {"rag_status", "rag_reason"}}
+    rag_updates = {
+        k: update_data.pop(k)
+        for k in list(update_data.keys())
+        if k in {"rag_status", "rag_reason"}
+    }
     if "solution_name" in update_data:
-        update_data["solution_name"] = _required_solution_name(update_data["solution_name"])
+        update_data["solution_name"] = _required_solution_name(
+            update_data["solution_name"]
+        )
     if "version" in update_data:
         update_data["version"] = _required_solution_version(update_data["version"])
     if "priority" in update_data:
@@ -220,13 +228,21 @@ def update_solution(
         update_data["capacity_hours"] = 0
     if "github_repo_url" in update_data:
         try:
-            update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])
+            update_data["github_repo_url"] = normalize_github_repo_url(
+                update_data["github_repo_url"]
+            )
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            )
     if "current_phase" in update_data:
-        update_data["current_phase"] = normalize_str(update_data["current_phase"]) or None
+        update_data["current_phase"] = (
+            normalize_str(update_data["current_phase"]) or None
+        )
         if update_data["current_phase"]:
-            _validate_current_phase(session, solution.solution_id, update_data["current_phase"])
+            _validate_current_phase(
+                session, solution.solution_id, update_data["current_phase"]
+            )
 
     fields_to_compare = set(update_data.keys()) | {"rag_status", "rag_reason"}
     if "status" in update_data:
@@ -264,7 +280,10 @@ def update_solution(
             )
 
     session.add(solution)
-    changes = {field: (before.get(field), getattr(solution, field)) for field in fields_to_compare}
+    changes = {
+        field: (before.get(field), getattr(solution, field))
+        for field in fields_to_compare
+    }
     if changes:
         safe_log_changes(
             session,
@@ -276,7 +295,8 @@ def update_solution(
             changes=changes,
         )
     invalidate_subcomponents = (
-        "github_repo_url" in update_data and before.get("github_repo_url") != solution.github_repo_url
+        "github_repo_url" in update_data
+        and before.get("github_repo_url") != solution.github_repo_url
     )
     commit_session(session)
     session.refresh(solution)

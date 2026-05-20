@@ -3,7 +3,12 @@ import pytest
 from backend.app import deps as deps_module
 from backend.app.models import Project, Solution, Space, Subcomponent
 from backend.app.services.spaces import SpaceContext
-from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from backend.app.utils.enums import (
+    ProjectStatus,
+    RagStatus,
+    SolutionStatus,
+    SubcomponentStatus,
+)
 from backend.main import app as fastapi_app
 
 
@@ -27,7 +32,11 @@ def _ensure_space(db_sessionmaker, space_id: str, slug: str):
     with db_sessionmaker() as session:
         exists = session.query(Space).filter(Space.space_id == space_id).first()
         if not exists:
-            session.add(Space(space_id=space_id, name=f"Space {slug}", slug=slug, is_active=True))
+            session.add(
+                Space(
+                    space_id=space_id, name=f"Space {slug}", slug=slug, is_active=True
+                )
+            )
             session.commit()
 
 
@@ -99,7 +108,10 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
         _set_current_space(space_id)
         project_resp = await client.post(
             "/project-manager/api/projects/",
-            json={"project_name": "Strict Space Project Solutions", "sponsor": "Space Sponsor"},
+            json={
+                "project_name": "Strict Space Project Solutions",
+                "sponsor": "Space Sponsor",
+            },
         )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]
@@ -119,7 +131,9 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
 
 
 @pytest.mark.anyio
-async def test_subcomponents_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
+async def test_subcomponents_list_excludes_legacy_null_space_rows(
+    client, db_sessionmaker
+):
     space_id = "strict-space-subcomponents"
     _ensure_space(db_sessionmaker, space_id, "strict-space-subcomponents")
 
@@ -128,7 +142,10 @@ async def test_subcomponents_list_excludes_legacy_null_space_rows(client, db_ses
         _set_current_space(space_id)
         project_resp = await client.post(
             "/project-manager/api/projects/",
-            json={"project_name": "Strict Space Project Subcomponents", "sponsor": "Space Sponsor"},
+            json={
+                "project_name": "Strict Space Project Subcomponents",
+                "sponsor": "Space Sponsor",
+            },
         )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]

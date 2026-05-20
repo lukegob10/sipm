@@ -29,8 +29,18 @@ def analytics_auth_overrides(db_sessionmaker, analytics_enabled):
     with db_sessionmaker() as session:
         session.add_all(
             [
-                Space(space_id="space-1", name="Space One", slug="space-one", is_active=True),
-                Space(space_id="space-2", name="Space Two", slug="space-two", is_active=True),
+                Space(
+                    space_id="space-1",
+                    name="Space One",
+                    slug="space-one",
+                    is_active=True,
+                ),
+                Space(
+                    space_id="space-2",
+                    name="Space Two",
+                    slug="space-two",
+                    is_active=True,
+                ),
             ]
         )
         session.commit()
@@ -57,7 +67,9 @@ def analytics_auth_overrides(db_sessionmaker, analytics_enabled):
     fastapi_app.dependency_overrides[deps_module.require_user] = lambda: fake_user
     fastapi_app.dependency_overrides[deps_module.current_user] = lambda: fake_user
     fastapi_app.dependency_overrides[deps_module.current_space] = lambda: fake_space
-    fastapi_app.dependency_overrides[deps_module.require_global_admin] = lambda: fake_user
+    fastapi_app.dependency_overrides[deps_module.require_global_admin] = (
+        lambda: fake_user
+    )
     try:
         yield
     finally:
@@ -77,7 +89,11 @@ async def analytics_client(analytics_auth_overrides):
 @pytest.fixture
 def member_auth_overrides(db_sessionmaker, analytics_enabled):
     with db_sessionmaker() as session:
-        session.add(Space(space_id="space-1", name="Space One", slug="space-one", is_active=True))
+        session.add(
+            Space(
+                space_id="space-1", name="Space One", slug="space-one", is_active=True
+            )
+        )
         session.commit()
 
     fake_user = SimpleNamespace(
@@ -253,7 +269,9 @@ async def test_usage_analytics_ingest_rejects_large_batch(analytics_client):
 
 
 @pytest.mark.anyio
-async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(analytics_client, db_sessionmaker):
+async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(
+    analytics_client, db_sessionmaker
+):
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
 
@@ -309,7 +327,9 @@ async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(analyt
         assert session.query(UsageIdentityDailyRollup).count() == 3
         assert session.query(UsageRouteIdentityDailyRollup).count() == 2
 
-    summary = await analytics_client.get("/project-manager/api/analytics/summary?days=30")
+    summary = await analytics_client.get(
+        "/project-manager/api/analytics/summary?days=30"
+    )
     assert summary.status_code == 200, summary.text
     summary_payload = summary.json()
     assert summary_payload["summary"]["sessions"] == 2
@@ -318,7 +338,11 @@ async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(analyt
     assert summary_payload["summary"]["workflow_actions"] == 1
     assert summary_payload["summary"]["failure_count"] == 1
 
-    daily_points = [point for point in summary_payload["daily"] if point["route_views"] or point["failure_count"]]
+    daily_points = [
+        point
+        for point in summary_payload["daily"]
+        if point["route_views"] or point["failure_count"]
+    ]
     assert daily_points == [
         {
             "date": yesterday.date().isoformat(),
@@ -384,7 +408,9 @@ async def test_usage_analytics_reads_are_global_admin_only(member_client):
 
 
 @pytest.mark.anyio
-async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_sessionmaker):
+async def test_usage_analytics_aggregates_scope_and_math(
+    analytics_client, db_sessionmaker
+):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     yesterday = now - timedelta(days=1)
     two_days_ago = now - timedelta(days=2)
@@ -473,7 +499,9 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
         )
         session.commit()
 
-    summary = await analytics_client.get("/project-manager/api/analytics/summary?days=30")
+    summary = await analytics_client.get(
+        "/project-manager/api/analytics/summary?days=30"
+    )
     assert summary.status_code == 200, summary.text
     summary_payload = summary.json()
     assert summary_payload["scope_space_id"] == "space-1"
@@ -489,7 +517,9 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert summary_payload["summary"]["route_transition_median_load_ms"] == 420
     assert summary_payload["summary"]["route_transition_p95_load_ms"] == 420
 
-    routes = await analytics_client.get("/project-manager/api/analytics/routes?days=30&all_spaces=true")
+    routes = await analytics_client.get(
+        "/project-manager/api/analytics/routes?days=30&all_spaces=true"
+    )
     assert routes.status_code == 200, routes.text
     route_payload = routes.json()
     assert route_payload["scope_space_id"] is None
@@ -499,7 +529,9 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert route_payload["recent_failures"][0]["view_key"] == "analytics"
     assert "user_display_name" not in route_payload["top_routes"][0]
 
-    performance = await analytics_client.get("/project-manager/api/analytics/performance?days=30&space_id=space-2")
+    performance = await analytics_client.get(
+        "/project-manager/api/analytics/performance?days=30&space_id=space-2"
+    )
     assert performance.status_code == 200, performance.text
     perf_payload = performance.json()
     assert perf_payload["scope_space_id"] == "space-2"
@@ -513,7 +545,9 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
     assert perf_payload["routes"][0]["view_key"] == "analytics"
     assert perf_payload["routes"][0]["median_load_ms"] == 1100
 
-    dashboard = await analytics_client.get("/project-manager/api/analytics/dashboard?days=30&space_id=space-2")
+    dashboard = await analytics_client.get(
+        "/project-manager/api/analytics/dashboard?days=30&space_id=space-2"
+    )
     assert dashboard.status_code == 200, dashboard.text
     dashboard_payload = dashboard.json()
     assert dashboard_payload["summary"]["scope_space_id"] == "space-2"
@@ -523,14 +557,18 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
 
 @pytest.mark.anyio
 async def test_usage_analytics_rejects_unknown_requested_space(analytics_client):
-    response = await analytics_client.get("/project-manager/api/analytics/summary?days=30&space_id=missing-space")
+    response = await analytics_client.get(
+        "/project-manager/api/analytics/summary?days=30&space_id=missing-space"
+    )
 
     assert response.status_code == 404, response.text
     assert response.headers["X-Error-Code"] == "ANALYTICS_SPACE_NOT_FOUND"
 
 
 @pytest.mark.anyio
-async def test_usage_analytics_p95_uses_float_rank_math(analytics_client, db_sessionmaker):
+async def test_usage_analytics_p95_uses_float_rank_math(
+    analytics_client, db_sessionmaker
+):
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     with db_sessionmaker() as session:
         for index in range(1, 102):
@@ -549,7 +587,9 @@ async def test_usage_analytics_p95_uses_float_rank_math(analytics_client, db_ses
             )
         session.commit()
 
-    response = await analytics_client.get("/project-manager/api/analytics/performance?days=30")
+    response = await analytics_client.get(
+        "/project-manager/api/analytics/performance?days=30"
+    )
 
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -602,7 +642,9 @@ async def test_usage_analytics_performance_routes_count_only_samples_with_load_m
         )
         session.commit()
 
-    response = await analytics_client.get("/project-manager/api/analytics/performance?days=30")
+    response = await analytics_client.get(
+        "/project-manager/api/analytics/performance?days=30"
+    )
 
     assert response.status_code == 200, response.text
     payload = response.json()

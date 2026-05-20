@@ -12,13 +12,25 @@ from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.table_names import physical_table_name
 from backend.app.models import Base, ChangeLog, Project, Solution, Subcomponent, Team
-from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead, SubcomponentRead
-from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from backend.app.schemas import (
+    ChangeLogRead,
+    ProjectRead,
+    SolutionRead,
+    SubcomponentRead,
+)
+from backend.app.utils.enums import (
+    ProjectStatus,
+    RagStatus,
+    SolutionStatus,
+    SubcomponentStatus,
+)
 
 
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
-CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
+CREATE_INDEX_PATTERN = re.compile(
+    r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S
+)
 
 
 STALE_MODEL_NAMES = (
@@ -94,8 +106,7 @@ def _doc_schema_contract():
             "unique_constraints": unique_constraints,
         }
     indexes = {
-        index_name
-        for index_name, _table_name in CREATE_INDEX_PATTERN.findall(schema)
+        index_name for index_name, _table_name in CREATE_INDEX_PATTERN.findall(schema)
     }
     return tables, indexes
 
@@ -165,7 +176,10 @@ def test_oracle_schema_document_matches_model_uniques_and_indexes():
     model_tables, model_indexes = _model_schema_contract()
 
     for table_name in doc_tables:
-        assert doc_tables[table_name]["unique_constraints"] == model_tables[table_name]["unique_constraints"]
+        assert (
+            doc_tables[table_name]["unique_constraints"]
+            == model_tables[table_name]["unique_constraints"]
+        )
     assert doc_indexes == model_indexes
 
 
@@ -197,7 +211,9 @@ def test_models_package_reexports_and_registers_metadata():
 
 
 def test_timestamp_mixin_updates_updated_at_on_row_change():
-    engine = create_engine("sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False})
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
     Base.metadata.create_all(bind=engine)
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     original = datetime(2000, 1, 1, 0, 0, 0)

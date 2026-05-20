@@ -38,11 +38,17 @@ def resolve_effective_github_repo_url(
     solution_repo_url: Optional[str],
     subcomponent_repo_url: Optional[str],
 ) -> Tuple[Optional[str], str]:
-    override = normalize_github_repo_url(subcomponent_repo_url) if subcomponent_repo_url else None
+    override = (
+        normalize_github_repo_url(subcomponent_repo_url)
+        if subcomponent_repo_url
+        else None
+    )
     if override:
         return override, "override"
 
-    inherited = normalize_github_repo_url(solution_repo_url) if solution_repo_url else None
+    inherited = (
+        normalize_github_repo_url(solution_repo_url) if solution_repo_url else None
+    )
     if inherited:
         return inherited, "inherited"
 

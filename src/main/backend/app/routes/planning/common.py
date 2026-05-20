@@ -14,7 +14,11 @@ from ...services.planning_work_allocation import (
     team_display_name,
 )
 from ...services.spaces import SpaceContext
-from .._mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
+from .._mutations import (
+    commit_refresh_and_publish,
+    commit_session,
+    publish_space_mutation,
+)
 from ...schemas.planning import (
     WorkAllocationAssignmentRead,
     WorkAllocationPersonRead,
@@ -85,26 +89,46 @@ def team_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def active_team(session: Session, team_id: Optional[str], space_ctx: SpaceContext) -> Optional[Team]:
+def active_team(
+    session: Session, team_id: Optional[str], space_ctx: SpaceContext
+) -> Optional[Team]:
     if not team_id:
         return None
     row = team_query(session, space_ctx).filter(Team.team_id == team_id).first()
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Team not found"
+        )
     return row
 
 
-def get_allocation(session: Session, alloc_id: str, space_ctx: SpaceContext) -> ResourceAllocation:
-    alloc = allocation_query(session, space_ctx).filter(ResourceAllocation.allocation_id == alloc_id).first()
+def get_allocation(
+    session: Session, alloc_id: str, space_ctx: SpaceContext
+) -> ResourceAllocation:
+    alloc = (
+        allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.allocation_id == alloc_id)
+        .first()
+    )
     if not alloc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Allocation not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Allocation not found"
+        )
     return alloc
 
 
-def get_window(session: Session, window_id: str, space_ctx: SpaceContext) -> PlanningWindow:
-    win = window_query(session, space_ctx).filter(PlanningWindow.window_id == window_id).first()
+def get_window(
+    session: Session, window_id: str, space_ctx: SpaceContext
+) -> PlanningWindow:
+    win = (
+        window_query(session, space_ctx)
+        .filter(PlanningWindow.window_id == window_id)
+        .first()
+    )
     if not win:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Planning window not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Planning window not found"
+        )
     return win
 
 
@@ -112,7 +136,9 @@ def month_start(value: date) -> date:
     return value.replace(day=1)
 
 
-def resolve_month_start(month_start_value: Optional[date], week_start: Optional[date]) -> date:
+def resolve_month_start(
+    month_start_value: Optional[date], week_start: Optional[date]
+) -> date:
     raw = month_start_value or week_start
     if raw is None:
         raise HTTPException(
@@ -142,16 +168,22 @@ def allocation_month_expr():
 
 
 def allocation_fte_expr():
-    return func.coalesce(ResourceAllocation.fte_months, (ResourceAllocation.hours / _HOURS_PER_FTE_MONTH))
+    return func.coalesce(
+        ResourceAllocation.fte_months, (ResourceAllocation.hours / _HOURS_PER_FTE_MONTH)
+    )
 
 
 def allocation_to_payload(alloc: ResourceAllocation) -> dict:
-    normalized_month_start = alloc.month_start or (month_start(alloc.week_start) if alloc.week_start else None)
+    normalized_month_start = alloc.month_start or (
+        month_start(alloc.week_start) if alloc.week_start else None
+    )
     week_start = alloc.week_start or normalized_month_start
     fte_months = float(alloc.fte_months or 0.0)
     if fte_months <= 0 and alloc.hours:
         fte_months = round(float(alloc.hours) / _HOURS_PER_FTE_MONTH, 3)
-    hours = alloc.hours if alloc.hours is not None else hours_from_fte_months(fte_months)
+    hours = (
+        alloc.hours if alloc.hours is not None else hours_from_fte_months(fte_months)
+    )
     return {
         "allocation_id": alloc.allocation_id,
         "work_item_type": alloc.work_item_type,
@@ -159,7 +191,9 @@ def allocation_to_payload(alloc: ResourceAllocation) -> dict:
         "assignee": alloc.assignee,
         "assignee_user_soeid": alloc.assignee_user_soeid,
         "team_id": alloc.team_id,
-        "month_start": normalized_month_start.isoformat() if normalized_month_start else None,
+        "month_start": normalized_month_start.isoformat()
+        if normalized_month_start
+        else None,
         "fte_months": round(fte_months, 3),
         "week_start": week_start.isoformat() if week_start else None,
         "hours": int(hours or 0),
@@ -184,7 +218,9 @@ def person_payload(user: User, team_map: dict[str, str]) -> WorkAllocationPerson
     )
 
 
-def task_payload(subcomponent: Subcomponent, assigned_ids: set[str]) -> WorkAllocationTaskRead:
+def task_payload(
+    subcomponent: Subcomponent, assigned_ids: set[str]
+) -> WorkAllocationTaskRead:
     return WorkAllocationTaskRead(
         id=subcomponent.subcomponent_id,
         title=subcomponent.subcomponent_name,
@@ -192,7 +228,9 @@ def task_payload(subcomponent: Subcomponent, assigned_ids: set[str]) -> WorkAllo
             subcomponent,
             hours_per_fte_month=_HOURS_PER_FTE_MONTH,
         ),
-        status="assigned" if subcomponent.subcomponent_id in assigned_ids else "backlog",
+        status="assigned"
+        if subcomponent.subcomponent_id in assigned_ids
+        else "backlog",
     )
 
 
@@ -258,15 +296,17 @@ def ensure_work_allocation_assignment_available(
         .filter(allocation_month_expr() == month_start_value)
     )
     if exclude_allocation_id:
-        same_assignee = same_assignee.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
-    if assignee_user_soeid:
-        same_assignee = same_assignee.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
-    else:
-        same_assignee = (
-            same_assignee
-            .filter(ResourceAllocation.assignee_user_soeid.is_(None))
-            .filter(ResourceAllocation.team_id == team_id)
+        same_assignee = same_assignee.filter(
+            ResourceAllocation.allocation_id != exclude_allocation_id
         )
+    if assignee_user_soeid:
+        same_assignee = same_assignee.filter(
+            ResourceAllocation.assignee_user_soeid == assignee_user_soeid
+        )
+    else:
+        same_assignee = same_assignee.filter(
+            ResourceAllocation.assignee_user_soeid.is_(None)
+        ).filter(ResourceAllocation.team_id == team_id)
     if same_assignee.first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -284,7 +324,9 @@ def ensure_work_allocation_assignment_available(
         .filter(ResourceAllocation.assignee_user_soeid.is_(None))
     )
     if exclude_allocation_id:
-        other_team_allocation = other_team_allocation.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+        other_team_allocation = other_team_allocation.filter(
+            ResourceAllocation.allocation_id != exclude_allocation_id
+        )
     existing = other_team_allocation.first()
     if existing and existing.team_id != team_id:
         raise HTTPException(
@@ -311,11 +353,17 @@ def work_allocation_revival_query(
         .filter(ResourceAllocation.window_id.is_(None))
     )
     if exclude_allocation_id:
-        revive_query = revive_query.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+        revive_query = revive_query.filter(
+            ResourceAllocation.allocation_id != exclude_allocation_id
+        )
     if assignee_user_soeid:
-        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+        revive_query = revive_query.filter(
+            ResourceAllocation.assignee_user_soeid == assignee_user_soeid
+        )
     else:
-        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid.is_(None))
+        revive_query = revive_query.filter(
+            ResourceAllocation.assignee_user_soeid.is_(None)
+        )
     return revive_query
 
 

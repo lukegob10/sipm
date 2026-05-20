@@ -95,7 +95,11 @@ def _resolve_solution_owner(
     current_soeid = normalize_str(getattr(current_user, "soeid", None))
     owner = normalize_str(owner_value) or display_name or current_soeid or ""
     owner_user_soeid = normalize_str(owner_user_soeid_value) or None
-    if owner_user_soeid is None and current_soeid and owner in {display_name, current_soeid}:
+    if (
+        owner_user_soeid is None
+        and current_soeid
+        and owner in {display_name, current_soeid}
+    ):
         owner_user_soeid = current_soeid
     return owner, owner_user_soeid
 
@@ -120,7 +124,9 @@ def _resolve_solution_assignee(
     return assignee, assignee_user_soeid
 
 
-def _ensure_project_exists(session: Session, project_id: str, space_ctx: SpaceContext) -> None:
+def _ensure_project_exists(
+    session: Session, project_id: str, space_ctx: SpaceContext
+) -> None:
     exists = (
         session.query(Project)
         .filter(Project.project_id == project_id)
@@ -129,7 +135,9 @@ def _ensure_project_exists(session: Session, project_id: str, space_ctx: SpaceCo
         .first()
     )
     if not exists:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
 
 
 def _solution_query(session: Session, space_ctx: SpaceContext):
@@ -152,18 +160,26 @@ def _work_allocation_project_id_query(session: Session, space_ctx: SpaceContext)
     )
 
 
-def _exclude_work_allocation_board_solutions(query, session: Session, space_ctx: SpaceContext):
-    return query.filter(~Solution.project_id.in_(_work_allocation_project_id_query(session, space_ctx)))
+def _exclude_work_allocation_board_solutions(
+    query, session: Session, space_ctx: SpaceContext
+):
+    return query.filter(
+        ~Solution.project_id.in_(_work_allocation_project_id_query(session, space_ctx))
+    )
 
 
-def _get_solution_or_404(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
+def _get_solution_or_404(
+    session: Session, solution_id: str, space_ctx: SpaceContext
+) -> Solution:
     solution = (
         _solution_query(session, space_ctx)
         .filter(Solution.solution_id == solution_id)
         .first()
     )
     if not solution:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found"
+        )
     return solution
 
 
@@ -171,7 +187,7 @@ def _enabled_phase_ids(session: Session, solution_id: str) -> set[str]:
     rows = (
         session.query(SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled == True)
+        .filter(SolutionPhase.is_enabled.is_(True))
         .all()
     )
     return {r[0] for r in rows}
@@ -183,14 +199,20 @@ def _last_enabled_phase_id(session: Session, solution_id: str) -> Optional[str]:
         session.query(SolutionPhase.phase_id)
         .join(Phase, Phase.phase_id == SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled == True)
-        .order_by(sort_key.desc(), Phase.sequence.desc(), SolutionPhase.solution_phase_id.desc())
+        .filter(SolutionPhase.is_enabled.is_(True))
+        .order_by(
+            sort_key.desc(),
+            Phase.sequence.desc(),
+            SolutionPhase.solution_phase_id.desc(),
+        )
         .first()
     )
     return row[0] if row else None
 
 
-def _validate_current_phase(session: Session, solution_id: str, current_phase: Optional[str]) -> None:
+def _validate_current_phase(
+    session: Session, solution_id: str, current_phase: Optional[str]
+) -> None:
     if not current_phase:
         return
     phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
@@ -222,7 +244,9 @@ def _apply_solution_completion_state(
     if next_status == SolutionStatus.complete:
         solution.completed_at = solution.completed_at or now
         if not solution.current_phase:
-            solution.current_phase = _last_enabled_phase_id(session, solution.solution_id)
+            solution.current_phase = _last_enabled_phase_id(
+                session, solution.solution_id
+            )
         return
     solution.completed_at = None
 

@@ -86,7 +86,9 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
 
     monkeypatch.setattr(health_module, "startup_db_disabled", lambda: False)
     monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(health_module.coordination, "validate_configuration", lambda: "redis")
+    monkeypatch.setattr(
+        health_module.coordination, "validate_configuration", lambda: "redis"
+    )
 
     def _ok_db_check():
         calls["db"] += 1
@@ -112,8 +114,14 @@ async def test_readiness_returns_healthy_when_db_check_passes(client, monkeypatc
 async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
     monkeypatch.setattr(health_module, "startup_db_disabled", lambda: False)
     monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
-    monkeypatch.setattr(health_module.coordination, "validate_configuration", lambda: "redis")
-    monkeypatch.setattr(health_module, "check_db_connection", lambda: (_ for _ in ()).throw(RuntimeError("db down")))
+    monkeypatch.setattr(
+        health_module.coordination, "validate_configuration", lambda: "redis"
+    )
+    monkeypatch.setattr(
+        health_module,
+        "check_db_connection",
+        lambda: (_ for _ in ()).throw(RuntimeError("db down")),
+    )
 
     response = await client.get("/health/ready")
 
@@ -130,7 +138,9 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_readiness_returns_503_when_coordination_config_fails(client, monkeypatch):
+async def test_readiness_returns_503_when_coordination_config_fails(
+    client, monkeypatch
+):
     monkeypatch.setattr(health_module, "validate_auth_configuration", lambda: None)
     monkeypatch.setattr(
         health_module.coordination,
@@ -153,7 +163,9 @@ async def test_readiness_returns_503_when_coordination_config_fails(client, monk
 
 
 @pytest.mark.anyio
-async def test_unhandled_exception_logging_includes_request_id_and_redacts_sensitive_headers(client, caplog):
+async def test_unhandled_exception_logging_includes_request_id_and_redacts_sensitive_headers(
+    client, caplog
+):
     def _boom():
         raise RuntimeError("boom")
 
@@ -188,9 +200,14 @@ async def test_unhandled_exception_preserves_raising_client_behavior(client, cap
     def _boom_raise():
         raise RuntimeError("boom-raise")
 
-    fastapi_app.add_api_route("/__observability_test__/boom-raise", _boom_raise, methods=["GET"])
+    fastapi_app.add_api_route(
+        "/__observability_test__/boom-raise", _boom_raise, methods=["GET"]
+    )
 
-    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError, match="boom-raise"):
+    with (
+        caplog.at_level(logging.ERROR),
+        pytest.raises(RuntimeError, match="boom-raise"),
+    ):
         await client.get(
             "/__observability_test__/boom-raise",
             headers={

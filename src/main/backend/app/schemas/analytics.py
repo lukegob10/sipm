@@ -30,7 +30,15 @@ class UsageEventIn(BaseModel):
     status_code: Optional[int] = Field(default=None, ge=100, le=599)
     details: dict[str, object] = Field(default_factory=dict)
 
-    @field_validator("session_id", "view_key", "category", "feature_key", "action_key", "outcome", mode="before")
+    @field_validator(
+        "session_id",
+        "view_key",
+        "category",
+        "feature_key",
+        "action_key",
+        "outcome",
+        mode="before",
+    )
     @classmethod
     def _normalize_string_fields(cls, value: object) -> str:
         return _normalized_token(value)
@@ -57,7 +65,9 @@ class PerformanceSampleIn(BaseModel):
     long_task_count: Optional[int] = Field(default=None, ge=0, le=100000)
     long_task_total_ms: MetricMsField = None
 
-    @field_validator("session_id", "view_key", "sample_kind", "navigation_type", mode="before")
+    @field_validator(
+        "session_id", "view_key", "sample_kind", "navigation_type", mode="before"
+    )
     @classmethod
     def _normalize_string_fields(cls, value: object) -> Optional[str]:
         normalized = _normalized_token(value)

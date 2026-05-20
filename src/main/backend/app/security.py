@@ -3,7 +3,9 @@ from __future__ import annotations
 from fastapi import HTTPException
 
 
-def security_http_exception(*, status_code: int, code: str, message: str) -> HTTPException:
+def security_http_exception(
+    *, status_code: int, code: str, message: str
+) -> HTTPException:
     return HTTPException(
         status_code=status_code,
         detail=message,

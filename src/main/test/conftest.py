@@ -18,10 +18,10 @@ if str(MAIN_DIR) not in sys.path:
 os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
 os.environ.setdefault("SIPM_DISABLE_STARTUP", "true")
 
-from backend.app.deps import current_user, get_db, require_user
-from backend.app.services import coordination
-from backend.main import app as fastapi_app
-from backend.app.models import Base
+from backend.app.deps import current_user, get_db, require_user  # noqa: E402
+from backend.app.models import Base  # noqa: E402
+from backend.app.services import coordination  # noqa: E402
+from backend.main import app as fastapi_app  # noqa: E402
 
 
 @pytest.fixture

@@ -14,7 +14,15 @@ from ...deps import (
     get_db,
     require_space_role,
 )
-from ...models import PlanningWindow, Project, ResourceAllocation, Solution, Subcomponent, Team, User
+from ...models import (
+    PlanningWindow,
+    Project,
+    ResourceAllocation,
+    Solution,
+    Subcomponent,
+    Team,
+    User,
+)
 from ...schemas import (
     PlanningWindowCreate,
     PlanningWindowRead,
@@ -81,7 +89,9 @@ def _write_csv(fieldnames: list[str], rows: list[dict]) -> StringIO:
     return buffer
 
 
-def _project_by_name(session: Session, space_ctx: SpaceContext, name: str) -> Project | None:
+def _project_by_name(
+    session: Session, space_ctx: SpaceContext, name: str
+) -> Project | None:
     return (
         session.query(Project)
         .filter(Project.deleted_at.is_(None))
@@ -141,7 +151,9 @@ def _subcomponent_by_natural_key(
     )
 
 
-def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row: dict, row_num: int) -> str:
+def _resolve_allocation_work_item(
+    session: Session, space_ctx: SpaceContext, row: dict, row_num: int
+) -> str:
     work_item_id = normalize_str(row.get("work_item_id"))
     work_item_type = normalize_str(row.get("work_item_type")).lower()
     project_name = normalize_str(row.get("project_name"))
@@ -151,7 +163,9 @@ def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row
     if work_item_type == "project" and project_name:
         project = _project_by_name(session, space_ctx, project_name)
         if not project:
-            raise ValueError(f"Row {row_num}: project_name '{project_name}' does not exist")
+            raise ValueError(
+                f"Row {row_num}: project_name '{project_name}' does not exist"
+            )
         return project.project_id
     if work_item_type == "solution" and project_name and solution_name:
         solution = _solution_by_natural_key(
@@ -166,7 +180,12 @@ def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row
                 f"Row {row_num}: solution '{solution_name}' version '{version}' for project '{project_name}' does not exist"
             )
         return solution.solution_id
-    if work_item_type == "subcomponent" and project_name and solution_name and subcomponent_name:
+    if (
+        work_item_type == "subcomponent"
+        and project_name
+        and solution_name
+        and subcomponent_name
+    ):
         subcomponent = _subcomponent_by_natural_key(
             session,
             space_ctx,
@@ -182,7 +201,9 @@ def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row
         return subcomponent.subcomponent_id
     if work_item_id:
         return work_item_id
-    raise ValueError(f"Row {row_num}: work item natural key or work_item_id is required")
+    raise ValueError(
+        f"Row {row_num}: work item natural key or work_item_id is required"
+    )
 
 
 def _team_by_name(session: Session, space_ctx: SpaceContext, name: str) -> Team | None:
@@ -195,8 +216,14 @@ def _team_by_name(session: Session, space_ctx: SpaceContext, name: str) -> Team 
     )
 
 
-def _window_by_name(session: Session, space_ctx: SpaceContext, name: str) -> PlanningWindow | None:
-    return window_query(session, space_ctx).filter(func.lower(PlanningWindow.name) == name.lower()).first()
+def _window_by_name(
+    session: Session, space_ctx: SpaceContext, name: str
+) -> PlanningWindow | None:
+    return (
+        window_query(session, space_ctx)
+        .filter(func.lower(PlanningWindow.name) == name.lower())
+        .first()
+    )
 
 
 @router.get("/resource-allocations", response_model=List[ResourceAllocationRead])
@@ -231,14 +258,20 @@ def list_allocations(
         if to_date:
             query = query.filter(month_expr <= to_date)
         if assignee_norm:
-            query = query.filter(func.lower(ResourceAllocation.assignee) == assignee_norm)
+            query = query.filter(
+                func.lower(ResourceAllocation.assignee) == assignee_norm
+            )
         if assignee_user_soeid:
-            query = query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+            query = query.filter(
+                ResourceAllocation.assignee_user_soeid == assignee_user_soeid
+            )
         if team_id:
             query = query.filter(ResourceAllocation.team_id == team_id)
         if window_id:
             query = query.filter(ResourceAllocation.window_id == window_id)
-        rows = query.order_by(month_expr.asc(), ResourceAllocation.assignee_user_soeid.asc()).all()
+        rows = query.order_by(
+            month_expr.asc(), ResourceAllocation.assignee_user_soeid.asc()
+        ).all()
         return [allocation_to_payload(row) for row in rows]
 
     return cached_call(
@@ -259,14 +292,24 @@ def export_resource_allocations(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ):
-    allocations = allocation_query(session, space_ctx).order_by(allocation_month_expr().asc(), ResourceAllocation.created_at.asc()).all()
+    allocations = (
+        allocation_query(session, space_ctx)
+        .order_by(allocation_month_expr().asc(), ResourceAllocation.created_at.asc())
+        .all()
+    )
     project_map = {
         row.project_id: row
-        for row in session.query(Project).filter(Project.deleted_at.is_(None)).filter(Project.space_id == space_ctx.space_id).all()
+        for row in session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .all()
     }
     solution_map = {
         row.solution_id: row
-        for row in session.query(Solution).filter(Solution.deleted_at.is_(None)).filter(Solution.space_id == space_ctx.space_id).all()
+        for row in session.query(Solution)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .all()
     }
     subcomponent_map = {
         row.subcomponent_id: row
@@ -277,11 +320,13 @@ def export_resource_allocations(
     }
     team_map = {
         row.team_id: row.name
-        for row in session.query(Team).filter(Team.deleted_at.is_(None)).filter(Team.space_id == space_ctx.space_id).all()
+        for row in session.query(Team)
+        .filter(Team.deleted_at.is_(None))
+        .filter(Team.space_id == space_ctx.space_id)
+        .all()
     }
     window_map = {
-        row.window_id: row.name
-        for row in window_query(session, space_ctx).all()
+        row.window_id: row.name for row in window_query(session, space_ctx).all()
     }
     rows = []
     for alloc in allocations:
@@ -324,7 +369,11 @@ def export_resource_allocations(
             }
         )
     headers = {"Content-Disposition": 'attachment; filename="resource-allocations.csv"'}
-    return StreamingResponse(_write_csv(_ALLOCATION_EXPORT_FIELDNAMES, rows), media_type="text/csv", headers=headers)
+    return StreamingResponse(
+        _write_csv(_ALLOCATION_EXPORT_FIELDNAMES, rows),
+        media_type="text/csv",
+        headers=headers,
+    )
 
 
 @router.post("/resource-allocations/import")
@@ -338,7 +387,13 @@ def import_resource_allocations(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": _bool_query(dry_run)}
+        return {
+            "created": 0,
+            "updated": 0,
+            "errors": errors,
+            "total_rows": 0,
+            "dry_run": _bool_query(dry_run),
+        }
     records = []
     seen = set()
     created = updated = 0
@@ -346,7 +401,9 @@ def import_resource_allocations(
         try:
             work_item_type = normalize_str(row.get("work_item_type")).lower()
             if work_item_type not in {"project", "solution", "subcomponent"}:
-                raise ValueError(f"Row {idx}: work_item_type must be project, solution, or subcomponent")
+                raise ValueError(
+                    f"Row {idx}: work_item_type must be project, solution, or subcomponent"
+                )
             work_item_id = _resolve_allocation_work_item(session, space_ctx, row, idx)
             month_value = parse_date(row.get("month_start"))
             if month_value is None:
@@ -367,7 +424,9 @@ def import_resource_allocations(
             if team_name:
                 team = _team_by_name(session, space_ctx, team_name)
                 if not team:
-                    raise ValueError(f"Row {idx}: team_name '{team_name}' does not exist")
+                    raise ValueError(
+                        f"Row {idx}: team_name '{team_name}' does not exist"
+                    )
                 team_id = team.team_id
             elif team_id:
                 active_team(session, team_id, space_ctx)
@@ -378,7 +437,9 @@ def import_resource_allocations(
             if window_name:
                 window = _window_by_name(session, space_ctx, window_name)
                 if not window:
-                    raise ValueError(f"Row {idx}: window_name '{window_name}' does not exist")
+                    raise ValueError(
+                        f"Row {idx}: window_name '{window_name}' does not exist"
+                    )
                 window_id = window.window_id
             elif window_id:
                 get_window(session, window_id, space_ctx)
@@ -391,7 +452,9 @@ def import_resource_allocations(
                 window_id or "",
             )
             if duplicate_key in seen:
-                raise ValueError(f"Row {idx}: duplicate allocation in CSV (strict-first policy)")
+                raise ValueError(
+                    f"Row {idx}: duplicate allocation in CSV (strict-first policy)"
+                )
             seen.add(duplicate_key)
             existing_query = (
                 allocation_query(session, space_ctx)
@@ -400,13 +463,21 @@ def import_resource_allocations(
                 .filter(allocation_month_expr() == normalized_month)
             )
             if assignee_user_soeid:
-                existing_query = existing_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
+                existing_query = existing_query.filter(
+                    ResourceAllocation.assignee_user_soeid == assignee_user_soeid
+                )
             else:
-                existing_query = existing_query.filter(ResourceAllocation.assignee_user_soeid.is_(None)).filter(ResourceAllocation.team_id == team_id)
+                existing_query = existing_query.filter(
+                    ResourceAllocation.assignee_user_soeid.is_(None)
+                ).filter(ResourceAllocation.team_id == team_id)
             if window_id:
-                existing_query = existing_query.filter(ResourceAllocation.window_id == window_id)
+                existing_query = existing_query.filter(
+                    ResourceAllocation.window_id == window_id
+                )
             else:
-                existing_query = existing_query.filter(ResourceAllocation.window_id.is_(None))
+                existing_query = existing_query.filter(
+                    ResourceAllocation.window_id.is_(None)
+                )
             existing = existing_query.first()
             records.append(
                 {
@@ -475,10 +546,20 @@ def import_resource_allocations(
         errors.append(str(exc))
         if atomic:
             created = updated = 0
-    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": False}
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "total_rows": len(rows),
+        "dry_run": False,
+    }
 
 
-@router.post("/resource-allocations", response_model=ResourceAllocationRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/resource-allocations",
+    response_model=ResourceAllocationRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_allocation(
     payload: ResourceAllocationCreate,
     session: Session = Depends(get_db),
@@ -488,7 +569,9 @@ def create_allocation(
     active_team(session, payload.team_id, space_ctx)
     if payload.window_id:
         get_window(session, payload.window_id, space_ctx)
-    normalized_month_start = resolve_month_start(payload.month_start, payload.week_start)
+    normalized_month_start = resolve_month_start(
+        payload.month_start, payload.week_start
+    )
     fte_months = resolve_fte_months(payload.fte_months, payload.hours)
     alloc = ResourceAllocation(
         space_id=space_ctx.space_id,
@@ -508,7 +591,9 @@ def create_allocation(
     return ResourceAllocationRead.model_validate(allocation_to_payload(alloc))
 
 
-@router.patch("/resource-allocations/{allocation_id}", response_model=ResourceAllocationRead)
+@router.patch(
+    "/resource-allocations/{allocation_id}", response_model=ResourceAllocationRead
+)
 def update_allocation(
     allocation_id: str,
     payload: ResourceAllocationUpdate,
@@ -522,7 +607,14 @@ def update_allocation(
     if payload.window_id:
         get_window(session, payload.window_id, space_ctx)
     update_data = payload.model_dump(exclude_unset=True)
-    for field in ["work_item_type", "work_item_id", "assignee", "assignee_user_soeid", "team_id", "window_id"]:
+    for field in [
+        "work_item_type",
+        "work_item_id",
+        "assignee",
+        "assignee_user_soeid",
+        "team_id",
+        "window_id",
+    ]:
         if field in update_data:
             setattr(alloc, field, update_data[field])
 
@@ -555,7 +647,9 @@ def update_allocation(
     return ResourceAllocationRead.model_validate(allocation_to_payload(alloc))
 
 
-@router.delete("/resource-allocations/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/resource-allocations/{allocation_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def delete_allocation(
     allocation_id: str,
     session: Session = Depends(get_db),
@@ -644,8 +738,15 @@ def list_windows(
     scope_token = make_scope_token("planning", space_ctx.space_id)
 
     def _load():
-        wins = window_query(session, space_ctx).order_by(PlanningWindow.start_date.asc()).all()
-        return [PlanningWindowRead.model_validate(win).model_dump(mode="json") for win in wins]
+        wins = (
+            window_query(session, space_ctx)
+            .order_by(PlanningWindow.start_date.asc())
+            .all()
+        )
+        return [
+            PlanningWindowRead.model_validate(win).model_dump(mode="json")
+            for win in wins
+        ]
 
     return cached_call(
         endpoint="planning:windows:list",
@@ -671,10 +772,16 @@ def export_planning_windows(
             "start_date": row.start_date.isoformat(),
             "end_date": row.end_date.isoformat(),
         }
-        for row in window_query(session, space_ctx).order_by(PlanningWindow.start_date.asc(), PlanningWindow.name.asc()).all()
+        for row in window_query(session, space_ctx)
+        .order_by(PlanningWindow.start_date.asc(), PlanningWindow.name.asc())
+        .all()
     ]
     headers = {"Content-Disposition": 'attachment; filename="planning-windows.csv"'}
-    return StreamingResponse(_write_csv(_WINDOW_EXPORT_FIELDNAMES, rows), media_type="text/csv", headers=headers)
+    return StreamingResponse(
+        _write_csv(_WINDOW_EXPORT_FIELDNAMES, rows),
+        media_type="text/csv",
+        headers=headers,
+    )
 
 
 @router.post("/planning/windows/import")
@@ -688,7 +795,13 @@ def import_planning_windows(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": _bool_query(dry_run)}
+        return {
+            "created": 0,
+            "updated": 0,
+            "errors": errors,
+            "total_rows": 0,
+            "dry_run": _bool_query(dry_run),
+        }
     records = []
     seen = set()
     created = updated = 0
@@ -699,7 +812,9 @@ def import_planning_windows(
             continue
         key = name.lower()
         if key in seen:
-            errors.append(f"Row {idx}: duplicate window_name '{name}' in CSV (strict-first policy)")
+            errors.append(
+                f"Row {idx}: duplicate window_name '{name}' in CSV (strict-first policy)"
+            )
             continue
         seen.add(key)
         try:
@@ -753,10 +868,20 @@ def import_planning_windows(
         errors.append(str(exc))
         if atomic:
             created = updated = 0
-    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": False}
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "total_rows": len(rows),
+        "dry_run": False,
+    }
 
 
-@router.post("/planning/windows", response_model=PlanningWindowRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/planning/windows",
+    response_model=PlanningWindowRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_window(
     payload: PlanningWindowCreate,
     session: Session = Depends(get_db),

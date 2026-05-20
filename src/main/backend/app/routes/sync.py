@@ -65,13 +65,17 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
 
     requested_space_id = _ws_requested_space_id(ws)
     try:
-        ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+        ctx = resolve_active_space_context(
+            session, user, requested_space_id=requested_space_id
+        )
     except Exception:
         await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-invalid")
         return
 
     if requested_space_id and ctx.space_id != requested_space_id:
-        await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-mismatch")
+        await _reject_websocket(
+            ws, code=WS_CLOSE_SPACE_INVALID, reason="space-mismatch"
+        )
         return
 
     try:

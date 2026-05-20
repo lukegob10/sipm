@@ -23,7 +23,6 @@ def __getattr__(name: str):
 
 __all__ = [
     "DB_HEALTHCHECK_SQL",
-    "SessionLocal",
     "_build_engine",
     "_ensure_session_local",
     "_env_bool",
@@ -31,7 +30,6 @@ __all__ = [
     "_require_min",
     "_require_min_or_disable",
     "check_db_connection",
-    "engine",
     "get_session",
     "init_db",
     "reset_session_state",

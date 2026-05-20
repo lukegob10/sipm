@@ -46,7 +46,9 @@ def list_subcomponents(
     current_user: User = Depends(current_user_dep),
 ):
     _ensure_solution(session, solution_id, space_ctx)
-    status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
+    status_val = (
+        status_filter.value if hasattr(status_filter, "value") else status_filter
+    )
     assignee_norm = assignee.strip().lower() if assignee else None
     params = {
         "solution_id": solution_id,
@@ -60,7 +62,9 @@ def list_subcomponents(
     scope_token = make_scope_token("subcomponents", space_ctx.space_id)
 
     def _load():
-        query = _subcomponent_query(session, space_ctx).filter(Subcomponent.solution_id == solution_id)
+        query = _subcomponent_query(session, space_ctx).filter(
+            Subcomponent.solution_id == solution_id
+        )
         if status_filter:
             query = query.filter(Subcomponent.status == status_filter)
         if priority is not None:
@@ -72,11 +76,17 @@ def list_subcomponents(
         if assignee_norm:
             query = query.filter(func.lower(Subcomponent.assignee) == assignee_norm)
         if assignee_user_soeid:
-            query = query.filter(Subcomponent.assignee_user_soeid == assignee_user_soeid)
-        rows = query.order_by(Subcomponent.priority.asc(), Subcomponent.created_at.asc()).all()
+            query = query.filter(
+                Subcomponent.assignee_user_soeid == assignee_user_soeid
+            )
+        rows = query.order_by(
+            Subcomponent.priority.asc(), Subcomponent.created_at.asc()
+        ).all()
         solution_repo_map = _solution_repo_map(session, space_ctx, [solution_id])
         return [
-            _subcomponent_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
+            _subcomponent_payload(
+                row, solution_repo_url=solution_repo_map.get(row.solution_id)
+            )
             for row in rows
         ]
 
@@ -106,7 +116,9 @@ def list_all_subcomponents(
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
 ):
-    status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
+    status_val = (
+        status_filter.value if hasattr(status_filter, "value") else status_filter
+    )
     assignee_norm = assignee.strip().lower() if assignee else None
     params = {
         "status": status_val,
@@ -137,13 +149,19 @@ def list_all_subcomponents(
         if assignee_norm:
             query = query.filter(func.lower(Subcomponent.assignee) == assignee_norm)
         if assignee_user_soeid:
-            query = query.filter(Subcomponent.assignee_user_soeid == assignee_user_soeid)
-        rows = query.order_by(Subcomponent.priority.asc(), Subcomponent.created_at.asc()).all()
+            query = query.filter(
+                Subcomponent.assignee_user_soeid == assignee_user_soeid
+            )
+        rows = query.order_by(
+            Subcomponent.priority.asc(), Subcomponent.created_at.asc()
+        ).all()
         solution_repo_map = _solution_repo_map(
             session, space_ctx, [row.solution_id for row in rows]
         )
         return [
-            _subcomponent_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
+            _subcomponent_payload(
+                row, solution_repo_url=solution_repo_map.get(row.solution_id)
+            )
             for row in rows
         ]
 
@@ -171,7 +189,9 @@ def get_subcomponent(
     def _load():
         subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
         solution = _ensure_solution(session, subcomponent.solution_id, space_ctx)
-        return _subcomponent_payload(subcomponent, solution_repo_url=solution.github_repo_url)
+        return _subcomponent_payload(
+            subcomponent, solution_repo_url=solution.github_repo_url
+        )
 
     return cached_call(
         endpoint="subcomponents:detail",
@@ -185,7 +205,9 @@ def get_subcomponent(
     )
 
 
-@router.get("/subcomponents/{subcomponent_id}/activity", response_model=List[ChangeLogRead])
+@router.get(
+    "/subcomponents/{subcomponent_id}/activity", response_model=List[ChangeLogRead]
+)
 def list_subcomponent_activity(
     subcomponent_id: str,
     limit: int = Query(20, ge=1, le=200),

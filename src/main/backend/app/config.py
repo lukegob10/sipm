@@ -72,7 +72,9 @@ def require_min(name: str, value: int, minimum: int) -> int:
     return value
 
 
-def require_min_or_disable(name: str, value: int, disable_value: int, minimum: int) -> int:
+def require_min_or_disable(
+    name: str, value: int, disable_value: int, minimum: int
+) -> int:
     if value == disable_value:
         return value
     if value < minimum:
@@ -88,7 +90,11 @@ def load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
     for key, value in dotenv_values(path).items():
         if not key or value is None:
             continue
-        if override_existing or key not in os.environ or not str(os.environ.get(key) or "").strip():
+        if (
+            override_existing
+            or key not in os.environ
+            or not str(os.environ.get(key) or "").strip()
+        ):
             os.environ[key] = value
 
 
@@ -103,7 +109,9 @@ def runtime_env_files(paths: RuntimePaths = RUNTIME_PATHS) -> tuple[Path, ...]:
     return paths.base_dir / ".env", paths.base_dir / ".env.local"
 
 
-def load_runtime_env(*, force: bool = False, paths: RuntimePaths = RUNTIME_PATHS) -> None:
+def load_runtime_env(
+    *, force: bool = False, paths: RuntimePaths = RUNTIME_PATHS
+) -> None:
     global _ENV_LOADED
     if _ENV_LOADED and not force:
         return

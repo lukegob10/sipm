@@ -35,7 +35,9 @@ def list_projects(
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
 ):
-    status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
+    status_val = (
+        status_filter.value if hasattr(status_filter, "value") else status_filter
+    )
     sponsor_norm = sponsor.strip().lower() if sponsor else None
     params = {
         "status": status_val,
@@ -45,7 +47,9 @@ def list_projects(
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
     def _load():
-        query = _exclude_work_allocation_board_projects(_project_query(session, space_ctx))
+        query = _exclude_work_allocation_board_projects(
+            _project_query(session, space_ctx)
+        )
         if status_filter:
             query = query.filter(Project.status == status_filter)
         if sponsor_norm:

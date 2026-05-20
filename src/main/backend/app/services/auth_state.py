@@ -38,7 +38,9 @@ def clear_expired_lockout(user: User, now: datetime | None = None) -> None:
     user.locked_until = None
 
 
-def reject_if_locked(user: User, *, now: datetime | None = None, message: str = "Account locked") -> None:
+def reject_if_locked(
+    user: User, *, now: datetime | None = None, message: str = "Account locked"
+) -> None:
     now = now or now_utc()
     if user_is_locked(user, now):
         raise security_http_exception(

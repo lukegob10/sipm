@@ -58,7 +58,9 @@ async def lifespan(app: FastAPI):
             if keepwarm_interval_seconds:
                 if not prewarm_connection_count:
                     check_db_connection()
-                db_keepwarm_task = asyncio.create_task(db_keepwarm_loop(keepwarm_interval_seconds))
+                db_keepwarm_task = asyncio.create_task(
+                    db_keepwarm_loop(keepwarm_interval_seconds)
+                )
         yield
     finally:
         await stop_realtime_runtime()

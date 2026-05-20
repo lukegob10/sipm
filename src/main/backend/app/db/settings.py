@@ -30,7 +30,9 @@ def _require_min(name: str, value: int, minimum: int) -> int:
     return value
 
 
-def _require_min_or_disable(name: str, value: int, disable_value: int, minimum: int) -> int:
+def _require_min_or_disable(
+    name: str, value: int, disable_value: int, minimum: int
+) -> int:
     if value == disable_value:
         return value
     if value < minimum:
@@ -51,7 +53,9 @@ def _env_bool(name: str, default: bool) -> bool:
 
 def load_database_pool_settings() -> DatabasePoolSettings:
     return DatabasePoolSettings(
-        pool_size=_require_min("SIPM_DB_POOL_SIZE", _env_int("SIPM_DB_POOL_SIZE", 5), 0),
+        pool_size=_require_min(
+            "SIPM_DB_POOL_SIZE", _env_int("SIPM_DB_POOL_SIZE", 5), 0
+        ),
         max_overflow=_require_min_or_disable(
             "SIPM_DB_MAX_OVERFLOW",
             _env_int("SIPM_DB_MAX_OVERFLOW", 10),

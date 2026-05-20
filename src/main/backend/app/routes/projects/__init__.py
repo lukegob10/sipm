@@ -9,8 +9,12 @@ from .write import create_project, router as write_router
 from ...schemas import ProjectRead
 
 router = APIRouter(prefix="/projects")
-router.add_api_route("", list_projects, methods=["GET"], response_model=List[ProjectRead])
-router.add_api_route("/", list_projects, methods=["GET"], response_model=List[ProjectRead])
+router.add_api_route(
+    "", list_projects, methods=["GET"], response_model=List[ProjectRead]
+)
+router.add_api_route(
+    "/", list_projects, methods=["GET"], response_model=List[ProjectRead]
+)
 router.add_api_route(
     "",
     create_project,
@@ -30,6 +34,8 @@ router.include_router(read_router)
 router.include_router(write_router)
 
 # Preserve the package-level helper target used by the current tests.
-_is_project_name_conflict_integrity_error = _common._is_project_name_conflict_integrity_error
+_is_project_name_conflict_integrity_error = (
+    _common._is_project_name_conflict_integrity_error
+)
 
 __all__ = ["router", "_is_project_name_conflict_integrity_error"]

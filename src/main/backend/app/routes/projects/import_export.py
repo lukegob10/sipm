@@ -14,7 +14,13 @@ from ...deps import get_db, require_space_role
 from ...models import Project, User
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_priority, read_csv, read_text_value
+from ...utils import (
+    normalize_status,
+    normalize_str,
+    parse_priority,
+    read_csv,
+    read_text_value,
+)
 from ...utils.enums import ProjectStatus
 from .common import (
     _exclude_work_allocation_board_projects,
@@ -59,7 +65,13 @@ def import_projects(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
+        return {
+            "created": 0,
+            "updated": 0,
+            "errors": errors,
+            "total_rows": 0,
+            "dry_run": dry_run,
+        }
     created = updated = 0
     seen = set()
     for idx, row in enumerate(rows, start=2):
@@ -70,7 +82,9 @@ def import_projects(
             continue
         key = name.lower()
         if key in seen:
-            errors.append(f"Row {idx}: duplicate project_name '{name}' in CSV (strict-first policy)")
+            errors.append(
+                f"Row {idx}: duplicate project_name '{name}' in CSV (strict-first policy)"
+            )
             continue
         seen.add(key)
         try:
@@ -90,22 +104,31 @@ def import_projects(
             errors.append(f"Row {idx}: {exc}")
             continue
         sponsor_user_soeid = normalize_str(row.get("sponsor_user_soeid")) or None
-        existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
+        existing = (
+            _project_query(session, space_ctx)
+            .filter(Project.project_name == name)
+            .first()
+        )
         try:
             if existing:
                 if dry_run:
                     updated += 1
                     continue
                 if sponsor_input:
-                    resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
-                        sponsor_input,
-                        sponsor_user_soeid,
-                        current_user,
+                    resolved_sponsor, resolved_sponsor_user_soeid = (
+                        _resolve_project_sponsor(
+                            sponsor_input,
+                            sponsor_user_soeid,
+                            current_user,
+                        )
                     )
                 else:
                     resolved_sponsor = existing.sponsor
                     resolved_sponsor_user_soeid = existing.sponsor_user_soeid
-                before = {field: getattr(existing, field) for field in _PROJECT_IMPORT_UPDATE_FIELDS}
+                before = {
+                    field: getattr(existing, field)
+                    for field in _PROJECT_IMPORT_UPDATE_FIELDS
+                }
                 existing.status = status_enum
                 existing.description = description
                 existing.success_criteria = success_criteria
@@ -124,7 +147,9 @@ def import_projects(
                     user_id=current_user.user_id,
                     action="update",
                     space_id=space_ctx.space_id,
-                    changes=_project_change_set(existing, before, _PROJECT_IMPORT_UPDATE_FIELDS),
+                    changes=_project_change_set(
+                        existing, before, _PROJECT_IMPORT_UPDATE_FIELDS
+                    ),
                     request_id=None,
                 )
                 updated += 1
@@ -137,10 +162,12 @@ def import_projects(
                     )
                     created += 1
                     continue
-                resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
-                    sponsor_input,
-                    sponsor_user_soeid,
-                    current_user,
+                resolved_sponsor, resolved_sponsor_user_soeid = (
+                    _resolve_project_sponsor(
+                        sponsor_input,
+                        sponsor_user_soeid,
+                        current_user,
+                    )
                 )
                 project = Project(
                     space_id=space_ctx.space_id,
@@ -172,7 +199,13 @@ def import_projects(
             errors.append(f"Row {idx}: {exc}")
     if not dry_run:
         _publish_project_mutation(space_ctx.space_id)
-    return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": dry_run}
+    return {
+        "created": created,
+        "updated": updated,
+        "errors": errors,
+        "total_rows": len(rows),
+        "dry_run": dry_run,
+    }
 
 
 @router.get("/export")
@@ -180,7 +213,9 @@ def export_projects(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    projects = _exclude_work_allocation_board_projects(_project_query(session, space_ctx)).all()
+    projects = _exclude_work_allocation_board_projects(
+        _project_query(session, space_ctx)
+    ).all()
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=_PROJECT_EXPORT_FIELDNAMES)
     writer.writeheader()
@@ -188,7 +223,9 @@ def export_projects(
         writer.writerow(
             {
                 "project_name": project.project_name,
-                "status": project.status.value if hasattr(project.status, "value") else project.status,
+                "status": project.status.value
+                if hasattr(project.status, "value")
+                else project.status,
                 "description": read_text_value(project.description) or "",
                 "success_criteria": read_text_value(project.success_criteria) or "",
                 "sponsor": project.sponsor or "",

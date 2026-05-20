@@ -37,7 +37,11 @@ from ..services.auth_state import (
     user_is_locked,
 )
 from ..services.password_reset import reset_password_with_temp_password
-from ..services.spaces import ensure_space_membership, get_or_create_default_space, resolve_active_space_context
+from ..services.spaces import (
+    ensure_space_membership,
+    get_or_create_default_space,
+    resolve_active_space_context,
+)
 from ..services.usage_analytics import usage_analytics_enabled
 
 router = APIRouter()
@@ -61,11 +65,15 @@ def _requested_space_id(request: Request) -> str | None:
     return request.headers.get("X-Space-Id") or request.cookies.get(ACTIVE_SPACE_COOKIE)
 
 
-def _issue_session(response: Response, session: Session, user: User, requested_space_id: str | None) -> None:
+def _issue_session(
+    response: Response, session: Session, user: User, requested_space_id: str | None
+) -> None:
     access_token = create_token(user.user_id, user.role, "access")
     refresh_token = create_token(user.user_id, user.role, "refresh")
     set_auth_cookies(response, access_token, refresh_token)
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    active_ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
     set_active_space_cookie(response, active_ctx.space_id)
 
 
@@ -75,7 +83,9 @@ def _provision_self_registered_space(session: Session, user: User) -> None:
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, response: Response, session: Session = Depends(get_db)):
+def register(
+    payload: UserCreate, response: Response, session: Session = Depends(get_db)
+):
     if not allow_self_register():
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -118,7 +128,12 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
 
 
 @router.post("/login", response_model=UserRead)
-def login(payload: UserLogin, request: Request, response: Response, session: Session = Depends(get_db)):
+def login(
+    payload: UserLogin,
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_db),
+):
     soeid_norm = str(payload.soeid).strip().lower()
     user = _get_user_by_soeid(session, soeid_norm)
     now = datetime.now(timezone.utc)
@@ -168,7 +183,9 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
     session.commit()
     session.refresh(user)
 
-    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
+    _issue_session(
+        response, session, user, requested_space_id=_requested_space_id(request)
+    )
     return user
 
 
@@ -210,7 +227,9 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             message="Account locked",
         )
 
-    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
+    _issue_session(
+        response, session, user, requested_space_id=_requested_space_id(request)
+    )
     return user
 
 
@@ -293,7 +312,9 @@ def get_active_space(
     current_user: User = Depends(require_user),
 ):
     requested_space_id = _requested_space_id(request)
-    ctx = resolve_active_space_context(session, current_user, requested_space_id=requested_space_id)
+    ctx = resolve_active_space_context(
+        session, current_user, requested_space_id=requested_space_id
+    )
     cookie_space_id = request.cookies.get(ACTIVE_SPACE_COOKIE)
     if cookie_space_id != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)
@@ -313,7 +334,9 @@ def switch_active_space(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_user),
 ):
-    ctx = resolve_active_space_context(session, current_user, requested_space_id=payload.space_id)
+    ctx = resolve_active_space_context(
+        session, current_user, requested_space_id=payload.space_id
+    )
     if ctx.space_id != payload.space_id:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,

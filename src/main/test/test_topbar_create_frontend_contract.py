@@ -3,7 +3,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
-TOPBAR_CREATE_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "topbar-create.js"
+TOPBAR_CREATE_JS = (
+    REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "topbar-create.js"
+)
 
 
 def test_topbar_create_controller_exports_close_helper_used_by_csv_menu():

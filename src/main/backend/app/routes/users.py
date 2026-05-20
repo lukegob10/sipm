@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.auth import hash_bootstrap_password
@@ -30,7 +29,7 @@ from ..schemas import (
 from ..services.audit_log import log_changes
 from ..services.api_tokens import api_token_is_active, create_api_token
 from ..services.password_reset import issue_temp_password
-from ..services.spaces import SpaceContext, is_global_admin_role
+from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..services.user_admin_guards import (
     count_active_global_admins as _count_active_global_admins,
@@ -66,7 +65,9 @@ def _active_space_user_query(session: Session, space_ctx: SpaceContext):
 def _user_or_404(session: Session, user_id: str) -> User:
     user = session.query(User).filter(User.user_id == user_id).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     return user
 
 
@@ -74,7 +75,9 @@ def _user_by_soeid_or_404(session: Session, soeid: str) -> User:
     soeid_norm = soeid.strip().lower()
     user = session.query(User).filter(User.soeid == soeid_norm).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
     return user
 
 
@@ -86,7 +89,9 @@ def _token_or_404(session: Session, user_id: str, token_id: str) -> ApiToken:
         .first()
     )
     if not token:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="API token not found"
+        )
     return token
 
 
@@ -109,7 +114,9 @@ def _is_service_account_only_update(payload: UserUpdate) -> bool:
     )
 
 
-def _invalidate_user_caches_for_user_memberships(session: Session, user_id: str) -> None:
+def _invalidate_user_caches_for_user_memberships(
+    session: Session, user_id: str
+) -> None:
     rows = (
         session.query(SpaceMembership.space_id)
         .filter(SpaceMembership.user_id == user_id)
@@ -135,7 +142,11 @@ def _set_global_admin_role(
     if (not make_global_admin) and (not _is_global_admin(target)):
         return target
 
-    if (not make_global_admin) and target.is_active and _count_active_global_admins(session) <= 1:
+    if (
+        (not make_global_admin)
+        and target.is_active
+        and _count_active_global_admins(session) <= 1
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="At least one active global_admin is required",
@@ -158,7 +169,9 @@ def _set_global_admin_role(
     return target
 
 
-def _ensure_active_membership_for_user(session: Session, user_id: str, space_id: str) -> None:
+def _ensure_active_membership_for_user(
+    session: Session, user_id: str, space_id: str
+) -> None:
     membership = (
         session.query(SpaceMembership)
         .filter(SpaceMembership.space_id == space_id)
@@ -166,7 +179,9 @@ def _ensure_active_membership_for_user(session: Session, user_id: str, space_id:
         .first()
     )
     if not membership:
-        membership = SpaceMembership(space_id=space_id, user_id=user_id, role="member", status="active")
+        membership = SpaceMembership(
+            space_id=space_id, user_id=user_id, role="member", status="active"
+        )
         session.add(membership)
         return
 
@@ -220,10 +235,13 @@ def list_users(
     def _load():
         query = _active_space_user_query(session, space_ctx)
         if active_only:
-            query = query.filter(User.is_active == True)
+            query = query.filter(User.is_active.is_(True))
         if team_tag_norm:
             query = query.filter(User.team_tag == team_tag_norm)
-        return [UserRead.model_validate(user).model_dump(mode="json") for user in query.order_by(User.display_name.asc()).all()]
+        return [
+            UserRead.model_validate(user).model_dump(mode="json")
+            for user in query.order_by(User.display_name.asc()).all()
+        ]
 
     return cached_call(
         endpoint="users:list",
@@ -245,7 +263,7 @@ def list_global_admin_users(
 ) -> List[UserRead]:
     query = session.query(User).filter(_normalized_global_role_expr() == "global_admin")
     if active_only:
-        query = query.filter(User.is_active == True)
+        query = query.filter(User.is_active.is_(True))
     return query.order_by(User.display_name.asc()).all()
 
 
@@ -309,7 +327,6 @@ def revoke_global_admin_by_soeid(
     )
 
 
-
 @router.post(
     "/users/{user_id}/password-reset-request",
     response_model=PasswordResetIssueResponse,
@@ -329,7 +346,9 @@ def request_user_password_reset(
         expires_minutes=payload.expires_minutes if payload else None,
     )
     _invalidate_user_caches_for_user_memberships(session, user.user_id)
-    return PasswordResetIssueResponse(status="issued", temp_password=temp_password, expires_at=expires_at)
+    return PasswordResetIssueResponse(
+        status="issued", temp_password=temp_password, expires_at=expires_at
+    )
 
 
 @router.post(
@@ -351,7 +370,9 @@ def request_user_password_reset_by_soeid(
         expires_minutes=payload.expires_minutes if payload else None,
     )
     _invalidate_user_caches_for_user_memberships(session, user.user_id)
-    return PasswordResetIssueResponse(status="issued", temp_password=temp_password, expires_at=expires_at)
+    return PasswordResetIssueResponse(
+        status="issued", temp_password=temp_password, expires_at=expires_at
+    )
 
 
 @router.get("/users/{user_id}/api-tokens", response_model=List[ApiTokenRead])
@@ -372,7 +393,11 @@ def list_user_api_tokens(
     return query.order_by(ApiToken.created_at.desc()).all()
 
 
-@router.post("/users/{user_id}/api-tokens", response_model=ApiTokenIssueResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/users/{user_id}/api-tokens",
+    response_model=ApiTokenIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def issue_user_api_token(
     user_id: str,
     payload: ApiTokenCreate,
@@ -386,7 +411,10 @@ def issue_user_api_token(
         if expires_at.tzinfo is not None:
             expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
         if expires_at <= datetime.now(timezone.utc).replace(tzinfo=None):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="API token expiration must be in the future")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="API token expiration must be in the future",
+            )
     token, raw_token = create_api_token(
         session,
         target_user=user,
@@ -433,6 +461,7 @@ def revoke_user_api_token(
         session.refresh(token)
     return token
 
+
 @router.patch("/users/{user_id}", response_model=UserRead)
 def update_user(
     user_id: str,
@@ -442,13 +471,23 @@ def update_user(
     current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> UserRead:
-    global_service_account_update = _is_global_admin(current_user) and _is_service_account_only_update(payload)
+    global_service_account_update = _is_global_admin(
+        current_user
+    ) and _is_service_account_only_update(payload)
     if global_service_account_update:
         user = session.query(User).filter(User.user_id == user_id).first()
     else:
-        user = _active_space_user_query(session, space_ctx).filter(User.user_id == user_id).first()
+        user = (
+            _active_space_user_query(session, space_ctx)
+            .filter(User.user_id == user_id)
+            .first()
+        )
     if not user:
-        detail = "User not found" if global_service_account_update else "User not found in active space"
+        detail = (
+            "User not found"
+            if global_service_account_update
+            else "User not found in active space"
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
@@ -465,7 +504,9 @@ def update_user(
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required"
+            )
         user.is_service_account = bool(payload.is_service_account)
     session.add(user)
     session.commit()
@@ -484,13 +525,23 @@ def update_user_by_soeid(
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> UserRead:
     soeid_norm = soeid.strip().lower()
-    global_service_account_update = _is_global_admin(current_user) and _is_service_account_only_update(payload)
+    global_service_account_update = _is_global_admin(
+        current_user
+    ) and _is_service_account_only_update(payload)
     if global_service_account_update:
         user = session.query(User).filter(User.soeid == soeid_norm).first()
     else:
-        user = _active_space_user_query(session, space_ctx).filter(User.soeid == soeid_norm).first()
+        user = (
+            _active_space_user_query(session, space_ctx)
+            .filter(User.soeid == soeid_norm)
+            .first()
+        )
     if not user:
-        detail = "User not found" if global_service_account_update else "User not found in active space"
+        detail = (
+            "User not found"
+            if global_service_account_update
+            else "User not found in active space"
+        )
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
@@ -507,7 +558,9 @@ def update_user_by_soeid(
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required"
+            )
         user.is_service_account = bool(payload.is_service_account)
     session.add(user)
     session.commit()
@@ -527,7 +580,14 @@ def import_users(
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:
-        return {"count": 0, "created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
+        return {
+            "count": 0,
+            "created": 0,
+            "updated": 0,
+            "errors": errors,
+            "total_rows": 0,
+            "dry_run": dry_run,
+        }
     created = 0
     updated = 0
     affected_user_ids: set[str] = set()
@@ -542,7 +602,9 @@ def import_users(
             errors.append(f"Row {idx}: soeid and display_name are required")
             continue
         if soeid in seen_soeids:
-            errors.append(f"Row {idx}: duplicate soeid '{soeid}' in CSV (strict-first policy)")
+            errors.append(
+                f"Row {idx}: duplicate soeid '{soeid}' in CSV (strict-first policy)"
+            )
             continue
         seen_soeids.add(soeid)
         capacity_fte = 1.0
@@ -550,7 +612,9 @@ def import_users(
             try:
                 capacity_fte = max(float(capacity_fte_raw), 0.0)
             except ValueError:
-                errors.append(f"Row {idx}: invalid capacity_fte_month '{capacity_fte_raw}'")
+                errors.append(
+                    f"Row {idx}: invalid capacity_fte_month '{capacity_fte_raw}'"
+                )
                 continue
         elif capacity_raw:
             try:
@@ -563,7 +627,9 @@ def import_users(
             try:
                 ensure_actor_can_modify_user(actor=current_user, target=user)
             except HTTPException:
-                errors.append(f"Row {idx}: only global admin can modify global admin accounts")
+                errors.append(
+                    f"Row {idx}: only global admin can modify global admin accounts"
+                )
                 continue
             if dry_run:
                 updated += 1
@@ -587,7 +653,9 @@ def import_users(
                 role="user",
                 is_active=True,
                 team_tag=team_tag or None,
-                capacity_hours=max(int(round(capacity_fte * _HOURS_PER_FTE_CAPACITY)), 0),
+                capacity_hours=max(
+                    int(round(capacity_fte * _HOURS_PER_FTE_CAPACITY)), 0
+                ),
                 capacity_fte_month=round(capacity_fte, 3),
             )
             session.add(user)
@@ -621,7 +689,7 @@ def export_users(
     def _load():
         users = (
             _active_space_user_query(session, space_ctx)
-            .filter(User.is_active == True)
+            .filter(User.is_active.is_(True))
             .order_by(User.display_name.asc())
             .all()
         )
@@ -646,14 +714,12 @@ def export_users(
         loader=_load,
     )
     buffer = StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=["soeid", "display_name", "team_tag", "capacity_fte_month"])
+    writer = csv.DictWriter(
+        buffer, fieldnames=["soeid", "display_name", "team_tag", "capacity_fte_month"]
+    )
     writer.writeheader()
     for row in rows:
         writer.writerow(row)
     buffer.seek(0)
     headers = {"Content-Disposition": 'attachment; filename="roster.csv"'}
     return StreamingResponse(buffer, media_type="text/csv", headers=headers)
-
-
-
-

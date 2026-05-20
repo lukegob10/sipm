@@ -10,8 +10,12 @@ from backend.main import app as fastapi_app
 
 def _seed_users_in_two_spaces(db_sessionmaker):
     with db_sessionmaker() as session:
-        space_a = Space(space_id="space-users-a", name="Users A", slug="users-a", is_active=True)
-        space_b = Space(space_id="space-users-b", name="Users B", slug="users-b", is_active=True)
+        space_a = Space(
+            space_id="space-users-a", name="Users A", slug="users-a", is_active=True
+        )
+        space_b = Space(
+            space_id="space-users-b", name="Users B", slug="users-b", is_active=True
+        )
         session.add_all([space_a, space_b])
 
         user_a = User(
@@ -72,7 +76,9 @@ def _restore_current_space_override(original):
 @pytest.mark.anyio
 async def test_list_users_is_scoped_to_active_space(client, db_sessionmaker):
     space_a, _ = _seed_users_in_two_spaces(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_a, role="member")
         resp = await client.get("/project-manager/api/users")
@@ -85,9 +91,13 @@ async def test_list_users_is_scoped_to_active_space(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
-async def test_update_user_requires_space_admin_and_space_membership(client, db_sessionmaker):
+async def test_update_user_requires_space_admin_and_space_membership(
+    client, db_sessionmaker
+):
     space_a, _ = _seed_users_in_two_spaces(db_sessionmaker)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_a, role="member")
         denied = await client.patch(
@@ -120,12 +130,19 @@ async def test_update_user_requires_space_admin_and_space_membership(client, db_
 @pytest.mark.anyio
 async def test_import_users_links_new_users_to_active_space(client, db_sessionmaker):
     with db_sessionmaker() as session:
-        space = Space(space_id="space-users-import", name="Users Import", slug="users-import", is_active=True)
+        space = Space(
+            space_id="space-users-import",
+            name="Users Import",
+            slug="users-import",
+            is_active=True,
+        )
         session.add(space)
         session.commit()
         space_id = space.space_id
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override(space_id, role="space_admin")
         csv_text = "\n".join(
@@ -186,10 +203,22 @@ async def test_import_users_rejects_duplicate_soeid_rows(client):
 
 
 @pytest.mark.anyio
-async def test_importing_shared_user_invalidates_other_space_user_caches(client, db_sessionmaker):
+async def test_importing_shared_user_invalidates_other_space_user_caches(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
-        space_a = Space(space_id="space-users-import-cache-a", name="Users Import Cache A", slug="users-import-cache-a", is_active=True)
-        space_b = Space(space_id="space-users-import-cache-b", name="Users Import Cache B", slug="users-import-cache-b", is_active=True)
+        space_a = Space(
+            space_id="space-users-import-cache-a",
+            name="Users Import Cache A",
+            slug="users-import-cache-a",
+            is_active=True,
+        )
+        space_b = Space(
+            space_id="space-users-import-cache-b",
+            name="Users Import Cache B",
+            slug="users-import-cache-b",
+            is_active=True,
+        )
         shared_user = User(
             user_id="shared-user-import-cache",
             soeid="sharedimportcache",
@@ -217,7 +246,9 @@ async def test_importing_shared_user_invalidates_other_space_user_caches(client,
         session.commit()
 
     clear_cache()
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override("space-users-import-cache-a", role="member")
         primed = await client.get("/project-manager/api/users")
@@ -251,10 +282,22 @@ async def test_importing_shared_user_invalidates_other_space_user_caches(client,
 
 
 @pytest.mark.anyio
-async def test_updating_shared_user_invalidates_other_space_user_caches(client, db_sessionmaker):
+async def test_updating_shared_user_invalidates_other_space_user_caches(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
-        space_a = Space(space_id="space-users-cache-a", name="Users Cache A", slug="users-cache-a", is_active=True)
-        space_b = Space(space_id="space-users-cache-b", name="Users Cache B", slug="users-cache-b", is_active=True)
+        space_a = Space(
+            space_id="space-users-cache-a",
+            name="Users Cache A",
+            slug="users-cache-a",
+            is_active=True,
+        )
+        space_b = Space(
+            space_id="space-users-cache-b",
+            name="Users Cache B",
+            slug="users-cache-b",
+            is_active=True,
+        )
         shared_user = User(
             user_id="shared-user-cache",
             soeid="sharedcacheuser",
@@ -282,7 +325,9 @@ async def test_updating_shared_user_invalidates_other_space_user_caches(client, 
         session.commit()
 
     clear_cache()
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override("space-users-cache-a", role="member")
         primed = await client.get("/project-manager/api/users")
@@ -307,7 +352,9 @@ async def test_updating_shared_user_invalidates_other_space_user_caches(client, 
 
 
 @pytest.mark.anyio
-async def test_import_users_cannot_modify_global_admin_account_as_space_admin(client, db_sessionmaker):
+async def test_import_users_cannot_modify_global_admin_account_as_space_admin(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         space = Space(
             space_id="space-global-admin-import",
@@ -327,9 +374,15 @@ async def test_import_users_cannot_modify_global_admin_account_as_space_admin(cl
         session.add_all([space, target])
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
-    original_require_user = fastapi_app.dependency_overrides.get(deps_module.require_user)
-    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
+    original_require_user = fastapi_app.dependency_overrides.get(
+        deps_module.require_user
+    )
+    original_current_user = fastapi_app.dependency_overrides.get(
+        deps_module.current_user
+    )
     try:
         _set_current_space_override("space-global-admin-import", role="space_admin")
         actor = SimpleNamespace(
@@ -358,10 +411,16 @@ async def test_import_users_cannot_modify_global_admin_account_as_space_admin(cl
         assert body["count"] == 0
         assert body["created"] == 0
         assert body["updated"] == 0
-        assert body["errors"] == ["Row 2: only global admin can modify global admin accounts"]
+        assert body["errors"] == [
+            "Row 2: only global admin can modify global admin accounts"
+        ]
 
         with db_sessionmaker() as session:
-            user = session.query(User).filter(User.user_id == "import-global-admin").first()
+            user = (
+                session.query(User)
+                .filter(User.user_id == "import-global-admin")
+                .first()
+            )
             assert user is not None
             assert user.display_name == "Import Global Admin"
             assert user.team_tag is None
@@ -379,17 +438,28 @@ async def test_import_users_cannot_modify_global_admin_account_as_space_admin(cl
         if original_require_user is None:
             fastapi_app.dependency_overrides.pop(deps_module.require_user, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.require_user] = original_require_user
+            fastapi_app.dependency_overrides[deps_module.require_user] = (
+                original_require_user
+            )
         if original_current_user is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_user, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_user] = original_current_user
+            fastapi_app.dependency_overrides[deps_module.current_user] = (
+                original_current_user
+            )
 
 
 @pytest.mark.anyio
-async def test_non_global_admin_cannot_modify_global_admin_account(client, db_sessionmaker):
+async def test_non_global_admin_cannot_modify_global_admin_account(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
-        space = Space(space_id="space-global-admin-lock", name="Global Admin Lock", slug="global-admin-lock", is_active=True)
+        space = Space(
+            space_id="space-global-admin-lock",
+            name="Global Admin Lock",
+            slug="global-admin-lock",
+            is_active=True,
+        )
         target = User(
             user_id="target-global-admin",
             soeid="globaladmin1",
@@ -409,12 +479,24 @@ async def test_non_global_admin_cannot_modify_global_admin_account(client, db_se
         session.add_all([space, target, membership])
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
-    original_require_user = fastapi_app.dependency_overrides.get(deps_module.require_user)
-    original_current_user = fastapi_app.dependency_overrides.get(deps_module.current_user)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
+    original_require_user = fastapi_app.dependency_overrides.get(
+        deps_module.require_user
+    )
+    original_current_user = fastapi_app.dependency_overrides.get(
+        deps_module.current_user
+    )
     try:
         _set_current_space_override("space-global-admin-lock", role="space_admin")
-        actor = SimpleNamespace(user_id="space-admin-actor", role="user", is_active=True, display_name="Actor", soeid="actor1")
+        actor = SimpleNamespace(
+            user_id="space-admin-actor",
+            role="user",
+            is_active=True,
+            display_name="Actor",
+            soeid="actor1",
+        )
         fastapi_app.dependency_overrides[deps_module.require_user] = lambda: actor
         fastapi_app.dependency_overrides[deps_module.current_user] = lambda: actor
 
@@ -424,17 +506,24 @@ async def test_non_global_admin_cannot_modify_global_admin_account(client, db_se
         )
         assert resp.status_code == 403, resp.text
         assert resp.headers["X-Error-Code"] == "GLOBAL_ADMIN_REQUIRED"
-        assert resp.json()["detail"] == "Only global admin can modify global admin accounts"
+        assert (
+            resp.json()["detail"]
+            == "Only global admin can modify global admin accounts"
+        )
     finally:
         _restore_current_space_override(original_current_space)
         if original_require_user is None:
             fastapi_app.dependency_overrides.pop(deps_module.require_user, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.require_user] = original_require_user
+            fastapi_app.dependency_overrides[deps_module.require_user] = (
+                original_require_user
+            )
         if original_current_user is None:
             fastapi_app.dependency_overrides.pop(deps_module.current_user, None)
         else:
-            fastapi_app.dependency_overrides[deps_module.current_user] = original_current_user
+            fastapi_app.dependency_overrides[deps_module.current_user] = (
+                original_current_user
+            )
 
 
 @pytest.mark.anyio
@@ -471,7 +560,9 @@ async def test_global_admin_can_issue_password_reset_by_soeid(client, db_session
 
 
 @pytest.mark.anyio
-async def test_password_reset_request_rejects_out_of_range_expiry(client, db_sessionmaker):
+async def test_password_reset_request_rejects_out_of_range_expiry(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         target = User(
             user_id="password-reset-invalid-expiry",
@@ -501,7 +592,12 @@ async def test_password_reset_request_rejects_out_of_range_expiry(client, db_ses
 @pytest.mark.anyio
 async def test_cannot_deactivate_last_global_admin(client, db_sessionmaker):
     with db_sessionmaker() as session:
-        space = Space(space_id="space-last-global-admin", name="Last Global Admin", slug="last-global-admin", is_active=True)
+        space = Space(
+            space_id="space-last-global-admin",
+            name="Last Global Admin",
+            slug="last-global-admin",
+            is_active=True,
+        )
         first_admin = User(
             user_id="global-admin-a",
             soeid="globaladmina",
@@ -521,7 +617,9 @@ async def test_cannot_deactivate_last_global_admin(client, db_sessionmaker):
         session.add_all([space, first_admin, first_membership])
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override("space-last-global-admin", role="space_admin")
         blocked = await client.patch(
@@ -530,7 +628,9 @@ async def test_cannot_deactivate_last_global_admin(client, db_sessionmaker):
         )
         assert blocked.status_code == 400, blocked.text
         assert blocked.headers["X-Error-Code"] == "LAST_GLOBAL_ADMIN"
-        assert blocked.json()["detail"] == "At least one active global_admin is required"
+        assert (
+            blocked.json()["detail"] == "At least one active global_admin is required"
+        )
 
         with db_sessionmaker() as session:
             second_admin = User(
@@ -563,7 +663,9 @@ async def test_cannot_deactivate_last_global_admin(client, db_sessionmaker):
 
 
 @pytest.mark.anyio
-async def test_cannot_deactivate_user_who_is_last_active_space_admin_in_another_space(client, db_sessionmaker):
+async def test_cannot_deactivate_user_who_is_last_active_space_admin_in_another_space(
+    client, db_sessionmaker
+):
     with db_sessionmaker() as session:
         space_a = Space(
             space_id="space-cross-admin-a",
@@ -629,7 +731,9 @@ async def test_cannot_deactivate_user_who_is_last_active_space_admin_in_another_
         )
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = fastapi_app.dependency_overrides.get(
+        deps_module.current_space
+    )
     try:
         _set_current_space_override("space-cross-admin-a", role="space_admin")
         blocked = await client.patch(
@@ -638,7 +742,10 @@ async def test_cannot_deactivate_user_who_is_last_active_space_admin_in_another_
         )
         assert blocked.status_code == 400, blocked.text
         assert blocked.headers["X-Error-Code"] == "LAST_SPACE_ADMIN"
-        assert blocked.json()["detail"] == "Space must retain at least one active space_admin"
+        assert (
+            blocked.json()["detail"]
+            == "Space must retain at least one active space_admin"
+        )
 
         with db_sessionmaker() as session:
             extra_admin = User(

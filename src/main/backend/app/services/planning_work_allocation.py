@@ -25,7 +25,7 @@ def active_space_user_query(session: Session, space_ctx: SpaceContext):
         .filter(SpaceMembership.space_id == space_ctx.space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active.is_(True))
     )
 
 
@@ -136,11 +136,15 @@ def task_fte_months(subcomponent: Subcomponent, *, hours_per_fte_month: float) -
 def month_from_token(month_token: str) -> date:
     token = str(month_token or "").strip()
     if not re.fullmatch(r"\d{4}-\d{2}", token):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM"
+        )
     try:
         return date.fromisoformat(f"{token}-01")
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM") from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="month must use YYYY-MM"
+        ) from exc
 
 
 def month_token(value: Optional[date]) -> str:
@@ -150,13 +154,23 @@ def month_token(value: Optional[date]) -> str:
     return f"{value.year:04d}-{value.month:02d}"
 
 
-def active_person_by_soeid(session: Session, soeid: str, space_ctx: SpaceContext) -> User:
+def active_person_by_soeid(
+    session: Session, soeid: str, space_ctx: SpaceContext
+) -> User:
     norm = str(soeid or "").strip().lower()
     if not norm:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
-    user = active_space_user_query(session, space_ctx).filter(func.lower(User.soeid) == norm).first()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
+        )
+    user = (
+        active_space_user_query(session, space_ctx)
+        .filter(func.lower(User.soeid) == norm)
+        .first()
+    )
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Person not found"
+        )
     return user
 
 
@@ -167,10 +181,14 @@ def team_name_to_id_map(session: Session, space_ctx: SpaceContext) -> dict[str, 
         .filter(Team.space_id == space_ctx.space_id)
         .all()
     )
-    return {str(row.name or "").strip().lower(): row.team_id for row in rows if row.name}
+    return {
+        str(row.name or "").strip().lower(): row.team_id for row in rows if row.name
+    }
 
 
-def team_display_name(session: Session, team_id: Optional[str], space_ctx: SpaceContext) -> Optional[str]:
+def team_display_name(
+    session: Session, team_id: Optional[str], space_ctx: SpaceContext
+) -> Optional[str]:
     if not team_id:
         return None
     team = (

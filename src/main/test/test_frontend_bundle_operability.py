@@ -36,9 +36,9 @@ def test_frontend_bundle_error_accepts_explicit_bundle_paths(tmp_path):
         js_dir / "app.js",
     )
 
-    assert frontend_module.frontend_bundle_error(base_dir=base_dir, required_files=required_files) == (
-        "Frontend bundle missing required files: ui/styles.css, ui/js/app.js"
-    )
+    assert frontend_module.frontend_bundle_error(
+        base_dir=base_dir, required_files=required_files
+    ) == ("Frontend bundle missing required files: ui/styles.css, ui/js/app.js")
 
 
 def test_frontend_server_uses_explicit_paths(tmp_path):
@@ -59,7 +59,9 @@ def test_frontend_server_uses_explicit_paths(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_frontend_root_returns_503_when_frontend_bundle_is_missing(client, monkeypatch):
+async def test_frontend_root_returns_503_when_frontend_bundle_is_missing(
+    client, monkeypatch
+):
     monkeypatch.setattr(
         frontend_module,
         "frontend_bundle_error",

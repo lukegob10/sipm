@@ -30,7 +30,9 @@ def _env_value(profile: str, name: str) -> str:
     value = os.getenv(f"TA_{profile_key}_{name}") or os.getenv(f"TA_{name}")
     if value:
         return value
-    raise RuntimeError(f"Missing TA_{profile_key}_{name} or TA_{name} for treasury_analytics local mock.")
+    raise RuntimeError(
+        f"Missing TA_{profile_key}_{name} or TA_{name} for treasury_analytics local mock."
+    )
 
 
 class TAConnection:

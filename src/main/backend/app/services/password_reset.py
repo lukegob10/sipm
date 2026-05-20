@@ -32,7 +32,9 @@ _TEMP_PASSWORD_INVALID_MESSAGE = "Temporary password is invalid"
 
 
 def _generate_temp_password(length: int = 14) -> str:
-    return "".join(secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(max(int(length), 10)))
+    return "".join(
+        secrets.choice(_TEMP_PASSWORD_ALPHABET) for _ in range(max(int(length), 10))
+    )
 
 
 def issue_temp_password(
@@ -46,7 +48,10 @@ def issue_temp_password(
     ttl = ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES
     if expires_minutes is not None:
         ttl = int(expires_minutes)
-        if ttl < _MIN_TEMP_PASSWORD_RESET_MINUTES or ttl > _MAX_TEMP_PASSWORD_RESET_MINUTES:
+        if (
+            ttl < _MIN_TEMP_PASSWORD_RESET_MINUTES
+            or ttl > _MAX_TEMP_PASSWORD_RESET_MINUTES
+        ):
             raise ValueError(
                 "expires_minutes must be between "
                 f"{_MIN_TEMP_PASSWORD_RESET_MINUTES} and {_MAX_TEMP_PASSWORD_RESET_MINUTES}."

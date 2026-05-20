@@ -12,6 +12,7 @@ from ..security import security_http_exception
 
 TOKEN_PREFIX = "sipm_pat_"
 LAST_USED_WRITE_INTERVAL = timedelta(minutes=5)
+API_TOKEN_INVALID_MESSAGE = "Invalid API token"
 
 
 def _utc_now_naive() -> datetime:
@@ -47,21 +48,21 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="API_TOKEN_INVALID",
-            message="Invalid API token",
+            message=API_TOKEN_INVALID_MESSAGE,
         )
     token_row = session.query(ApiToken).filter(ApiToken.token_hash == hash_api_token(raw)).first()
     if not token_row or not api_token_is_active(token_row):
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="API_TOKEN_INVALID",
-            message="Invalid API token",
+            message=API_TOKEN_INVALID_MESSAGE,
         )
     user = session.query(User).filter(User.user_id == token_row.user_id).first()
     if not user or not user.is_active or not user.is_service_account:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            code="API_TOKEN_USER_INVALID",
-            message="API token user inactive or invalid",
+            code="API_TOKEN_INVALID",
+            message=API_TOKEN_INVALID_MESSAGE,
         )
     now = _utc_now_naive()
     if token_row.last_used_at is None or token_row.last_used_at <= now - LAST_USED_WRITE_INTERVAL:

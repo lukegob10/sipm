@@ -19,6 +19,7 @@ from .models import User
 from .security import security_http_exception
 from .services.audit_log import log_changes
 from .services.api_tokens import authenticate_api_token
+from .services.auth_state import reject_if_locked
 from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
 
 
@@ -75,17 +76,7 @@ def _raise_forbidden_role(message: str) -> None:
 
 
 def _ensure_user_not_locked(user: User) -> None:
-    if not user.locked_until:
-        return
-    locked_until = user.locked_until
-    if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    if locked_until > datetime.now(timezone.utc):
-        raise security_http_exception(
-            status_code=status.HTTP_423_LOCKED,
-            code="ACCOUNT_LOCKED",
-            message="Account locked",
-        )
+    reject_if_locked(user, message="Account locked")
 
 
 def authenticate_access_token(session: Session, token: str | None) -> User:

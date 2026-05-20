@@ -21,6 +21,7 @@ from backend.app.auth.auth import (
     verify_password,
 )
 from backend.app.models import ApiToken, Space, SpaceMembership, User
+from backend.app.services.api_tokens import hash_api_token
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -364,6 +365,25 @@ def test_validate_auth_configuration_accepts_common_truthy_secure_cookie_values(
             reloaded = importlib.reload(auth_module)
             assert reloaded.SECURE_COOKIES is True
             reloaded.validate_auth_configuration()
+    finally:
+        importlib.reload(auth_module)
+
+
+def test_validate_auth_configuration_rejects_weak_non_dev_secret(monkeypatch):
+    import backend.app.auth.auth as auth_module
+
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("ENV", "prod")
+            env.setenv("SIPM_SECRET_KEY", "short-secret")
+            env.setenv("SIPM_SECURE_COOKIES", "true")
+            env.setenv("SIPM_ALLOW_SELF_REGISTER", "false")
+            reloaded = importlib.reload(auth_module)
+            with pytest.raises(
+                RuntimeError,
+                match="SIPM_SECRET_KEY must be at least 32 characters in non-dev environments.",
+            ):
+                reloaded.validate_auth_configuration()
     finally:
         importlib.reload(auth_module)
 
@@ -904,6 +924,65 @@ async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_c
 
 
 @pytest.mark.anyio
+async def test_temp_password_reset_uses_generic_public_failures(auth_client, db_sessionmaker):
+    expired_temp_password = "ExpiredTempPassword123"
+    with db_sessionmaker() as session:
+        inactive = User(
+            soeid="tempinactive1",
+            email="tempinactive1@citi.com",
+            display_name="Temp Inactive",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=False,
+            force_password_reset=True,
+            temp_password_hash=hash_password("TempPassword123"),
+            temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        )
+        missing_temp = User(
+            soeid="tempmissing1",
+            email="tempmissing1@citi.com",
+            display_name="Temp Missing",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+            force_password_reset=True,
+        )
+        expired = User(
+            soeid="tempexpired1",
+            email="tempexpired1@citi.com",
+            display_name="Temp Expired",
+            password_hash=hash_password("OldPassword123"),
+            role="user",
+            is_active=True,
+            force_password_reset=True,
+            temp_password_hash=hash_password(expired_temp_password),
+            temp_password_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        session.add_all([inactive, missing_temp, expired])
+        session.commit()
+
+    cases = [
+        ("tempunknown1", "AnyTempPassword123"),
+        ("tempinactive1", "TempPassword123"),
+        ("tempmissing1", "TempPassword123"),
+        ("tempexpired1", expired_temp_password),
+    ]
+    for soeid, temp_password in cases:
+        resp = await auth_client.post(
+            "/project-manager/api/auth/reset-password",
+            json={
+                "soeid": soeid,
+                "temp_password": temp_password,
+                "new_password": "NewPassword123",
+                "confirm_password": "NewPassword123",
+            },
+        )
+        assert resp.status_code == 401, soeid
+        assert resp.headers["X-Error-Code"] == "TEMP_PASSWORD_INVALID"
+        assert resp.json()["detail"] == "Temporary password is invalid"
+
+
+@pytest.mark.anyio
 async def test_admin_issued_service_account_api_token_authenticates_api(auth_client, db_sessionmaker):
     await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT1", display_name="Admin PAT", role="global_admin")
     with db_sessionmaker() as session:
@@ -1075,6 +1154,85 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
         headers={"Authorization": f"Bearer {body['token']}"},
     )
     assert rejected.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_api_token_auth_rejects_expired_inactive_and_non_service_tokens_generically(
+    auth_client,
+    db_sessionmaker,
+):
+    token_cases = {
+        "expired": "sipm_pat_expired_token_value",
+        "inactive": "sipm_pat_inactive_token_value",
+        "normal": "sipm_pat_normal_token_value",
+    }
+    with db_sessionmaker() as session:
+        expired_user = User(
+            user_id="expired-token-user",
+            soeid="svcexpired1",
+            email="svcexpired1@citi.com",
+            display_name="Expired Token User",
+            password_hash=hash_password("ServicePassword123"),
+            role="user",
+            is_active=True,
+            is_service_account=True,
+        )
+        inactive_user = User(
+            user_id="inactive-token-user",
+            soeid="svcinactive1",
+            email="svcinactive1@citi.com",
+            display_name="Inactive Token User",
+            password_hash=hash_password("ServicePassword123"),
+            role="user",
+            is_active=False,
+            is_service_account=True,
+        )
+        normal_user = User(
+            user_id="normal-token-user",
+            soeid="normalpat2",
+            email="normalpat2@citi.com",
+            display_name="Normal Token User",
+            password_hash=hash_password("NormalPassword123"),
+            role="user",
+            is_active=True,
+            is_service_account=False,
+        )
+        session.add_all([expired_user, inactive_user, normal_user])
+        session.flush()
+        session.add_all(
+            [
+                ApiToken(
+                    user_id=expired_user.user_id,
+                    name="Expired",
+                    token_hash=hash_api_token(token_cases["expired"]),
+                    created_by_user_id="admin-user",
+                    expires_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1),
+                ),
+                ApiToken(
+                    user_id=inactive_user.user_id,
+                    name="Inactive",
+                    token_hash=hash_api_token(token_cases["inactive"]),
+                    created_by_user_id="admin-user",
+                ),
+                ApiToken(
+                    user_id=normal_user.user_id,
+                    name="Normal",
+                    token_hash=hash_api_token(token_cases["normal"]),
+                    created_by_user_id="admin-user",
+                ),
+            ]
+        )
+        session.commit()
+
+    auth_client.cookies.clear()
+    for token_value in token_cases.values():
+        resp = await auth_client.get(
+            "/project-manager/api/auth/me",
+            headers={"Authorization": f"Bearer {token_value}"},
+        )
+        assert resp.status_code == 401
+        assert resp.headers["X-Error-Code"] == "API_TOKEN_INVALID"
+        assert resp.json()["detail"] == "Invalid API token"
 
 
 @pytest.mark.anyio

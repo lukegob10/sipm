@@ -423,6 +423,7 @@ async def test_non_global_admin_cannot_modify_global_admin_account(client, db_se
             json={"team_tag": "Platform"},
         )
         assert resp.status_code == 403, resp.text
+        assert resp.headers["X-Error-Code"] == "GLOBAL_ADMIN_REQUIRED"
         assert resp.json()["detail"] == "Only global admin can modify global admin accounts"
     finally:
         _restore_current_space_override(original_current_space)
@@ -528,6 +529,7 @@ async def test_cannot_deactivate_last_global_admin(client, db_sessionmaker):
             json={"is_active": False},
         )
         assert blocked.status_code == 400, blocked.text
+        assert blocked.headers["X-Error-Code"] == "LAST_GLOBAL_ADMIN"
         assert blocked.json()["detail"] == "At least one active global_admin is required"
 
         with db_sessionmaker() as session:
@@ -635,6 +637,7 @@ async def test_cannot_deactivate_user_who_is_last_active_space_admin_in_another_
             json={"is_active": False},
         )
         assert blocked.status_code == 400, blocked.text
+        assert blocked.headers["X-Error-Code"] == "LAST_SPACE_ADMIN"
         assert blocked.json()["detail"] == "Space must retain at least one active space_admin"
 
         with db_sessionmaker() as session:

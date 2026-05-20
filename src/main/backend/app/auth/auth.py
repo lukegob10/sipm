@@ -12,6 +12,7 @@ from ..paths import COOKIE_PATH
 from ..security import security_http_exception
 
 DEFAULT_DEV_SECRET = "dev-secret-change-me-at-least-32-bytes"
+MIN_NON_DEV_SECRET_LENGTH = 32
 
 
 def _deployment_env() -> str:
@@ -107,6 +108,10 @@ def validate_auth_configuration() -> None:
             raise RuntimeError(f"{setting_name} must be greater than or equal to 0.")
     if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
+    if IS_NON_DEV and len(SECRET_KEY) < MIN_NON_DEV_SECRET_LENGTH:
+        raise RuntimeError(
+            f"SIPM_SECRET_KEY must be at least {MIN_NON_DEV_SECRET_LENGTH} characters in non-dev environments."
+        )
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
     if IS_NON_DEV and ALLOW_SELF_REGISTER:

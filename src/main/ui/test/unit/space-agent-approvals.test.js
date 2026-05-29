@@ -52,7 +52,11 @@ function createHarness() {
     return Promise.resolve({});
   });
   let renderer;
-  const renderGovernanceHub = (section = "agent-approvals") => renderer.renderGovernanceHub(section);
+  const renderCalls = [];
+  const renderGovernanceHub = (section = "agent-approvals") => {
+    renderCalls.push(section);
+    return renderer.renderGovernanceHub(section);
+  };
   const controller = createSpaceGovernanceController({
     state,
     els,
@@ -100,7 +104,7 @@ function createHarness() {
     setSpaceGovernanceNotice: vi.fn(),
   });
   controller.bindSpaceAdminControls();
-  return { api, controller, els, state, renderGovernanceHub };
+  return { api, controller, els, renderCalls, state, renderGovernanceHub };
 }
 
 
@@ -112,6 +116,7 @@ describe("agent approvals governance UI", () => {
 
     expect(els.spaceGovernanceShell.textContent).toContain("Agent Approvals");
     expect(els.spaceGovernanceShell.textContent).toContain("Update delivery status");
+    expect(els.spaceGovernanceShell.textContent).not.toContain("cr-1");
     expect(els.spaceGovernanceShell.textContent).toContain("Project One");
     expect(els.spaceGovernanceShell.textContent).toContain("active");
     expect(els.spaceGovernanceShell.textContent).toContain("complete");
@@ -119,7 +124,7 @@ describe("agent approvals governance UI", () => {
   });
 
   it("approves selected requests through the bulk endpoint", async () => {
-    const { api, els, renderGovernanceHub } = createHarness();
+    const { api, els, renderCalls, renderGovernanceHub } = createHarness();
 
     renderGovernanceHub();
     const checkbox = els.spaceGovernanceShell.querySelector("[data-agent-change-request-checkbox]");
@@ -138,5 +143,6 @@ describe("agent approvals governance UI", () => {
         })
       );
     });
+    expect(renderCalls).toContain("agent-approvals");
   });
 });

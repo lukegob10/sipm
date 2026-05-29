@@ -245,6 +245,7 @@ export function createSpaceGovernanceController({
         state.agentChangeRequestsLoaded = false;
         await refreshAgentChangeRequests({ force: true });
         await refreshFromServer("all");
+        renderGovernanceHub("agent-approvals");
         const completed = approving
           ? Number(result?.approved || 0)
           : Number(result?.rejected || 0);

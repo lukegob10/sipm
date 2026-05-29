@@ -51,9 +51,16 @@ def _depends_target(default_expr):
 
 def _is_space_enforced(dep_targets):
     for target in dep_targets:
-        if target in {"current_space_dep", "current_space", "require_global_admin"}:
+        if target in {
+            "current_space_dep",
+            "current_space",
+            "current_agent_space",
+            "require_global_admin",
+        }:
             return True
         if target.startswith("require_space_role("):
+            return True
+        if target.startswith("require_agent_space_role("):
             return True
     return False
 

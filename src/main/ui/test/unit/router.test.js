@@ -78,12 +78,12 @@ describe("router controller", () => {
     expect(controller.resolveAccessibleView("unknown")).toBe("master");
   });
 
-  it("allows member users to access team capacity but not governance routes", () => {
+  it("allows member users to access team capacity and agent approvals but not platform access", () => {
     const { controller, state } = buildRouterHarness();
     state.activeSpace = { space_id: "space-1", space_role: "member" };
 
     expect(controller.resolveAccessibleView("team-capacity")).toBe("team-capacity");
-    expect(controller.resolveAccessibleView("spaces")).toBe("master");
+    expect(controller.resolveAccessibleView("spaces")).toBe("spaces");
     expect(controller.resolveAccessibleView("access")).toBe("master");
   });
 

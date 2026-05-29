@@ -5,6 +5,23 @@ from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
 
 from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from .agent import (
+    AgentChangeRequestBulkReview,
+    AgentChangeRequestBulkReviewResult,
+    AgentChangeRequestDiffItem,
+    AgentChangeRequestListRead,
+    AgentChangeRequestRead,
+    AgentChangeRequestReview,
+    AgentManifestRead,
+    AgentPatchOperation,
+    AgentPatchOperationResult,
+    AgentPatchRequest,
+    AgentPatchResponse,
+    AgentProjectNode,
+    AgentSolutionNode,
+    AgentSubcomponentNode,
+    AgentWorkGraphRead,
+)
 from .analytics import (
     AnalyticsDailyPointRead,
     AnalyticsDashboardRead,
@@ -39,6 +56,52 @@ from .planning import (
     WorkAllocationTeamUpdate,
 )
 
+__all__ = [
+    "AnalyticsDailyPointRead",
+    "AnalyticsDashboardRead",
+    "AgentChangeRequestBulkReview",
+    "AgentChangeRequestBulkReviewResult",
+    "AgentChangeRequestDiffItem",
+    "AgentChangeRequestListRead",
+    "AgentChangeRequestRead",
+    "AgentChangeRequestReview",
+    "AgentManifestRead",
+    "AgentPatchOperation",
+    "AgentPatchOperationResult",
+    "AgentPatchRequest",
+    "AgentPatchResponse",
+    "AgentProjectNode",
+    "AgentSolutionNode",
+    "AgentSubcomponentNode",
+    "AgentWorkGraphRead",
+    "AnalyticsFailureHotspotRead",
+    "AnalyticsPerformanceRouteRead",
+    "AnalyticsPerformanceStatsRead",
+    "AnalyticsPerformanceSummaryRead",
+    "AnalyticsRouteStatsRead",
+    "AnalyticsRouteViewRead",
+    "AnalyticsScopeRead",
+    "AnalyticsSummaryCardsRead",
+    "AnalyticsSummaryRead",
+    "AnalyticsWorkflowRead",
+    "PerformanceSampleIn",
+    "TelemetryBatchIn",
+    "TelemetryIngestResultRead",
+    "UsageEventIn",
+    "WorkAllocationAssignmentCreate",
+    "WorkAllocationAssignmentRead",
+    "WorkAllocationAssignmentUpdate",
+    "WorkAllocationBoardRead",
+    "WorkAllocationPersonCreate",
+    "WorkAllocationPersonRead",
+    "WorkAllocationPersonUpdate",
+    "WorkAllocationTaskCreate",
+    "WorkAllocationTaskRead",
+    "WorkAllocationTaskUpdate",
+    "WorkAllocationTeamCreate",
+    "WorkAllocationTeamRead",
+    "WorkAllocationTeamUpdate",
+]
 
 class TextLikeReadModel(BaseModel):
     @field_validator(

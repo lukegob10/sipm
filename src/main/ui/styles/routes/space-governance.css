@@ -448,6 +448,41 @@
   gap: 12px;
 }
 
+.agent-approval-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.agent-diff-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.agent-diff-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.agent-diff-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.compact-table table {
+  font-size: 0.9rem;
+}
+
+tr.is-selected {
+  background: var(--selected-row-bg);
+}
+
 .platform-reset-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -533,6 +568,14 @@
   }
 
   .space-directory-preview {
+    position: static;
+  }
+
+  .agent-approval-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-diff-panel {
     position: static;
   }
 

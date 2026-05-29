@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
-from ...deps import get_db, require_space_role
+from ...deps import get_db, require_non_agent_write, require_space_role
 from ...models import Subcomponent, User
 from ...schemas import SubcomponentBatchUpdate, SubcomponentCreate, SubcomponentRead, SubcomponentUpdate
 from ...services.audit_log import log_changes
@@ -53,6 +53,7 @@ def create_subcomponent(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     solution = _ensure_solution(session, solution_id, space_ctx)
     subcomponent_name = _required_subcomponent_name(payload.subcomponent_name)
@@ -146,6 +147,7 @@ def update_subcomponent(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
 
@@ -222,6 +224,7 @@ def batch_update_subcomponents(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     unique_ids: list[str] = []
     seen: set[str] = set()
@@ -331,6 +334,7 @@ def delete_subcomponent(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     subcomponent = _get_subcomponent(session, subcomponent_id, space_ctx)
     now = datetime.now(timezone.utc)

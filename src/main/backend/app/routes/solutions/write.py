@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
-from ...deps import get_db, require_space_role
+from ...deps import get_db, require_non_agent_write, require_space_role
 from ...models import Phase, Solution, User
 from ...schemas import SolutionCreate, SolutionRead, SolutionUpdate
 from ...services.audit_log import safe_log_changes
@@ -66,6 +66,7 @@ def create_solution(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     _ensure_project_exists(session, project_id, space_ctx)
     solution_name = _required_solution_name(payload.solution_name)
@@ -205,6 +206,7 @@ def update_solution(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
@@ -295,6 +297,7 @@ def delete_solution(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
     now = datetime.now(timezone.utc)

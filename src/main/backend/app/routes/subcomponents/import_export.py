@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
-from ...deps import get_db, require_space_role
+from ...deps import get_db, require_non_agent_write, require_space_role
 from ...models import Project, Solution, Subcomponent, User
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
@@ -42,6 +42,7 @@ def import_subcomponents(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     rows, errors = read_csv(csv_bytes)
     if errors:

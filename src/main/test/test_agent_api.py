@@ -172,6 +172,73 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     ]
 
 
+@pytest.mark.anyio
+async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_write(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    with db_sessionmaker() as session:
+        project = Project(
+            space_id=space_id,
+            project_name="HomeLab Server",
+            status="active",
+            sponsor="Owner",
+            sponsor_user_soeid="own123",
+            priority=1,
+        )
+        session.add(project)
+        session.commit()
+        project_id = project.project_id
+
+    direct_write = await agent_client.post(
+        f"/project-manager/api/projects/{project_id}/solutions",
+        headers=_auth_headers(token, space_id),
+        json={
+            "solution_name": "Alpha",
+            "version": "0.1.0",
+            "status": "active",
+            "rag_status": "green",
+            "current_phase": "sandbox_deploy",
+        },
+    )
+    assert direct_write.status_code == 403
+    assert direct_write.headers["X-Error-Code"] == "AGENT_APPROVAL_REQUIRED"
+
+    queued = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "Queue Alpha for approval",
+            "idempotency_key": "alpha-approval-required",
+            "operations": [
+                {
+                    "client_operation_id": "create-alpha",
+                    "op": "create",
+                    "entity": "solution",
+                    "project_id": project_id,
+                    "fields": {
+                        "solution_name": "Alpha",
+                        "version": "0.1.0",
+                        "status": "active",
+                        "rag_status": "green",
+                    },
+                }
+            ],
+        },
+    )
+    assert queued.status_code == 201, queued.text
+    assert queued.json()["status"] == "pending"
+    with db_sessionmaker() as session:
+        assert (
+            session.query(Solution)
+            .filter(Solution.project_id == project_id)
+            .filter(Solution.solution_name == "Alpha")
+            .first()
+            is None
+        )
+
+
 def _seed_work_graph(db_sessionmaker):
     token, space_id = _seed_agent_token(db_sessionmaker)
     other_token, other_space_id = _seed_agent_token(db_sessionmaker, space_id="space-z")

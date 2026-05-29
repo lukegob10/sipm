@@ -165,13 +165,26 @@ def require_interactive_user(
     request: Request,
     user: User = Depends(require_user),
 ) -> User:
-    if getattr(request.state, "auth_method", None) == "api_token" or getattr(
-        user, "is_service_account", False
-    ):
+    if getattr(request.state, "auth_method", None) == "api_token":
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="INTERACTIVE_USER_REQUIRED",
             message="Interactive user approval required",
+        )
+    return user
+
+
+def require_non_agent_write(
+    request: Request,
+    user: User = Depends(require_user),
+) -> User:
+    if getattr(request.state, "auth_method", None) == "api_token" and getattr(
+        user, "is_service_account", False
+    ):
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="AGENT_APPROVAL_REQUIRED",
+            message="Service-account writes require the agent approval workflow",
         )
     return user
 
@@ -329,6 +342,7 @@ __all__ = [
     "require_user",
     "require_agent_service_account",
     "require_interactive_user",
+    "require_non_agent_write",
     "current_user",
     "current_space",
     "current_agent_space",

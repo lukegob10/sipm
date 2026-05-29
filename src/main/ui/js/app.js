@@ -240,6 +240,12 @@ const state = {
   apiTokensByUser: {},
   apiTokensLoadedByUser: {},
   issuedApiToken: null,
+  agentChangeRequests: [],
+  agentChangeRequestsLoaded: false,
+  agentChangeRequestPendingCount: 0,
+  agentChangeRequestFailedCount: 0,
+  agentChangeRequestSelectedIds: new Set(),
+  agentChangeRequestActiveId: "",
   authMode: "login",
   phases: [],
   projects: [],
@@ -521,6 +527,7 @@ const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
   refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
   refreshApiTokens: (...args) => refreshApiTokens(...args),
   refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
+  refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
 });
@@ -3578,6 +3585,7 @@ function normalizeGovernanceSection(value) {
 
 function governanceSections() {
   const sections = [
+    { id: "agent-approvals", label: `Agent Approvals${state.agentChangeRequestPendingCount ? ` (${state.agentChangeRequestPendingCount})` : ""}` },
     { id: "current-space", label: "Current Space" },
     { id: "space-directory", label: "Space Directory" },
   ];
@@ -3646,6 +3654,10 @@ async function refreshApiTokens(userId, options = {}) {
 
 async function refreshSpaceMembers(spaceId, options = {}) {
   return spaceGovernanceController.refreshSpaceMembers(spaceId, options);
+}
+
+async function refreshAgentChangeRequests(options = {}) {
+  return spaceGovernanceController.refreshAgentChangeRequests(options);
 }
 
 function bindSpaceAdminControls() {

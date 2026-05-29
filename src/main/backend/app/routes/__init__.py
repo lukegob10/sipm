@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from ..deps import require_user
+from .agent import router as agent_router
 from .audit import router as audit_router
 from .analytics import router as analytics_router
 from .auth import router as auth_router
@@ -30,4 +31,5 @@ protected_router.include_router(audit_router, tags=["audit"])
 protected_router.include_router(analytics_router, tags=["analytics"])
 
 api_router.include_router(protected_router)
+api_router.include_router(agent_router)
 api_router.include_router(sync_router, tags=["sync"])

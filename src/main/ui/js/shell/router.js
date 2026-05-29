@@ -128,7 +128,7 @@ export function createRouterController({
       return state.authed && userIsGlobalAdmin() && usageAnalyticsEnabled();
     }
     if (normalized === "access") return userCanAccessAdminViews();
-    if (normalized === "spaces") return userCanAccessAdminViews();
+    if (normalized === "spaces") return state.authed;
     if (isAdminView(normalized)) return false;
     return true;
   }

@@ -6,6 +6,7 @@ from .analytics import (
     UsageIdentityDailyRollup,
     UsageRouteIdentityDailyRollup,
 )
+from .agent import AgentChangeRequest
 from .identity import (
     ApiToken,
     ChangeLog,
@@ -27,6 +28,7 @@ from .work import (
 
 __all__ = [
     "Base",
+    "AgentChangeRequest",
     "ApiToken",
     "ChangeLog",
     "PerformanceSample",

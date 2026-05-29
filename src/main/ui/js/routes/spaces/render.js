@@ -14,6 +14,7 @@ export function createSpaceGovernanceRenderer({
   governanceSections,
   resolveGovernanceSection,
   refreshGlobalAdmins,
+  refreshAgentChangeRequests,
   refreshApiTokens,
   refreshSpaceMembers,
   closeSpaceDirectoryModal,
@@ -423,6 +424,104 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
+  function renderAgentDiff(request) {
+    const items = request?.diff || [];
+    if (!items.length) return "<p class='muted'>No field-level diff available.</p>";
+    return items.map((item) => {
+      const fields = Object.entries(item.fields || {}).map(([field, values]) => `
+        <tr>
+          <td>${esc(field)}</td>
+          <td>${esc(values?.old ?? "")}</td>
+          <td>${esc(values?.new ?? "")}</td>
+        </tr>
+      `).join("");
+      return `
+        <div class="agent-diff-card">
+          <div class="agent-diff-card-head">
+            <span class="pill">${esc(item.op)} ${esc(item.entity)}</span>
+            <strong>${esc(item.entity_label || item.entity_id || "New item")}</strong>
+          </div>
+          <div class="table compact-table">
+            <table>
+              <thead><tr><th>Field</th><th>Current</th><th>Proposed</th></tr></thead>
+              <tbody>${fields || "<tr><td colspan='3' class='muted'>No changed fields</td></tr>"}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function renderAgentApprovalsSection() {
+    if (!state.agentChangeRequestsLoaded) {
+      refreshAgentChangeRequests({ force: true }).catch((err) => {
+        console.warn("Failed to load agent approvals", err);
+        setSpaceGovernanceNotice(err?.message || "Failed to load agent approvals.", "error", 7000);
+      });
+    }
+    const rows = state.agentChangeRequests || [];
+    const selected = state.agentChangeRequestSelectedIds || new Set();
+    const active = rows.find((row) => row.change_request_id === state.agentChangeRequestActiveId) || rows[0] || null;
+    const newest = rows[0]?.created_at ? formatDateTime(rows[0].created_at) : "None";
+    const tableRows = rows.length
+      ? rows.map((row) => {
+        const checked = selected.has(row.change_request_id);
+        const isActive = active?.change_request_id === row.change_request_id;
+        return `<tr class="${isActive ? "is-selected" : ""}">
+          <td><input type="checkbox" data-agent-change-request-checkbox data-change-request-id="${escapeAttr(row.change_request_id)}" ${checked ? "checked" : ""} /></td>
+          <td>
+            <button type="button" class="text-link" data-space-action="select-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
+            <div class="muted">${esc(row.change_request_id)}</div>
+          </td>
+          <td>${esc(row.proposed_by_label || row.proposed_by_user_id || "Service account")}</td>
+          <td>${esc(formatDateTime(row.created_at) || "")}</td>
+          <td>${esc(row.operation_count || 0)}</td>
+          <td><span class="pill">${esc(row.status)}</span></td>
+        </tr>`;
+      }).join("")
+      : "<tr><td colspan='6' class='muted'>No pending agent proposals.</td></tr>";
+    return `
+      <div class="space-section-stack">
+        <div class="space-hero-card">
+          <div>
+            <p class="space-card-kicker">Controlled automation</p>
+            <h3>Agent Approvals</h3>
+            <p class="muted">Review proposed agent changes before they update work data in this space.</p>
+          </div>
+          <div class="space-hero-actions">
+            <button type="button" class="primary" data-space-action="approve-agent-change-requests" ${selected.size ? "" : "disabled"}>Approve selected</button>
+            <button type="button" class="secondary danger" data-space-action="reject-agent-change-requests" ${selected.size ? "" : "disabled"}>Reject selected</button>
+          </div>
+        </div>
+        <div class="space-summary-grid">
+          <div class="panel soft space-summary-card"><span class="muted">Pending</span><strong>${state.agentChangeRequestPendingCount || 0}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Failed</span><strong>${state.agentChangeRequestFailedCount || 0}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Selected</span><strong>${selected.size}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Newest</span><strong>${esc(newest)}</strong></div>
+        </div>
+        <div class="agent-approval-layout">
+          <div class="panel soft">
+            <div class="table">
+              <table>
+                <thead><tr><th></th><th>Proposal</th><th>Proposed By</th><th>Created</th><th>Ops</th><th>Status</th></tr></thead>
+                <tbody>${tableRows}</tbody>
+              </table>
+            </div>
+          </div>
+          <div class="panel soft agent-diff-panel">
+            <div class="panel-header">
+              <div>
+                <h3>${esc(active?.reason || "Select a proposal")}</h3>
+                <p class="muted">${active ? `${esc(active.operation_count || 0)} proposed operation${active.operation_count === 1 ? "" : "s"}` : "Choose a row to inspect the diff."}</p>
+              </div>
+            </div>
+            ${active ? renderAgentDiff(active) : "<p class='muted'>No proposal selected.</p>"}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderIssuedApiToken() {
     const issued = state.issuedApiToken;
     if (!issued?.token) return "";
@@ -668,6 +767,7 @@ export function createSpaceGovernanceRenderer({
       `)
       .join("");
     let body = "";
+    if (activeSection === "agent-approvals") body = renderAgentApprovalsSection();
     if (activeSection === "current-space") body = renderCurrentSpaceSection();
     if (activeSection === "space-directory") body = renderDirectorySection();
     if (activeSection === "platform-access") body = renderPlatformAccessSection();

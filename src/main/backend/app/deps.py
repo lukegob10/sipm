@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """
 Shared FastAPI dependencies.
 
 This module is intentionally the canonical import target for `get_db` so tests can
 override it via `fastapi_app.dependency_overrides[deps.get_db] = ...`.
 """
+
+from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Iterator
@@ -128,6 +128,28 @@ def require_user(request: Request, session: Session = Depends(get_db)) -> User:
     return user
 
 
+def require_agent_service_account(
+    request: Request, session: Session = Depends(get_db)
+) -> User:
+    bearer_token = _bearer_credential(request)
+    if not bearer_token:
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="AUTH_REQUIRED",
+            message="Bearer API token required",
+        )
+    user = authenticate_api_token(session, bearer_token)
+    if not getattr(user, "is_service_account", False):
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="SERVICE_ACCOUNT_REQUIRED",
+            message="Service account token required",
+        )
+    request.state.auth_method = "api_token"
+    request.state.user = user
+    return user
+
+
 def current_user(request: Request) -> User:
     user = getattr(request.state, "user", None)
     if not user:
@@ -135,6 +157,21 @@ def current_user(request: Request) -> User:
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_REQUIRED",
             message="Not authenticated",
+        )
+    return user
+
+
+def require_interactive_user(
+    request: Request,
+    user: User = Depends(require_user),
+) -> User:
+    if getattr(request.state, "auth_method", None) == "api_token" or getattr(
+        user, "is_service_account", False
+    ):
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="INTERACTIVE_USER_REQUIRED",
+            message="Interactive user approval required",
         )
     return user
 
@@ -147,6 +184,29 @@ def current_space(
     requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
     ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
     if requested_space_id and ctx.space_id != requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
+    request.state.space_context = ctx
+    return ctx
+
+
+def current_agent_space(
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User = Depends(require_agent_service_account),
+) -> SpaceContext:
+    requested_space_id = request.headers.get("X-Space-Id")
+    if not requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
+    ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    if ctx.space_id != requested_space_id:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="FORBIDDEN_SPACE",
@@ -224,13 +284,56 @@ def require_space_role(min_role: str):
     return _dep
 
 
+def require_agent_space_role(min_role: str):
+    min_norm = _normalize_space_role(min_role)
+    threshold = _SPACE_ROLE_ORDER.get(min_norm)
+    if threshold is None:
+        raise ValueError(f"Unknown min_role '{min_role}'")
+
+    def _dep(
+        request: Request,
+        session: Session = Depends(get_db),
+        ctx: SpaceContext = Depends(current_agent_space),
+    ) -> SpaceContext:
+        if isinstance(request, SpaceContext):
+            ctx = request
+            request = None  # type: ignore[assignment]
+        if not isinstance(ctx, SpaceContext):
+            raise RuntimeError("Space context dependency was not resolved")
+        if ctx.is_global_admin:
+            return ctx
+        current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
+        if current_rank < threshold:
+            user = getattr(getattr(request, "state", None), "user", None)
+            if user and getattr(user, "user_id", None) and hasattr(session, "commit"):
+                _audit_permission_denied(
+                    session,
+                    user_id=user.user_id,
+                    space_id=ctx.space_id,
+                    action="forbidden_space_role",
+                    reason=f"Insufficient space role for '{min_norm}'",
+                )
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="FORBIDDEN_ROLE",
+                message="Insufficient space role",
+            )
+        return ctx
+
+    return _dep
+
+
 __all__ = [
     "get_db",
     "get_session",
     "require_user",
+    "require_agent_service_account",
+    "require_interactive_user",
     "current_user",
     "current_space",
+    "current_agent_space",
     "require_space_role",
+    "require_agent_space_role",
     "require_global_admin",
     "authenticate_access_token",
     "ensure_token_not_revoked",

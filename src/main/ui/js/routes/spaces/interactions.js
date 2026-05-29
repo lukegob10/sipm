@@ -26,6 +26,7 @@ export function createSpaceGovernanceController({
   let globalAdminsInFlight = null;
   const spaceMembersInFlight = {};
   const apiTokensInFlight = {};
+  let agentChangeRequestsInFlight = null;
 
   function openSpaceCreateModal() {
     if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
@@ -144,6 +145,32 @@ export function createSpaceGovernanceController({
     return apiTokensInFlight[targetUserId];
   }
 
+  async function refreshAgentChangeRequests(options = {}) {
+    const force = !!options.force;
+    if (!force && state.agentChangeRequestsLoaded) return state.agentChangeRequests || [];
+    if (agentChangeRequestsInFlight) return agentChangeRequestsInFlight;
+    agentChangeRequestsInFlight = api("/agent/change-requests?status=pending")
+      .then((payload) => {
+        state.agentChangeRequests = Array.isArray(payload?.records) ? payload.records : [];
+        state.agentChangeRequestPendingCount = Number(payload?.pending_count || 0);
+        state.agentChangeRequestFailedCount = Number(payload?.failed_count || 0);
+        state.agentChangeRequestsLoaded = true;
+        const knownIds = new Set(state.agentChangeRequests.map((row) => row.change_request_id));
+        state.agentChangeRequestSelectedIds = new Set(
+          [...(state.agentChangeRequestSelectedIds || new Set())].filter((id) => knownIds.has(id))
+        );
+        if (!knownIds.has(state.agentChangeRequestActiveId)) {
+          state.agentChangeRequestActiveId = state.agentChangeRequests[0]?.change_request_id || "";
+        }
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.agentChangeRequests;
+      })
+      .finally(() => {
+        agentChangeRequestsInFlight = null;
+      });
+    return agentChangeRequestsInFlight;
+  }
+
   async function refreshSpaceMembers(spaceId, options = {}) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId) return [];
@@ -186,6 +213,50 @@ export function createSpaceGovernanceController({
     if (action === "select-section") {
       state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
       renderGovernanceHub();
+      return true;
+    }
+    if (action === "select-agent-change-request") {
+      state.agentChangeRequestActiveId = button.getAttribute("data-change-request-id") || "";
+      renderGovernanceHub("agent-approvals");
+      return true;
+    }
+    if (action === "approve-agent-change-requests" || action === "reject-agent-change-requests") {
+      const ids = [...(state.agentChangeRequestSelectedIds || new Set())];
+      if (!ids.length) {
+        setSpaceGovernanceNotice("Select at least one agent proposal first.", "error", 5000);
+        return true;
+      }
+      const approving = action === "approve-agent-change-requests";
+      const confirmed = await showConfirmModal({
+        title: approving ? "Approve Agent Proposals" : "Reject Agent Proposals",
+        message: `${approving ? "Approve" : "Reject"} ${ids.length} selected agent proposal${ids.length === 1 ? "" : "s"}?`,
+        confirmLabel: approving ? "Approve selected" : "Reject selected",
+      });
+      if (!confirmed) return true;
+      try {
+        const endpoint = approving
+          ? "/agent/change-requests/actions/approve-selected"
+          : "/agent/change-requests/actions/reject-selected";
+        const result = await api(endpoint, {
+          method: "POST",
+          body: JSON.stringify({ change_request_ids: ids }),
+        });
+        state.agentChangeRequestSelectedIds = new Set();
+        state.agentChangeRequestsLoaded = false;
+        await refreshAgentChangeRequests({ force: true });
+        await refreshFromServer("all");
+        const completed = approving
+          ? Number(result?.approved || 0)
+          : Number(result?.rejected || 0);
+        const failed = Number(result?.failed || 0);
+        setSpaceGovernanceNotice(
+          `${approving ? "Approved" : "Rejected"} ${completed} proposal${completed === 1 ? "" : "s"}${failed ? `; ${failed} failed revalidation` : ""}.`,
+          failed ? "error" : "success",
+          7000
+        );
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Agent proposal review failed.", "error", 7000);
+      }
       return true;
     }
     if (action === "open-directory-space") {
@@ -694,6 +765,14 @@ export function createSpaceGovernanceController({
           state.spaceDirectoryShowArchived = !!event.target.checked;
           renderGovernanceHub();
         }
+        if (event.target.matches("[data-agent-change-request-checkbox]")) {
+          const id = event.target.getAttribute("data-change-request-id") || "";
+          const selected = new Set(state.agentChangeRequestSelectedIds || []);
+          if (event.target.checked) selected.add(id);
+          else selected.delete(id);
+          state.agentChangeRequestSelectedIds = selected;
+          renderGovernanceHub("agent-approvals");
+        }
       });
       els.spaceGovernanceShell._bound = true;
     }
@@ -743,6 +822,7 @@ export function createSpaceGovernanceController({
     openSpaceDirectoryModal,
     openSpaceMemberModal,
     refreshApiTokens,
+    refreshAgentChangeRequests,
     refreshGlobalAdmins,
     refreshSpaceMembers,
   };

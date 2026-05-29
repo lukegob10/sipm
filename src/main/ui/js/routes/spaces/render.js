@@ -439,7 +439,7 @@ export function createSpaceGovernanceRenderer({
         <div class="agent-diff-card">
           <div class="agent-diff-card-head">
             <span class="pill">${esc(item.op)} ${esc(item.entity)}</span>
-            <strong>${esc(item.entity_label || item.entity_id || "New item")}</strong>
+            <strong>${esc(item.entity_label || "New item")}</strong>
           </div>
           <div class="table compact-table">
             <table>
@@ -471,7 +471,7 @@ export function createSpaceGovernanceRenderer({
           <td><input type="checkbox" data-agent-change-request-checkbox data-change-request-id="${escapeAttr(row.change_request_id)}" ${checked ? "checked" : ""} /></td>
           <td>
             <button type="button" class="text-link" data-space-action="select-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
-            <div class="muted">${esc(row.change_request_id)}</div>
+            <div class="muted">${esc(row.operation_count || 0)} proposed operation${row.operation_count === 1 ? "" : "s"}</div>
           </td>
           <td>${esc(row.proposed_by_label || row.proposed_by_user_id || "Service account")}</td>
           <td>${esc(formatDateTime(row.created_at) || "")}</td>

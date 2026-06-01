@@ -1,6 +1,6 @@
 import logging
 from datetime import datetime, timezone
-from typing import Dict, Optional, Any
+from typing import Any
 from uuid import uuid4
 
 from ..models import ChangeLog
@@ -9,8 +9,11 @@ from ..utils import read_text_value
 
 logger = logging.getLogger(__name__)
 
+ChangePair = tuple[Any, Any]
+ChangeSet = dict[str, ChangePair]
 
-def _stringify(value: Any) -> Optional[str]:
+
+def _stringify(value: Any) -> str | None:
     if value is None:
         return None
     if hasattr(value, "value"):  # enums
@@ -23,6 +26,34 @@ def _stringify(value: Any) -> Optional[str]:
     return read_text_value(value)
 
 
+def _audit_row(
+    *,
+    entity_type: str,
+    entity_id: str,
+    user_id: str,
+    action: str,
+    request_id: str | None,
+    space_id: str | None,
+    created_at: datetime,
+    field: str | None = None,
+    old_value: str | None = None,
+    new_value: str | None = None,
+) -> ChangeLog:
+    return ChangeLog(
+        change_id=str(uuid4()),
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        field=field,
+        old_value=old_value,
+        new_value=new_value,
+        user_id=user_id,
+        space_id=space_id,
+        request_id=request_id,
+        created_at=created_at,
+    )
+
+
 def log_changes(
     session,
     *,
@@ -30,18 +61,19 @@ def log_changes(
     entity_id: str,
     user_id: str,
     action: str,
-    changes: Optional[Dict[str, tuple]] = None,
-    request_id: Optional[str] = None,
-    space_id: Optional[str] = None,
+    changes: ChangeSet | None = None,
+    request_id: str | None = None,
+    space_id: str | None = None,
 ) -> None:
     """
     Append rows to change_log within the caller's transaction.
     - action: create|update|delete|restore (string)
     - changes: dict[field] = (old, new); ignored if old == new
     """
-    rows = []
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     effective_request_id = request_id if request_id is not None else get_request_id()
+    rows: list[ChangeLog] = []
+
     if changes:
         for field, pair in changes.items():
             if not isinstance(pair, tuple) or len(pair) != 2:
@@ -52,8 +84,7 @@ def log_changes(
             if old_value == new_value:
                 continue
             rows.append(
-                ChangeLog(
-                    change_id=str(uuid4()),
+                _audit_row(
                     entity_type=entity_type,
                     entity_id=entity_id,
                     action=action,
@@ -65,11 +96,10 @@ def log_changes(
                     request_id=effective_request_id,
                     created_at=now,
                 )
-            )
+        )
     else:
         rows.append(
-            ChangeLog(
-                change_id=str(uuid4()),
+            _audit_row(
                 entity_type=entity_type,
                 entity_id=entity_id,
                 action=action,

@@ -7,29 +7,30 @@ from sqlalchemy.orm import Session
 from ..models import SpaceMembership, User
 from .spaces import is_global_admin_role
 
+LAST_GLOBAL_ADMIN_ERROR = "At least one active global_admin is required"
+LAST_SPACE_ADMIN_ERROR = "Space must retain at least one active space_admin"
+
 
 def is_global_admin_user(user: User) -> bool:
     return is_global_admin_role(user.role)
 
 
-def normalized_global_role_expr():
+def _normalized_role_expr(column):
     return func.lower(
         func.replace(
-            func.replace(func.coalesce(User.role, ""), "-", "_"),
+            func.replace(func.coalesce(column, ""), "-", "_"),
             " ",
             "_",
         )
     )
+
+
+def normalized_global_role_expr():
+    return _normalized_role_expr(User.role)
 
 
 def normalized_space_admin_role_expr():
-    return func.lower(
-        func.replace(
-            func.replace(func.coalesce(SpaceMembership.role, ""), "-", "_"),
-            " ",
-            "_",
-        )
-    )
+    return _normalized_role_expr(SpaceMembership.role)
 
 
 def count_active_global_admins(session: Session) -> int:
@@ -55,6 +56,25 @@ def _count_other_active_space_admins(session: Session, *, space_id: str, exclude
     )
 
 
+def _space_id_from_row(row) -> str | None:
+    if isinstance(row, tuple):
+        return row[0]
+    return getattr(row, "space_id", None)
+
+
+def _active_space_admin_space_ids(session: Session, user: User) -> list[str]:
+    rows = (
+        session.query(SpaceMembership.space_id)
+        .filter(SpaceMembership.user_id == user.user_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(SpaceMembership.status == "active")
+        .filter(normalized_space_admin_role_expr() == "space_admin")
+        .distinct()
+        .all()
+    )
+    return [space_id for row in rows if (space_id := _space_id_from_row(row))]
+
+
 def ensure_actor_can_modify_user(*, actor: User, target: User) -> None:
     if is_global_admin_user(target) and not is_global_admin_user(actor):
         raise HTTPException(
@@ -69,24 +89,19 @@ def ensure_user_can_be_deactivated(session: Session, user: User) -> None:
     if is_global_admin_user(user) and count_active_global_admins(session) <= 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one active global_admin is required",
+            detail=LAST_GLOBAL_ADMIN_ERROR,
         )
 
-    rows = (
-        session.query(SpaceMembership.space_id)
-        .filter(SpaceMembership.user_id == user.user_id)
-        .filter(SpaceMembership.deleted_at.is_(None))
-        .filter(SpaceMembership.status == "active")
-        .filter(normalized_space_admin_role_expr() == "space_admin")
-        .distinct()
-        .all()
-    )
-    for row in rows:
-        space_id = row[0] if isinstance(row, tuple) else getattr(row, "space_id", None)
-        if not space_id:
-            continue
-        if _count_other_active_space_admins(session, space_id=space_id, exclude_user_id=user.user_id) == 0:
+    for space_id in _active_space_admin_space_ids(session, user):
+        if (
+            _count_other_active_space_admins(
+                session,
+                space_id=space_id,
+                exclude_user_id=user.user_id,
+            )
+            == 0
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Space must retain at least one active space_admin",
+                detail=LAST_SPACE_ADMIN_ERROR,
             )

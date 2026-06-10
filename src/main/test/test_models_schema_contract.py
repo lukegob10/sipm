@@ -18,6 +18,7 @@ from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, Ta
 
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
 TASK_REPAIR_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_repair_partial_task_rename.sql"
+SOLUTION_DOCUMENTS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_solution_documents_v1.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -205,6 +206,21 @@ def test_task_rename_repair_script_handles_partial_oracle_column_rename():
     assert "UIX_TASK_SOLUTION_NAME" in sql
     assert "work_item_type = 'subcomponent'" in sql
     assert "entity_type = 'subcomponent'" in sql
+
+
+def test_solution_documents_migration_creates_blob_table_and_indexes():
+    sql = SOLUTION_DOCUMENTS_SQL_PATH.read_text(encoding="utf-8")
+
+    assert "TB_TA_PM_SOLUTION_DOCUMENTS" in sql
+    assert "CREATE TABLE \"TB_TA_PM_SOLUTION_DOCUMENTS\"" in sql
+    assert "content BLOB NOT NULL" in sql
+    assert "FOREIGN KEY(solution_id) REFERENCES \"TB_TA_PM_SOLUTIONS\" (solution_id)" in sql
+    assert "WHERE table_name = 'TB_TA_PM_SOLUTION_DOCUMENTS'" in sql
+    assert "PROCEDURE create_index_if_missing(p_index_name IN VARCHAR2, p_ddl IN VARCHAR2)" in sql
+    assert "ix_TB_TA_PM_SOLUTION_DOCUMENTS_deleted_at" in sql
+    assert "ix_TB_TA_PM_SOLUTION_DOCUMENTS_solution_id" in sql
+    assert "ix_TB_TA_PM_SOLUTION_DOCUMENTS_space_id" in sql
+    assert "ix_TB_TA_PM_SOLUTION_DOCUMENTS_uploaded_by_user_id" in sql
 
 
 def test_models_package_reexports_and_registers_metadata():

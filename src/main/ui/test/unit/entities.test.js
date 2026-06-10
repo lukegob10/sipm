@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildProgramPayload } from "../../js/entities/programs.js";
 import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
 import { buildSolutionPayload } from "../../js/entities/solutions.js";
-import { buildTaskPayload } from "../../js/entities/tasks.js";
+import { buildTaskPayload, createTaskEntityController } from "../../js/entities/tasks.js";
 
 function formData(values) {
   const data = new FormData();
@@ -75,6 +75,75 @@ function buildProjectController(overrides = {}) {
     ...overrides,
   };
   return { controller: createProjectEntityController(deps), deps };
+}
+
+function taskEls() {
+  document.body.innerHTML = `
+    <form id="task-form" class="hidden">
+      <input name="task_id" />
+      <input name="project_id" />
+      <input name="solution_id" />
+      <input name="task_name" />
+      <input name="github_repo_url" />
+      <input name="priority" />
+      <input name="due_date" />
+      <select name="status"><option value="to_do"></option><option value="in_progress"></option></select>
+      <select name="assignee"><option value=""></option><option value="eng123"></option></select>
+      <input name="assignee_user_soeid" />
+      <input name="estimate_hours" />
+      <input name="blocked" type="checkbox" />
+      <input name="blocker_note" />
+      <input name="done_criteria" />
+      <input name="capacity_hours" />
+    </form>
+    <div id="task-form-footer" class="hidden"></div>
+    <button id="task-submit-btn" type="submit"></button>
+    <button id="delete-task" type="button"></button>
+    <p id="task-form-status"></p>
+    <form id="solution-form"><input name="solution_id" /></form>
+    <button id="show-task-form" type="button"></button>
+  `;
+  return {
+    taskForm: document.querySelector("#task-form"),
+    taskFormFooter: document.querySelector("#task-form-footer"),
+    taskSubmitBtn: document.querySelector("#task-submit-btn"),
+    deleteTaskBtn: document.querySelector("#delete-task"),
+    taskFormStatus: document.querySelector("#task-form-status"),
+    solutionForm: document.querySelector("#solution-form"),
+    showTaskFormBtn: document.querySelector("#show-task-form"),
+  };
+}
+
+function buildTaskController(overrides = {}) {
+  const state = {
+    solutions: [{ solution_id: "solution-1", project_id: "project-1" }],
+    tasks: [],
+  };
+  const ignoreNextRefresh = new Set();
+  const deps = {
+    state,
+    els: taskEls(),
+    api: vi.fn(),
+    findUserBySoeid: vi.fn(),
+    resolveAssigneeSelectValue: vi.fn((soeid) => soeid || ""),
+    hoursFromFteInput: vi.fn((value) => Number(value || 0) * 160),
+    hoursFromNullableFteInput: vi.fn((value) => (value ? Number(value) * 160 : null)),
+    fteFromHoursForInput: vi.fn((hours) => String(Number(hours || 0) / 160)),
+    updateTaskRepoPreview: vi.fn(),
+    clearDeliverableFormNotice: vi.fn(),
+    setDeliverableFormNotice: vi.fn(),
+    markIgnoreRefresh: vi.fn(),
+    ignoreNextRefresh,
+    upsertById: vi.fn(),
+    deleteTasksById: vi.fn(),
+    renderSolutionTasks: vi.fn(),
+    renderDashboard: vi.fn(),
+    renderGantt: vi.fn(),
+    timestampLabel: vi.fn(() => "12:00"),
+    trackWorkflow: vi.fn(),
+    ...overrides,
+  };
+  return { controller: createTaskEntityController(deps), deps };
 }
 
 async function flushPromises() {
@@ -194,6 +263,60 @@ describe("entity payload builders", () => {
     );
     expect(unblocked.blocked).toBe(false);
     expect(unblocked.blocker_note).toBeNull();
+  });
+});
+
+describe("task entity controller", () => {
+  it("prepares create state and fills edit state with task fields", () => {
+    const { controller, deps } = buildTaskController();
+
+    controller.showTaskForm({ solution_id: "solution-1", project_id: "project-1" });
+
+    expect(deps.els.taskForm.classList.contains("hidden")).toBe(false);
+    expect(deps.els.taskFormFooter.classList.contains("hidden")).toBe(false);
+    expect(deps.els.taskForm.querySelector("[name='task_id']").value).toBe("");
+    expect(deps.els.taskForm.querySelector("[name='project_id']").value).toBe("project-1");
+    expect(deps.els.taskForm.querySelector("[name='solution_id']").value).toBe("solution-1");
+    expect(deps.els.taskForm.querySelector("[name='priority']").value).toBe("3");
+    expect(deps.els.taskForm.querySelector("[name='status']").value).toBe("to_do");
+    expect(deps.els.deleteTaskBtn.disabled).toBe(true);
+    expect(deps.els.taskSubmitBtn.textContent).toBe("Create Task");
+    expect(deps.updateTaskRepoPreview).toHaveBeenLastCalledWith("solution-1", "");
+
+    controller.fillTaskForm({
+      task_id: "task-1",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Draft Task",
+      github_repo_url: "https://github.com/org/repo",
+      priority: 2,
+      due_date: "2026-04-01",
+      status: "in_progress",
+      assignee: "Engineer One",
+      assignee_user_soeid: "eng123",
+      estimate_hours: 40,
+      blocked: true,
+      blocker_note: "Waiting",
+      done_criteria: "Complete",
+      capacity_hours: 80,
+    });
+
+    expect(deps.els.taskForm.querySelector("[name='task_id']").value).toBe("task-1");
+    expect(deps.els.taskForm.querySelector("[name='task_name']").value).toBe("Draft Task");
+    expect(deps.els.taskForm.querySelector("[name='github_repo_url']").value).toBe("https://github.com/org/repo");
+    expect(deps.els.taskForm.querySelector("[name='priority']").value).toBe("2");
+    expect(deps.els.taskForm.querySelector("[name='due_date']").value).toBe("2026-04-01");
+    expect(deps.els.taskForm.querySelector("[name='status']").value).toBe("in_progress");
+    expect(deps.els.taskForm.querySelector("[name='assignee']").value).toBe("eng123");
+    expect(deps.els.taskForm.querySelector("[name='estimate_hours']").value).toBe("0.25");
+    expect(deps.els.taskForm.querySelector("[name='blocked']").checked).toBe(true);
+    expect(deps.els.taskForm.querySelector("[name='blocker_note']").value).toBe("Waiting");
+    expect(deps.els.taskForm.querySelector("[name='done_criteria']").value).toBe("Complete");
+    expect(deps.els.taskForm.querySelector("[name='capacity_hours']").value).toBe("0.5");
+    expect(deps.els.deleteTaskBtn.disabled).toBe(false);
+    expect(deps.els.taskSubmitBtn.textContent).toBe("Save Changes");
+    expect(deps.resolveAssigneeSelectValue).toHaveBeenCalledWith("eng123", "Engineer One");
+    expect(deps.updateTaskRepoPreview).toHaveBeenLastCalledWith("solution-1", "https://github.com/org/repo");
   });
 });
 

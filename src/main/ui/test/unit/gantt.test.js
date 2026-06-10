@@ -40,7 +40,7 @@ describe("gantt route helpers", () => {
 
     expect(
       resolveGanttHealth(
-        { type: "subcomponent", status: "to_do", range: { startDay: dayNumber("2026-04-08"), endDay: dayNumber("2026-04-08") } },
+        { type: "task", status: "to_do", range: { startDay: dayNumber("2026-04-08"), endDay: dayNumber("2026-04-08") } },
         { todayDay }
       )
     ).toMatchObject({ health: "yellow", healthLabel: "Due soon" });
@@ -88,7 +88,7 @@ describe("gantt route helpers", () => {
     ).toMatchObject({ health: "red", healthLabel: "Overdue" });
   });
 
-  it("builds project, solution, and subcomponent rows for overlapping work", () => {
+  it("builds project, solution, and task rows for overlapping work", () => {
     const { rows } = buildGanttRows({
       ganttWindow: { from: "2026-04-03", to: "2026-04-06" },
       projects: [
@@ -123,12 +123,12 @@ describe("gantt route helpers", () => {
           due_date: "2026-07-10",
         },
       ],
-      subcomponents: [
+      tasks: [
         {
-          subcomponent_id: "sc1",
+          task_id: "sc1",
           project_id: "p1",
           solution_id: "s1",
-          subcomponent_name: "Launch Task",
+          task_name: "Launch Task",
           assignee: "Assignee",
           status: "to_do",
           priority: 4,
@@ -138,7 +138,7 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(),
     });
 
-    expect(rows.map((row) => row.type)).toEqual(["project", "solution", "subcomponent"]);
+    expect(rows.map((row) => row.type)).toEqual(["project", "solution", "task"]);
     expect(rows[0]).toMatchObject({
       type: "project",
       id: "p1",
@@ -154,7 +154,7 @@ describe("gantt route helpers", () => {
       priority: 1,
     });
     expect(rows[2]).toMatchObject({
-      type: "subcomponent",
+      type: "task",
       id: "sc1",
       assignee: "Assignee",
       priority: 4,
@@ -175,12 +175,12 @@ describe("gantt route helpers", () => {
           due_date: "2026-04-10",
         },
       ],
-      subcomponents: [
+      tasks: [
         {
-          subcomponent_id: "sc1",
+          task_id: "sc1",
           project_id: "p1",
           solution_id: "s1",
-          subcomponent_name: "Task",
+          task_name: "Task",
           due_date: "2026-04-12",
         },
       ],
@@ -212,12 +212,12 @@ describe("gantt route helpers", () => {
           due_date: "2026-04-20",
         },
       ],
-      subcomponents: [
+      tasks: [
         {
-          subcomponent_id: "sc-hidden",
+          task_id: "sc-hidden",
           project_id: "p1",
           solution_id: "s1",
-          subcomponent_name: "Hidden Late Task",
+          task_name: "Hidden Late Task",
           status: "to_do",
           due_date: "2026-03-15",
         },
@@ -251,12 +251,12 @@ describe("gantt route helpers", () => {
           due_date: "2026-03-31",
         },
       ],
-      subcomponents: [
+      tasks: [
         {
-          subcomponent_id: "sc-visible",
+          task_id: "sc-visible",
           project_id: "p1",
           solution_id: "s1",
-          subcomponent_name: "Visible Complete Task",
+          task_name: "Visible Complete Task",
           status: "complete",
           due_date: "2026-04-15",
         },
@@ -264,9 +264,9 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(),
     });
 
-    expect(rows.map((row) => row.key)).toEqual(["project:p1", "solution:s1", "subcomponent:sc-visible"]);
+    expect(rows.map((row) => row.key)).toEqual(["project:p1", "solution:s1", "task:sc-visible"]);
     expect(rows[0]).toMatchObject({ type: "project", health: "yellow", healthLabel: "Child overdue" });
     expect(rows[1]).toMatchObject({ type: "solution", health: "red", healthLabel: "Overdue" });
-    expect(rows[2]).toMatchObject({ type: "subcomponent", health: "complete", healthLabel: "Complete" });
+    expect(rows[2]).toMatchObject({ type: "task", health: "complete", healthLabel: "Complete" });
   });
 });

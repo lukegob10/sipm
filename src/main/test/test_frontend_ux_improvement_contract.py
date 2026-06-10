@@ -14,7 +14,7 @@ DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 MODAL_SHELL_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "modal-shell.js"
 TOPBAR_CREATE_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "topbar-create.js"
 PROJECT_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "projects.js"
-SUBCOMPONENT_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "subcomponents.js"
+TASK_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "tasks.js"
 SOLUTION_ENTITIES_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "entities" / "solutions.js"
 CALENDAR_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "calendar" / "interactions.js"
 KANBAN_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "kanban" / "interactions.js"
@@ -36,12 +36,12 @@ PLANNING_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "p
 PLANNING_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "render.js"
 PM_DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard.js"
 PM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "pm-dashboard" / "render.js"
-SUBCOMPONENTS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench.js"
-SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "bulk-actions.js"
-SUBCOMPONENTS_WORKBENCH_DRAWER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "drawer.js"
-SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "saved-views.js"
-SUBCOMPONENTS_WORKBENCH_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "interactions.js"
-SUBCOMPONENTS_WORKBENCH_OPTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "subcomponents-workbench" / "options.js"
+TASKS_WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench.js"
+TASKS_WORKBENCH_BULK_ACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "bulk-actions.js"
+TASKS_WORKBENCH_DRAWER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "drawer.js"
+TASKS_WORKBENCH_SAVED_VIEWS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "saved-views.js"
+TASKS_WORKBENCH_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "interactions.js"
+TASKS_WORKBENCH_OPTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "options.js"
 
 
 def test_master_remains_default_view_and_fallback():
@@ -58,7 +58,7 @@ def test_route_hint_copy_removed_from_main_html_views():
     assert "view-route-hint" not in text
     for route_hint in [
         "#/master",
-        "#/subcomponents-workbench",
+        "#/tasks-workbench",
         "#/dashboard",
         "#/pm-dashboard",
         "#/kanban",
@@ -82,21 +82,21 @@ def test_topbar_create_menu_exists_in_authenticated_shell():
     assert 'id="topbar-create-panel"' in html_text
     assert 'id="topbar-create-project"' in html_text
     assert 'id="topbar-create-solution"' in html_text
-    assert 'id="topbar-create-subcomponent"' in html_text
+    assert 'id="topbar-create-task"' in html_text
     assert 'id="create-project"' not in html_text
     assert 'id="create-solution"' not in html_text
 
 
-def test_subcomponent_create_picker_modal_exists_in_shell():
+def test_task_create_picker_modal_exists_in_shell():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert 'id="subcomponent-create-picker-modal"' in html_text
-    assert 'id="subcomponent-create-picker-title"' in html_text
-    assert 'id="subcomponent-create-picker-form"' in html_text
-    assert 'id="subcomponent-create-picker-select"' in html_text
-    assert 'id="subcomponent-create-picker-close"' in html_text
-    assert 'id="subcomponent-create-picker-cancel"' in html_text
-    assert 'id="subcomponent-create-picker-status"' in html_text
+    assert 'id="task-create-picker-modal"' in html_text
+    assert 'id="task-create-picker-title"' in html_text
+    assert 'id="task-create-picker-form"' in html_text
+    assert 'id="task-create-picker-select"' in html_text
+    assert 'id="task-create-picker-close"' in html_text
+    assert 'id="task-create-picker-cancel"' in html_text
+    assert 'id="task-create-picker-status"' in html_text
 
 
 def test_index_includes_shared_planning_modal_shell():
@@ -108,13 +108,13 @@ def test_index_includes_shared_planning_modal_shell():
     assert 'id="planning-modal-close"' in text
 
 
-def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
+def test_solution_and_task_forms_use_sticky_modal_footer_actions():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
 
     assert 'class="modal-sticky-chrome"' in html_text
     assert 'id="solution-submit-btn"' in html_text
-    assert 'id="subcomponent-submit-btn"' in html_text
+    assert 'id="task-submit-btn"' in html_text
     assert 'class="modal-form-footer full-span"' in html_text
     assert ".modal-form-footer {" in styles_text
     assert "position: sticky;" in styles_text
@@ -122,7 +122,7 @@ def test_solution_and_subcomponent_forms_use_sticky_modal_footer_actions():
     assert ".modal-sticky-chrome {" in styles_text
     assert ".modal-sticky-chrome .modal-header-sticky {" in styles_text
     assert "#solution-form .modal-form-footer," in styles_text
-    assert "#subcomponent-form .modal-form-footer {" in styles_text
+    assert "#task-form .modal-form-footer {" in styles_text
 
 
 def test_frontend_ux_state_is_persisted_per_space():
@@ -132,10 +132,10 @@ def test_frontend_ux_state_is_persisted_per_space():
     master_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
 
     assert 'const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";' in app_text
-    assert 'const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";' in app_text
+    assert 'const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";' in app_text
     assert 'const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";' in planning_state_text
     assert "persistMasterViewState" in app_text
-    assert "persistSubcomponentsWorkbenchUiState" in app_text
+    assert "persistTasksWorkbenchUiState" in app_text
     assert "persistViewState()" in planning_storage_text
     assert "persistMasterViewState" in master_text
 
@@ -149,7 +149,7 @@ def test_topbar_create_menu_reuses_existing_create_modals_and_keyboard_menu_patt
     assert 'topbarCreatePanel: document.getElementById("topbar-create-panel")' in dom_text
     assert 'topbarCreateProject: document.getElementById("topbar-create-project")' in dom_text
     assert 'topbarCreateSolution: document.getElementById("topbar-create-solution")' in dom_text
-    assert 'topbarCreateSubcomponent: document.getElementById("topbar-create-subcomponent")' in dom_text
+    assert 'topbarCreateTask: document.getElementById("topbar-create-task")' in dom_text
     assert 'createProjectBtn: document.getElementById("create-project")' not in dom_text
     assert 'createSolutionBtn: document.getElementById("create-solution")' not in dom_text
     assert "function bindTopbarCreateMenu() {" in topbar_text
@@ -159,7 +159,7 @@ def test_topbar_create_menu_reuses_existing_create_modals_and_keyboard_menu_patt
     assert 'closeTopbarCreateMenu({ restoreFocus: false });' in topbar_text
     assert "openProjectForm(null);" in topbar_text
     assert 'openSolutionModal(null, "details");' in topbar_text
-    assert "handleTopbarSubcomponentCreate" in topbar_text
+    assert "handleTopbarTaskCreate" in topbar_text
     assert "bindTopbarCreateMenu();" in app_text
     assert "closeTopbarCreateMenu({ restoreFocus: false });" in topbar_text
 
@@ -193,8 +193,8 @@ def test_solution_modal_workflow_moves_into_shared_entities_layer():
     assert "const solutionEntityController = createSolutionEntityController({" in app_text
     assert "function bindSolutionForm() {" in app_text
     assert "return solutionEntityController.bindSolutionForm();" in app_text
-    assert "function setSubcomponentCreateAvailability(solutionId) {" in app_text
-    assert "return solutionEntityController.setSubcomponentCreateAvailability(solutionId);" in app_text
+    assert "function setTaskCreateAvailability(solutionId) {" in app_text
+    assert "return solutionEntityController.setTaskCreateAvailability(solutionId);" in app_text
     assert 'function openSolutionModal(solution = null, tab = "details") {' in app_text
     assert "return solutionEntityController.openSolutionModal(solution, tab);" in app_text
     assert "function closeSolutionModal() {" in app_text
@@ -206,32 +206,32 @@ def test_solution_modal_workflow_moves_into_shared_entities_layer():
     assert "export function buildSolutionPayload(data, { hoursFromFteInput }) {" in solution_text
     assert "function fillSolutionForm(solution = null) {" in solution_text
     assert "function setSolutionActionButtonLabel(isEditing) {" in solution_text
-    assert "function setSubcomponentCreateAvailability(solutionId) {" in solution_text
+    assert "function setTaskCreateAvailability(solutionId) {" in solution_text
 
 
-def test_subcomponent_modal_workflow_moves_into_shared_entities_layer():
+def test_task_modal_workflow_moves_into_shared_entities_layer():
     app_text = APP_JS.read_text(encoding="utf-8")
-    subcomponent_text = SUBCOMPONENT_ENTITIES_JS.read_text(encoding="utf-8")
+    task_text = TASK_ENTITIES_JS.read_text(encoding="utf-8")
 
-    assert 'from "./entities/subcomponents.js";' in app_text
-    assert "const subcomponentEntityController = createSubcomponentEntityController({" in app_text
-    assert "function setSubcomponentActionButtonLabel(isEditing) {" in app_text
-    assert "return subcomponentEntityController.setSubcomponentActionButtonLabel(isEditing);" in app_text
-    assert "function setSubcomponentFormVisibility(show) {" in app_text
-    assert "return subcomponentEntityController.setSubcomponentFormVisibility(show);" in app_text
-    assert "function showSubcomponentForm(solution) {" in app_text
-    assert "return subcomponentEntityController.showSubcomponentForm(solution);" in app_text
-    assert "function fillSubcomponentForm(sub) {" in app_text
-    assert "return subcomponentEntityController.fillSubcomponentForm(sub);" in app_text
-    assert "function bindSubcomponentForm() {" in app_text
-    assert "return subcomponentEntityController.bindSubcomponentForm();" in app_text
-    assert "function buildSubcomponentPayload(data) {" not in app_text
-    assert "function prepareSubcomponentCreateForm(solution, options = {}) {" not in app_text
-    assert "export function createSubcomponentEntityController({" in subcomponent_text
-    assert "export function buildSubcomponentPayload(" in subcomponent_text
-    assert "function prepareSubcomponentCreateForm(solution, options = {}) {" in subcomponent_text
-    assert "function fillSubcomponentForm(sub) {" in subcomponent_text
-    assert "function bindSubcomponentForm() {" in subcomponent_text
+    assert 'from "./entities/tasks.js";' in app_text
+    assert "const taskEntityController = createTaskEntityController({" in app_text
+    assert "function setTaskActionButtonLabel(isEditing) {" in app_text
+    assert "return taskEntityController.setTaskActionButtonLabel(isEditing);" in app_text
+    assert "function setTaskFormVisibility(show) {" in app_text
+    assert "return taskEntityController.setTaskFormVisibility(show);" in app_text
+    assert "function showTaskForm(solution) {" in app_text
+    assert "return taskEntityController.showTaskForm(solution);" in app_text
+    assert "function fillTaskForm(task) {" in app_text
+    assert "return taskEntityController.fillTaskForm(task);" in app_text
+    assert "function bindTaskForm() {" in app_text
+    assert "return taskEntityController.bindTaskForm();" in app_text
+    assert "function buildTaskPayload(data) {" not in app_text
+    assert "function prepareTaskCreateForm(solution, options = {}) {" not in app_text
+    assert "export function createTaskEntityController({" in task_text
+    assert "export function buildTaskPayload(" in task_text
+    assert "function prepareTaskCreateForm(solution, options = {}) {" in task_text
+    assert "function fillTaskForm(task) {" in task_text
+    assert "function bindTaskForm() {" in task_text
 
 
 def test_calendar_controls_and_persistence_move_into_route_local_module():
@@ -280,35 +280,35 @@ def test_kanban_controls_and_persistence_move_into_route_local_module():
     assert "function bindKanbanRouteControls() {" in kanban_text
 
 
-def test_topbar_subcomponent_create_uses_solution_context_or_picker():
+def test_topbar_task_create_uses_solution_context_or_picker():
     topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
-    assert "function subcomponentCreateCandidateSolutions() {" in topbar_text
-    assert "function subcomponentCreateSolutionLabel(solution) {" in topbar_text
-    assert "function openSubcomponentCreatePicker(selectedSolutionId = \"\") {" in topbar_text
-    assert "function handleTopbarSubcomponentCreate() {" in topbar_text
+    assert "function taskCreateCandidateSolutions() {" in topbar_text
+    assert "function taskCreateSolutionLabel(solution) {" in topbar_text
+    assert "function openTaskCreatePicker(selectedSolutionId = \"\") {" in topbar_text
+    assert "function handleTopbarTaskCreate() {" in topbar_text
     assert 'openSolutionModal(null, "details");' in topbar_text
-    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");' in topbar_text
+    assert 'setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add tasks.", "error");' in topbar_text
     assert "if (solutions.length === 1) {" in topbar_text
-    assert "continueSubcomponentCreateForSolution(solutions[0]);" in topbar_text
-    assert "openSubcomponentCreatePicker(currentOpenSolutionId);" in topbar_text
-    assert "showSubcomponentForm(solution);" in topbar_text
+    assert "continueTaskCreateForSolution(solutions[0]);" in topbar_text
+    assert "openTaskCreatePicker(currentOpenSolutionId);" in topbar_text
+    assert "showTaskForm(solution);" in topbar_text
 
 
-def test_subcomponent_create_picker_modal_is_bound_for_submit_close_and_escape():
+def test_task_create_picker_modal_is_bound_for_submit_close_and_escape():
     app_text = APP_JS.read_text(encoding="utf-8")
     dom_text = DOM_JS.read_text(encoding="utf-8")
     topbar_text = TOPBAR_CREATE_JS.read_text(encoding="utf-8")
 
-    assert 'subcomponentCreatePickerModal: document.getElementById("subcomponent-create-picker-modal")' in dom_text
-    assert "function bindSubcomponentCreatePicker() {" in topbar_text
-    assert 'els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
-    assert 'els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
-    assert 'els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);' in topbar_text
-    assert 'setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");' in topbar_text
-    assert 'if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal.classList.contains("hidden")) {' in app_text
-    assert "closeSubcomponentCreatePicker();" in app_text
-    assert "bindSubcomponentCreatePicker();" in app_text
+    assert 'taskCreatePickerModal: document.getElementById("task-create-picker-modal")' in dom_text
+    assert "function bindTaskCreatePicker() {" in topbar_text
+    assert 'els.taskCreatePickerClose.addEventListener("click", closeTaskCreatePicker);' in topbar_text
+    assert 'els.taskCreatePickerCancel.addEventListener("click", closeTaskCreatePicker);' in topbar_text
+    assert 'els.taskCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeTaskCreatePicker);' in topbar_text
+    assert 'setDeliverableFormNotice(els.taskCreatePickerStatus, "Choose a solution first.", "error");' in topbar_text
+    assert 'if (els.taskCreatePickerModal && !els.taskCreatePickerModal.classList.contains("hidden")) {' in app_text
+    assert "closeTaskCreatePicker();" in app_text
+    assert "bindTaskCreatePicker();" in app_text
 
 
 def test_topbar_create_menu_uses_compact_topbar_menu_styling():
@@ -395,19 +395,19 @@ def test_master_legacy_repo_presence_filter_self_heals_out_of_storage():
     assert "changed = true;" in filters_text
 
 
-def test_solution_and_subcomponent_forms_include_github_repo_fields():
+def test_solution_and_task_forms_include_github_repo_fields():
     html_text = INDEX_HTML.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
     solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
-    subcomponent_text = SUBCOMPONENT_ENTITIES_JS.read_text(encoding="utf-8")
+    task_text = TASK_ENTITIES_JS.read_text(encoding="utf-8")
 
     assert 'Primary GitHub Repo' in html_text
     assert 'name="github_repo_url"' in html_text
     assert 'GitHub Repo Override' in html_text
-    assert 'id="subcomponent-repo-preview"' in html_text
+    assert 'id="task-repo-preview"' in html_text
     assert 'github_repo_url: nullableTextValue(data.get("github_repo_url")),' in solution_text
-    assert 'github_repo_url: nullableTextValue(data.get("github_repo_url")),' in subcomponent_text
-    assert "function updateSubcomponentRepoPreview(solutionId, overrideUrl) {" in app_text
+    assert 'github_repo_url: nullableTextValue(data.get("github_repo_url")),' in task_text
+    assert "function updateTaskRepoPreview(solutionId, overrideUrl) {" in app_text
 
 
 def test_master_corrupt_scoped_view_state_is_rewritten_to_defaults():
@@ -607,11 +607,11 @@ def test_app_shell_confirm_modal_is_required_and_never_falls_back_to_browser_con
     assert "Promise.resolve(confirm(message));" not in modal_text
 
 
-def test_subcomponents_workbench_saved_view_delete_uses_shared_confirm_modal():
+def test_tasks_workbench_saved_view_delete_uses_shared_confirm_modal():
     app_text = APP_JS.read_text(encoding="utf-8")
-    saved_views_text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
+    saved_views_text = TASKS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/subcomponents-workbench/saved-views.js";' in app_text
+    assert 'from "./routes/tasks-workbench/saved-views.js";' in app_text
     assert 'title: "Delete Saved View?"' in saved_views_text
     assert 'message: `Delete saved view "${saved.name}"?`' in saved_views_text
     assert 'confirmLabel: "Delete Saved View"' in saved_views_text
@@ -629,97 +629,97 @@ def test_team_capacity_member_deactivate_uses_shared_confirm_modal():
     assert 'if (!confirm("Deactivate this member? They will be hidden from the roster.")) return;' not in text
 
 
-def test_subcomponents_workbench_saved_view_delete_without_selection_uses_inline_status():
-    text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
+def test_tasks_workbench_saved_view_delete_without_selection_uses_inline_status():
+    text = TASKS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'setSubcomponentsWorkbenchSavedStatus(ctx, "Select a saved view to delete.");' in text
+    assert 'setTasksWorkbenchSavedStatus(ctx, "Select a saved view to delete.");' in text
     assert 'alert("Select a saved view to delete.");' not in text
 
 
-def test_subcomponents_workbench_saved_view_save_without_name_uses_inline_status():
-    text = SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
+def test_tasks_workbench_saved_view_save_without_name_uses_inline_status():
+    text = TASKS_WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
-    assert 'setSubcomponentsWorkbenchSavedStatus(ctx, "Enter a view name before saving.");' in text
+    assert 'setTasksWorkbenchSavedStatus(ctx, "Enter a view name before saving.");' in text
     assert 'alert("Enter a view name before saving.");' not in text
 
 
-def test_subcomponents_workbench_bulk_actions_use_inline_feedback():
+def test_tasks_workbench_bulk_actions_use_inline_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
-    bulk_text = SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
+    bulk_text = TASKS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert 'id="subcomponents-workbench-bulk-feedback"' in html_text
-    assert "function setSubcomponentsWorkbenchBulkFeedback(message, tone = \"info\", autoClearMs = 0)" in app_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Choose a bulk action.", "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Select at least one subcomponent.", "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Select a status value.", "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback("Unsupported bulk action.", "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Updated ${selectedIds.length} subcomponent${selectedIds.length === 1 ? "" : "s"}.`,' in bulk_text
+    assert 'id="tasks-workbench-bulk-feedback"' in html_text
+    assert "function setTasksWorkbenchBulkFeedback(message, tone = \"info\", autoClearMs = 0)" in app_text
+    assert 'setTasksWorkbenchBulkFeedback("Choose a bulk action.", "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback("Select at least one task.", "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback("Select a status value.", "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback("Unsupported bulk action.", "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback(\n      `Updated ${selectedIds.length} task${selectedIds.length === 1 ? "" : "s"}.`,' in bulk_text
     assert 'alert("Choose a bulk action.");' not in bulk_text
-    assert 'alert("Select at least one subcomponent.");' not in bulk_text
+    assert 'alert("Select at least one task.");' not in bulk_text
     assert 'alert("Select a status value.");' not in bulk_text
     assert 'alert("Enter a due date shift in whole days (e.g. 3 or -2).");' not in bulk_text
     assert 'alert("Unsupported bulk action.");' not in bulk_text
     assert 'alert(`Bulk update failed: ${err.message || err}`);' not in bulk_text
 
 
-def test_subcomponents_workbench_delete_outcomes_use_inline_feedback():
-    bulk_text = SUBCOMPONENTS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
+def test_tasks_workbench_delete_outcomes_use_inline_feedback():
+    bulk_text = TASKS_WORKBENCH_BULK_ACTIONS.read_text(encoding="utf-8")
 
-    assert 'deleteTargets.length === 1 ? "Deleting subcomponent…" : `Deleting ${deleteTargets.length} subcomponents…`' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,\n        "error"\n      );' in bulk_text
-    assert 'setSubcomponentsWorkbenchBulkFeedback(\n      `Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`,\n      "success",\n      3200\n    );' in bulk_text
+    assert 'deleteTargets.length === 1 ? "Deleting task…" : `Deleting ${deleteTargets.length} tasks…`' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback(\n        `Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`,\n        "error"\n      );' in bulk_text
+    assert 'setTasksWorkbenchBulkFeedback(\n      `Deleted ${result.deletedIds.length} task${result.deletedIds.length === 1 ? "" : "s"}.`,\n      "success",\n      3200\n    );' in bulk_text
     assert 'setStatus(`Deleted ${result.deletedIds.length}, but ${result.failed.length} failed.`, "danger");' not in bulk_text
-    assert 'setStatus(`Deleted ${result.deletedIds.length} subcomponent${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");' not in bulk_text
+    assert 'setStatus(`Deleted ${result.deletedIds.length} task${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");' not in bulk_text
 
 
-def test_subcomponents_workbench_drawer_editor_behaviors_are_route_local():
+def test_tasks_workbench_drawer_editor_behaviors_are_route_local():
     app_text = APP_JS.read_text(encoding="utf-8")
-    drawer_text = SUBCOMPONENTS_WORKBENCH_DRAWER.read_text(encoding="utf-8")
-    interactions_text = SUBCOMPONENTS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+    drawer_text = TASKS_WORKBENCH_DRAWER.read_text(encoding="utf-8")
+    interactions_text = TASKS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/subcomponents-workbench/drawer.js";' in app_text
-    assert "function syncSubcomponentsWorkbenchDrawer(ctx) {" in drawer_text
-    assert "function fillSubcomponentsWorkbenchForm(ctx, subcomponent) {" in drawer_text
-    assert "async function saveSubcomponentsWorkbenchForm(ctx) {" in drawer_text
-    assert "async function deleteActiveSubcomponentsWorkbenchItem(ctx) {" in drawer_text
-    assert "async function handleSubcomponentsWorkbenchShortcut(ctx, event) {" in drawer_text
-    assert "syncSubcomponentsWorkbenchDrawer(workbenchCtx);" in app_text
-    assert "fillSubcomponentsWorkbenchForm(workbenchCtx, active);" in app_text
-    assert "await saveSubcomponentsWorkbenchForm(ctx);" in interactions_text
-    assert "await deleteActiveSubcomponentsWorkbenchItem(ctx);" in interactions_text
-    assert "await handleSubcomponentsWorkbenchShortcut(ctx, event);" in interactions_text
+    assert 'from "./routes/tasks-workbench/drawer.js";' in app_text
+    assert "function syncTasksWorkbenchDrawer(ctx) {" in drawer_text
+    assert "function fillTasksWorkbenchForm(ctx, task) {" in drawer_text
+    assert "async function saveTasksWorkbenchForm(ctx) {" in drawer_text
+    assert "async function deleteActiveTasksWorkbenchItem(ctx) {" in drawer_text
+    assert "async function handleTasksWorkbenchShortcut(ctx, event) {" in drawer_text
+    assert "syncTasksWorkbenchDrawer(workbenchCtx);" in app_text
+    assert "fillTasksWorkbenchForm(workbenchCtx, active);" in app_text
+    assert "await saveTasksWorkbenchForm(ctx);" in interactions_text
+    assert "await deleteActiveTasksWorkbenchItem(ctx);" in interactions_text
+    assert "await handleTasksWorkbenchShortcut(ctx, event);" in interactions_text
 
 
-def test_subcomponents_workbench_control_bindings_are_route_local():
+def test_tasks_workbench_control_bindings_are_route_local():
     app_text = APP_JS.read_text(encoding="utf-8")
-    interactions_text = SUBCOMPONENTS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+    interactions_text = TASKS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/subcomponents-workbench/interactions.js";' in app_text
-    assert "bindWorkbenchControls(createSubcomponentsWorkbenchContext());" in app_text
-    assert "function bindSubcomponentsWorkbenchControls(ctx) {" in interactions_text
+    assert 'from "./routes/tasks-workbench/interactions.js";' in app_text
+    assert "bindWorkbenchControls(createTasksWorkbenchContext());" in app_text
+    assert "function bindTasksWorkbenchControls(ctx) {" in interactions_text
     assert 'const presetButtons = document.querySelectorAll(".scwb-preset[data-preset]");' in interactions_text
-    assert 'bindDebouncedInput(els.subcomponentsWorkbenchSearch, (value) => {' in interactions_text
-    assert 'els.subcomponentsWorkbenchProject.addEventListener("change", () => {' in interactions_text
-    assert "updateSubcomponentsWorkbenchSolutionOptions(ctx, wb.filters.project_id);" in interactions_text
-    assert 'els.subcomponentsWorkbenchTable.addEventListener("change", (event) => {' in interactions_text
+    assert 'bindDebouncedInput(els.tasksWorkbenchSearch, (value) => {' in interactions_text
+    assert 'els.tasksWorkbenchProject.addEventListener("change", () => {' in interactions_text
+    assert "updateTasksWorkbenchSolutionOptions(ctx, wb.filters.project_id);" in interactions_text
+    assert 'els.tasksWorkbenchTable.addEventListener("change", (event) => {' in interactions_text
     assert 'const rowCheck = event.target.closest(".scwb-select-row");' in interactions_text
-    assert "bindSubcomponentsWorkbenchSavedViewControls(ctx);" in interactions_text
+    assert "bindTasksWorkbenchSavedViewControls(ctx);" in interactions_text
 
 
-def test_subcomponents_workbench_option_population_is_route_local():
+def test_tasks_workbench_option_population_is_route_local():
     app_text = APP_JS.read_text(encoding="utf-8")
-    options_text = SUBCOMPONENTS_WORKBENCH_OPTIONS.read_text(encoding="utf-8")
+    options_text = TASKS_WORKBENCH_OPTIONS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/subcomponents-workbench/options.js";' in app_text
-    assert "function populateSubcomponentsWorkbenchOptions(ctx, { projectOptionsHtml = \"\" } = {}) {" in options_text
+    assert 'from "./routes/tasks-workbench/options.js";' in app_text
+    assert "function populateTasksWorkbenchOptions(ctx, { projectOptionsHtml = \"\" } = {}) {" in options_text
     assert 'const users = state.users' in options_text
-    assert 'els.subcomponentsWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;' in options_text
-    assert 'els.subcomponentsWorkbenchBulkAssignee.innerHTML = `<option value="">Unassigned</option>${userOptions}`;' in options_text
-    assert "normalizeSubcomponentsWorkbenchUiState({ persist: true });" in options_text
-    assert "populateSubcomponentsWorkbenchOptions(createSubcomponentsWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
+    assert 'els.tasksWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;' in options_text
+    assert 'els.tasksWorkbenchBulkAssignee.innerHTML = `<option value="">Unassigned</option>${userOptions}`;' in options_text
+    assert "normalizeTasksWorkbenchUiState({ persist: true });" in options_text
+    assert "populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
 
 
 def test_deliverables_bulk_actions_use_inline_feedback():
@@ -818,7 +818,7 @@ def test_operational_views_can_hide_completed_work_across_space():
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
     planning_common_text = PLANNING_COMMON.read_text(encoding="utf-8")
     planning_render_text = PLANNING_RENDER.read_text(encoding="utf-8")
-    workbench_text = SUBCOMPONENTS_WORKBENCH_ROUTE.read_text(encoding="utf-8")
+    workbench_text = TASKS_WORKBENCH_ROUTE.read_text(encoding="utf-8")
 
     assert 'id="completed-visibility-toggle"' in html_text
     assert 'const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";' in app_text
@@ -827,7 +827,7 @@ def test_operational_views_can_hide_completed_work_across_space():
     assert "function showCompletedOperationalWork()" in app_text
     assert "if (hideClosedDeliverables() && isClosedSolutionStatus(solution.status)) return false;" in filters_text
     assert "if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;" in filters_text
-    assert "if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;" in app_text
+    assert "if (!showCompletedOperationalWork() && isCompletedTaskStatus(sc.status)) return false;" in app_text
     assert "Completed items are hidden here. Use Show Completed in the top bar" in app_text
     assert "ctx?.state?.workspacePrefs?.showCompleted" in planning_common_text
     assert "completed or abandoned task" in planning_render_text

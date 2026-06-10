@@ -56,7 +56,7 @@ export function createGanttRouteController({
   renderGantt,
   openProjectForm,
   openSolutionModal,
-  fillSubcomponentForm,
+  fillTaskForm,
 }) {
   function persistGanttViewState() {
     writeStoredJson(
@@ -145,15 +145,15 @@ export function createGanttRouteController({
     openSolutionModal(solution, "details");
   }
 
-  function openGanttSubcomponentDrilldown(subcomponentId) {
-    const targetId = String(subcomponentId || "").trim();
+  function openGanttTaskDrilldown(taskId) {
+    const targetId = String(taskId || "").trim();
     if (!targetId) return;
-    const subcomponent = (state.subcomponents || []).find((row) => row.subcomponent_id === targetId);
-    if (!subcomponent) return;
-    const solution = (state.solutions || []).find((row) => row.solution_id === subcomponent.solution_id);
+    const task = (state.tasks || []).find((row) => row.task_id === targetId);
+    if (!task) return;
+    const solution = (state.solutions || []).find((row) => row.solution_id === task.solution_id);
     if (!solution) return;
-    openSolutionModal(solution, "subcomponents");
-    fillSubcomponentForm(subcomponent);
+    openSolutionModal(solution, "tasks");
+    fillTaskForm(task);
   }
 
   function openGanttItem(type, id) {
@@ -165,8 +165,8 @@ export function createGanttRouteController({
       openGanttSolutionDrilldown(id);
       return;
     }
-    if (type === "subcomponent") {
-      openGanttSubcomponentDrilldown(id);
+    if (type === "task") {
+      openGanttTaskDrilldown(id);
     }
   }
 
@@ -226,6 +226,6 @@ export function createGanttRouteController({
     restoreGanttViewState,
     openGanttProjectDrilldown,
     openGanttSolutionDrilldown,
-    openGanttSubcomponentDrilldown,
+    openGanttTaskDrilldown,
   };
 }

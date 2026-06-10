@@ -1,9 +1,9 @@
 import pytest
 
 from backend.app import deps as deps_module
-from backend.app.models import Program, Project, Solution, Space, Subcomponent
+from backend.app.models import Program, Project, Solution, Space, Task
 from backend.app.services.spaces import SpaceContext
-from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 from backend.main import app as fastapi_app
 
 
@@ -135,50 +135,50 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
 
 
 @pytest.mark.anyio
-async def test_subcomponents_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
-    space_id = "strict-space-subcomponents"
-    _ensure_space(db_sessionmaker, space_id, "strict-space-subcomponents")
+async def test_tasks_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
+    space_id = "strict-space-tasks"
+    _ensure_space(db_sessionmaker, space_id, "strict-space-tasks")
 
     original = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         _set_current_space(space_id)
         project_resp = await client.post(
             "/project-manager/api/projects/",
-            json={"project_name": "Strict Space Project Subcomponents", "sponsor": "Space Sponsor"},
+            json={"project_name": "Strict Space Project Tasks", "sponsor": "Space Sponsor"},
         )
         assert project_resp.status_code == 201, project_resp.text
         project_id = project_resp.json()["project_id"]
         solution_resp = await client.post(
             f"/project-manager/api/projects/{project_id}/solutions",
-            json={"solution_name": "Strict Space Solution Subcomponents"},
+            json={"solution_name": "Strict Space Solution Tasks"},
         )
         assert solution_resp.status_code == 201, solution_resp.text
         solution_id = solution_resp.json()["solution_id"]
 
-        create_sub_resp = await client.post(
-            f"/project-manager/api/solutions/{solution_id}/subcomponents",
-            json={"subcomponent_name": "Strict Space Subcomponent"},
+        create_task_resp = await client.post(
+            f"/project-manager/api/solutions/{solution_id}/tasks",
+            json={"task_name": "Strict Space Task"},
         )
-        assert create_sub_resp.status_code == 201, create_sub_resp.text
+        assert create_task_resp.status_code == 201, create_task_resp.text
 
         with db_sessionmaker() as session:
             session.add(
-                Subcomponent(
-                    subcomponent_id="legacy-null-subcomponent",
+                Task(
+                    task_id="legacy-null-task",
                     space_id=None,
                     project_id=project_id,
                     solution_id=solution_id,
-                    subcomponent_name="Legacy Null Subcomponent",
-                    status=SubcomponentStatus.to_do,
+                    task_name="Legacy Null Task",
+                    status=TaskStatus.to_do,
                     assignee="Legacy Assignee",
                 )
             )
             session.commit()
 
-        list_resp = await client.get("/project-manager/api/subcomponents")
+        list_resp = await client.get("/project-manager/api/tasks")
         assert list_resp.status_code == 200, list_resp.text
-        names = {row["subcomponent_name"] for row in list_resp.json()}
-        assert "Strict Space Subcomponent" in names
-        assert "Legacy Null Subcomponent" not in names
+        names = {row["task_name"] for row in list_resp.json()}
+        assert "Strict Space Task" in names
+        assert "Legacy Null Task" not in names
     finally:
         _restore_current_space(original)

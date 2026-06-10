@@ -20,7 +20,7 @@ import { createSpaceSwitcherController } from "./shell/space-switcher.js";
 import { createTopbarCreateController } from "./shell/topbar-create.js";
 import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
-import { createSubcomponentEntityController } from "./entities/subcomponents.js";
+import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
 import {
   filteredDeliverables as filteredMasterDeliverables,
@@ -36,31 +36,31 @@ import {
   updateBulkSelectionCount as updateMasterBulkSelectionCount,
 } from "./routes/master/interactions.js";
 import {
-  clearSubcomponentsWorkbenchFilters as clearWorkbenchFilters,
-  normalizeSubcomponentsWorkbenchUiState as normalizeWorkbenchUiState,
-  subcomponentsWorkbenchRows as buildSubcomponentsWorkbenchRows,
-  subcomponentsWorkbenchSummary as buildSubcomponentsWorkbenchSummary,
-  updateSubcomponentsWorkbenchPresetButtons as updateWorkbenchPresetButtons,
-  updateSubcomponentsWorkbenchSelectionCount as updateWorkbenchSelectionCount,
-} from "./routes/subcomponents-workbench/filters.js";
+  clearTasksWorkbenchFilters as clearWorkbenchFilters,
+  normalizeTasksWorkbenchUiState as normalizeWorkbenchUiState,
+  tasksWorkbenchRows as buildTasksWorkbenchRows,
+  tasksWorkbenchSummary as buildTasksWorkbenchSummary,
+  updateTasksWorkbenchPresetButtons as updateWorkbenchPresetButtons,
+  updateTasksWorkbenchSelectionCount as updateWorkbenchSelectionCount,
+} from "./routes/tasks-workbench/filters.js";
 import {
-  applySubcomponentsWorkbenchBulkAction as applyWorkbenchBulkAction,
-  syncSubcomponentsWorkbenchBulkInputs as syncWorkbenchBulkInputs,
-} from "./routes/subcomponents-workbench/bulk-actions.js";
+  applyTasksWorkbenchBulkAction as applyWorkbenchBulkAction,
+  syncTasksWorkbenchBulkInputs as syncWorkbenchBulkInputs,
+} from "./routes/tasks-workbench/bulk-actions.js";
 import {
-  fillSubcomponentsWorkbenchForm,
-  scrollActiveSubcomponentIntoView,
-  syncSubcomponentsWorkbenchDrawer,
-} from "./routes/subcomponents-workbench/drawer.js";
+  fillTasksWorkbenchForm,
+  scrollActiveTaskIntoView,
+  syncTasksWorkbenchDrawer,
+} from "./routes/tasks-workbench/drawer.js";
 import {
-  loadSubcomponentsWorkbenchSavedViews,
-  updateSubcomponentsWorkbenchSavedViewsUI,
-} from "./routes/subcomponents-workbench/saved-views.js";
+  loadTasksWorkbenchSavedViews,
+  updateTasksWorkbenchSavedViewsUI,
+} from "./routes/tasks-workbench/saved-views.js";
 import {
-  bindSubcomponentsWorkbenchControls as bindWorkbenchControls,
-  updateSubcomponentsWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
-} from "./routes/subcomponents-workbench/interactions.js";
-import { populateSubcomponentsWorkbenchOptions } from "./routes/subcomponents-workbench/options.js";
+  bindTasksWorkbenchControls as bindWorkbenchControls,
+  updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
+} from "./routes/tasks-workbench/interactions.js";
+import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
@@ -115,7 +115,7 @@ function repoDisplayUrl(value) {
   return safeExternalUrl(value);
 }
 
-function effectiveSubcomponentRepoInfo(solutionId, overrideUrl) {
+function effectiveTaskRepoInfo(solutionId, overrideUrl) {
   const override = repoDisplayUrl(overrideUrl);
   if (override) {
     return { url: override, source: "override" };
@@ -135,15 +135,15 @@ function renderExternalRepoLink(url, { label = "Open Repo", className = "" } = {
   return `<a class="${classes}" href="${escapeAttr(targetUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`;
 }
 
-function updateSubcomponentRepoPreview(solutionId, overrideUrl) {
-  if (!els.subcomponentRepoPreview) return;
-  const { url, source } = effectiveSubcomponentRepoInfo(solutionId, overrideUrl);
+function updateTaskRepoPreview(solutionId, overrideUrl) {
+  if (!els.taskRepoPreview) return;
+  const { url, source } = effectiveTaskRepoInfo(solutionId, overrideUrl);
   if (!url) {
-    els.subcomponentRepoPreview.textContent = "No solution repo set.";
+    els.taskRepoPreview.textContent = "No solution repo set.";
     return;
   }
   const sourceLabel = source === "override" ? "Override repo" : "Inherited repo";
-  els.subcomponentRepoPreview.innerHTML = `${escapeHtml(sourceLabel)}: ${renderExternalRepoLink(url, { label: url, className: "repo-external-link-inline" })}`;
+  els.taskRepoPreview.innerHTML = `${escapeHtml(sourceLabel)}: ${renderExternalRepoLink(url, { label: url, className: "repo-external-link-inline" })}`;
 }
 
 function numberOr(value, fallback = 0) {
@@ -253,7 +253,7 @@ const state = {
   projects: [],
   solutions: [],
   solutionPhases: {}, // solution_id -> phases
-  subcomponents: [],
+  tasks: [],
   teams: [],
   users: [],
   allocations: [],
@@ -262,8 +262,8 @@ const state = {
   filters: {},
   deliverableSelection: new Set(),
   deliverablesPreset: "",
-  subcomponentView: "table",
-  subcomponentsWorkbench: {
+  taskView: "table",
+  tasksWorkbench: {
     preset: "all",
     filters: {
       search: "",
@@ -275,13 +275,13 @@ const state = {
       priority_max: "",
     },
     selected: new Set(),
-    activeSubcomponentId: "",
+    activeTaskId: "",
     visibleIds: [],
     savedViews: [],
     selectedSavedViewId: "",
     activityRequestId: 0,
     drawerOpen: false,
-    drawerReturnSubcomponentId: "",
+    drawerReturnTaskId: "",
     drawerReturnScrollY: null,
     suppressAutoScrollOnce: false,
   },
@@ -324,8 +324,8 @@ const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
 const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
 const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
-const SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-subcomponents-workbench-state-v1";
-const SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-subcomponents-workbench-views";
+const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";
+const TASKS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-tasks-workbench-views";
 const RECENT_SPACES_LIMIT = 5;
 let idleLastActive = Date.now();
 let idleWarned = false;
@@ -400,20 +400,20 @@ const solutionEntityController = createSolutionEntityController({
   renderCalendar,
   renderGantt,
   renderSolutionPhases,
-  renderSolutionSubcomponents,
+  renderSolutionTasks,
   renderSolutionActivity,
-  setSubcomponentFormVisibility,
-  setSubcomponentActionButtonLabel,
+  setTaskFormVisibility,
+  setTaskActionButtonLabel,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   updateCurrentPhaseOptions,
-  updateSubcomponentRepoPreview,
+  updateTaskRepoPreview,
   setSolutionTab,
   timestampLabel,
   showConfirmModal,
   trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
-const subcomponentEntityController = createSubcomponentEntityController({
+const taskEntityController = createTaskEntityController({
   state,
   els,
   api,
@@ -422,14 +422,14 @@ const subcomponentEntityController = createSubcomponentEntityController({
   hoursFromFteInput,
   hoursFromNullableFteInput,
   fteFromHoursForInput,
-  updateSubcomponentRepoPreview,
+  updateTaskRepoPreview,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   markIgnoreRefresh,
   ignoreNextRefresh,
   upsertById,
-  deleteSubcomponentsById,
-  renderSolutionSubcomponents,
+  deleteTasksById,
+  renderSolutionTasks,
   renderDashboard,
   renderGantt,
   timestampLabel,
@@ -446,11 +446,11 @@ const calendarRouteController = createCalendarRouteController({
   renderCalendar,
   openProjectForm,
   openSolutionModal,
-  fillSubcomponentForm,
+  fillTaskForm,
   getRouteModule,
   ensureRouteModule,
   filteredSolutionsForCalendar,
-  filteredSubcomponentsForCalendar,
+  filteredTasksForCalendar,
   formatStatus,
 });
 const ganttRouteController = createGanttRouteController({
@@ -463,7 +463,7 @@ const ganttRouteController = createGanttRouteController({
   renderGantt,
   openProjectForm,
   openSolutionModal,
-  fillSubcomponentForm,
+  fillTaskForm,
 });
 const kanbanRouteController = createKanbanRouteController({
   state,
@@ -557,15 +557,15 @@ const topbarCreateController = createTopbarCreateController({
   openProgramForm,
   openProjectForm,
   openSolutionModal,
-  showSubcomponentForm,
+  showTaskForm,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
 });
 const {
-  bindSubcomponentCreatePicker,
+  bindTaskCreatePicker,
   bindTopbarCreateMenu,
   closeTopbarCreateMenu,
-  closeSubcomponentCreatePicker,
+  closeTaskCreatePicker,
 } = topbarCreateController;
 const modalShellController = createModalShellController({
   els,
@@ -863,7 +863,7 @@ function syncRoleAwareActions() {
   [
     els.deleteProjectBtn,
     els.deleteSolutionBtn,
-    els.deleteSubcomponentBtn,
+    els.deleteTaskBtn,
   ].forEach((button) => {
     if (!button) return;
     button.classList.toggle("hidden", !canUseWorkEditActions);
@@ -980,8 +980,8 @@ async function refreshSpaceContext(options = {}) {
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
-    state.subcomponentsWorkbench.savedViews = [];
-    state.subcomponentsWorkbench.selectedSavedViewId = "";
+    state.tasksWorkbench.savedViews = [];
+    state.tasksWorkbench.selectedSavedViewId = "";
     state.filters = {};
     state.deliverablesPreset = "";
     state.ganttWindow = { from: "", to: "" };
@@ -990,7 +990,7 @@ async function refreshSpaceContext(options = {}) {
     closeSpaceMemberModal();
     closeSpaceDirectoryModal();
     renderSpaceSwitcher();
-    updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
+    updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
     return;
   }
   const [spaces, activeSpace] = await Promise.all([
@@ -1027,10 +1027,10 @@ async function refreshSpaceContext(options = {}) {
   restoreKanbanViewState();
   restoreTeamCapacityViewState();
   restorePlanningWindowViewState();
-  restoreSubcomponentsWorkbenchUiState();
+  restoreTasksWorkbenchUiState();
   renderSpaceSwitcher();
-  loadSubcomponentsWorkbenchSavedViews(createSubcomponentsWorkbenchContext());
-  updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
+  loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
+  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
   const nextActiveSpaceId = state.activeSpace?.space_id || "";
   if (
     !suppressLiveSyncRestart
@@ -1086,8 +1086,8 @@ function setAuthed(user) {
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
-    state.subcomponentsWorkbench.savedViews = [];
-    state.subcomponentsWorkbench.selectedSavedViewId = "";
+    state.tasksWorkbench.savedViews = [];
+    state.tasksWorkbench.selectedSavedViewId = "";
     state.ganttWindow = { from: "", to: "" };
     state.ganttCollapsed = new Set();
     closeSpaceCreateModal();
@@ -1102,7 +1102,7 @@ function setAuthed(user) {
   }
   renderSpaceSwitcher();
   renderCompletedVisibilityToggle();
-  updateSubcomponentsWorkbenchSavedViewsUI(createSubcomponentsWorkbenchContext());
+  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
   renderTopbarStatus();
 }
 
@@ -1220,8 +1220,8 @@ async function handleLiveSyncVisibilityChange() {
   return liveSyncController.handleLiveSyncVisibilityChange();
 }
 
-function initSubcomponentsWorkbench() {
-  bindWorkbenchControls(createSubcomponentsWorkbenchContext());
+function initTasksWorkbench() {
+  bindWorkbenchControls(createTasksWorkbenchContext());
 }
 
 async function bootstrapAuth() {
@@ -1356,7 +1356,7 @@ function renderActiveView() {
       renderMasterFilters();
       renderMasterTable();
     },
-    "subcomponents-workbench": () => renderSubcomponentsWorkbench(),
+    "tasks-workbench": () => renderTasksWorkbench(),
     dashboard: () => renderDashboard(),
     "pm-dashboard": () => renderPMDashboard(),
     kanban: () => renderKanban(),
@@ -1372,14 +1372,14 @@ function renderActiveView() {
   renderRoute();
   const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
   if (openSolutionId && els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
-    renderSolutionSubcomponents(openSolutionId);
+    renderSolutionTasks(openSolutionId);
     renderSolutionActivity(openSolutionId);
     renderSolutionPhases(openSolutionId);
   }
   telemetryController?.noteViewRendered?.(state.currentView, performance.now() - renderStartedAt);
 }
 
-function restoreSelections(projectId, solutionId, subcomponentId) {
+function restoreSelections(projectId, solutionId, taskId) {
   if (projectId) {
     const proj = state.projects.find((p) => p.project_id === projectId);
     if (proj) {
@@ -1395,10 +1395,10 @@ function restoreSelections(projectId, solutionId, subcomponentId) {
     }
   }
 
-  if (subcomponentId) {
-    const sub = state.subcomponents.find((s) => s.subcomponent_id === subcomponentId);
-    if (sub) {
-      fillSubcomponentForm(sub);
+  if (taskId) {
+    const task = state.tasks.find((item) => item.task_id === taskId);
+    if (task) {
+      fillTaskForm(task);
     }
   }
 }
@@ -1436,7 +1436,7 @@ function createMasterRouteContext(overrides = {}) {
     renderActiveView,
     openProjectForm,
     openSolutionModal,
-    showSubcomponentForm,
+    showTaskForm,
     trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
   }, { view: "master" });
   return createShellContext(base, {
@@ -1449,7 +1449,7 @@ function createMasterRouteContext(overrides = {}) {
   });
 }
 
-function createSubcomponentsWorkbenchContext(overrides = {}) {
+function createTasksWorkbenchContext(overrides = {}) {
   const base = createShellContext({
     state,
     els,
@@ -1458,21 +1458,21 @@ function createSubcomponentsWorkbenchContext(overrides = {}) {
     normalize,
     numberOr,
     ignoreNextRefresh,
-    deriveSubcomponentActionability,
-    isCompletedSubcomponentStatus,
+    deriveTaskActionability,
+    isCompletedTaskStatus,
     showCompletedOperationalWork,
     requestsClosedStatuses,
-    persistSubcomponentsWorkbenchUiState,
-    renderSubcomponentsWorkbench,
-    clearSubcomponentsWorkbenchBulkFeedback,
-    setSubcomponentsWorkbenchBulkFeedback,
-    deleteSubcomponentsById,
+    persistTasksWorkbenchUiState,
+    renderTasksWorkbench,
+    clearTasksWorkbenchBulkFeedback,
+    setTasksWorkbenchBulkFeedback,
+    deleteTasksById,
     markIgnoreRefresh,
-    renderSolutionSubcomponents,
+    renderSolutionTasks,
     renderDashboard,
     findUserBySoeid,
     escapeHtml,
-    effectiveSubcomponentRepoInfo,
+    effectiveTaskRepoInfo,
     renderExternalRepoLink,
     openProjectForm,
     openSolutionModal,
@@ -1481,19 +1481,19 @@ function createSubcomponentsWorkbenchContext(overrides = {}) {
     timestampLabel,
     resolveAssigneeSelectValue,
     activeSpaceId,
-    subcomponentsWorkbenchSavedViewsKeyPrefix: SUBCOMPONENTS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX,
+    tasksWorkbenchSavedViewsKeyPrefix: TASKS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX,
     showConfirmModal,
     bindDebouncedInput,
-  }, { view: "subcomponents-workbench" });
+  }, { view: "tasks-workbench" });
   let ctx = null;
   ctx = createShellContext(base, {
-    updateSubcomponentsWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(ctx),
-    updateSubcomponentsWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(ctx),
-    clearSubcomponentsWorkbenchFilters: () => clearWorkbenchFilters(ctx),
-    syncSubcomponentsWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(ctx),
-    applySubcomponentsWorkbenchBulkAction: () => applyWorkbenchBulkAction(ctx),
-    normalizeSubcomponentsWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options),
-    updateSubcomponentsWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId),
+    updateTasksWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(ctx),
+    updateTasksWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(ctx),
+    clearTasksWorkbenchFilters: () => clearWorkbenchFilters(ctx),
+    syncTasksWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(ctx),
+    applyTasksWorkbenchBulkAction: () => applyWorkbenchBulkAction(ctx),
+    normalizeTasksWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options),
+    updateTasksWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId),
     ...overrides,
   });
   return ctx;
@@ -1523,7 +1523,7 @@ function isClosedSolutionStatus(statusValue) {
   return isClosedLifecycleStatus(statusValue);
 }
 
-function isCompletedSubcomponentStatus(statusValue) {
+function isCompletedTaskStatus(statusValue) {
   return isClosedLifecycleStatus(statusValue);
 }
 
@@ -1541,26 +1541,26 @@ function hideClosedDeliverables() {
   return !showCompletedOperationalWork() && !requestsClosedStatuses(state.filters?.status);
 }
 
-function deriveSubcomponentActionability(subcomponent) {
+function deriveTaskActionability(task) {
   const hasServerFields =
-    Object.prototype.hasOwnProperty.call(subcomponent || {}, "is_overdue") &&
-    Object.prototype.hasOwnProperty.call(subcomponent || {}, "is_due_soon") &&
-    Object.prototype.hasOwnProperty.call(subcomponent || {}, "is_stale") &&
-    Object.prototype.hasOwnProperty.call(subcomponent || {}, "urgency_score");
+    Object.prototype.hasOwnProperty.call(task || {}, "is_overdue") &&
+    Object.prototype.hasOwnProperty.call(task || {}, "is_due_soon") &&
+    Object.prototype.hasOwnProperty.call(task || {}, "is_stale") &&
+    Object.prototype.hasOwnProperty.call(task || {}, "urgency_score");
   if (hasServerFields) {
     return {
-      is_overdue: !!subcomponent.is_overdue,
-      is_due_soon: !!subcomponent.is_due_soon,
-      is_stale: !!subcomponent.is_stale,
-      urgency_score: numberOr(subcomponent.urgency_score, 0),
+      is_overdue: !!task.is_overdue,
+      is_due_soon: !!task.is_due_soon,
+      is_stale: !!task.is_stale,
+      urgency_score: numberOr(task.urgency_score, 0),
     };
   }
 
-  const done = isCompletedSubcomponentStatus(subcomponent?.status);
+  const done = isCompletedTaskStatus(task?.status);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const dueDate = subcomponent?.due_date ? new Date(`${subcomponent.due_date}T00:00:00`) : null;
-  const updated = subcomponent?.updated_at ? new Date(subcomponent.updated_at) : null;
+  const dueDate = task?.due_date ? new Date(`${task.due_date}T00:00:00`) : null;
+  const updated = task?.updated_at ? new Date(task.updated_at) : null;
 
   const is_overdue = !!(dueDate && dueDate < today && !done);
   const dueSoonDays = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)) : null;
@@ -1573,10 +1573,10 @@ function deriveSubcomponentActionability(subcomponent) {
 
   let urgency = 0;
   if (!done) {
-    const priority = Math.max(1, Math.min(5, Number(subcomponent?.priority || 3)));
+    const priority = Math.max(1, Math.min(5, Number(task?.priority || 3)));
     const priorityScore = (6 - priority) * 15;
     const dueScore = dueSoonDays == null ? 0 : dueSoonDays < 0 ? 45 : Math.max(0, (15 - dueSoonDays) * 2);
-    const blockedScore = subcomponent?.blocked ? 18 : 0;
+    const blockedScore = task?.blocked ? 18 : 0;
     const staleScore = is_stale ? 10 : 0;
     urgency = Math.min(100, priorityScore + dueScore + blockedScore + staleScore);
   }
@@ -1589,11 +1589,11 @@ function deriveSubcomponentActionability(subcomponent) {
   };
 }
 
-function describeSubcomponentsForDelete(subcomponentIds) {
-  const uniqueIds = Array.from(new Set((subcomponentIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
+function describeTasksForDelete(taskIds) {
+  const uniqueIds = Array.from(new Set((taskIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
   const names = uniqueIds.map((id) => {
-    const row = state.subcomponents.find((item) => item.subcomponent_id === id);
-    return row?.subcomponent_name || "";
+    const row = state.tasks.find((item) => item.task_id === id);
+    return row?.task_name || "";
   }).filter(Boolean);
   const preview = names.slice(0, 3).map((name) => `"${name}"`);
   const remainder = Math.max(names.length - preview.length, 0);
@@ -1606,19 +1606,19 @@ function describeSubcomponentsForDelete(subcomponentIds) {
   };
 }
 
-async function deleteSubcomponentsById(subcomponentIds, options = {}) {
-  const details = describeSubcomponentsForDelete(subcomponentIds);
+async function deleteTasksById(taskIds, options = {}) {
+  const details = describeTasksForDelete(taskIds);
   const { ids } = details;
   if (!ids.length) {
     return { cancelled: false, deletedIds: [], failed: [] };
   }
 
   const count = ids.length;
-  const defaultTitle = count === 1 ? "Delete Subcomponent?" : "Delete Subcomponents?";
-  const defaultConfirm = count === 1 ? "Delete Subcomponent" : `Delete ${count} Subcomponents`;
+  const defaultTitle = count === 1 ? "Delete Task?" : "Delete Tasks?";
+  const defaultConfirm = count === 1 ? "Delete Task" : `Delete ${count} Tasks`;
   const defaultMessage = count === 1
-    ? `Delete ${details.previewText || "this subcomponent"}? This cannot be undone.`
-    : `Delete ${count} subcomponents${details.previewText ? ` (${details.previewText})` : ""}? This cannot be undone.`;
+    ? `Delete ${details.previewText || "this task"}? This cannot be undone.`
+    : `Delete ${count} tasks${details.previewText ? ` (${details.previewText})` : ""}? This cannot be undone.`;
 
   const confirmed = await showConfirmModal({
     title: options.title || defaultTitle,
@@ -1633,81 +1633,81 @@ async function deleteSubcomponentsById(subcomponentIds, options = {}) {
   const failed = [];
   for (const id of ids) {
     try {
-      await api(`/subcomponents/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await api(`/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
       deletedIds.push(id);
     } catch (err) {
       failed.push({ id, error: err });
     }
   }
 
-  deletedIds.forEach((id) => removeById(state.subcomponents, id, "subcomponent_id"));
-  const wb = state.subcomponentsWorkbench;
+  deletedIds.forEach((id) => removeById(state.tasks, id, "task_id"));
+  const wb = state.tasksWorkbench;
   deletedIds.forEach((id) => wb.selected.delete(id));
-  if (deletedIds.includes(wb.activeSubcomponentId)) {
-    wb.activeSubcomponentId = "";
+  if (deletedIds.includes(wb.activeTaskId)) {
+    wb.activeTaskId = "";
   }
 
   return { cancelled: false, deletedIds, failed };
 }
 
-function clearSubcomponentsWorkbenchBulkFeedback() {
-  clearDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback);
+function clearTasksWorkbenchBulkFeedback() {
+  clearDeliverableFormNotice(els.tasksWorkbenchBulkFeedback);
 }
 
-function setSubcomponentsWorkbenchBulkFeedback(message, tone = "info", autoClearMs = 0) {
-  setDeliverableFormNotice(els.subcomponentsWorkbenchBulkFeedback, message, tone, autoClearMs);
+function setTasksWorkbenchBulkFeedback(message, tone = "info", autoClearMs = 0) {
+  setDeliverableFormNotice(els.tasksWorkbenchBulkFeedback, message, tone, autoClearMs);
 }
 
-function renderSubcomponentsWorkbench() {
-  const mod = getRouteModule("subcomponents-workbench");
-  if (!mod || typeof mod.renderSubcomponentsWorkbench !== "function") {
-    if (state.currentView === "subcomponents-workbench" && els.subcomponentsWorkbenchTable) {
-      els.subcomponentsWorkbenchTable.innerHTML = "<p class='muted'>Loading...</p>";
+function renderTasksWorkbench() {
+  const mod = getRouteModule("tasks-workbench");
+  if (!mod || typeof mod.renderTasksWorkbench !== "function") {
+    if (state.currentView === "tasks-workbench" && els.tasksWorkbenchTable) {
+      els.tasksWorkbenchTable.innerHTML = "<p class='muted'>Loading...</p>";
     }
-    ensureRouteModule("subcomponents-workbench").then((loaded) => {
-      if (loaded && state.currentView === "subcomponents-workbench") renderSubcomponentsWorkbench();
+    ensureRouteModule("tasks-workbench").then((loaded) => {
+      if (loaded && state.currentView === "tasks-workbench") renderTasksWorkbench();
     });
     return;
   }
 
-  const wb = state.subcomponentsWorkbench;
-  const workbenchCtx = createSubcomponentsWorkbenchContext();
-  const { allRows, visibleRows } = buildSubcomponentsWorkbenchRows(workbenchCtx);
-  const allIds = new Set((state.subcomponents || []).map((row) => row.subcomponent_id));
-  Array.from(wb.selected).forEach((subId) => {
-    if (!allIds.has(subId)) wb.selected.delete(subId);
+  const wb = state.tasksWorkbench;
+  const workbenchCtx = createTasksWorkbenchContext();
+  const { allRows, visibleRows } = buildTasksWorkbenchRows(workbenchCtx);
+  const allIds = new Set((state.tasks || []).map((row) => row.task_id));
+  Array.from(wb.selected).forEach((taskId) => {
+    if (!allIds.has(taskId)) wb.selected.delete(taskId);
   });
 
-  if (wb.activeSubcomponentId) {
-    const exists = visibleRows.find((row) => row.subcomponent_id === wb.activeSubcomponentId);
-    if (!exists) wb.activeSubcomponentId = "";
+  if (wb.activeTaskId) {
+    const exists = visibleRows.find((row) => row.task_id === wb.activeTaskId);
+    if (!exists) wb.activeTaskId = "";
   }
-  if (wb.drawerOpen !== false && !wb.activeSubcomponentId && visibleRows.length) {
-    wb.activeSubcomponentId = visibleRows[0].subcomponent_id;
+  if (wb.drawerOpen !== false && !wb.activeTaskId && visibleRows.length) {
+    wb.activeTaskId = visibleRows[0].task_id;
   }
-  persistSubcomponentsWorkbenchUiState();
+  persistTasksWorkbenchUiState();
 
-  mod.renderSubcomponentsWorkbench({
+  mod.renderTasksWorkbench({
     els,
     rows: visibleRows,
-    activeSubcomponentId: wb.activeSubcomponentId,
+    activeTaskId: wb.activeTaskId,
     selectedIds: wb.selected,
     formatStatus,
-    summary: buildSubcomponentsWorkbenchSummary(workbenchCtx, allRows, visibleRows),
+    summary: buildTasksWorkbenchSummary(workbenchCtx, allRows, visibleRows),
   });
 
-  const active = wb.drawerOpen !== false && wb.activeSubcomponentId
-    ? (state.subcomponents || []).find((row) => row.subcomponent_id === wb.activeSubcomponentId) || null
+  const active = wb.drawerOpen !== false && wb.activeTaskId
+    ? (state.tasks || []).find((row) => row.task_id === wb.activeTaskId) || null
     : null;
-  syncSubcomponentsWorkbenchDrawer(workbenchCtx);
-  fillSubcomponentsWorkbenchForm(workbenchCtx, active);
+  syncTasksWorkbenchDrawer(workbenchCtx);
+  fillTasksWorkbenchForm(workbenchCtx, active);
   updateWorkbenchPresetButtons(workbenchCtx);
   updateWorkbenchSelectionCount(workbenchCtx);
-  updateSubcomponentsWorkbenchSavedViewsUI(workbenchCtx);
+  updateTasksWorkbenchSavedViewsUI(workbenchCtx);
   if (wb.suppressAutoScrollOnce) {
     wb.suppressAutoScrollOnce = false;
   } else {
-    window.setTimeout(() => scrollActiveSubcomponentIntoView(workbenchCtx), 0);
+    window.setTimeout(() => scrollActiveTaskIntoView(workbenchCtx), 0);
   }
 }
 
@@ -1726,11 +1726,11 @@ function filteredSolutionsForCalendar() {
   });
 }
 
-function filteredSubcomponentsForCalendar() {
+function filteredTasksForCalendar() {
   const { project, owner } = state.calendarFilters || {};
   const ownerNorm = (owner || "").toLowerCase();
-  return (state.subcomponents || []).filter((sc) => {
-    if (!showCompletedOperationalWork() && isCompletedSubcomponentStatus(sc.status)) return false;
+  return (state.tasks || []).filter((sc) => {
+    if (!showCompletedOperationalWork() && isCompletedTaskStatus(sc.status)) return false;
     if (!sc?.due_date) return false;
     if (project && sc.project_id !== project) return false;
     if (ownerNorm) {
@@ -1910,7 +1910,7 @@ function renderPMDashboard() {
     openPMDashboardCapacityDrilldown,
     openPMDashboardProjectDrilldown,
     openPMDashboardSolutionDrilldown,
-    openPMDashboardSubcomponentDrilldown,
+    openPMDashboardTaskDrilldown,
     assigneeKeyFromAlloc,
     assigneeLabelFromKey,
     allocationFteMonths,
@@ -1967,19 +1967,19 @@ function openAllocationWorkItemDrilldown(allocationId) {
     openSolutionModal(solution, "details");
     return;
   }
-  if (allocation.work_item_type === "subcomponent") {
-    const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === workItemId);
-    if (!subcomponent) {
+  if (allocation.work_item_type === "task") {
+    const task = state.tasks.find((row) => row.task_id === workItemId);
+    if (!task) {
       setStatus("The linked deliverable is unavailable.", "warn");
       return;
     }
-    const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+    const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
     if (!solution) {
       setStatus("The linked workstream is unavailable.", "warn");
       return;
     }
-    openSolutionModal(solution, "subcomponents");
-    fillSubcomponentForm(subcomponent);
+    openSolutionModal(solution, "tasks");
+    fillTaskForm(task);
     return;
   }
   setStatus("This allocation type does not have a linked drill-down yet.", "warn");
@@ -2005,10 +2005,10 @@ function openPMDashboardCapacityDrilldown(detail) {
           const teamName = allocation.team_id ? state.teams.find((team) => team.team_id === allocation.team_id)?.name : "";
           const windowName = allocation.window_id ? state.planningWindows.find((row) => row.window_id === allocation.window_id)?.name : "";
           const actionLabel =
-            type === "project" ? "Open Project" : type === "solution" ? "Open Workstream" : type === "subcomponent" ? "Open Deliverable" : "Open Item";
+            type === "project" ? "Open Project" : type === "solution" ? "Open Workstream" : type === "task" ? "Open Deliverable" : "Open Item";
           const itemTypeLabel =
-            type === "project" ? "Project" : type === "solution" ? "Workstream" : type === "subcomponent" ? "Deliverable" : allocation.work_item_type || "work item";
-          const itemClass = type === "solution" || type === "subcomponent" ? ` ${type}` : "";
+            type === "project" ? "Project" : type === "solution" ? "Workstream" : type === "task" ? "Deliverable" : allocation.work_item_type || "work item";
+          const itemClass = type === "solution" || type === "task" ? ` ${type}` : "";
           return `<div class="modal-item${itemClass}">
             <div class="modal-item-title">${esc(itemTitle)}</div>
             <div class="modal-item-meta">${esc(itemTypeLabel)} • ${formatFte(allocationFteMonths(allocation))} FTE-mo • ${esc(allocationMonthStart(allocation) || "—")}</div>
@@ -2051,15 +2051,15 @@ function openKanbanSolutionDrilldown(solutionId) {
   return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);
 }
 
-function openPMDashboardSubcomponentDrilldown(subcomponentId) {
-  const targetId = String(subcomponentId || "").trim();
+function openPMDashboardTaskDrilldown(taskId) {
+  const targetId = String(taskId || "").trim();
   if (!targetId) return;
-  const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === targetId);
-  if (!subcomponent) return;
-  const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+  const task = state.tasks.find((row) => row.task_id === targetId);
+  if (!task) return;
+  const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
   if (!solution) return;
-  openSolutionModal(solution, "subcomponents");
-  fillSubcomponentForm(subcomponent);
+  openSolutionModal(solution, "tasks");
+  fillTaskForm(task);
 }
 
 function closeConfirmModal(result = false) {
@@ -2098,16 +2098,16 @@ function bindSolutionForm() {
   return solutionEntityController.bindSolutionForm();
 }
 
-function setSubcomponentActionButtonLabel(isEditing) {
-  return subcomponentEntityController.setSubcomponentActionButtonLabel(isEditing);
+function setTaskActionButtonLabel(isEditing) {
+  return taskEntityController.setTaskActionButtonLabel(isEditing);
 }
 
-function setSubcomponentFormVisibility(show) {
-  return subcomponentEntityController.setSubcomponentFormVisibility(show);
+function setTaskFormVisibility(show) {
+  return taskEntityController.setTaskFormVisibility(show);
 }
 
-function setSubcomponentCreateAvailability(solutionId) {
-  return solutionEntityController.setSubcomponentCreateAvailability(solutionId);
+function setTaskCreateAvailability(solutionId) {
+  return solutionEntityController.setTaskCreateAvailability(solutionId);
 }
 
 function openSolutionModal(solution = null, tab = "details") {
@@ -2127,9 +2127,9 @@ function setSolutionTab(tab) {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (solutionId) renderSolutionActivity(solutionId);
   }
-  if (tab === "subcomponents") {
+  if (tab === "tasks") {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    if (solutionId) renderSolutionSubcomponents(solutionId);
+    if (solutionId) renderSolutionTasks(solutionId);
   }
   if (tab === "phases") {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
@@ -2149,33 +2149,33 @@ function bindSolutionTabs() {
   tabs._bound = true;
 }
 
-function showSubcomponentForm(solution) {
-  return subcomponentEntityController.showSubcomponentForm(solution);
+function showTaskForm(solution) {
+  return taskEntityController.showTaskForm(solution);
 }
 
-function fillSubcomponentForm(sub) {
-  return subcomponentEntityController.fillSubcomponentForm(sub);
+function fillTaskForm(task) {
+  return taskEntityController.fillTaskForm(task);
 }
 
-function renderSolutionSubcomponents(solutionId) {
-  if (!els.solutionSubcomponentTable) return;
+function renderSolutionTasks(solutionId) {
+  if (!els.solutionTaskTable) return;
   if (!solutionId) {
-    setSubcomponentCreateAvailability("");
-    els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Save the solution to add subcomponents.</p>";
+    setTaskCreateAvailability("");
+    els.solutionTaskTable.innerHTML = "<p class='muted'>Save the solution to add tasks.</p>";
     return;
   }
-  setSubcomponentCreateAvailability(solutionId);
-  const allSubs = state.subcomponents.filter((s) => s.solution_id === solutionId);
+  setTaskCreateAvailability(solutionId);
+  const allSubs = state.tasks.filter((s) => s.solution_id === solutionId);
   const hiddenClosedCount = !showCompletedOperationalWork()
-    ? allSubs.filter((subcomponent) => isCompletedSubcomponentStatus(subcomponent.status)).length
+    ? allSubs.filter((task) => isCompletedTaskStatus(task.status)).length
     : 0;
   const subs = showCompletedOperationalWork()
     ? allSubs
-    : allSubs.filter((subcomponent) => !isCompletedSubcomponentStatus(subcomponent.status));
+    : allSubs.filter((task) => !isCompletedTaskStatus(task.status));
   const hiddenNote = hiddenClosedCount
-    ? `<p class="form-notice">Completed items are hidden here. Use Show Completed in the top bar to review ${hiddenClosedCount} closed subcomponent${hiddenClosedCount === 1 ? "" : "s"}.</p>`
+    ? `<p class="form-notice">Completed items are hidden here. Use Show Completed in the top bar to review ${hiddenClosedCount} closed task${hiddenClosedCount === 1 ? "" : "s"}.</p>`
     : "";
-  if (state.subcomponentView === "swimlane") {
+  if (state.taskView === "swimlane") {
     const grouped = {
       to_do: [],
       in_progress: [],
@@ -2190,8 +2190,8 @@ function renderSolutionSubcomponents(solutionId) {
           ? items
               .map(
                 (s) =>
-                  `<div class="swimlane-card" data-id="${s.subcomponent_id}">
-                    <div class="swimlane-title">${s.subcomponent_name}</div>
+                  `<div class="swimlane-card" data-id="${s.task_id}">
+                    <div class="swimlane-title">${s.task_name}</div>
                     <div class="swimlane-meta">${s.assignee || "—"} • P${s.priority ?? "–"}</div>
                     <div class="swimlane-meta">Due ${s.due_date || "—"}</div>
                   </div>`
@@ -2201,14 +2201,14 @@ function renderSolutionSubcomponents(solutionId) {
         return `<div class="swimlane-column"><h4>${formatStatus(status)}</h4>${cards}</div>`;
       })
       .join("");
-    els.solutionSubcomponentTable.innerHTML = `${hiddenNote}<div class="swimlane-board">${columns}</div>`;
+    els.solutionTaskTable.innerHTML = `${hiddenNote}<div class="swimlane-board">${columns}</div>`;
   } else {
     const rows = subs
       .map(
         (s) =>
-          `<tr data-id="${s.subcomponent_id}">
-            <td><button class="icon-btn edit-subcomponent-btn" data-id="${s.subcomponent_id}" title="Edit">✎</button></td>
-            <td>${s.subcomponent_name || "—"}</td>
+          `<tr data-id="${s.task_id}">
+            <td><button class="icon-btn edit-task-btn" data-id="${s.task_id}" title="Edit">✎</button></td>
+            <td>${s.task_name || "—"}</td>
             <td>${formatStatus(s.status)}</td>
             <td>${s.assignee || "—"}</td>
             <td>${s.priority ?? "—"}</td>
@@ -2216,9 +2216,9 @@ function renderSolutionSubcomponents(solutionId) {
           </tr>`
       )
       .join("");
-    els.solutionSubcomponentTable.innerHTML = `
+    els.solutionTaskTable.innerHTML = `
       ${hiddenNote}
-      <table class="subcomponent-table">
+      <table class="task-table">
         <thead>
           <tr>
             <th></th>
@@ -2229,32 +2229,32 @@ function renderSolutionSubcomponents(solutionId) {
             <th>Due</th>
           </tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan='6' class='muted'>${hiddenClosedCount ? "No open subcomponents in view." : "No subcomponents"}</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan='6' class='muted'>${hiddenClosedCount ? "No open tasks in view." : "No tasks"}</td></tr>`}</tbody>
       </table>`;
   }
 }
 
-function bindSolutionSubcomponentControls() {
-  if (els.subcomponentViewToggle && !els.subcomponentViewToggle._bound) {
-    els.subcomponentViewToggle.addEventListener("click", () => {
-      state.subcomponentView = state.subcomponentView === "table" ? "swimlane" : "table";
-      els.subcomponentViewToggle.textContent = state.subcomponentView === "table" ? "Swimlane View" : "Table View";
+function bindSolutionTaskControls() {
+  if (els.taskViewToggle && !els.taskViewToggle._bound) {
+    els.taskViewToggle.addEventListener("click", () => {
+      state.taskView = state.taskView === "table" ? "swimlane" : "table";
+      els.taskViewToggle.textContent = state.taskView === "table" ? "Swimlane View" : "Table View";
       const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-      renderSolutionSubcomponents(solutionId);
+      renderSolutionTasks(solutionId);
     });
-    els.subcomponentViewToggle._bound = true;
+    els.taskViewToggle._bound = true;
   }
-  if (els.solutionSubcomponentTable && !els.solutionSubcomponentTable._bound) {
-    els.solutionSubcomponentTable.addEventListener("click", (e) => {
-      const btn = e.target.closest(".edit-subcomponent-btn");
+  if (els.solutionTaskTable && !els.solutionTaskTable._bound) {
+    els.solutionTaskTable.addEventListener("click", (e) => {
+      const btn = e.target.closest(".edit-task-btn");
       const card = e.target.closest(".swimlane-card");
       const id = btn?.getAttribute("data-id") || card?.getAttribute("data-id");
       if (!id) return;
-      const sub = state.subcomponents.find((s) => s.subcomponent_id === id);
-      if (!sub) return;
-      fillSubcomponentForm(sub);
+      const task = state.tasks.find((item) => item.task_id === id);
+      if (!task) return;
+      fillTaskForm(task);
     });
-    els.solutionSubcomponentTable._bound = true;
+    els.solutionTaskTable._bound = true;
   }
 }
 
@@ -2266,8 +2266,8 @@ function bindModalShortcuts() {
       closeConfirmModal(false);
       return;
     }
-    if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal.classList.contains("hidden")) {
-      closeSubcomponentCreatePicker();
+    if (els.taskCreatePickerModal && !els.taskCreatePickerModal.classList.contains("hidden")) {
+      closeTaskCreatePicker();
       return;
     }
     if (els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
@@ -2399,8 +2399,8 @@ async function renderSolutionPhases(selectedId) {
   });
 }
 
-function bindSubcomponentForm() {
-  return subcomponentEntityController.bindSubcomponentForm();
+function bindTaskForm() {
+  return taskEntityController.bindTaskForm();
 }
 
 function programNameForProject(project) {
@@ -2426,7 +2426,7 @@ function populateSelects() {
   const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);
   const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {
     includeSolutions: true,
-    includeSubcomponents: true,
+    includeTasks: true,
   });
   const projSelects = [
     els.solutionForm?.querySelector('[name="project_id"]'),
@@ -2523,10 +2523,10 @@ function populateSelects() {
 
   populateCapacityUserOptions();
 
-  // Assignee dropdown for subcomponents from team members
-  if (els.subcomponentForm) {
-    const assigneeSel = els.subcomponentForm.querySelector('[name="assignee"]');
-    const assigneeUserInput = els.subcomponentForm.querySelector('[name="assignee_user_soeid"]');
+  // Assignee dropdown for tasks from team members
+  if (els.taskForm) {
+    const assigneeSel = els.taskForm.querySelector('[name="assignee"]');
+    const assigneeUserInput = els.taskForm.querySelector('[name="assignee_user_soeid"]');
     if (assigneeSel) {
       const users = state.users.filter((u) => u.display_name && u.soeid);
       assigneeSel.innerHTML =
@@ -2539,7 +2539,7 @@ function populateSelects() {
       if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
     }
   }
-  populateSubcomponentsWorkbenchOptions(createSubcomponentsWorkbenchContext(), { projectOptionsHtml: projectOpts });
+  populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });
   if (els.allocationForm) {
     const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
     const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
@@ -2566,7 +2566,7 @@ function populateSelects() {
     } else if (type === "solution") {
       options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
     } else {
-      options = state.subcomponents.map((sc) => `<option value="${sc.subcomponent_id}">${sc.subcomponent_name}</option>`).join("");
+      options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
     }
     els.aiEntityId.innerHTML = options || `<option value=\"\">No items</option>`;
   }
@@ -2584,7 +2584,7 @@ function updateAllocationItems() {
   } else if (type === "solution") {
     options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
   } else {
-    options = state.subcomponents.map((sc) => `<option value="${sc.subcomponent_id}">${sc.subcomponent_name}</option>`).join("");
+    options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
   }
   itemSel.innerHTML = `<option value="">Select</option>${options}`;
   applyAllocationDefaults();
@@ -2627,20 +2627,20 @@ function renderKanban() {
   });
 }
 
-function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {
+function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {
   if (!filterState || typeof filterState !== "object") return false;
   const currentOwner = String(filterState.owner || "").trim();
   if (!currentOwner) return false;
   const ownerToken = currentOwner.toLowerCase();
   const hasSolutionMatch = includeSolutions
     && (state.solutions || []).some((solution) => String(solution?.owner || "").toLowerCase().includes(ownerToken));
-  const hasSubcomponentMatch = includeSubcomponents
-    && (state.subcomponents || []).some((subcomponent) => {
-      const assigneeName = String(subcomponent?.assignee || "").toLowerCase();
-      const assigneeSoeid = String(subcomponent?.assignee_user_soeid || "").toLowerCase();
+  const hasTaskMatch = includeTasks
+    && (state.tasks || []).some((task) => {
+      const assigneeName = String(task?.assignee || "").toLowerCase();
+      const assigneeSoeid = String(task?.assignee_user_soeid || "").toLowerCase();
       return assigneeName.includes(ownerToken) || assigneeSoeid.includes(ownerToken);
     });
-  if (hasSolutionMatch || hasSubcomponentMatch) return false;
+  if (hasSolutionMatch || hasTaskMatch) return false;
   filterState.owner = "";
   return true;
 }
@@ -2669,7 +2669,7 @@ function renderCalendar() {
     state,
     els,
     filteredSolutionsForCalendar,
-    filteredSubcomponentsForCalendar,
+    filteredTasksForCalendar,
     formatStatus,
   });
 }
@@ -3588,10 +3588,10 @@ function restorePlanningWindowViewState() {
   if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();
 }
 
-function persistSubcomponentsWorkbenchUiState() {
-  const wb = state.subcomponentsWorkbench;
+function persistTasksWorkbenchUiState() {
+  const wb = state.tasksWorkbench;
   writeStoredJson(
-    activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX),
+    activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX),
     {
       preset: wb.preset || "all",
       filters: {
@@ -3603,16 +3603,16 @@ function persistSubcomponentsWorkbenchUiState() {
         status: wb.filters?.status || "",
         priority_max: wb.filters?.priority_max || "",
       },
-      activeSubcomponentId: wb.activeSubcomponentId || "",
+      activeTaskId: wb.activeTaskId || "",
       selectedSavedViewId: wb.selectedSavedViewId || "",
       drawerOpen: wb.drawerOpen !== false,
     }
   );
 }
 
-function restoreSubcomponentsWorkbenchUiState() {
-  const wb = state.subcomponentsWorkbench;
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(SUBCOMPONENTS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
+function restoreTasksWorkbenchUiState() {
+  const wb = state.tasksWorkbench;
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
   wb.preset = String(stored.preset || "all");
   wb.filters = {
     search: String(stored.filters?.search || ""),
@@ -3624,11 +3624,11 @@ function restoreSubcomponentsWorkbenchUiState() {
     priority_max: String(stored.filters?.priority_max || ""),
   };
   wb.selected.clear();
-  wb.activeSubcomponentId = String(stored.activeSubcomponentId || "");
+  wb.activeTaskId = String(stored.activeTaskId || "");
   wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
   wb.drawerOpen = stored.drawerOpen !== false;
-  normalizeWorkbenchUiState(createSubcomponentsWorkbenchContext());
-  if (recovered || !Object.keys(stored || {}).length) persistSubcomponentsWorkbenchUiState();
+  normalizeWorkbenchUiState(createTasksWorkbenchContext());
+  if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
 }
 
 function canManageSpaceMembership(spaceId) {
@@ -3856,8 +3856,8 @@ function allocationFteDefault(type, itemId) {
       if (Number.isFinite(Number(sol.capacity_hours))) return Number(sol.capacity_hours) / HOURS_PER_FTE_MONTH;
     }
   }
-  if (type === "subcomponent") {
-    const sc = state.subcomponents.find((s) => s.subcomponent_id === itemId);
+  if (type === "task") {
+    const sc = state.tasks.find((s) => s.task_id === itemId);
     if (sc) {
       if (Number.isFinite(Number(sc.estimate_fte_months))) return Number(sc.estimate_fte_months);
       if (Number.isFinite(Number(sc.capacity_fte_months))) return Number(sc.capacity_fte_months);
@@ -3876,8 +3876,8 @@ function allocationLabel(allocation) {
   if (allocation.work_item_type === "solution") {
     return state.solutions.find((s) => s.solution_id === allocation.work_item_id)?.solution_name || allocation.work_item_id;
   }
-  if (allocation.work_item_type === "subcomponent") {
-    return state.subcomponents.find((sc) => sc.subcomponent_id === allocation.work_item_id)?.subcomponent_name || allocation.work_item_id;
+  if (allocation.work_item_type === "task") {
+    return state.tasks.find((sc) => sc.task_id === allocation.work_item_id)?.task_name || allocation.work_item_id;
   }
   return allocation.work_item_id || "";
 }
@@ -3981,7 +3981,7 @@ function init() {
   bindWorkspaceViewPreferences();
   bindAuthUI();
   bindTopbarCreateMenu();
-  bindSubcomponentCreatePicker();
+  bindTaskCreatePicker();
   bindCsvControls();
   bindSpaceSwitcher();
   bindNav();
@@ -3995,14 +3995,14 @@ function init() {
   bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
-  bindSubcomponentForm();
+  bindTaskForm();
   bindSolutionTabs();
-  bindSolutionSubcomponentControls();
+  bindSolutionTaskControls();
   bindModalShortcuts();
   bindCalendarControls();
   bindCapacityUsers();
   bindSpaceAdminControls();
-  initSubcomponentsWorkbench();
+  initTasksWorkbench();
   const initialView = viewFromLocationPath();
   setView(initialView, { fromHistory: true });
   if (!isResetPath()) {

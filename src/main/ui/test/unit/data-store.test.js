@@ -20,14 +20,14 @@ function createHarness(apiImpl, overrides = {}) {
     projects: [],
     solutions: [],
     solutionPhases: {},
-    subcomponents: [],
+    tasks: [],
     teams: [],
     users: [],
     allocations: [],
     planningWindows: [],
     capacitySelectedSoeid: "",
     teamCapacity: {},
-    subcomponentsWorkbench: null,
+    tasksWorkbench: null,
   };
   const setStatus = overrides.setStatus || vi.fn();
   const renderActiveView = overrides.renderActiveView || vi.fn();
@@ -38,7 +38,7 @@ function createHarness(apiImpl, overrides = {}) {
     els: {
       projectForm: null,
       solutionForm: null,
-      subcomponentForm: null,
+      taskForm: null,
     },
     api: vi.fn(apiImpl),
     setStatus,
@@ -49,8 +49,8 @@ function createHarness(apiImpl, overrides = {}) {
     handleAuthError: vi.fn(() => false),
     loadTeamCapacityData: vi.fn(),
     entitiesForView: overrides.entitiesForView || vi.fn(() => ["projects", "solutions"]),
-    isKnownEntity: (entity) => ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"].includes(entity),
-    dataEntities: ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
+    isKnownEntity: (entity) => ["phases", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"].includes(entity),
+    dataEntities: ["phases", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"],
     viewPrefetchTarget: overrides.viewPrefetchTarget || {},
   });
   return { controller, state, setStatus, renderActiveView, populateSelects, restoreSelections };
@@ -145,32 +145,32 @@ describe("data store controller", () => {
 
   it("preserves queued route readiness when a route load starts during another load", async () => {
     const firstProjects = deferred();
-    const secondSubcomponents = deferred();
+    const secondTasks = deferred();
     const routeReady = deferred();
     const renderActiveView = vi.fn();
     const api = vi.fn((path) => {
       if (path === "/projects") return firstProjects.promise;
-      if (path === "/subcomponents") return secondSubcomponents.promise;
+      if (path === "/tasks") return secondTasks.promise;
       return Promise.resolve([]);
     });
     const { controller, state } = createHarness(
       api,
       {
         renderActiveView,
-        entitiesForView: vi.fn(() => ["subcomponents"]),
+        entitiesForView: vi.fn(() => ["tasks"]),
       }
     );
 
     const firstLoad = controller.loadData({ entities: ["projects"], silent: true });
     await Promise.resolve();
     state.currentView = "gantt";
-    await controller.loadData({ entities: ["subcomponents"], routeReady: routeReady.promise, silent: true });
+    await controller.loadData({ entities: ["tasks"], routeReady: routeReady.promise, silent: true });
 
     firstProjects.resolve([{ project_id: "project-1" }]);
     await firstLoad;
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/subcomponents"));
-    secondSubcomponents.resolve([{ subcomponent_id: "subcomponent-1" }]);
-    await vi.waitFor(() => expect(state.subcomponents).toEqual([{ subcomponent_id: "subcomponent-1" }]));
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/tasks"));
+    secondTasks.resolve([{ task_id: "task-1" }]);
+    await vi.waitFor(() => expect(state.tasks).toEqual([{ task_id: "task-1" }]));
 
     expect(renderActiveView).toHaveBeenCalledTimes(1);
 

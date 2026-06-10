@@ -145,8 +145,8 @@ def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):
         raise RuntimeError("no current loop")
 
     monkeypatch.setattr(asyncio, "get_event_loop", no_loop)
-    realtime.schedule_broadcast("subcomponents")
-    assert ws.sent == [{"type": "refresh", "entity": "subcomponents"}]
+    realtime.schedule_broadcast("tasks")
+    assert ws.sent == [{"type": "refresh", "entity": "tasks"}]
 
 
 @pytest.mark.anyio

@@ -46,15 +46,15 @@ def test_normalize_github_repo_url_rejects_non_repo_roots(raw):
 def test_resolve_effective_github_repo_url_prefers_override_then_inheritance():
     assert resolve_effective_github_repo_url(
         solution_repo_url="https://github.com/example-org/platform",
-        subcomponent_repo_url="https://github.com/example-org/frontend",
+        task_repo_url="https://github.com/example-org/frontend",
     ) == ("https://github.com/example-org/frontend", "override")
 
     assert resolve_effective_github_repo_url(
         solution_repo_url="https://github.com/example-org/platform",
-        subcomponent_repo_url=None,
+        task_repo_url=None,
     ) == ("https://github.com/example-org/platform", "inherited")
 
     assert resolve_effective_github_repo_url(
         solution_repo_url="",
-        subcomponent_repo_url=None,
+        task_repo_url=None,
     ) == (None, "none")

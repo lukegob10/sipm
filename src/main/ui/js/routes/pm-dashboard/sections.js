@@ -1,5 +1,5 @@
 import {
-  SUBCOMPONENT_STATUS_ORDER,
+  TASK_STATUS_ORDER,
   SOLUTION_STATUS_ORDER,
   clamp,
   dueDeltaLabel,
@@ -22,9 +22,9 @@ export function renderPMDashboardSummarySection({
   portfolioHealthScore,
   activeSolutionsCount,
   atRiskSolutions,
-  activeSubcomponentsCount,
-  blockedSubcomponentsCount,
-  unassignedSubcomponentsCount,
+  activeTasksCount,
+  blockedTasksCount,
+  unassignedTasksCount,
   overdueTotal,
   dueSoonTotal,
   staleTotal,
@@ -54,8 +54,8 @@ export function renderPMDashboardSummarySection({
     </article>
     <article class="pm-kpi-card">
       <div class="pm-kpi-label">Open Deliverables</div>
-      <div class="pm-kpi-value">${activeSubcomponentsCount}</div>
-      <div class="pm-kpi-meta">${blockedSubcomponentsCount} blocked, ${unassignedSubcomponentsCount} unassigned</div>
+      <div class="pm-kpi-value">${activeTasksCount}</div>
+      <div class="pm-kpi-meta">${blockedTasksCount} blocked, ${unassignedTasksCount} unassigned</div>
     </article>
     <article class="pm-kpi-card">
       <div class="pm-kpi-label">Schedule Pressure</div>
@@ -100,7 +100,7 @@ export function renderPMDashboardHealthSection({ els, projectSummaries, hrefFor 
         <td>${renderPMDashboardProjectLink(summary.projectName, summary.projectId)}<div class="muted">Next due: ${summary.nearestDue ? summary.nearestDue.toISOString().slice(0, 10) : "—"}</div></td>
         <td><span class="pill ${healthTone(summary.healthScore)}">${summary.healthScore}</span></td>
         <td>${summary.openSolutions}</td>
-        <td>${summary.openSubcomponents}</td>
+        <td>${summary.openTasks}</td>
         <td>${hotspots || "<span class='muted'>None</span>"}</td>
       </tr>`;
     })
@@ -244,16 +244,16 @@ export function renderPMDashboardCapacitySection({
 export function renderPMDashboardStatusSection({
   els,
   solutions,
-  subcomponents,
+  tasks,
   ragCounts,
   solutionStatusCounts,
-  subcomponentStatusCounts,
+  taskStatusCounts,
   formatStatus,
   hrefFor,
 }) {
   if (!els.pmDashboardStatus) return;
   const solutionTotal = Math.max(1, solutions.length);
-  const subcomponentTotal = Math.max(1, subcomponents.length);
+  const taskTotal = Math.max(1, tasks.length);
   const ragTotal = Math.max(1, ragCounts.red + ragCounts.amber + ragCounts.green + ragCounts.unknown);
 
   const renderStatusRows = (counts, total, orderedKeys) =>
@@ -281,7 +281,7 @@ export function renderPMDashboardStatusSection({
       </section>
       <section>
         <h4>Deliverables by Status</h4>
-        <ul class="pm-status-list">${renderStatusRows(subcomponentStatusCounts, subcomponentTotal, SUBCOMPONENT_STATUS_ORDER)}</ul>
+        <ul class="pm-status-list">${renderStatusRows(taskStatusCounts, taskTotal, TASK_STATUS_ORDER)}</ul>
       </section>
     </div>
     <h4>Active Workstream RAG Mix</h4>
@@ -320,7 +320,7 @@ export function renderPMDashboardActionsSection({ els, actions, hrefFor }) {
     <div class="pm-quick-links">
       <a href="${esc(hrefFor("master"))}">Work List</a>
       <a href="${esc(hrefFor("planning"))}">Planning</a>
-      <a href="${esc(hrefFor("subcomponents-workbench"))}">Deliverables</a>
+      <a href="${esc(hrefFor("tasks-workbench"))}">Deliverables</a>
       <a href="${esc(hrefFor("calendar"))}">Calendar</a>
     </div>
   `;

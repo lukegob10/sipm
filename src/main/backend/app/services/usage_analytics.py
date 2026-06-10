@@ -41,7 +41,7 @@ ALLOWED_FEATURE_KEYS = {
     "planning",
     "projects",
     "spaces",
-    "subcomponents",
+    "tasks",
     "solutions",
     "teams",
     "users",

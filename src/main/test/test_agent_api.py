@@ -14,7 +14,7 @@ from backend.app.models import (
     Space,
     SpaceMembership,
     Solution,
-    Subcomponent,
+    Task,
     User,
 )
 from backend.app.services.api_tokens import TOKEN_PREFIX, hash_api_token
@@ -169,7 +169,7 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     assert accepted.json()["writable_entities"] == [
         "project",
         "solution",
-        "subcomponent",
+        "task",
     ]
 
 
@@ -284,24 +284,24 @@ def _seed_work_graph(db_sessionmaker):
         )
         session.add(solution)
         session.flush()
-        subcomponent = Subcomponent(
+        task = Task(
             space_id=space_id,
             project_id=project.project_id,
             solution_id=solution.solution_id,
-            subcomponent_name="Agent Subcomponent",
+            task_name="Agent Task",
             status="in_progress",
             priority=1,
             assignee="Worker",
             assignee_user_soeid="wrk123",
         )
-        session.add(subcomponent)
+        session.add(task)
         session.commit()
         project_id = project.project_id
         solution_id = solution.solution_id
-        subcomponent_id = subcomponent.subcomponent_id
+        task_id = task.task_id
         project_updated_at = project.updated_at.isoformat()
         solution_updated_at = solution.updated_at.isoformat()
-        subcomponent_updated_at = subcomponent.updated_at.isoformat()
+        task_updated_at = task.updated_at.isoformat()
     return (
         token,
         space_id,
@@ -309,10 +309,10 @@ def _seed_work_graph(db_sessionmaker):
         other_space_id,
         project_id,
         solution_id,
-        subcomponent_id,
+        task_id,
         project_updated_at,
         solution_updated_at,
-        subcomponent_updated_at,
+        task_updated_at,
     )
 
 
@@ -334,7 +334,7 @@ async def test_agent_work_graph_is_scoped_nested_and_filterable(
     assert [row["project_name"] for row in data["records"]] == ["Agent Project"]
     solution = data["records"][0]["solutions"][0]
     assert solution["solution_id"] == solution_id
-    assert solution["subcomponents"][0]["subcomponent_name"] == "Agent Subcomponent"
+    assert solution["tasks"][0]["task_name"] == "Agent Task"
 
     owner_filter = await agent_client.get(
         "/project-manager/api/agent/work-graph?owner_user_soeid=own123",
@@ -409,10 +409,10 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
         other_space_id,
         project_id,
         solution_id,
-        subcomponent_id,
+        task_id,
         project_updated_at,
         solution_updated_at,
-        subcomponent_updated_at,
+        task_updated_at,
     ) = _seed_work_graph(db_sessionmaker)
     with db_sessionmaker() as session:
         other_project = session.query(Project).filter(Project.space_id == other_space_id).one()
@@ -437,11 +437,11 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
                 "fields": {"rag_status": "amber", "rag_reason": "Needs review"},
             },
             {
-                "client_operation_id": "subcomponent-update",
+                "client_operation_id": "task-update",
                 "op": "update",
-                "entity": "subcomponent",
-                "id": subcomponent_id,
-                "if_updated_at": subcomponent_updated_at,
+                "entity": "task",
+                "id": task_id,
+                "if_updated_at": task_updated_at,
                 "fields": {"blocked": True, "blocker_note": "Waiting"},
             },
             {
@@ -452,11 +452,11 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
                 "fields": {"solution_name": "New Agent Solution"},
             },
             {
-                "client_operation_id": "subcomponent-create",
+                "client_operation_id": "task-create",
                 "op": "create",
-                "entity": "subcomponent",
+                "entity": "task",
                 "solution_id": solution_id,
-                "fields": {"subcomponent_name": "New Agent Subcomponent"},
+                "fields": {"task_name": "New Agent Task"},
             },
         ],
     }

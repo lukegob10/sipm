@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { buildProgramPayload } from "../../js/entities/programs.js";
 import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
 import { buildSolutionPayload } from "../../js/entities/solutions.js";
-import { buildSubcomponentPayload } from "../../js/entities/subcomponents.js";
+import { buildTaskPayload } from "../../js/entities/tasks.js";
 
 function formData(values) {
   const data = new FormData();
@@ -150,7 +150,7 @@ describe("entity payload builders", () => {
     expect(payload).not.toHaveProperty("capacity_fte_months");
   });
 
-  it("builds subcomponent payloads with repo trimming and blocked-note consistency", () => {
+  it("builds task payloads with repo trimming and blocked-note consistency", () => {
     const users = new Map([["eng123", { display_name: "Engineer One" }]]);
     const commonDeps = {
       findUserBySoeid: (soeid) => users.get(soeid),
@@ -158,9 +158,9 @@ describe("entity payload builders", () => {
       hoursFromNullableFteInput: (value) => (value ? Number(value) * 160 : null),
     };
 
-    const blocked = buildSubcomponentPayload(
+    const blocked = buildTaskPayload(
       formData({
-        subcomponent_name: "  Task One  ",
+        task_name: "  Task One  ",
         github_repo_url: " https://github.com/org/task ",
         status: "in_progress",
         priority: "2",
@@ -174,7 +174,7 @@ describe("entity payload builders", () => {
       commonDeps
     );
 
-    expect(blocked.subcomponent_name).toBe("Task One");
+    expect(blocked.task_name).toBe("Task One");
     expect(blocked.github_repo_url).toBe("https://github.com/org/task");
     expect(blocked.assignee).toBe("Engineer One");
     expect(blocked.assignee_user_soeid).toBe("eng123");
@@ -184,9 +184,9 @@ describe("entity payload builders", () => {
     expect(blocked).not.toHaveProperty("estimate_fte_months");
     expect(blocked).not.toHaveProperty("capacity_fte_months");
 
-    const unblocked = buildSubcomponentPayload(
+    const unblocked = buildTaskPayload(
       formData({
-        subcomponent_name: "Task One",
+        task_name: "Task One",
         status: "in_progress",
         blocker_note: "Should not persist",
       }),

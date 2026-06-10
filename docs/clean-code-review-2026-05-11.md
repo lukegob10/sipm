@@ -8,7 +8,7 @@ No production source code was changed. This document is the only generated artif
 
 SIPM is materially closer to UAT/prod readiness than the prior review implied. Several previously high-risk findings are already fixed in the current working tree: request-time space resolution no longer silently grants default-space membership, telemetry keeps failed batches, analytics has a combined dashboard endpoint, p95 rank math is fixed, `/auth/me` uses the shared auth dependency, API-token `last_used_at` writes are throttled, request logs prefer resolved space context, and analytics validates requested spaces.
 
-The remaining production work is concentrated in UAT rehearsal and operator readiness, not basic app wiring. The first implementation pass after this review added planning-window/resource-allocation CSV coverage, dry-run support for CSV importers, duplicate SOEID protection, and lifecycle timestamp preservation for completed solutions/subcomponents.
+The remaining production work is concentrated in UAT rehearsal and operator readiness, not basic app wiring. The first implementation pass after this review added planning-window/resource-allocation CSV coverage, dry-run support for CSV importers, duplicate SOEID protection, and lifecycle timestamp preservation for completed solutions/tasks.
 
 Validation run during this review:
 
@@ -36,50 +36,50 @@ The app should not be called production-ready until the UAT migration path is va
 
 Evidence:
 
-- CSV import/export endpoints exist for projects, solutions, subcomponents, and users: `src/main/backend/app/routes/projects/import_export.py`, `src/main/backend/app/routes/solutions/import_export.py`, `src/main/backend/app/routes/subcomponents/import_export.py`, and `src/main/backend/app/routes/users.py`.
+- CSV import/export endpoints exist for projects, solutions, tasks, and users: `src/main/backend/app/routes/projects/import_export.py`, `src/main/backend/app/routes/solutions/import_export.py`, `src/main/backend/app/routes/tasks/import_export.py`, and `src/main/backend/app/routes/users.py`.
 - Planning/work-allocation exposes JSON API endpoints for board, teams, people, tasks, allocations, planning windows, and resource allocations, for example `src/main/backend/app/routes/planning/work_allocation.py:133`, `src/main/backend/app/routes/planning/work_allocation.py:605`, `src/main/backend/app/routes/planning/legacy_allocations.py:50`, and `src/main/backend/app/routes/planning/legacy_allocations.py:260`.
 - The only planning export endpoint found is the PDF report at `src/main/backend/app/routes/planning/work_allocation.py:628`; no CSV import/export endpoint exists for planning windows or allocations.
 
 Risk:
 
-Your stated UAT plan includes "plans/everything." The current CSV surface cannot migrate all planning state. A project/solution/subcomponent/user migration can succeed while planning windows, resource allocations, monthly work assignments, and board state are left behind or require undocumented manual API work.
+Your stated UAT plan includes "plans/everything." The current CSV surface cannot migrate all planning state. A project/solution/task/user migration can succeed while planning windows, resource allocations, monthly work assignments, and board state are left behind or require undocumented manual API work.
 
 Implemented fix:
 
 - Added CSV export/import for planning windows and resource allocations.
-- Allocation exports include natural project/solution/subcomponent/team/window keys so imports can resolve rows after IDs change between environments.
+- Allocation exports include natural project/solution/task/team/window keys so imports can resolve rows after IDs change between environments.
 - Added regression coverage for planning-window CSV update and resource-allocation import by natural work-item keys.
 
 Remaining work:
 
 - Run a real UAT rehearsal with representative data and document the operator ordering.
 
-### 2. High / must-fix / implemented: solution and subcomponent CSV round trips were not lossless for lifecycle timestamps
+### 2. High / must-fix / implemented: solution and task CSV round trips were not lossless for lifecycle timestamps
 
 Evidence:
 
 - Solutions export `completed_at`: `src/main/backend/app/routes/solutions/import_export.py:444` and `src/main/backend/app/routes/solutions/import_export.py:476`.
 - Solution import does not read `completed_at`; it sets completed rows to `now` when `status_enum == SolutionStatus.complete`: `src/main/backend/app/routes/solutions/import_export.py:308`.
-- Subcomponents export `completed_at`: `src/main/backend/app/routes/subcomponents/import_export.py:386` and `src/main/backend/app/routes/subcomponents/import_export.py:408`.
-- Subcomponent import does not read `completed_at`; it sets completed rows to `now` when `status_enum == SubcomponentStatus.complete`: `src/main/backend/app/routes/subcomponents/import_export.py:286`.
+- Tasks export `completed_at`: `src/main/backend/app/routes/tasks/import_export.py:386` and `src/main/backend/app/routes/tasks/import_export.py:408`.
+- Task import does not read `completed_at`; it sets completed rows to `now` when `status_enum == TaskStatus.complete`: `src/main/backend/app/routes/tasks/import_export.py:286`.
 
 Risk:
 
-After CSV migration, completed solutions and subcomponents can have UAT import time as their completion time instead of their real completion time. That corrupts history, reporting, audit interpretation, and downstream analytics. The fact that the field is exported makes this especially risky because operators will assume it is preserved.
+After CSV migration, completed solutions and tasks can have UAT import time as their completion time instead of their real completion time. That corrupts history, reporting, audit interpretation, and downstream analytics. The fact that the field is exported makes this especially risky because operators will assume it is preserved.
 
 Implemented fix:
 
-- Solution and subcomponent import now read ISO `completed_at` values.
+- Solution and task import now read ISO `completed_at` values.
 - Completed rows preserve provided timestamps instead of replacing them with import time.
-- Added regression coverage for solution and subcomponent import timestamp preservation.
+- Added regression coverage for solution and task import timestamp preservation.
 
 ### 3. Medium / should-fix / implemented: CSV imports allowed partial success without a dry-run or batch preflight
 
 Evidence:
 
 - Project import commits inside the row loop: `src/main/backend/app/routes/projects/import_export.py:157`.
-- Solution and subcomponent imports commit per created/updated entity through `commit_session`: `src/main/backend/app/routes/solutions/import_export.py:293`, `src/main/backend/app/routes/solutions/import_export.py:377`, `src/main/backend/app/routes/subcomponents/import_export.py:278`, and `src/main/backend/app/routes/subcomponents/import_export.py:329`.
-- Each importer returns row-level `errors` alongside created/updated counts, for example `src/main/backend/app/routes/projects/import_export.py:162`, `src/main/backend/app/routes/solutions/import_export.py:391`, and `src/main/backend/app/routes/subcomponents/import_export.py:350`.
+- Solution and task imports commit per created/updated entity through `commit_session`: `src/main/backend/app/routes/solutions/import_export.py:293`, `src/main/backend/app/routes/solutions/import_export.py:377`, `src/main/backend/app/routes/tasks/import_export.py:278`, and `src/main/backend/app/routes/tasks/import_export.py:329`.
+- Each importer returns row-level `errors` alongside created/updated counts, for example `src/main/backend/app/routes/projects/import_export.py:162`, `src/main/backend/app/routes/solutions/import_export.py:391`, and `src/main/backend/app/routes/tasks/import_export.py:350`.
 
 Risk:
 
@@ -87,7 +87,7 @@ Partial success is useful for day-to-day bulk editing, but it is dangerous for e
 
 Implemented fix:
 
-- Added `dry_run=true` support to projects, solutions, subcomponents, users, planning windows, and resource allocations imports.
+- Added `dry_run=true` support to projects, solutions, tasks, users, planning windows, and resource allocations imports.
 - Planning-window and resource-allocation importers also accept `atomic=true` to avoid writes when validation errors are present.
 - Default partial-success behavior is preserved for existing admin bulk-edit workflows.
 
@@ -99,7 +99,7 @@ Remaining work:
 
 Evidence:
 
-- Projects, solutions, and subcomponents each maintain a `seen` set and reject duplicate CSV keys: `src/main/backend/app/routes/projects/import_export.py:63`, `src/main/backend/app/routes/solutions/import_export.py:52`, and `src/main/backend/app/routes/subcomponents/import_export.py:56`.
+- Projects, solutions, and tasks each maintain a `seen` set and reject duplicate CSV keys: `src/main/backend/app/routes/projects/import_export.py:63`, `src/main/backend/app/routes/solutions/import_export.py:52`, and `src/main/backend/app/routes/tasks/import_export.py:56`.
 - Users import loops through rows at `src/main/backend/app/routes/users.py:533` and commits at `src/main/backend/app/routes/users.py:586`, but has no `seen` guard for duplicate `soeid` rows.
 
 Risk:
@@ -161,7 +161,7 @@ Minor "does not exactly look right" issues are still most likely in table action
 
 Smallest reasonable fix:
 
-- Add a short UAT screenshot checklist for: space governance, CSV upload/download menu, users import/export, analytics dashboard, planning board, and subcomponents workbench.
+- Add a short UAT screenshot checklist for: space governance, CSV upload/download menu, users import/export, analytics dashboard, planning board, and tasks workbench.
 - Add one Playwright visual/smoke assertion around the CSV menu and planning board if these are expected to be demo-critical.
 
 ## Resolved Since Prior Review
@@ -183,8 +183,8 @@ These were previously material risks but are fixed or materially improved in the
 - Non-dev auth config validates secret key, secure cookies, self-registration, SameSite, token durations, and bcrypt rounds.
 - UAT/prod coordination requires Redis through `SIPM_COORDINATION_BACKEND=redis` and `SIPM_REDIS_URL`.
 - Readiness includes auth config, frontend bundle verification, and DB connectivity.
-- Space-scoped project/solution/subcomponent/user export tests exist.
-- Import/export tests cover auto-created parent rows, cache invalidation, bad statuses, duplicate project/solution/subcomponent keys, and rollback on phase enablement failure for nested imports.
+- Space-scoped project/solution/task/user export tests exist.
+- Import/export tests cover auto-created parent rows, cache invalidation, bad statuses, duplicate project/solution/task keys, and rollback on phase enablement failure for nested imports.
 - Usage analytics has server-side user/space binding, batch limits, detail sanitization, rollups, and dashboard tests.
 
 ## Coverage Ledger
@@ -194,7 +194,7 @@ Reviewed:
 - FastAPI app wiring, readiness, startup validation, request logging, context path behavior.
 - Auth/session/API-token paths, excluding a redesign of the current auth model by request.
 - Space resolution, membership, global admin handling, and route-space enforcement tests.
-- CSV import/export for projects, solutions, subcomponents, and users.
+- CSV import/export for projects, solutions, tasks, and users.
 - Planning/work-allocation API surface and PDF report surface.
 - Analytics ingest, rollups, dashboard reads, telemetry client, and analytics tests.
 - Frontend shell routing, route module structure, smoke tests, and obvious client-side safety patterns.
@@ -230,7 +230,7 @@ Out of scope by request:
 
 After those changes, rerun:
 
-- `pytest -q src/main/test/test_import_export_projects.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_subcomponents.py src/main/test/test_users_space_scope.py`
+- `pytest -q src/main/test/test_import_export_projects.py src/main/test/test_import_export_solutions.py src/main/test/test_import_export_tasks.py src/main/test/test_users_space_scope.py`
 - Planning migration tests once added.
 - `pytest -q src/main/test`
 - `npm run lint:ui`

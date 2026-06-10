@@ -587,7 +587,7 @@ export async function onPlanningAction(action, actionEl = null) {
         flashTargets([{ kind: "task", id: created.id }], "success");
         selectTask(created.id, { focusReturnTaskId: created.id });
       }
-      await refreshGlobal(ctx, "subcomponents");
+      await refreshGlobal(ctx, "tasks");
       return;
     }
     if (action === "assign-task") {
@@ -637,7 +637,7 @@ export async function onPlanningAction(action, actionEl = null) {
       setNotice("Task updated", "success");
       flashTargets([{ kind: "task", id: selectedId }], "success");
       await loadBoard(ctx, { allocationsOnly: false });
-      await refreshGlobal(ctx, "subcomponents");
+      await refreshGlobal(ctx, "tasks");
       return;
     }
     if (action === "delete-task") {
@@ -660,7 +660,7 @@ export async function onPlanningAction(action, actionEl = null) {
       persistViewState();
       setNotice("Task deleted", "success");
       await loadBoard(ctx, { allocationsOnly: false });
-      await refreshGlobal(ctx, "subcomponents");
+      await refreshGlobal(ctx, "tasks");
       return;
     }
     if (action === "unassign-task") {

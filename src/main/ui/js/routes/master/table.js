@@ -159,7 +159,7 @@ export function buildMasterTable(ctx) {
     ><span class="pill ${row.type === "project" ? "pill-project" : "pill-solution"}">${row.type === "project" ? "Project" : "Solution"}</span></button>`;
     const deliverableActions = `<div class="deliverable-actions">
         <button class="icon-btn" data-action="edit" data-type="${row.type}" data-id="${itemId}" title="Edit">✎</button>
-        ${isSolution ? `<button class="icon-btn" data-action="add-subcomponent" data-type="solution" data-id="${solution.solution_id}" title="Add subcomponent">＋</button>` : ""}
+        ${isSolution ? `<button class="icon-btn" data-action="add-task" data-type="solution" data-id="${solution.solution_id}" title="Add task">＋</button>` : ""}
       </div>`;
     html += `<tr class="deliverable-row ${isSolution ? "deliverable-row-solution" : "deliverable-row-project"}">
       <td><input type="checkbox" class="deliverable-select" data-type="${row.type}" data-id="${itemId}" ${checked} /></td>

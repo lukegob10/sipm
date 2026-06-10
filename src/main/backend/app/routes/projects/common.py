@@ -165,10 +165,10 @@ def _publish_project_mutation(space_id: str) -> None:
 
 
 def _publish_project_deletion(space_id: str) -> None:
-    invalidate_space(space_id, ["projects", "solutions", "subcomponents"])
+    invalidate_space(space_id, ["projects", "solutions", "tasks"])
     schedule_broadcast("projects", space_id=space_id)
     schedule_broadcast("solutions", space_id=space_id)
-    schedule_broadcast("subcomponents", space_id=space_id)
+    schedule_broadcast("tasks", space_id=space_id)
 
 
 __all__ = [

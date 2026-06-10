@@ -23,7 +23,7 @@ from ..utils.enums import (
     ProjectStatus,
     RagStatus,
     SolutionStatus,
-    SubcomponentStatus,
+    TaskStatus,
 )
 from .base import Base, SoftDeleteMixin, TimestampMixin
 
@@ -172,17 +172,17 @@ class SolutionPhase(TimestampMixin, Base):
     sequence_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
 
 
-class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = physical_table_name("subcomponents")
+class Task(TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = physical_table_name("tasks")
     __table_args__ = (
         UniqueConstraint(
             "solution_id",
-            "subcomponent_name",
-            name="uix_subcomponent_solution_name",
+            "task_name",
+            name="uix_task_solution_name",
         ),
     )
 
-    subcomponent_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    task_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
     space_id: Mapped[Optional[str]] = mapped_column(
         String,
         ForeignKey(fk_target("spaces", "space_id")),
@@ -201,12 +201,12 @@ class Subcomponent(TimestampMixin, SoftDeleteMixin, Base):
         index=True,
         nullable=False,
     )
-    subcomponent_name: Mapped[str] = mapped_column(String, nullable=False)
-    status: Mapped[SubcomponentStatus] = mapped_column(
-        Enum(SubcomponentStatus),
+    task_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[TaskStatus] = mapped_column(
+        Enum(TaskStatus),
         index=True,
         nullable=False,
-        default=SubcomponentStatus.to_do,
+        default=TaskStatus.to_do,
     )
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False, index=True)
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
@@ -292,5 +292,5 @@ __all__ = [
     "ResourceAllocation",
     "Solution",
     "SolutionPhase",
-    "Subcomponent",
+    "Task",
 ]

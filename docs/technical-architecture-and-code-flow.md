@@ -129,7 +129,7 @@ Authenticated view load:
 
 Mutation flow from a form:
 
-1. A user submits a project, solution, subcomponent, team, planning, or admin form.
+1. A user submits a project, solution, task, team, planning, or admin form.
 2. The relevant entity controller or route interaction module builds the payload.
 3. The controller calls `api(path, { method, body })`.
 4. `shell/session.js` attaches credentials and `X-Space-Id`.
@@ -146,7 +146,7 @@ Mutation flow from a form:
 Important responsibilities:
 
 - Holds the central `state` object.
-- Creates entity controllers for projects, solutions, and subcomponents.
+- Creates entity controllers for projects, solutions, and tasks.
 - Creates route controllers for calendar, Gantt, Kanban, team capacity, and space governance.
 - Creates shell controllers for router, data store, session, telemetry, live sync, modal shell, space switcher, and topbar create menu.
 - Provides shared render helpers and common data transformation utilities.
@@ -165,7 +165,7 @@ Design choice: `app.js` remains the integration surface because the app is a no-
 
 `shell/data-store.js`
 
-- Fetches entity data: phases, projects, solutions, subcomponents, teams, users, allocations, windows.
+- Fetches entity data: phases, projects, solutions, tasks, teams, users, allocations, windows.
 - Caches loaded entity names in `state.loadedEntities`.
 - Prevents duplicate simultaneous loads.
 - Handles refresh coalescing.
@@ -220,16 +220,16 @@ Design choice: `app.js` remains the integration surface because the app is a no-
 
 - Binds solution modal/form interactions.
 - Creates, updates, and deletes solutions.
-- Manages solution phase and subcomponent modal state.
+- Manages solution phase and task modal state.
 - Tracks workflow telemetry.
 
-`entities/subcomponents.js`
+`entities/tasks.js`
 
-- Binds subcomponent form interactions.
-- Creates, updates, deletes, and updates subcomponent-related UI state.
+- Binds task form interactions.
+- Creates, updates, deletes, and updates task-related UI state.
 - Resolves assignee and capacity conversions.
 
-Design choice: the project/solution/subcomponent split matches the business hierarchy and keeps write behavior near the entity it mutates.
+Design choice: the project/solution/task split matches the business hierarchy and keeps write behavior near the entity it mutates.
 
 ### User Experience Route Modules
 
@@ -238,13 +238,13 @@ The router exposes these user-facing modules:
 | UX module | Route/view | Main files | Primary data |
 | --- | --- | --- | --- |
 | Master | `/` / `master` | `routes/master.js`, `routes/master/*` | phases, projects, solutions |
-| Gantt | `/gantt` | `routes/gantt.js`, `routes/gantt/interactions.js` | projects, solutions, subcomponents |
-| Subcomponents Workbench | `/subcomponents-workbench` | `routes/subcomponents-workbench.js`, `routes/subcomponents-workbench/*` | projects, solutions, subcomponents, users |
+| Gantt | `/gantt` | `routes/gantt.js`, `routes/gantt/interactions.js` | projects, solutions, tasks |
+| Tasks Workbench | `/tasks-workbench` | `routes/tasks-workbench.js`, `routes/tasks-workbench/*` | projects, solutions, tasks, users |
 | Dashboard | `/dashboard` | `routes/dashboard.js`, `routes/dashboard/*` | projects, solutions, users |
-| PM Dashboard | `/pm-dashboard` | `routes/pm-dashboard.js`, `routes/pm-dashboard/*` | projects, solutions, subcomponents, users, allocations, windows |
+| PM Dashboard | `/pm-dashboard` | `routes/pm-dashboard.js`, `routes/pm-dashboard/*` | projects, solutions, tasks, users, allocations, windows |
 | Kanban | `/kanban` | `routes/kanban.js`, `routes/kanban/interactions.js` | phases, projects, solutions |
 | Calendar | `/calendar` | `routes/calendar.js`, `routes/calendar/interactions.js` | projects, solutions |
-| Planning | `/planning` | `routes/planning.js`, `routes/planning/*` plus legacy functions in `app.js` | projects, solutions, subcomponents, teams, users, allocations, windows |
+| Planning | `/planning` | `routes/planning.js`, `routes/planning/*` plus legacy functions in `app.js` | projects, solutions, tasks, teams, users, allocations, windows |
 | Team Capacity | `/team-capacity` | `routes/team-capacity.js`, `routes/team-capacity/interactions.js` | users, allocations |
 | Space Governance | `/spaces` and `/access` | `routes/spaces.js`, `routes/access.js`, `routes/spaces/*` | users, spaces, memberships |
 | Analytics | `/analytics` | `routes/analytics.js` | analytics API payloads |
@@ -261,7 +261,7 @@ The route modules are deliberately display-oriented. Most shared data fetching i
 | `routerController.setView()` | `ensureRouteModule()`, `loadData()` or `loadTeamCapacityData()` | Authorizes a view, loads route code, and requests data. |
 | `dataStoreController.loadData()` | `fetchEntityData()`, `api()` | Loads required entity collections for the active view. |
 | `sessionController.api()` | browser `fetch` | Sends authenticated JSON/form requests with cookies and `X-Space-Id`. |
-| Entity controllers | `api()`, local state helpers, render helpers | Perform create/update/delete actions for projects, solutions, and subcomponents. |
+| Entity controllers | `api()`, local state helpers, render helpers | Perform create/update/delete actions for projects, solutions, and tasks. |
 | Route interaction modules | route render functions, `api()`, local state helpers | Bind route-specific filters, controls, drag/drop, saved views, and drilldowns. |
 | `liveSyncController` | `WebSocket`, `reloadCurrentViewData()` | Keeps open tabs synchronized after backend mutations. |
 | `telemetryController` | `/api/analytics/ingest` | Sends route, workflow, failure, and performance telemetry. |
@@ -360,7 +360,7 @@ Design choice: browser auth is cookie-backed to avoid exposing reusable tokens t
 
 `backend/app/models/work.py`
 
-- Projects, solutions, phases, solution phases, subcomponents, resource allocations, planning windows.
+- Projects, solutions, phases, solution phases, tasks, resource allocations, planning windows.
 
 `backend/app/models/analytics.py`
 
@@ -370,7 +370,7 @@ Design choice: browser auth is cookie-backed to avoid exposing reusable tokens t
 
 `backend/app/schemas/__init__.py`
 
-- Core read/create/update schemas for users, spaces, projects, solutions, subcomponents, teams, planning windows, and allocations.
+- Core read/create/update schemas for users, spaces, projects, solutions, tasks, teams, planning windows, and allocations.
 
 `backend/app/schemas/planning.py`
 
@@ -393,7 +393,7 @@ Major route groups:
 - `auth.py`: register, login, refresh, password reset, logout, current user, active space switching.
 - `projects/*`: project CRUD and CSV import/export.
 - `solutions/*`: solution CRUD, phase setup, CSV import/export.
-- `subcomponents/*`: subcomponent CRUD, batch actions, activity, CSV import/export.
+- `tasks/*`: task CRUD, batch actions, activity, CSV import/export.
 - `teams.py`: teams and team members.
 - `users.py`: user directory, global admins, admin password reset, API tokens, import/export.
 - `spaces.py`: spaces and space memberships.
@@ -408,7 +408,7 @@ Major route groups:
 `services/audit_log.py`
 
 - Writes field-level change log records.
-- Used by project, solution, subcomponent, user, and authorization paths.
+- Used by project, solution, task, user, and authorization paths.
 
 `services/smart_cache.py`
 
@@ -433,7 +433,7 @@ Major route groups:
 
 `services/planning_work_allocation.py`
 
-- Bridges the Work Allocation Board UX to existing users, teams, subcomponents, and allocations.
+- Bridges the Work Allocation Board UX to existing users, teams, tasks, and allocations.
 - Creates or revives the hidden board project/solution when needed.
 - Converts month tokens and FTE-month values.
 
@@ -486,13 +486,13 @@ Portfolio work:
 - `GET/PATCH/DELETE /api/solutions/{solution_id}`
 - `POST /api/solutions/import`
 - `GET /api/solutions/export`
-- `GET /api/subcomponents`
-- `GET /api/solutions/{solution_id}/subcomponents`
-- `POST /api/solutions/{solution_id}/subcomponents`
-- `GET/PATCH/DELETE /api/subcomponents/{subcomponent_id}`
-- `PATCH /api/subcomponents/actions/batch`
-- `POST /api/subcomponents/import`
-- `GET /api/subcomponents/export`
+- `GET /api/tasks`
+- `GET /api/solutions/{solution_id}/tasks`
+- `POST /api/solutions/{solution_id}/tasks`
+- `GET/PATCH/DELETE /api/tasks/{task_id}`
+- `PATCH /api/tasks/actions/batch`
+- `POST /api/tasks/import`
+- `GET /api/tasks/export`
 
 Planning:
 
@@ -571,13 +571,13 @@ sequenceDiagram
 
 The router is the source of truth for which entities a view needs. This prevents each route from independently inventing its own initial data loading rules.
 
-### Project/Solution/Subcomponent CRUD
+### Project/Solution/Task CRUD
 
 ```mermaid
 flowchart TD
   Form["Frontend form"] --> Controller["Entity controller"]
   Controller --> ApiWrapper["session.api()"]
-  ApiWrapper --> Route["projects/solutions/subcomponents route"]
+  ApiWrapper --> Route["projects/solutions/tasks route"]
   Route --> Authz["current_space + require_space_role"]
   Authz --> Model["SQLAlchemy model"]
   Model --> Commit["session.commit()"]
@@ -595,7 +595,7 @@ The Work Allocation Board is displayed under `#/planning` or `/planning`, but it
 
 Important design choice: the board does not use separate task/person tables. It maps board concepts onto existing platform entities:
 
-- Board task = `Subcomponent`
+- Board task = `Task`
 - Person = active `User` with active `SpaceMembership`
 - Team = `Team`
 - Assignment = `ResourceAllocation`
@@ -632,13 +632,13 @@ The form model follows the business hierarchy:
 
 1. Project forms create portfolio containers.
 2. Solution forms create deliverables under a project.
-3. Subcomponent forms create execution items under a solution.
+3. Task forms create execution items under a solution.
 4. Planning forms allocate work and capacity against users, teams, and planning windows.
 5. Space/admin forms govern access and operational setup.
 
 Why this shape exists:
 
-- The database hierarchy is project -> solution -> subcomponent, so the UI mirrors the persistence model.
+- The database hierarchy is project -> solution -> task, so the UI mirrors the persistence model.
 - Owner/assignee SOEID fields support enterprise identity lookup while preserving display labels for readability.
 - FTE-month capacity fields normalize planning around monthly staffing instead of weekly hours, while legacy allocation fields retain week/hour compatibility.
 - Modal and drawer forms keep edits in context instead of forcing full page transitions.
@@ -653,7 +653,7 @@ Frontend state:
 
 - `state.user`, `state.authed`: current identity.
 - `state.spaces`, `state.activeSpace`: space context and role.
-- `state.projects`, `state.solutions`, `state.subcomponents`: portfolio work records.
+- `state.projects`, `state.solutions`, `state.tasks`: portfolio work records.
 - `state.teams`, `state.users`: planning and access directory data.
 - `state.allocations`, `state.planningWindows`: capacity planning data.
 - `state.loadedEntities`: prevents redundant entity loads.

@@ -53,19 +53,19 @@ export function renderDashboardView(dashboardState, ctx) {
 
   const projects = Array.isArray(state.projects) ? state.projects : [];
   const solutions = Array.isArray(state.solutions) ? state.solutions : [];
-  const subcomponents = Array.isArray(state.subcomponents) ? state.subcomponents : [];
+  const tasks = Array.isArray(state.tasks) ? state.tasks : [];
   const users = Array.isArray(state.users) ? state.users : [];
 
   const projectNameById = new Map(
     projects.map((project) => [String(project.project_id || ""), String(project.project_name || "Unnamed Project")])
   );
-  const subcomponentsBySolution = new Map();
-  subcomponents.forEach((subcomponent) => {
-    const solutionId = String(subcomponent.solution_id || "");
+  const tasksBySolution = new Map();
+  tasks.forEach((task) => {
+    const solutionId = String(task.solution_id || "");
     if (!solutionId) return;
-    const bucket = subcomponentsBySolution.get(solutionId) || [];
-    bucket.push(subcomponent);
-    subcomponentsBySolution.set(solutionId, bucket);
+    const bucket = tasksBySolution.get(solutionId) || [];
+    bucket.push(task);
+    tasksBySolution.set(solutionId, bucket);
   });
 
   const myTokens = currentUserTokens(state);
@@ -73,11 +73,11 @@ export function renderDashboardView(dashboardState, ctx) {
   const solutionRows = solutions
     .map((solution) => {
       const solutionId = String(solution.solution_id || "");
-      const linked = subcomponentsBySolution.get(solutionId) || [];
-      const openLinked = linked.filter((subcomponent) => !isClosedStatus(subcomponent.status));
-      const blockedTasks = openLinked.filter((subcomponent) => !!subcomponent.blocked).length;
+      const linked = tasksBySolution.get(solutionId) || [];
+      const openLinked = linked.filter((task) => !isClosedStatus(task.status));
+      const blockedTasks = openLinked.filter((task) => !!task.blocked).length;
       const unassignedTasks = openLinked.filter(
-        (subcomponent) => !normalize(subcomponent.assignee) && !normalize(subcomponent.assignee_user_soeid)
+        (task) => !normalize(task.assignee) && !normalize(task.assignee_user_soeid)
       ).length;
 
       const dueDate = parseDate(solution.due_date);

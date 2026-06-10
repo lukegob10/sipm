@@ -50,7 +50,7 @@ def import_solutions(
     if errors:
         return {"created": 0, "updated": 0, "projects_created": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
     created = updated = projects_created = 0
-    invalidate_subcomponents = False
+    invalidate_tasks = False
     seen = set()
     dry_project_keys = set()
     projects_by_name = {
@@ -315,7 +315,7 @@ def import_solutions(
                     request_id=None,
                 )
                 if before["github_repo_url"] != existing.github_repo_url:
-                    invalidate_subcomponents = True
+                    invalidate_tasks = True
                 updated += 1
                 commit_session(session)
             else:
@@ -415,7 +415,7 @@ def import_solutions(
         _publish_solution_import(
             space_ctx.space_id,
             projects_created=projects_created,
-            invalidate_subcomponents=invalidate_subcomponents,
+            invalidate_tasks=invalidate_tasks,
         )
     return {
         "created": created,

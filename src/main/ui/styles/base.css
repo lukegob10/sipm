@@ -81,7 +81,7 @@
   --assignment-zone-bg-strong: linear-gradient(180deg, rgba(79, 127, 196, 0.24), rgba(79, 127, 196, 0.08));
   --assignment-zone-border: rgba(120, 164, 228, 0.46);
   --calendar-solution-border: rgba(120, 164, 228, 0.5);
-  --calendar-subcomponent-border: rgba(157, 171, 191, 0.6);
+  --calendar-task-border: rgba(157, 171, 191, 0.6);
   --warning-text: #f0c37b;
   --danger-button-bg: #c44d45;
   --danger-button-hover: #d2675f;
@@ -180,7 +180,7 @@
   --assignment-zone-bg-strong: linear-gradient(180deg, rgba(0, 58, 114, 0.2), rgba(0, 58, 114, 0.08));
   --assignment-zone-border: rgba(0, 58, 114, 0.45);
   --calendar-solution-border: rgba(0, 58, 114, 0.5);
-  --calendar-subcomponent-border: rgba(130, 154, 177, 0.6);
+  --calendar-task-border: rgba(130, 154, 177, 0.6);
   --warning-text: #a56b08;
   --danger-button-bg: #b42318;
   --danger-button-hover: #c13428;
@@ -1278,7 +1278,7 @@ label.wide {
   overscroll-behavior: contain;
   padding-bottom: 16px;
 }
-#subcomponent-form.form.compact {
+#task-form.form.compact {
   column-gap: 24px;
 }
 .form.compact label {

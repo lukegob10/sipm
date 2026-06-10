@@ -14,11 +14,11 @@ export function createRouterController({
   onModuleLoadFailure = null,
   routeModuleLoaders = null,
 }) {
-  const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
+  const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"];
   const KNOWN_VIEWS = [
     "master",
     "gantt",
-    "subcomponents-workbench",
+    "tasks-workbench",
     "dashboard",
     "pm-dashboard",
     "kanban",
@@ -33,13 +33,13 @@ export function createRouterController({
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
     master: ["phases", "programs", "projects", "solutions"],
-    gantt: ["programs", "projects", "solutions", "subcomponents"],
-    "subcomponents-workbench": ["programs", "projects", "solutions", "subcomponents", "users"],
+    gantt: ["programs", "projects", "solutions", "tasks"],
+    "tasks-workbench": ["programs", "projects", "solutions", "tasks", "users"],
     dashboard: ["programs", "projects", "solutions", "users"],
-    "pm-dashboard": ["programs", "projects", "solutions", "subcomponents", "users", "allocations", "windows"],
+    "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users", "allocations", "windows"],
     kanban: ["phases", "programs", "projects", "solutions"],
     calendar: ["programs", "projects", "solutions"],
-    planning: ["programs", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
+    planning: ["programs", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"],
     "team-capacity": ["users", "allocations"],
     spaces: ["users"],
     access: ["users"],
@@ -47,8 +47,8 @@ export function createRouterController({
   };
   const VIEW_PREFETCH_TARGET = {
     master: "dashboard",
-    gantt: "subcomponents-workbench",
-    "subcomponents-workbench": "planning",
+    gantt: "tasks-workbench",
+    "tasks-workbench": "planning",
     dashboard: "pm-dashboard",
     "pm-dashboard": "kanban",
     kanban: "planning",
@@ -62,7 +62,7 @@ export function createRouterController({
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
     master: () => import(`../routes/master.js?v=${APP_ASSET_VERSION}`),
     gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`),
-    "subcomponents-workbench": () => import(`../routes/subcomponents-workbench.js?v=${APP_ASSET_VERSION}`),
+    "tasks-workbench": () => import(`../routes/tasks-workbench.js?v=${APP_ASSET_VERSION}`),
     dashboard: () => import(`../routes/dashboard.js?v=${APP_ASSET_VERSION}`),
     "pm-dashboard": () => import(`../routes/pm-dashboard.js?v=${APP_ASSET_VERSION}`),
     kanban: () => import(`../routes/kanban.js?v=${APP_ASSET_VERSION}`),
@@ -238,11 +238,11 @@ export function createRouterController({
       });
     }
     state.currentView = nextView;
-    if (nextView === "subcomponents-workbench" && previousView !== nextView && state.subcomponentsWorkbench) {
-      state.subcomponentsWorkbench.drawerOpen = false;
-      state.subcomponentsWorkbench.drawerReturnSubcomponentId = "";
-      state.subcomponentsWorkbench.drawerReturnScrollY = null;
-      state.subcomponentsWorkbench.suppressAutoScrollOnce = false;
+    if (nextView === "tasks-workbench" && previousView !== nextView && state.tasksWorkbench) {
+      state.tasksWorkbench.drawerOpen = false;
+      state.tasksWorkbench.drawerReturnTaskId = "";
+      state.tasksWorkbench.drawerReturnScrollY = null;
+      state.tasksWorkbench.suppressAutoScrollOnce = false;
     }
     els.views.forEach((viewEl) => viewEl.classList.toggle("active", viewEl.id === `view-${nextDomView}`));
     els.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === nextNavView));

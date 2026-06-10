@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...auth.auth import hash_bootstrap_password
 from ...deps import current_space as current_space_dep, current_user as current_user_dep, get_db, require_space_role
-from ...models import ResourceAllocation, SpaceMembership, Subcomponent, Team, User
+from ...models import ResourceAllocation, SpaceMembership, Task, Team, User
 from ...schemas.planning import (
     WorkAllocationAssignmentCreate,
     WorkAllocationAssignmentRead,
@@ -43,7 +43,7 @@ from ...services.planning_work_allocation import (
 from ...services.spaces import SpaceContext
 from ...services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ...services.user_admin_guards import ensure_actor_can_modify_user, ensure_user_can_be_deactivated
-from ...utils.enums import SubcomponentStatus
+from ...utils.enums import TaskStatus
 from .common import (
     _HOURS_PER_FTE_MONTH,
     _PLANNING_LIST_TTL_SECONDS,
@@ -114,15 +114,15 @@ def _work_allocation_board_payload(
     task_query = planning_task_query(session, space_ctx)
     if search:
         term = f"%{search.strip().lower()}%"
-        task_query = task_query.filter(func.lower(Subcomponent.subcomponent_name).like(term))
-    tasks = task_query.order_by(Subcomponent.created_at.asc()).all()
-    task_ids = [task.subcomponent_id for task in tasks]
+        task_query = task_query.filter(func.lower(Task.task_name).like(term))
+    tasks = task_query.order_by(Task.created_at.asc()).all()
+    task_ids = [task.task_id for task in tasks]
     allocations: list[ResourceAllocation] = []
     assigned_ids: set[str] = set()
     if task_ids:
         allocations = (
             allocation_query(session, space_ctx)
-            .filter(ResourceAllocation.work_item_type == "subcomponent")
+            .filter(ResourceAllocation.work_item_type == "task")
             .filter(ResourceAllocation.work_item_id.in_(task_ids))
             .filter(allocation_month_expr() == month_start)
             .order_by(ResourceAllocation.created_at.asc())
@@ -160,7 +160,7 @@ def get_work_allocation_board(
         ttl_seconds=_PLANNING_LIST_TTL_SECONDS,
         scope_tokens=[
             make_scope_token("planning", space_ctx.space_id),
-            make_scope_token("subcomponents", space_ctx.space_id),
+            make_scope_token("tasks", space_ctx.space_id),
             make_scope_token("teams", space_ctx.space_id),
             make_scope_token("users", space_ctx.space_id),
         ],
@@ -447,14 +447,14 @@ def list_work_allocation_tasks(
     query = planning_task_query(session, space_ctx)
     if search:
         term = f"%{search.strip().lower()}%"
-        query = query.filter(func.lower(Subcomponent.subcomponent_name).like(term))
-    tasks = query.order_by(Subcomponent.created_at.asc()).all()
-    task_ids = [task.subcomponent_id for task in tasks]
+        query = query.filter(func.lower(Task.task_name).like(term))
+    tasks = query.order_by(Task.created_at.asc()).all()
+    task_ids = [task.task_id for task in tasks]
     assigned_ids: set[str] = set()
     if task_ids:
         for row in (
             allocation_query(session, space_ctx)
-            .filter(ResourceAllocation.work_item_type == "subcomponent")
+            .filter(ResourceAllocation.work_item_type == "task")
             .filter(ResourceAllocation.work_item_id.in_(task_ids))
             .filter(allocation_month_expr() == month_start)
             .all()
@@ -476,21 +476,21 @@ def create_work_allocation_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTaskRead:
     solution = board_solution(session, space_ctx)
-    query = planning_task_query(session, space_ctx).filter(Subcomponent.solution_id == solution.solution_id)
+    query = planning_task_query(session, space_ctx).filter(Task.solution_id == solution.solution_id)
     title = _nonblank_text(payload.title, field_name="Task title")
-    conflict = query.filter(func.lower(Subcomponent.subcomponent_name) == title.lower()).first()
+    conflict = query.filter(func.lower(Task.task_name) == title.lower()).first()
     if conflict:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")
     raw_fte = payload.fte_months if payload.fte_months is not None else 0.25
     fte = round(max(float(raw_fte), 0.05), 3)
     hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
     now = datetime.now(timezone.utc)
-    row = Subcomponent(
+    row = Task(
         space_id=space_ctx.space_id,
         project_id=solution.project_id,
         solution_id=solution.solution_id,
-        subcomponent_name=title,
-        status=SubcomponentStatus.to_do,
+        task_name=title,
+        status=TaskStatus.to_do,
         priority=3,
         assignee=WORK_ALLOCATION_DEFAULT_ASSIGNEE,
         estimate_hours=hours,
@@ -503,19 +503,19 @@ def create_work_allocation_task(
     commit_planning_mutation(
         session,
         space_ctx,
-        cache_keys=("subcomponents", "planning"),
+        cache_keys=("tasks", "planning"),
         refresh=row,
     )
     month_start = month_from_token(month or month_token(None))
     assigned_ids: set[str] = set()
     if (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
-        .filter(ResourceAllocation.work_item_id == row.subcomponent_id)
+        .filter(ResourceAllocation.work_item_type == "task")
+        .filter(ResourceAllocation.work_item_id == row.task_id)
         .filter(allocation_month_expr() == month_start)
         .first()
     ):
-        assigned_ids.add(row.subcomponent_id)
+        assigned_ids.add(row.task_id)
     return task_payload(row, assigned_ids)
 
 
@@ -529,7 +529,7 @@ def update_work_allocation_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationTaskRead:
     query = planning_task_query(session, space_ctx)
-    row = query.filter(Subcomponent.subcomponent_id == task_id).first()
+    row = query.filter(Task.task_id == task_id).first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     if payload.title is not None:
@@ -537,14 +537,14 @@ def update_work_allocation_task(
         if not title:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title is required")
         conflict = (
-            query.filter(Subcomponent.solution_id == row.solution_id)
-            .filter(func.lower(Subcomponent.subcomponent_name) == title.lower())
-            .filter(Subcomponent.subcomponent_id != task_id)
+            query.filter(Task.solution_id == row.solution_id)
+            .filter(func.lower(Task.task_name) == title.lower())
+            .filter(Task.task_id != task_id)
             .first()
         )
         if conflict:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task title already exists")
-        row.subcomponent_name = title
+        row.task_name = title
     if payload.fte_months is not None:
         fte = round(max(float(payload.fte_months), 0.05), 3)
         hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
@@ -555,19 +555,19 @@ def update_work_allocation_task(
     commit_planning_mutation(
         session,
         space_ctx,
-        cache_keys=("subcomponents", "planning"),
+        cache_keys=("tasks", "planning"),
         refresh=row,
     )
     month_start = month_from_token(month or month_token(None))
     assigned_ids: set[str] = set()
     if (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
-        .filter(ResourceAllocation.work_item_id == row.subcomponent_id)
+        .filter(ResourceAllocation.work_item_type == "task")
+        .filter(ResourceAllocation.work_item_id == row.task_id)
         .filter(allocation_month_expr() == month_start)
         .first()
     ):
-        assigned_ids.add(row.subcomponent_id)
+        assigned_ids.add(row.task_id)
     return task_payload(row, assigned_ids)
 
 
@@ -579,7 +579,7 @@ def delete_work_allocation_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     query = planning_task_query(session, space_ctx)
-    row = query.filter(Subcomponent.subcomponent_id == task_id).first()
+    row = query.filter(Task.task_id == task_id).first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     now = datetime.now(timezone.utc)
@@ -588,7 +588,7 @@ def delete_work_allocation_task(
     session.add(row)
     for alloc in (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_type == "task")
         .filter(ResourceAllocation.work_item_id == task_id)
         .all()
     ):
@@ -598,7 +598,7 @@ def delete_work_allocation_task(
     commit_planning_mutation(
         session,
         space_ctx,
-        cache_keys=("subcomponents", "planning"),
+        cache_keys=("tasks", "planning"),
     )
     return None
 
@@ -612,12 +612,12 @@ def list_work_allocation_allocations(
 ) -> List[WorkAllocationAssignmentRead]:
     month_start = month_from_token(month or month_token(None))
     query = planning_task_query(session, space_ctx)
-    task_ids = [row.subcomponent_id for row in query.all()]
+    task_ids = [row.task_id for row in query.all()]
     if not task_ids:
         return []
     rows = (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_type == "task")
         .filter(ResourceAllocation.work_item_id.in_(task_ids))
         .filter(allocation_month_expr() == month_start)
         .order_by(ResourceAllocation.created_at.asc())
@@ -642,21 +642,21 @@ def download_work_allocation_report_pdf(
     people_payload = [person_payload(row, team_map).model_dump() for row in people_rows]
 
     task_query = planning_task_query(session, space_ctx)
-    task_rows = task_query.order_by(Subcomponent.subcomponent_name.asc()).all()
+    task_rows = task_query.order_by(Task.task_name.asc()).all()
     task_payload_rows = [
         {
-            "id": row.subcomponent_id,
-            "title": row.subcomponent_name,
+            "id": row.task_id,
+            "title": row.task_name,
             "fte_months": task_fte_months(row, hours_per_fte_month=_HOURS_PER_FTE_MONTH),
         }
         for row in task_rows
     ]
-    task_ids = [row.subcomponent_id for row in task_rows]
+    task_ids = [row.task_id for row in task_rows]
     allocation_rows: list[ResourceAllocation] = []
     if task_ids:
         allocation_rows = (
             allocation_query(session, space_ctx)
-            .filter(ResourceAllocation.work_item_type == "subcomponent")
+            .filter(ResourceAllocation.work_item_type == "task")
             .filter(ResourceAllocation.work_item_id.in_(task_ids))
             .filter(allocation_month_expr() == month_start)
             .order_by(ResourceAllocation.created_at.asc())
@@ -693,7 +693,7 @@ def create_work_allocation_allocation(
 ) -> WorkAllocationAssignmentRead:
     month_start = month_from_token(payload.month)
     task_query = planning_task_query(session, space_ctx)
-    task = task_query.filter(Subcomponent.subcomponent_id == payload.task_id).first()
+    task = task_query.filter(Task.task_id == payload.task_id).first()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
@@ -745,7 +745,7 @@ def create_work_allocation_allocation(
 
     row = ResourceAllocation(
         space_id=space_ctx.space_id,
-        work_item_type="subcomponent",
+        work_item_type="task",
         work_item_id=payload.task_id,
         assignee_user_soeid=assignee_user_soeid,
         assignee=assignee_name,
@@ -780,14 +780,14 @@ def update_work_allocation_allocation(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationAssignmentRead:
     row = get_allocation(session, allocation_id, space_ctx)
-    if row.work_item_type != "subcomponent":
+    if row.work_item_type != "task":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation is not a planning task assignment")
 
     month_start = row.month_start or (row.week_start.replace(day=1) if row.week_start else None)
     if month_start is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation month is missing")
 
-    task = planning_task_query(session, space_ctx).filter(Subcomponent.subcomponent_id == row.work_item_id).first()
+    task = planning_task_query(session, space_ctx).filter(Task.task_id == row.work_item_id).first()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 

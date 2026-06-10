@@ -5,10 +5,10 @@ import {
 } from "../../utils/date-only.js";
 
 const CLOSED_SOLUTION_STATUSES = new Set(["complete", "abandoned"]);
-const CLOSED_SUBCOMPONENT_STATUSES = new Set(["complete", "abandoned"]);
+const CLOSED_TASK_STATUSES = new Set(["complete", "abandoned"]);
 
 export const SOLUTION_STATUS_ORDER = ["not_started", "active", "on_hold", "complete", "abandoned"];
-export const SUBCOMPONENT_STATUS_ORDER = ["to_do", "in_progress", "on_hold", "complete", "abandoned"];
+export const TASK_STATUS_ORDER = ["to_do", "in_progress", "on_hold", "complete", "abandoned"];
 
 export function esc(value) {
   return String(value || "")
@@ -44,8 +44,8 @@ export function isClosedSolutionStatus(status) {
   return CLOSED_SOLUTION_STATUSES.has(String(status || "").toLowerCase());
 }
 
-export function isClosedSubcomponentStatus(status) {
-  return CLOSED_SUBCOMPONENT_STATUSES.has(String(status || "").toLowerCase());
+export function isClosedTaskStatus(status) {
+  return CLOSED_TASK_STATUSES.has(String(status || "").toLowerCase());
 }
 
 export function nonEmpty(value) {
@@ -172,9 +172,9 @@ export function renderPMDashboardTimelineLink(row) {
   if (row.itemKind === "solution") {
     return renderPMDashboardSolutionLink(row.name, row.solutionId);
   }
-  if (!String(row.subcomponentId || "").trim()) return `<strong>${esc(row.name)}</strong>`;
-  return renderPMDashboardRowLink(row.name, "open-subcomponent", {
-    "data-subcomponent-id": row.subcomponentId,
+  if (!String(row.taskId || "").trim()) return `<strong>${esc(row.name)}</strong>`;
+  return renderPMDashboardRowLink(row.name, "open-task", {
+    "data-task-id": row.taskId,
     "aria-label": `Open task ${row.name}`,
   });
 }

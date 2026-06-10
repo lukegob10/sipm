@@ -11,9 +11,9 @@ from sqlalchemy.dialects import oracle
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.table_names import physical_table_name
-from backend.app.models import Base, ChangeLog, Project, Solution, Subcomponent, Team
-from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead, SubcomponentRead
-from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from backend.app.models import Base, ChangeLog, Project, Solution, Task, Team
+from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead, TaskRead
+from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 
 
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
@@ -130,9 +130,9 @@ def test_solution_long_text_fields_use_text_type():
     assert isinstance(Solution.__table__.c.risks.type, Text)
 
 
-def test_subcomponent_long_text_fields_use_text_type():
-    assert isinstance(Subcomponent.__table__.c.blocker_note.type, Text)
-    assert isinstance(Subcomponent.__table__.c.done_criteria.type, Text)
+def test_task_long_text_fields_use_text_type():
+    assert isinstance(Task.__table__.c.blocker_note.type, Text)
+    assert isinstance(Task.__table__.c.done_criteria.type, Text)
 
 
 def test_oracle_solution_repo_url_column_uses_documented_length():
@@ -140,9 +140,9 @@ def test_oracle_solution_repo_url_column_uses_documented_length():
     assert "github_repo_url VARCHAR2(1024 CHAR)" in ddl
 
 
-def test_oracle_subcomponent_repo_url_column_uses_documented_length():
-    subcomponents = Base.metadata.tables[physical_table_name("subcomponents")]
-    ddl = str(CreateTable(subcomponents).compile(dialect=oracle.dialect()))
+def test_oracle_task_repo_url_column_uses_documented_length():
+    tasks = Base.metadata.tables[physical_table_name("tasks")]
+    ddl = str(CreateTable(tasks).compile(dialect=oracle.dialect()))
     assert "github_repo_url VARCHAR2(1024 CHAR)" in ddl
 
 
@@ -266,25 +266,25 @@ def test_long_text_read_schemas_coerce_lob_values():
     assert solution.blockers == "solution blockers"
     assert solution.risks == "solution risks"
 
-    subcomponent = SubcomponentRead.model_validate(
+    task = TaskRead.model_validate(
         SimpleNamespace(
-            subcomponent_id="subcomponent-1",
+            task_id="task-1",
             project_id="project-1",
             solution_id="solution-1",
-            subcomponent_name="Subcomponent",
-            status=SubcomponentStatus.to_do,
+            task_name="Task",
+            status=TaskStatus.to_do,
             priority=3,
             assignee="Assignee",
             estimate_hours=None,
             blocked=True,
-            blocker_note=FakeLob("subcomponent blocker"),
-            done_criteria=FakeLob("subcomponent done"),
+            blocker_note=FakeLob("task blocker"),
+            done_criteria=FakeLob("task done"),
             created_at=now,
             updated_at=now,
         )
     )
-    assert subcomponent.blocker_note == "subcomponent blocker"
-    assert subcomponent.done_criteria == "subcomponent done"
+    assert task.blocker_note == "task blocker"
+    assert task.done_criteria == "task done"
 
     change = ChangeLogRead.model_validate(
         SimpleNamespace(

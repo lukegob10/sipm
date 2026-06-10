@@ -231,7 +231,7 @@ Representative tasks:
 - Log in and identify active space.
 - Switch active space.
 - Return to the default deliverables view.
-- Find where to create project, solution, or subcomponent.
+- Find where to create project, solution, or task.
 
 Exit criteria:
 
@@ -281,7 +281,7 @@ Exit criteria:
 - The overview supports scanning before editing.
 - Broad-scope columns stay broad-scope; implementation details do not crowd the table.
 
-### 4. Create Project, Solution, And Subcomponent
+### 4. Create Project, Solution, And Task
 
 Goal: make creation flows predictable with the fewest necessary steps.
 
@@ -290,15 +290,15 @@ Primary surfaces:
 - Topbar Create menu.
 - Project modal.
 - Solution modal.
-- Subcomponent picker.
-- Subcomponent form inside solution.
+- Task picker.
+- Task form inside solution.
 - Required-field indicators.
 
 Core questions:
 
-- Why does creating a project, solution, or subcomponent start in different places?
+- Why does creating a project, solution, or task start in different places?
 - Is the Create menu the right primary entry point?
-- Does creating a subcomponent require too much context switching?
+- Does creating a task require too much context switching?
 - Are required fields obvious before submit?
 - Can defaults reduce form work without hiding important choices?
 - Does the user return to the right context after save?
@@ -307,30 +307,30 @@ Representative tasks:
 
 - Create a project.
 - Create a solution under an existing project.
-- Create a subcomponent under an existing solution.
-- Create a subcomponent while already viewing a solution.
+- Create a task under an existing solution.
+- Create a task while already viewing a solution.
 
 Click-count targets:
 
 - Create project from default route: 2 actions before field entry.
 - Create solution from default route: 2-3 actions before field entry.
-- Create subcomponent when solution context is known: 1-2 actions before field entry.
-- Create subcomponent when solution context is unknown: picker is acceptable, but should not exceed 3 actions before field entry.
+- Create task when solution context is known: 1-2 actions before field entry.
+- Create task when solution context is unknown: picker is acceptable, but should not exceed 3 actions before field entry.
 
 Exit criteria:
 
 - Creation entry points are consistent.
 - Context-aware creation avoids asking for data the UI already knows.
 
-### 5. Edit Project, Solution, And Subcomponent Details
+### 5. Edit Project, Solution, And Task Details
 
 Goal: make editing clear, local, and safe.
 
 Primary surfaces:
 
 - Project modal.
-- Solution modal tabs: Details, Phases, Subcomponents, Activity.
-- Subcomponent form.
+- Solution modal tabs: Details, Phases, Tasks, Activity.
+- Task form.
 - Delete confirmation.
 
 Core questions:
@@ -347,21 +347,21 @@ Representative tasks:
 - Edit project status.
 - Edit solution phase.
 - Add or remove solution phase.
-- Edit subcomponent assignee.
-- Delete a project, solution, or subcomponent.
+- Edit task assignee.
+- Delete a project, solution, or task.
 
 Exit criteria:
 
 - Users can edit without losing orientation.
 - Destructive actions require clear confirmation.
 
-### 6. Subcomponents Workbench
+### 6. Tasks Workbench
 
 Goal: make focused task execution fast for high-volume users.
 
 Primary surfaces:
 
-- Subcomponents route.
+- Tasks route.
 - Search and filters.
 - Presets.
 - Saved views.
@@ -582,7 +582,7 @@ Primary surfaces:
 - Login and reset screens.
 - Navigation.
 - Deliverables table.
-- Subcomponents workbench.
+- Tasks workbench.
 - Planning route.
 - Modals.
 - Space switcher.

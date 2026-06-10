@@ -24,7 +24,7 @@ from .work import (
     ResourceAllocation,
     Solution,
     SolutionPhase,
-    Subcomponent,
+    Task,
 )
 
 __all__ = [
@@ -43,7 +43,7 @@ __all__ = [
     "SolutionPhase",
     "Space",
     "SpaceMembership",
-    "Subcomponent",
+    "Task",
     "Team",
     "TeamMember",
     "TimestampMixin",

@@ -1,13 +1,13 @@
 ---
 name: sipm-agent
-description: Work with SIPM's approval-gated agent API for project manager data transport. Use when Codex needs to read SIPM spaces/work graphs, validate agent patches, submit pending change requests for projects, solutions, or subcomponents, or help an external coding agent interact with SIPM through configurable base URL, token, space, and proxy settings.
+description: Work with SIPM's approval-gated agent API for project manager data transport. Use when Codex needs to read SIPM spaces/work graphs, validate agent patches, submit pending change requests for projects, solutions, or tasks, or help an external coding agent interact with SIPM through configurable base URL, token, space, and proxy settings.
 ---
 
 # SIPM Agent
 
 ## Overview
 
-Use this skill to interact with SIPM through the controlled Agent API. Agent writes must be submitted as change requests; do not bypass the approval gate with normal project, solution, or subcomponent write endpoints.
+Use this skill to interact with SIPM through the controlled Agent API. Agent writes must be submitted as change requests; do not bypass the approval gate with normal project, solution, or task write endpoints.
 
 The bundled command wrapper is `scripts/sipm_agent.py`. It uses Python stdlib only and reads credentials/config from environment variables or CLI flags.
 
@@ -74,7 +74,7 @@ python skills/sipm-agent/scripts/sipm_agent.py submit-change-request --space mai
 Read `references/api-contract.md` before building raw patch files or adding new commands.
 
 V1 supports only:
-- entities: `project`, `solution`, `subcomponent`
+- entities: `project`, `solution`, `task`
 - operations: `create`, `update`
 - max operations: `25`
 
@@ -85,7 +85,7 @@ Update operations require:
 
 Create operations require:
 - `project_id` for solutions
-- `solution_id` for subcomponents
+- `solution_id` for tasks
 
 Submission requires:
 - `dry_run=false`

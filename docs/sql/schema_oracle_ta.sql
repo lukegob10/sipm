@@ -4,57 +4,57 @@
 -- Table: TB_TA_PM_PHASES
 
 CREATE TABLE "TB_TA_PM_PHASES" (
-	phase_id VARCHAR2(255 CHAR) NOT NULL, 
-	phase_group VARCHAR2(255 CHAR) NOT NULL, 
-	phase_name VARCHAR2(255 CHAR) NOT NULL, 
-	sequence INTEGER NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
+	phase_id VARCHAR2(255 CHAR) NOT NULL,
+	phase_group VARCHAR2(255 CHAR) NOT NULL,
+	phase_name VARCHAR2(255 CHAR) NOT NULL,
+	sequence INTEGER NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
 	PRIMARY KEY (phase_id)
 );
 
 -- Table: TB_TA_PM_SPACES
 
 CREATE TABLE "TB_TA_PM_SPACES" (
-	space_id VARCHAR2(255 CHAR) NOT NULL, 
-	name VARCHAR2(255 CHAR) NOT NULL, 
-	slug VARCHAR2(255 CHAR) NOT NULL, 
-	is_active SMALLINT NOT NULL, 
-	archived_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (space_id), 
-	CONSTRAINT uix_space_slug UNIQUE (slug), 
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	name VARCHAR2(255 CHAR) NOT NULL,
+	slug VARCHAR2(255 CHAR) NOT NULL,
+	is_active SMALLINT NOT NULL,
+	archived_at DATE,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (space_id),
+	CONSTRAINT uix_space_slug UNIQUE (slug),
 	CONSTRAINT uix_space_name UNIQUE (name)
 );
 
 -- Table: TB_TA_PM_USERS
 
 CREATE TABLE "TB_TA_PM_USERS" (
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	soeid VARCHAR2(255 CHAR) NOT NULL, 
-	email VARCHAR2(255 CHAR) NOT NULL, 
-	display_name VARCHAR2(255 CHAR) NOT NULL, 
-	password_hash VARCHAR2(255 CHAR) NOT NULL, 
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	soeid VARCHAR2(255 CHAR) NOT NULL,
+	email VARCHAR2(255 CHAR) NOT NULL,
+	display_name VARCHAR2(255 CHAR) NOT NULL,
+	password_hash VARCHAR2(255 CHAR) NOT NULL,
 	role VARCHAR2(255 CHAR) NOT NULL,
 	is_active SMALLINT NOT NULL,
 	is_service_account SMALLINT NOT NULL,
 	team_tag VARCHAR2(255 CHAR),
-	capacity_hours INTEGER NOT NULL, 
-	capacity_fte_month FLOAT NOT NULL, 
-	failed_attempts INTEGER NOT NULL, 
-	locked_until DATE, 
-	last_login_at DATE, 
-	external_id VARCHAR2(255 CHAR), 
-	temp_password_hash VARCHAR2(255 CHAR), 
-	temp_password_expires_at DATE, 
-	force_password_reset SMALLINT NOT NULL, 
-	password_changed_at DATE, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (user_id), 
-	CONSTRAINT uix_user_email UNIQUE (email), 
+	capacity_hours INTEGER NOT NULL,
+	capacity_fte_month FLOAT NOT NULL,
+	failed_attempts INTEGER NOT NULL,
+	locked_until DATE,
+	last_login_at DATE,
+	external_id VARCHAR2(255 CHAR),
+	temp_password_hash VARCHAR2(255 CHAR),
+	temp_password_expires_at DATE,
+	force_password_reset SMALLINT NOT NULL,
+	password_changed_at DATE,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (user_id),
+	CONSTRAINT uix_user_email UNIQUE (email),
 	CONSTRAINT uix_user_soeid UNIQUE (soeid)
 );
 
@@ -87,18 +87,18 @@ CREATE INDEX "ix_TB_TA_PM_API_TOKENS_revoked_at" ON "TB_TA_PM_API_TOKENS" (revok
 -- Audit values must remain CLOB because project/solution descriptions and
 -- success criteria can exceed VARCHAR2 limits.
 CREATE TABLE "TB_TA_PM_CHANGE_LOG" (
-	change_id VARCHAR2(255 CHAR) NOT NULL, 
-	entity_type VARCHAR2(255 CHAR) NOT NULL, 
-	entity_id VARCHAR2(255 CHAR) NOT NULL, 
-	action VARCHAR2(255 CHAR) NOT NULL, 
-	field VARCHAR2(255 CHAR), 
-	old_value CLOB, 
-	new_value CLOB, 
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	request_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	PRIMARY KEY (change_id), 
+	change_id VARCHAR2(255 CHAR) NOT NULL,
+	entity_type VARCHAR2(255 CHAR) NOT NULL,
+	entity_id VARCHAR2(255 CHAR) NOT NULL,
+	action VARCHAR2(255 CHAR) NOT NULL,
+	field VARCHAR2(255 CHAR),
+	old_value CLOB,
+	new_value CLOB,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	request_id VARCHAR2(255 CHAR),
+	created_at DATE NOT NULL,
+	PRIMARY KEY (change_id),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
@@ -145,49 +145,49 @@ CREATE INDEX "ix_TB_TA_PM_AGENT_CHANGE_REQUESTS_reviewed_by_user_id" ON "TB_TA_P
 -- Table: TB_TA_PM_USAGE_EVENTS
 
 CREATE TABLE "TB_TA_PM_USAGE_EVENTS" (
-	event_id VARCHAR2(255 CHAR) NOT NULL, 
-	occurred_at DATE NOT NULL, 
-	received_at DATE NOT NULL, 
-	session_id VARCHAR2(255 CHAR) NOT NULL, 
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	view_key VARCHAR2(255 CHAR) NOT NULL, 
-	category VARCHAR2(255 CHAR) NOT NULL, 
-	feature_key VARCHAR2(255 CHAR) NOT NULL, 
-	action_key VARCHAR2(255 CHAR) NOT NULL, 
-	outcome VARCHAR2(255 CHAR) NOT NULL, 
-	duration_ms INTEGER, 
-	status_code INTEGER, 
-	details_json CLOB, 
-	PRIMARY KEY (event_id), 
+	event_id VARCHAR2(255 CHAR) NOT NULL,
+	occurred_at DATE NOT NULL,
+	received_at DATE NOT NULL,
+	session_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	view_key VARCHAR2(255 CHAR) NOT NULL,
+	category VARCHAR2(255 CHAR) NOT NULL,
+	feature_key VARCHAR2(255 CHAR) NOT NULL,
+	action_key VARCHAR2(255 CHAR) NOT NULL,
+	outcome VARCHAR2(255 CHAR) NOT NULL,
+	duration_ms INTEGER,
+	status_code INTEGER,
+	details_json CLOB,
+	PRIMARY KEY (event_id),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
 -- Table: TB_TA_PM_PERFORMANCE_SAMPLES
 
 CREATE TABLE "TB_TA_PM_PERFORMANCE_SAMPLES" (
-	sample_id VARCHAR2(255 CHAR) NOT NULL, 
-	occurred_at DATE NOT NULL, 
-	received_at DATE NOT NULL, 
-	session_id VARCHAR2(255 CHAR) NOT NULL, 
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	view_key VARCHAR2(255 CHAR) NOT NULL, 
-	sample_kind VARCHAR2(255 CHAR) NOT NULL, 
-	navigation_type VARCHAR2(255 CHAR), 
-	data_load_ms INTEGER, 
-	render_ms INTEGER, 
-	ttfb_ms INTEGER, 
-	dom_interactive_ms INTEGER, 
-	dom_content_loaded_ms INTEGER, 
-	load_event_ms INTEGER, 
-	first_paint_ms INTEGER, 
-	first_contentful_paint_ms INTEGER, 
-	largest_contentful_paint_ms INTEGER, 
-	cls_score FLOAT, 
-	long_task_count INTEGER, 
-	long_task_total_ms INTEGER, 
-	PRIMARY KEY (sample_id), 
+	sample_id VARCHAR2(255 CHAR) NOT NULL,
+	occurred_at DATE NOT NULL,
+	received_at DATE NOT NULL,
+	session_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	view_key VARCHAR2(255 CHAR) NOT NULL,
+	sample_kind VARCHAR2(255 CHAR) NOT NULL,
+	navigation_type VARCHAR2(255 CHAR),
+	data_load_ms INTEGER,
+	render_ms INTEGER,
+	ttfb_ms INTEGER,
+	dom_interactive_ms INTEGER,
+	dom_content_loaded_ms INTEGER,
+	load_event_ms INTEGER,
+	first_paint_ms INTEGER,
+	first_contentful_paint_ms INTEGER,
+	largest_contentful_paint_ms INTEGER,
+	cls_score FLOAT,
+	long_task_count INTEGER,
+	long_task_total_ms INTEGER,
+	PRIMARY KEY (sample_id),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
@@ -237,16 +237,16 @@ CREATE TABLE "TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS" (
 -- Table: TB_TA_PM_PLANNING_WINDOWS
 
 CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
-	window_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	name VARCHAR2(255 CHAR) NOT NULL, 
-	start_date DATE NOT NULL, 
-	end_date DATE NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (window_id), 
-	CONSTRAINT uix_planning_window_name UNIQUE (name), 
+	window_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	name VARCHAR2(255 CHAR) NOT NULL,
+	start_date DATE NOT NULL,
+	end_date DATE NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (window_id),
+	CONSTRAINT uix_planning_window_name UNIQUE (name),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
@@ -272,16 +272,16 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	space_id VARCHAR2(255 CHAR),
 	program_id VARCHAR2(255 CHAR) NOT NULL,
 	project_name VARCHAR2(255 CHAR) NOT NULL,
-	status VARCHAR(11 CHAR) NOT NULL, 
-	description CLOB, 
-	success_criteria CLOB, 
-	sponsor VARCHAR2(255 CHAR) NOT NULL, 
-	sponsor_user_soeid VARCHAR2(255 CHAR), 
-	strategic_objective CLOB, 
-	priority INTEGER NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
+	status VARCHAR(11 CHAR) NOT NULL,
+	description CLOB,
+	success_criteria CLOB,
+	sponsor VARCHAR2(255 CHAR) NOT NULL,
+	sponsor_user_soeid VARCHAR2(255 CHAR),
+	strategic_objective CLOB,
+	priority INTEGER NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
 	PRIMARY KEY (project_id),
 	CONSTRAINT uix_project_space_name UNIQUE (space_id, project_name),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
@@ -291,170 +291,170 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 -- Table: TB_TA_PM_SPACE_MEMBERSHIPS
 
 CREATE TABLE "TB_TA_PM_SPACE_MEMBERSHIPS" (
-	membership_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR) NOT NULL, 
-	user_id VARCHAR2(255 CHAR) NOT NULL, 
-	role VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR2(255 CHAR) NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (membership_id), 
-	CONSTRAINT uix_space_membership UNIQUE (space_id, user_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
+	membership_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	role VARCHAR2(255 CHAR) NOT NULL,
+	status VARCHAR2(255 CHAR) NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (membership_id),
+	CONSTRAINT uix_space_membership UNIQUE (space_id, user_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
 	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
 );
 
 -- Table: TB_TA_PM_TEAMS
 
 CREATE TABLE "TB_TA_PM_TEAMS" (
-	team_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	name VARCHAR2(255 CHAR) NOT NULL, 
-	description VARCHAR2(255 CHAR), 
-	lead VARCHAR2(255 CHAR), 
-	default_capacity_per_week INTEGER NOT NULL, 
-	default_capacity_fte_month FLOAT NOT NULL, 
-	capacity_unit VARCHAR2(255 CHAR) NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (team_id), 
-	CONSTRAINT uix_team_space_name UNIQUE (space_id, name), 
+	team_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	name VARCHAR2(255 CHAR) NOT NULL,
+	description VARCHAR2(255 CHAR),
+	lead VARCHAR2(255 CHAR),
+	default_capacity_per_week INTEGER NOT NULL,
+	default_capacity_fte_month FLOAT NOT NULL,
+	capacity_unit VARCHAR2(255 CHAR) NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (team_id),
+	CONSTRAINT uix_team_space_name UNIQUE (space_id, name),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
 -- Table: TB_TA_PM_RESOURCE_ALLOCATIONS
 
 CREATE TABLE "TB_TA_PM_RESOURCE_ALLOCATIONS" (
-	allocation_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	work_item_type VARCHAR2(255 CHAR) NOT NULL, 
-	work_item_id VARCHAR2(255 CHAR) NOT NULL, 
-	assignee_user_soeid VARCHAR2(255 CHAR), 
-	assignee VARCHAR2(255 CHAR), 
-	team_id VARCHAR2(255 CHAR), 
-	week_start DATE NOT NULL, 
-	month_start DATE, 
-	hours INTEGER NOT NULL, 
-	fte_months FLOAT NOT NULL, 
-	window_id VARCHAR2(255 CHAR), 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (allocation_id), 
-	CONSTRAINT uix_alloc_unique_assignment UNIQUE (work_item_type, work_item_id, assignee_user_soeid, week_start, window_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id), 
+	allocation_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	work_item_type VARCHAR2(255 CHAR) NOT NULL,
+	work_item_id VARCHAR2(255 CHAR) NOT NULL,
+	assignee_user_soeid VARCHAR2(255 CHAR),
+	assignee VARCHAR2(255 CHAR),
+	team_id VARCHAR2(255 CHAR),
+	week_start DATE NOT NULL,
+	month_start DATE,
+	hours INTEGER NOT NULL,
+	fte_months FLOAT NOT NULL,
+	window_id VARCHAR2(255 CHAR),
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (allocation_id),
+	CONSTRAINT uix_alloc_unique_assignment UNIQUE (work_item_type, work_item_id, assignee_user_soeid, week_start, window_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id),
 	FOREIGN KEY(window_id) REFERENCES "TB_TA_PM_PLANNING_WINDOWS" (window_id)
 );
 
 -- Table: TB_TA_PM_SOLUTIONS
 
 CREATE TABLE "TB_TA_PM_SOLUTIONS" (
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_name VARCHAR2(255 CHAR) NOT NULL, 
-	version VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR(11 CHAR) NOT NULL, 
-	rag_status VARCHAR(5 CHAR) NOT NULL, 
-	rag_reason CLOB, 
-	priority INTEGER NOT NULL, 
-	due_date DATE, 
-	current_phase VARCHAR2(255 CHAR), 
-	description CLOB, 
-	success_criteria CLOB, 
-	problem_statement CLOB, 
-	github_repo_url VARCHAR2(1024 CHAR), 
-	owner VARCHAR2(255 CHAR) NOT NULL, 
-	owner_user_soeid VARCHAR2(255 CHAR), 
-	assignee VARCHAR2(255 CHAR) NOT NULL, 
-	assignee_user_soeid VARCHAR2(255 CHAR), 
-	approver VARCHAR2(255 CHAR), 
-	approver_user_soeid VARCHAR2(255 CHAR), 
-	key_stakeholder VARCHAR2(255 CHAR), 
-	blockers CLOB, 
-	risks CLOB, 
-	impact_confidence VARCHAR(6 CHAR), 
-	planned_start_date DATE, 
-	rag_confidence FLOAT, 
-	completed_at DATE, 
-	capacity_hours INTEGER NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (solution_id), 
-	CONSTRAINT uix_solution_project_name_version UNIQUE (project_id, solution_name, version), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
+	solution_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	project_id VARCHAR2(255 CHAR) NOT NULL,
+	solution_name VARCHAR2(255 CHAR) NOT NULL,
+	version VARCHAR2(255 CHAR) NOT NULL,
+	status VARCHAR(11 CHAR) NOT NULL,
+	rag_status VARCHAR(5 CHAR) NOT NULL,
+	rag_reason CLOB,
+	priority INTEGER NOT NULL,
+	due_date DATE,
+	current_phase VARCHAR2(255 CHAR),
+	description CLOB,
+	success_criteria CLOB,
+	problem_statement CLOB,
+	github_repo_url VARCHAR2(1024 CHAR),
+	owner VARCHAR2(255 CHAR) NOT NULL,
+	owner_user_soeid VARCHAR2(255 CHAR),
+	assignee VARCHAR2(255 CHAR) NOT NULL,
+	assignee_user_soeid VARCHAR2(255 CHAR),
+	approver VARCHAR2(255 CHAR),
+	approver_user_soeid VARCHAR2(255 CHAR),
+	key_stakeholder VARCHAR2(255 CHAR),
+	blockers CLOB,
+	risks CLOB,
+	impact_confidence VARCHAR(6 CHAR),
+	planned_start_date DATE,
+	rag_confidence FLOAT,
+	completed_at DATE,
+	capacity_hours INTEGER NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (solution_id),
+	CONSTRAINT uix_solution_project_name_version UNIQUE (project_id, solution_name, version),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
 	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id)
 );
 
 -- Table: TB_TA_PM_TEAM_MEMBERS
 
 CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
-	team_member_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	team_id VARCHAR2(255 CHAR) NOT NULL, 
-	member_name VARCHAR2(255 CHAR) NOT NULL, 
-	role VARCHAR2(255 CHAR) NOT NULL, 
-	capacity_override INTEGER, 
-	capacity_unit VARCHAR2(255 CHAR), 
-	hours_capacity INTEGER, 
-	capacity_fte_month FLOAT, 
-	points_capacity INTEGER, 
-	percent_capacity FLOAT, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (team_member_id), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
+	team_member_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	team_id VARCHAR2(255 CHAR) NOT NULL,
+	member_name VARCHAR2(255 CHAR) NOT NULL,
+	role VARCHAR2(255 CHAR) NOT NULL,
+	capacity_override INTEGER,
+	capacity_unit VARCHAR2(255 CHAR),
+	hours_capacity INTEGER,
+	capacity_fte_month FLOAT,
+	points_capacity INTEGER,
+	percent_capacity FLOAT,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (team_member_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
 	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id)
 );
 
 -- Table: TB_TA_PM_SOLUTION_PHASES
 
 CREATE TABLE "TB_TA_PM_SOLUTION_PHASES" (
-	solution_phase_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	phase_id VARCHAR2(255 CHAR) NOT NULL, 
-	is_enabled SMALLINT NOT NULL, 
-	sequence_override INTEGER, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	PRIMARY KEY (solution_phase_id), 
-	CONSTRAINT uix_solution_phase UNIQUE (solution_id, phase_id), 
-	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id), 
+	solution_phase_id VARCHAR2(255 CHAR) NOT NULL,
+	solution_id VARCHAR2(255 CHAR) NOT NULL,
+	phase_id VARCHAR2(255 CHAR) NOT NULL,
+	is_enabled SMALLINT NOT NULL,
+	sequence_override INTEGER,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (solution_phase_id),
+	CONSTRAINT uix_solution_phase UNIQUE (solution_id, phase_id),
+	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id),
 	FOREIGN KEY(phase_id) REFERENCES "TB_TA_PM_PHASES" (phase_id)
 );
 
--- Table: TB_TA_PM_SUBCOMPONENTS
+-- Table: TB_TA_PM_TASKS
 
-CREATE TABLE "TB_TA_PM_SUBCOMPONENTS" (
-	subcomponent_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	solution_id VARCHAR2(255 CHAR) NOT NULL, 
-	subcomponent_name VARCHAR2(255 CHAR) NOT NULL, 
-	status VARCHAR(11 CHAR) NOT NULL, 
-	priority INTEGER NOT NULL, 
-	due_date DATE, 
-	completed_at DATE, 
-	assignee_user_soeid VARCHAR2(255 CHAR), 
-	assignee VARCHAR2(255 CHAR) NOT NULL, 
-	github_repo_url VARCHAR2(1024 CHAR), 
-	estimate_hours INTEGER, 
-	blocked SMALLINT NOT NULL, 
-	blocker_note CLOB, 
-	done_criteria CLOB, 
-	capacity_hours INTEGER NOT NULL, 
-	created_at DATE NOT NULL, 
-	updated_at DATE NOT NULL, 
-	deleted_at DATE, 
-	PRIMARY KEY (subcomponent_id), 
-	CONSTRAINT uix_subcomponent_solution_name UNIQUE (solution_id, subcomponent_name), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id), 
-	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id), 
+CREATE TABLE "TB_TA_PM_TASKS" (
+	task_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	project_id VARCHAR2(255 CHAR) NOT NULL,
+	solution_id VARCHAR2(255 CHAR) NOT NULL,
+	task_name VARCHAR2(255 CHAR) NOT NULL,
+	status VARCHAR(11 CHAR) NOT NULL,
+	priority INTEGER NOT NULL,
+	due_date DATE,
+	completed_at DATE,
+	assignee_user_soeid VARCHAR2(255 CHAR),
+	assignee VARCHAR2(255 CHAR) NOT NULL,
+	github_repo_url VARCHAR2(1024 CHAR),
+	estimate_hours INTEGER,
+	blocked SMALLINT NOT NULL,
+	blocker_note CLOB,
+	done_criteria CLOB,
+	capacity_hours INTEGER NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (task_id),
+	CONSTRAINT uix_task_solution_name UNIQUE (solution_id, task_name),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id),
 	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id)
 );
 
@@ -662,32 +662,32 @@ CREATE INDEX "ix_TB_TA_PM_SPACE_MEMBERSHIPS_status" ON "TB_TA_PM_SPACE_MEMBERSHI
 -- Index: ix_TB_TA_PM_SPACE_MEMBERSHIPS_user_id
 CREATE INDEX "ix_TB_TA_PM_SPACE_MEMBERSHIPS_user_id" ON "TB_TA_PM_SPACE_MEMBERSHIPS" (user_id);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_assignee_user_soeid
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_assignee_user_soeid" ON "TB_TA_PM_SUBCOMPONENTS" (assignee_user_soeid);
+-- Index: ix_TB_TA_PM_TASKS_assignee_user_soeid
+CREATE INDEX "ix_TB_TA_PM_TASKS_assignee_user_soeid" ON "TB_TA_PM_TASKS" (assignee_user_soeid);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_blocked
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_blocked" ON "TB_TA_PM_SUBCOMPONENTS" (blocked);
+-- Index: ix_TB_TA_PM_TASKS_blocked
+CREATE INDEX "ix_TB_TA_PM_TASKS_blocked" ON "TB_TA_PM_TASKS" (blocked);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_deleted_at" ON "TB_TA_PM_SUBCOMPONENTS" (deleted_at);
+-- Index: ix_TB_TA_PM_TASKS_deleted_at
+CREATE INDEX "ix_TB_TA_PM_TASKS_deleted_at" ON "TB_TA_PM_TASKS" (deleted_at);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_due_date
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_due_date" ON "TB_TA_PM_SUBCOMPONENTS" (due_date);
+-- Index: ix_TB_TA_PM_TASKS_due_date
+CREATE INDEX "ix_TB_TA_PM_TASKS_due_date" ON "TB_TA_PM_TASKS" (due_date);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_priority
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_priority" ON "TB_TA_PM_SUBCOMPONENTS" (priority);
+-- Index: ix_TB_TA_PM_TASKS_priority
+CREATE INDEX "ix_TB_TA_PM_TASKS_priority" ON "TB_TA_PM_TASKS" (priority);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_project_id
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_project_id" ON "TB_TA_PM_SUBCOMPONENTS" (project_id);
+-- Index: ix_TB_TA_PM_TASKS_project_id
+CREATE INDEX "ix_TB_TA_PM_TASKS_project_id" ON "TB_TA_PM_TASKS" (project_id);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_solution_id
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_solution_id" ON "TB_TA_PM_SUBCOMPONENTS" (solution_id);
+-- Index: ix_TB_TA_PM_TASKS_solution_id
+CREATE INDEX "ix_TB_TA_PM_TASKS_solution_id" ON "TB_TA_PM_TASKS" (solution_id);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_space_id
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_space_id" ON "TB_TA_PM_SUBCOMPONENTS" (space_id);
+-- Index: ix_TB_TA_PM_TASKS_space_id
+CREATE INDEX "ix_TB_TA_PM_TASKS_space_id" ON "TB_TA_PM_TASKS" (space_id);
 
--- Index: ix_TB_TA_PM_SUBCOMPONENTS_status
-CREATE INDEX "ix_TB_TA_PM_SUBCOMPONENTS_status" ON "TB_TA_PM_SUBCOMPONENTS" (status);
+-- Index: ix_TB_TA_PM_TASKS_status
+CREATE INDEX "ix_TB_TA_PM_TASKS_status" ON "TB_TA_PM_TASKS" (status);
 
 -- Index: ix_TB_TA_PM_TEAMS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_TEAMS_deleted_at" ON "TB_TA_PM_TEAMS" (deleted_at);

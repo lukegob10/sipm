@@ -21,7 +21,7 @@ function buildRouterHarness() {
     authed: true,
     currentView: "master",
     activeSpace: { space_id: "space-1", space_role: "space_admin" },
-    subcomponentsWorkbench: {},
+    tasksWorkbench: {},
   };
   const els = {
     navButtons: document.querySelectorAll(".nav-btn"),
@@ -96,7 +96,7 @@ describe("router controller", () => {
       authed: true,
       currentView: "master",
       activeSpace: { space_id: "space-1", space_role: "space_admin" },
-      subcomponentsWorkbench: {},
+      tasksWorkbench: {},
     };
     const controller = createRouterController({
       state,
@@ -130,7 +130,7 @@ describe("router controller", () => {
     controller.setView("gantt");
     expect(state.currentView).toBe("gantt");
     await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
-    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "subcomponents"] }));
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "tasks"] }));
   });
 
   it("does not render authenticated data routes before the route module and data store are ready", async () => {

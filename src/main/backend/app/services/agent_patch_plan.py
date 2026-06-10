@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from ..models import Phase, Project, Solution, Subcomponent, User
+from ..models import Phase, Project, Solution, Task, User
 from ..routes._mutations import publish_space_mutation
 from ..routes.projects.common import (
     _active_project_name_conflict_query,
@@ -28,16 +28,16 @@ from ..routes.solutions.common import (
     _validate_current_phase,
     normalize_github_repo_url as normalize_solution_repo_url,
 )
-from ..routes.subcomponents.common import (
-    _apply_subcomponent_completion_state,
+from ..routes.tasks.common import (
+    _apply_task_completion_state,
     _ensure_solution,
-    _resolve_subcomponent_assignee,
-    _solution_query as _subcomponent_solution_query,
-    _subcomponent_query,
-    normalize_github_repo_url as normalize_subcomponent_repo_url,
+    _resolve_task_assignee,
+    _solution_query as _task_solution_query,
+    _task_query,
+    normalize_github_repo_url as normalize_task_repo_url,
 )
 from ..schemas import ProjectCreate, ProjectUpdate, SolutionCreate, SolutionUpdate
-from ..schemas import SubcomponentCreate, SubcomponentUpdate
+from ..schemas import TaskCreate, TaskUpdate
 from ..schemas.agent import (
     AgentPatchOperation,
     AgentPatchOperationResult,
@@ -47,22 +47,22 @@ from ..schemas.agent import (
 from ..services.audit_log import log_changes, safe_log_changes
 from ..services.spaces import SpaceContext
 from ..utils import normalize_str, parse_priority
-from ..utils.enums import SolutionStatus, SubcomponentStatus
+from ..utils.enums import SolutionStatus, TaskStatus
 
 VALID_OPS = {"create", "update"}
-VALID_ENTITIES = {"project", "solution", "subcomponent"}
+VALID_ENTITIES = {"project", "solution", "task"}
 PROJECT_FIELDS = set(ProjectCreate.model_fields)
 SOLUTION_FIELDS = set(SolutionCreate.model_fields)
-SUBCOMPONENT_FIELDS = set(SubcomponentCreate.model_fields)
+TASK_FIELDS = set(TaskCreate.model_fields)
 ENTITY_FIELDS = {
     "project": PROJECT_FIELDS,
     "solution": SOLUTION_FIELDS,
-    "subcomponent": SUBCOMPONENT_FIELDS,
+    "task": TASK_FIELDS,
 }
 PUBLISH_KEYS = {
     "project": ("projects",),
     "solution": ("solutions",),
-    "subcomponent": ("subcomponents",),
+    "task": ("tasks",),
 }
 
 
@@ -135,7 +135,7 @@ def _validate_operation_shape(
         return _invalid(
             operation,
             "ENTITY_NOT_ALLOWED",
-            "Only project, solution, and subcomponent are allowed",
+            "Only project, solution, and task are allowed",
         )
     if not operation.fields:
         return _invalid(operation, "FIELDS_REQUIRED", "fields must not be empty")
@@ -163,13 +163,13 @@ def _validate_operation_shape(
         )
     if (
         operation.op == "create"
-        and operation.entity == "subcomponent"
+        and operation.entity == "task"
         and not operation.solution_id
     ):
         return _invalid(
             operation,
             "SOLUTION_ID_REQUIRED",
-            "create subcomponent requires solution_id",
+            "create task requires solution_id",
         )
     return None
 
@@ -346,85 +346,85 @@ def _validate_solution(
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
 
 
-def _validate_subcomponent(
+def _validate_task(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
 ) -> AgentPatchOperationResult:
     try:
         if operation.op == "create":
-            payload = SubcomponentCreate(**operation.fields)
+            payload = TaskCreate(**operation.fields)
             solution = (
-                _subcomponent_solution_query(session, space_ctx)
+                _task_solution_query(session, space_ctx)
                 .filter(Solution.solution_id == operation.solution_id)
                 .first()
             )
             if not solution:
                 return _invalid(operation, "SOLUTION_NOT_FOUND", "Solution not found")
-            name = normalize_str(payload.subcomponent_name)
+            name = normalize_str(payload.task_name)
             if not name:
                 return _invalid(
                     operation,
-                    "SUBCOMPONENT_NAME_REQUIRED",
-                    "subcomponent_name is required",
+                    "TASK_NAME_REQUIRED",
+                    "task_name is required",
                 )
             conflict = (
-                _subcomponent_query(session, space_ctx)
-                .filter(Subcomponent.solution_id == solution.solution_id)
-                .filter(Subcomponent.subcomponent_name == name)
+                _task_query(session, space_ctx)
+                .filter(Task.solution_id == solution.solution_id)
+                .filter(Task.task_name == name)
                 .first()
             )
             if conflict:
                 return _invalid(
                     operation,
-                    "SUBCOMPONENT_CONFLICT",
-                    "Subcomponent name already exists in this solution",
+                    "TASK_CONFLICT",
+                    "Task name already exists in this solution",
                 )
             if payload.github_repo_url is not None:
-                normalize_subcomponent_repo_url(payload.github_repo_url)
+                normalize_task_repo_url(payload.github_repo_url)
             return _result(operation, valid=True)
 
-        payload = SubcomponentUpdate(**operation.fields)
-        subcomponent = (
-            _subcomponent_query(session, space_ctx)
-            .filter(Subcomponent.subcomponent_id == operation.id)
+        payload = TaskUpdate(**operation.fields)
+        task = (
+            _task_query(session, space_ctx)
+            .filter(Task.task_id == operation.id)
             .first()
         )
-        if not subcomponent:
+        if not task:
             return _invalid(
-                operation, "SUBCOMPONENT_NOT_FOUND", "Subcomponent not found"
+                operation, "TASK_NOT_FOUND", "Task not found"
             )
-        if not _timestamp_matches(subcomponent.updated_at, operation.if_updated_at):
+        if not _timestamp_matches(task.updated_at, operation.if_updated_at):
             return _invalid(
                 operation,
                 "STALE_ENTITY",
-                "Subcomponent has changed since if_updated_at",
+                "Task has changed since if_updated_at",
             )
         update_data = payload.model_dump(exclude_unset=True)
         if "github_repo_url" in update_data:
-            normalize_subcomponent_repo_url(update_data["github_repo_url"])
-        if "subcomponent_name" in update_data:
-            name = normalize_str(update_data["subcomponent_name"])
+            normalize_task_repo_url(update_data["github_repo_url"])
+        if "task_name" in update_data:
+            name = normalize_str(update_data["task_name"])
             if not name:
                 return _invalid(
                     operation,
-                    "SUBCOMPONENT_NAME_REQUIRED",
-                    "subcomponent_name is required",
+                    "TASK_NAME_REQUIRED",
+                    "task_name is required",
                 )
             conflict = (
-                _subcomponent_query(session, space_ctx)
-                .filter(Subcomponent.solution_id == subcomponent.solution_id)
-                .filter(Subcomponent.subcomponent_name == name)
-                .filter(Subcomponent.subcomponent_id != subcomponent.subcomponent_id)
+                _task_query(session, space_ctx)
+                .filter(Task.solution_id == task.solution_id)
+                .filter(Task.task_name == name)
+                .filter(Task.task_id != task.task_id)
                 .first()
             )
             if conflict:
                 return _invalid(
                     operation,
-                    "SUBCOMPONENT_CONFLICT",
-                    "Subcomponent name already exists in this solution",
+                    "TASK_CONFLICT",
+                    "Task name already exists in this solution",
                 )
-        return _result(operation, valid=True, entity_id=subcomponent.subcomponent_id)
+        return _result(operation, valid=True, entity_id=task.task_id)
     except ValueError as exc:
         return _invalid(operation, "VALIDATION_ERROR", str(exc))
     except ValidationError as exc:
@@ -484,8 +484,8 @@ def validate_patch_plan(
             results.append(_validate_project(session, space_ctx, operation))
         elif operation.entity == "solution":
             results.append(_validate_solution(session, space_ctx, operation))
-        elif operation.entity == "subcomponent":
-            results.append(_validate_subcomponent(session, space_ctx, operation))
+        elif operation.entity == "task":
+            results.append(_validate_task(session, space_ctx, operation))
 
     valid = all(result.valid for result in results)
     return AgentPatchResponse(
@@ -704,34 +704,34 @@ def _apply_solution(
     return solution.solution_id, solution.updated_at
 
 
-def _apply_subcomponent(
+def _apply_task(
     session: Session,
     space_ctx: SpaceContext,
     current_user: User,
     operation: AgentPatchOperation,
 ) -> tuple[str, datetime]:
     if operation.op == "create":
-        payload = SubcomponentCreate(**operation.fields)
+        payload = TaskCreate(**operation.fields)
         solution = _ensure_solution(session, operation.solution_id, space_ctx)
-        assignee, assignee_user_soeid = _resolve_subcomponent_assignee(
+        assignee, assignee_user_soeid = _resolve_task_assignee(
             payload.assignee,
             payload.assignee_user_soeid,
             current_user,
         )
         now = _now()
-        status_value = payload.status or SubcomponentStatus.to_do
-        subcomponent = Subcomponent(
+        status_value = payload.status or TaskStatus.to_do
+        task = Task(
             space_id=space_ctx.space_id,
             project_id=solution.project_id,
             solution_id=solution.solution_id,
-            subcomponent_name=normalize_str(payload.subcomponent_name),
+            task_name=normalize_str(payload.task_name),
             status=status_value,
             priority=payload.priority,
             due_date=payload.due_date,
-            completed_at=now if status_value == SubcomponentStatus.complete else None,
+            completed_at=now if status_value == TaskStatus.complete else None,
             assignee=assignee,
             assignee_user_soeid=assignee_user_soeid,
-            github_repo_url=normalize_subcomponent_repo_url(payload.github_repo_url),
+            github_repo_url=normalize_task_repo_url(payload.github_repo_url),
             estimate_hours=payload.estimate_hours,
             blocked=payload.blocked or False,
             blocker_note=payload.blocker_note if payload.blocked else None,
@@ -740,33 +740,33 @@ def _apply_subcomponent(
             created_at=now,
             updated_at=now,
         )
-        session.add(subcomponent)
+        session.add(task)
         session.flush()
         log_changes(
             session,
-            entity_type="subcomponent",
-            entity_id=subcomponent.subcomponent_id,
+            entity_type="task",
+            entity_id=task.task_id,
             user_id=current_user.user_id,
             action="create",
             space_id=space_ctx.space_id,
             changes={
-                "subcomponent_name": (None, subcomponent.subcomponent_name),
-                "status": (None, subcomponent.status),
-                "priority": (None, subcomponent.priority),
+                "task_name": (None, task.task_name),
+                "status": (None, task.status),
+                "priority": (None, task.priority),
             },
         )
-        return subcomponent.subcomponent_id, subcomponent.updated_at
+        return task.task_id, task.updated_at
 
-    payload = SubcomponentUpdate(**operation.fields)
-    subcomponent = (
-        _subcomponent_query(session, space_ctx)
-        .filter(Subcomponent.subcomponent_id == operation.id)
+    payload = TaskUpdate(**operation.fields)
+    task = (
+        _task_query(session, space_ctx)
+        .filter(Task.task_id == operation.id)
         .first()
     )
     update_data = payload.model_dump(exclude_unset=True)
-    if "subcomponent_name" in update_data:
-        update_data["subcomponent_name"] = normalize_str(
-            update_data["subcomponent_name"]
+    if "task_name" in update_data:
+        update_data["task_name"] = normalize_str(
+            update_data["task_name"]
         )
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
@@ -775,36 +775,36 @@ def _apply_subcomponent(
     if update_data.get("blocked") is False:
         update_data["blocker_note"] = None
     if "github_repo_url" in update_data:
-        update_data["github_repo_url"] = normalize_subcomponent_repo_url(
+        update_data["github_repo_url"] = normalize_task_repo_url(
             update_data["github_repo_url"]
         )
     fields_to_compare = set(update_data)
     if "status" in update_data:
         fields_to_compare.add("completed_at")
-    before = {field: getattr(subcomponent, field) for field in fields_to_compare}
+    before = {field: getattr(task, field) for field in fields_to_compare}
     for field, value in update_data.items():
-        setattr(subcomponent, field, value)
+        setattr(task, field, value)
     if "status" in update_data:
-        _apply_subcomponent_completion_state(
-            subcomponent,
+        _apply_task_completion_state(
+            task,
             next_status=update_data["status"],
             now=_now(),
         )
-    subcomponent.updated_at = _now()
-    session.add(subcomponent)
+    task.updated_at = _now()
+    session.add(task)
     log_changes(
         session,
-        entity_type="subcomponent",
-        entity_id=subcomponent.subcomponent_id,
+        entity_type="task",
+        entity_id=task.task_id,
         user_id=current_user.user_id,
         action="update",
         space_id=space_ctx.space_id,
         changes={
-            field: (before.get(field), getattr(subcomponent, field))
+            field: (before.get(field), getattr(task, field))
             for field in fields_to_compare
         },
     )
-    return subcomponent.subcomponent_id, subcomponent.updated_at
+    return task.task_id, task.updated_at
 
 
 def apply_patch_plan(
@@ -830,7 +830,7 @@ def apply_patch_plan(
                     session, space_ctx, current_user, operation
                 )
             else:
-                entity_id, updated_at = _apply_subcomponent(
+                entity_id, updated_at = _apply_task(
                     session, space_ctx, current_user, operation
                 )
             publish_entities.add(operation.entity)

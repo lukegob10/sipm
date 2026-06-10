@@ -45,7 +45,7 @@ async def test_create_allocation_legacy_hours_backfills_fte_months(client):
     created = await client.post(
         "/project-manager/api/resource-allocations",
         json={
-            "work_item_type": "subcomponent",
+            "work_item_type": "task",
             "work_item_id": "task-1",
             "assignee": "Test User",
             "assignee_user_soeid": "tu12345",
@@ -121,7 +121,7 @@ async def test_allocations_summary_groups_by_month_and_returns_fte(client):
     second = await client.post(
         "/project-manager/api/resource-allocations",
         json={
-            "work_item_type": "subcomponent",
+            "work_item_type": "task",
             "work_item_id": "task-b",
             "assignee": "Test User",
             "assignee_user_soeid": "tu12345",
@@ -195,11 +195,11 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
     )
     assert solution_resp.status_code == 201, solution_resp.text
     solution_id = solution_resp.json()["solution_id"]
-    subcomponent_resp = await client.post(
-        f"/project-manager/api/solutions/{solution_id}/subcomponents",
-        json={"subcomponent_name": "Allocation Task", "estimate_hours": 80},
+    task_resp = await client.post(
+        f"/project-manager/api/solutions/{solution_id}/tasks",
+        json={"task_name": "Allocation Task", "estimate_hours": 80},
     )
-    assert subcomponent_resp.status_code == 201, subcomponent_resp.text
+    assert task_resp.status_code == 201, task_resp.text
 
     window_resp = await client.post(
         "/project-manager/api/planning/windows",
@@ -216,7 +216,7 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
         "project_name",
         "solution_name",
         "version",
-        "subcomponent_name",
+        "task_name",
         "assignee",
         "assignee_user_soeid",
         "team_name",
@@ -229,11 +229,11 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
     writer.writeheader()
     writer.writerow(
         {
-            "work_item_type": "subcomponent",
+            "work_item_type": "task",
             "project_name": "Allocation Project",
             "solution_name": "Allocation Solution",
             "version": "1.0.0",
-            "subcomponent_name": "Allocation Task",
+            "task_name": "Allocation Task",
             "team_name": "Allocation Team",
             "month_start": "2026-05-01",
             "fte_months": "0.5",
@@ -252,7 +252,7 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
     exported = await client.get("/project-manager/api/resource-allocations/export")
     assert exported.status_code == 200, exported.text
     rows = list(csv.DictReader(StringIO(exported.text)))
-    row = next(row for row in rows if row["subcomponent_name"] == "Allocation Task")
+    row = next(row for row in rows if row["task_name"] == "Allocation Task")
     assert row["project_name"] == "Allocation Project"
     assert row["solution_name"] == "Allocation Solution"
     assert row["team_name"] == "Allocation Team"

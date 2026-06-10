@@ -41,9 +41,9 @@ def normalize_github_repo_url(value: str | None) -> str | None:
 def resolve_effective_github_repo_url(
     *,
     solution_repo_url: str | None,
-    subcomponent_repo_url: str | None,
+    task_repo_url: str | None,
 ) -> tuple[str | None, RepoSource]:
-    override = normalize_github_repo_url(subcomponent_repo_url)
+    override = normalize_github_repo_url(task_repo_url)
     if override:
         return override, "override"
 

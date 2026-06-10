@@ -231,15 +231,15 @@ function markOverdue(map, key) {
   map.set(normalizedKey, true);
 }
 
-function buildGanttHealthContext({ solutions = [], subcomponents = [], todayDay = todayDayNumber() } = {}) {
-  const overdueSubcomponentsBySolution = new Map();
+function buildGanttHealthContext({ solutions = [], tasks = [], todayDay = todayDayNumber() } = {}) {
+  const overdueTasksBySolution = new Map();
   const overdueChildrenByProject = new Map();
 
-  (subcomponents || []).forEach((subcomponent) => {
-    const range = normalizeRange(subcomponent?.due_date, subcomponent?.due_date, { milestone: true });
-    if (!isGanttItemOverdue(subcomponent?.status, range, todayDay)) return;
-    if (subcomponent?.solution_id) markOverdue(overdueSubcomponentsBySolution, subcomponent.solution_id);
-    markOverdue(overdueChildrenByProject, subcomponent?.project_id);
+  (tasks || []).forEach((task) => {
+    const range = normalizeRange(task?.due_date, task?.due_date, { milestone: true });
+    if (!isGanttItemOverdue(task?.status, range, todayDay)) return;
+    if (task?.solution_id) markOverdue(overdueTasksBySolution, task.solution_id);
+    markOverdue(overdueChildrenByProject, task?.project_id);
   });
 
   (solutions || []).forEach((solution) => {
@@ -250,7 +250,7 @@ function buildGanttHealthContext({ solutions = [], subcomponents = [], todayDay 
 
   return {
     solutionHasOverdueChild(solutionId) {
-      return overdueSubcomponentsBySolution.get(String(solutionId || "").trim()) === true;
+      return overdueTasksBySolution.get(String(solutionId || "").trim()) === true;
     },
     projectHasOverdueChild(projectId) {
       const key = String(projectId || "__unassigned__").trim() || "__unassigned__";
@@ -283,19 +283,19 @@ export function resolveGanttTimelineScale(windowRange, chartWidth = 0, leftRailW
   };
 }
 
-function buildSubcomponentNode(subcomponent, windowRange, todayDay) {
-  const range = normalizeRange(subcomponent?.due_date, subcomponent?.due_date, { milestone: true });
+function buildTaskNode(task, windowRange, todayDay) {
+  const range = normalizeRange(task?.due_date, task?.due_date, { milestone: true });
   if (!rangeOverlapsWindow(range, windowRange)) return null;
   return withGanttHealth({
-    type: "subcomponent",
-    id: subcomponent.subcomponent_id,
-    key: `subcomponent:${subcomponent.subcomponent_id}`,
-    projectId: subcomponent.project_id,
-    solutionId: subcomponent.solution_id,
-    label: subcomponent.subcomponent_name || "Untitled subcomponent",
-    assignee: subcomponent.assignee || subcomponent.assignee_user_soeid || "Unassigned",
-    status: subcomponent.status || "",
-    priority: subcomponent.priority ?? "",
+    type: "task",
+    id: task.task_id,
+    key: `task:${task.task_id}`,
+    projectId: task.project_id,
+    solutionId: task.solution_id,
+    label: task.task_name || "Untitled task",
+    assignee: task.assignee || task.assignee_user_soeid || "Unassigned",
+    status: task.status || "",
+    priority: task.priority ?? "",
     range,
     scheduleRange: range,
     milestone: true,
@@ -367,27 +367,27 @@ function flattenProject(projectNode, collapsedKeys) {
 export function buildGanttRows({
   projects = [],
   solutions = [],
-  subcomponents = [],
+  tasks = [],
   ganttWindow = {},
   collapsedKeys = new Set(),
   todayDay = todayDayNumber(),
 } = {}) {
   const windowRange = normalizeWindow(ganttWindow);
   if (!windowRange) return { rows: [], projectNodes: [], windowRange: null };
-  const healthContext = buildGanttHealthContext({ solutions, subcomponents, todayDay });
+  const healthContext = buildGanttHealthContext({ solutions, tasks, todayDay });
 
-  const subcomponentsBySolution = new Map();
-  sortByName(subcomponents, "subcomponent_name").forEach((subcomponent) => {
-    const node = buildSubcomponentNode(subcomponent, windowRange, todayDay);
+  const tasksBySolution = new Map();
+  sortByName(tasks, "task_name").forEach((task) => {
+    const node = buildTaskNode(task, windowRange, todayDay);
     if (!node) return;
-    const bucket = subcomponentsBySolution.get(subcomponent.solution_id) || [];
+    const bucket = tasksBySolution.get(task.solution_id) || [];
     bucket.push(node);
-    subcomponentsBySolution.set(subcomponent.solution_id, bucket);
+    tasksBySolution.set(task.solution_id, bucket);
   });
 
   const solutionsByProject = new Map();
   sortByName(solutions, "solution_name").forEach((solution) => {
-    const childNodes = subcomponentsBySolution.get(solution.solution_id) || [];
+    const childNodes = tasksBySolution.get(solution.solution_id) || [];
     const node = buildSolutionNode(solution, childNodes, windowRange, healthContext, todayDay);
     if (!node) return;
     const projectId = solution.project_id || "__unassigned__";
@@ -437,7 +437,7 @@ function renderToggle(row) {
 }
 
 function renderItemLabel(row, formatStatus) {
-  const typeLabel = row.type === "subcomponent" ? "Subcomponent" : row.type === "solution" ? "Solution" : "Project";
+  const typeLabel = row.type === "task" ? "Task" : row.type === "solution" ? "Solution" : "Project";
   const statusText = row.status ? formatStatus(row.status) : "";
   const priorityText = priorityLabel(row.priority);
   return `<div class="gantt-label-content gantt-depth-${row.depth}">
@@ -524,7 +524,7 @@ function countRowsByType(rows) {
       counts[row.type] = (counts[row.type] || 0) + 1;
       return counts;
     },
-    { project: 0, solution: 0, subcomponent: 0 }
+    { project: 0, solution: 0, task: 0 }
   );
 }
 
@@ -537,7 +537,7 @@ export function renderGantt(ctx) {
   const { rows, windowRange } = buildGanttRows({
     projects: state.projects,
     solutions: state.solutions,
-    subcomponents: state.subcomponents,
+    tasks: state.tasks,
     ganttWindow: state.ganttWindow,
     collapsedKeys: state.ganttCollapsed,
   });
@@ -574,7 +574,7 @@ export function renderGantt(ctx) {
       <div class="gantt-summary-metrics" aria-label="Visible Gantt rows">
         <span><strong>${counts.project}</strong> Projects</span>
         <span><strong>${counts.solution}</strong> Solutions</span>
-        <span><strong>${counts.subcomponent}</strong> Subcomponents</span>
+        <span><strong>${counts.task}</strong> Tasks</span>
       </div>
     </div>
     <div class="gantt-scroll" style="--gantt-left-width: ${px(scale.leftRailWidth)}px; --gantt-track-width: ${px(trackWidth)}px; --gantt-day-width: ${px(scale.dayWidth)}px; --gantt-week-width: ${px(scale.dayWidth * 7)}px;">

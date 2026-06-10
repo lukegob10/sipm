@@ -78,7 +78,7 @@ export function renderCalendar(ctx) {
     state,
     els,
     filteredSolutionsForCalendar,
-    filteredSubcomponentsForCalendar,
+    filteredTasksForCalendar,
     formatStatus,
   } = ctx;
   if (!els.calendarGrid) return;
@@ -91,11 +91,11 @@ export function renderCalendar(ctx) {
   const startWeekday = firstDay.getDay();
 
   const solutions = sortByName(filteredSolutionsForCalendar(), "solution_name");
-  const subcomponents = sortByName(filteredSubcomponentsForCalendar(), "subcomponent_name");
+  const tasks = sortByName(filteredTasksForCalendar(), "task_name");
 
   const itemsByDay = {};
   for (let day = 1; day <= daysInMonth; day += 1) {
-    itemsByDay[day] = { solutions: [], subcomponents: [] };
+    itemsByDay[day] = { solutions: [], tasks: [] };
   }
 
   solutions.forEach((item) => {
@@ -103,10 +103,10 @@ export function renderCalendar(ctx) {
     if (!due || due.year !== year || due.month !== month) return;
     itemsByDay[due.day]?.solutions.push(item);
   });
-  subcomponents.forEach((item) => {
+  tasks.forEach((item) => {
     const due = dateParts(item?.due_date);
     if (!due || due.year !== year || due.month !== month) return;
-    itemsByDay[due.day]?.subcomponents.push(item);
+    itemsByDay[due.day]?.tasks.push(item);
   });
 
   const cells = [];
@@ -126,19 +126,19 @@ export function renderCalendar(ctx) {
       `<div class="calendar-week">${weekCells
         .map((day) => {
           if (!day) return `<div class="calendar-cell empty"></div>`;
-          const dayItems = itemsByDay[day] || { solutions: [], subcomponents: [] };
-          const total = dayItems.solutions.length + dayItems.subcomponents.length;
+          const dayItems = itemsByDay[day] || { solutions: [], tasks: [] };
+          const total = dayItems.solutions.length + dayItems.tasks.length;
           const count = total ? `<span class="calendar-count">${total}</span>` : "";
           const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
           const todayClass = isToday ? " today" : "";
           const solutionPreview = renderPreviewItems(dayItems.solutions, "solution", "solution_name", formatStatus);
-          const subcomponentPreview = renderPreviewItems(dayItems.subcomponents, "subcomponent", "subcomponent_name", formatStatus);
+          const taskPreview = renderPreviewItems(dayItems.tasks, "task", "task_name", formatStatus);
           const streams = [
             solutionPreview
               ? `<div class="calendar-stream calendar-stream-solutions"><div class="calendar-stream-label">Solutions</div>${solutionPreview}</div>`
               : "",
-            subcomponentPreview
-              ? `<div class="calendar-stream calendar-stream-subcomponents"><div class="calendar-stream-label">Subcomponents</div>${subcomponentPreview}</div>`
+            taskPreview
+              ? `<div class="calendar-stream calendar-stream-tasks"><div class="calendar-stream-label">Tasks</div>${taskPreview}</div>`
               : "",
           ]
             .filter(Boolean)
@@ -168,7 +168,7 @@ export function openCalendarModal(day, ctx) {
     state,
     els,
     filteredSolutionsForCalendar,
-    filteredSubcomponentsForCalendar,
+    filteredTasksForCalendar,
     formatStatus,
   } = ctx;
   if (!els.calendarModal) return;
@@ -176,7 +176,7 @@ export function openCalendarModal(day, ctx) {
   const baseMonth = resolveCalendarMonth(state.calendarMonth);
   const date = new Date(baseMonth.getFullYear(), baseMonth.getMonth(), day || 1);
   const solutions = sortByName(itemsForDay(filteredSolutionsForCalendar(), date), "solution_name");
-  const subcomponents = sortByName(itemsForDay(filteredSubcomponentsForCalendar(), date), "subcomponent_name");
+  const tasks = sortByName(itemsForDay(filteredTasksForCalendar(), date), "task_name");
   const projectsById = new Map((state.projects || []).map((project) => [project.project_id, project]));
   const solutionsById = new Map((state.solutions || []).map((solution) => [solution.solution_id, solution]));
 
@@ -211,21 +211,21 @@ export function openCalendarModal(day, ctx) {
             .join("")}
         </div>`
       : "";
-    const subcomponentSection = subcomponents.length
+    const taskSection = tasks.length
       ? `<div class="modal-section">
-          <div class="modal-section-title">Subcomponents (${subcomponents.length})</div>
-          ${subcomponents
+          <div class="modal-section-title">Tasks (${tasks.length})</div>
+          ${tasks
             .map((item) => {
               const projectName = projectsById.get(item.project_id)?.project_name || "—";
               const solutionName = solutionsById.get(item.solution_id)?.solution_name || "—";
               const action = [
                 actionButtonMarkup("open-project", "data-project-id", item.project_id, "Open Project"),
-                actionButtonMarkup("open-subcomponent", "data-subcomponent-id", item.subcomponent_id, "Open Work Item"),
+                actionButtonMarkup("open-task", "data-task-id", item.task_id, "Open Work Item"),
               ]
                 .filter(Boolean)
                 .join("");
-              return `<div class="modal-item subcomponent">
-                <div class="modal-item-title">${esc(item.subcomponent_name)}</div>
+              return `<div class="modal-item task">
+                <div class="modal-item-title">${esc(item.task_name)}</div>
                 <div class="modal-item-meta">
                   Project ${esc(projectName)} • Solution ${esc(solutionName)} • ${esc(formatStatus(item.status))} • Assignee ${esc(item.assignee || "—")} • Due ${esc(item.due_date || "—")}
                 </div>
@@ -235,8 +235,8 @@ export function openCalendarModal(day, ctx) {
             .join("")}
         </div>`
       : "";
-    const html = [solutionSection, subcomponentSection].filter(Boolean).join("");
-    els.calendarModalList.innerHTML = html || `<div class="modal-empty">No solutions or subcomponents due on this day</div>`;
+    const html = [solutionSection, taskSection].filter(Boolean).join("");
+    els.calendarModalList.innerHTML = html || `<div class="modal-empty">No solutions or tasks due on this day</div>`;
   }
 
   els.calendarModal.classList.remove("hidden");

@@ -29,7 +29,7 @@ describe("calendar route", () => {
           status: "active",
         },
       ],
-      filteredSubcomponentsForCalendar: () => [],
+      filteredTasksForCalendar: () => [],
       formatStatus: (status) => status,
     };
 

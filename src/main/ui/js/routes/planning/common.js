@@ -37,15 +37,15 @@ export function showCompletedOperationalWork(ctx = boardState.ctx) {
 }
 
 export function visibleBoardTasks(ctx = boardState.ctx) {
-  const tasks = Array.isArray(boardState.data.tasks) ? boardState.data.tasks : [];
-  if (showCompletedOperationalWork(ctx)) return tasks;
-  const subcomponents = Array.isArray(ctx?.state?.subcomponents) ? ctx.state.subcomponents : [];
+  const boardTasks = Array.isArray(boardState.data.tasks) ? boardState.data.tasks : [];
+  if (showCompletedOperationalWork(ctx)) return boardTasks;
+  const portfolioTasks = Array.isArray(ctx?.state?.tasks) ? ctx.state.tasks : [];
   const statusByTaskId = new Map(
-    subcomponents
-      .filter((row) => row?.subcomponent_id)
-      .map((row) => [String(row.subcomponent_id), String(row.status || "")])
+    portfolioTasks
+      .filter((row) => row?.task_id)
+      .map((row) => [String(row.task_id), String(row.status || "")])
   );
-  return tasks.filter((task) => {
+  return boardTasks.filter((task) => {
     const status = statusByTaskId.get(String(task?.id || ""));
     if (!status) return true;
     return !isClosedTaskStatus(status);

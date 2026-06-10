@@ -34,7 +34,7 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     assert 'renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations"' in analytics_text
     assert 'renderPMDashboardRowLink(label, "open-project"' in analytics_text
     assert 'renderPMDashboardRowLink(label, "open-solution"' in analytics_text
-    assert 'renderPMDashboardRowLink(row.name, "open-subcomponent"' in analytics_text
+    assert 'renderPMDashboardRowLink(row.name, "open-task"' in analytics_text
     assert 'renderPMDashboardRowLink(row.label, "open-capacity-allocations"' in analytics_text
     assert 'from "./sections.js";' in render_text
     assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in sections_text
@@ -46,9 +46,9 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     assert 'if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;' in analytics_text
     assert "projectId: project.project_id" in render_text
     assert 'itemKind: "solution"' in render_text
-    assert 'itemKind: "subcomponent"' in render_text
+    assert 'itemKind: "task"' in render_text
     assert "solutionId: solution.solution_id" in render_text
-    assert "subcomponentId: subcomponent.subcomponent_id" in render_text
+    assert "taskId: task.task_id" in render_text
     assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory)," in render_text
     assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(" in render_text
     assert "allocations: rowAllocations" in render_text
@@ -68,8 +68,8 @@ def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown
     assert "pmDashboardState.ctx?.openPMDashboardProjectDrilldown" in interactions_text
     assert 'if (action === "open-solution") {' in interactions_text
     assert "pmDashboardState.ctx?.openPMDashboardSolutionDrilldown" in interactions_text
-    assert 'if (action === "open-subcomponent") {' in interactions_text
-    assert "pmDashboardState.ctx?.openPMDashboardSubcomponentDrilldown" in interactions_text
+    assert 'if (action === "open-task") {' in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardTaskDrilldown" in interactions_text
     assert 'if (action === "open-capacity-allocations") {' in interactions_text
     assert 'const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);' in interactions_text
     assert "pmDashboardState.ctx?.openPMDashboardCapacityDrilldown" in interactions_text
@@ -88,25 +88,25 @@ def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and
     assert "function openPMDashboardProjectDrilldown(projectId)" in text
     assert "function openPMDashboardCapacityDrilldown(detail)" in text
     assert "function openPMDashboardSolutionDrilldown(solutionId)" in text
-    assert "function openPMDashboardSubcomponentDrilldown(subcomponentId)" in text
+    assert "function openPMDashboardTaskDrilldown(taskId)" in text
     assert "function openAllocationWorkItemDrilldown(allocationId)" in text
     assert 'openPMDashboardCapacityDrilldown,' in text
     assert 'openPMDashboardProjectDrilldown,' in text
     assert 'openPMDashboardSolutionDrilldown,' in text
-    assert 'openPMDashboardSubcomponentDrilldown,' in text
+    assert 'openPMDashboardTaskDrilldown,' in text
     assert 'data-planning-modal-action="open-allocation-work-item"' in text
     assert 'openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);' in text
     assert 'type === "solution" ? "Open Workstream"' in text
-    assert 'type === "subcomponent" ? "Open Deliverable"' in text
+    assert 'type === "task" ? "Open Deliverable"' in text
     assert 'type === "solution" ? "Workstream"' in text
-    assert 'type === "subcomponent" ? "Deliverable"' in text
+    assert 'type === "task" ? "Deliverable"' in text
     assert "The linked workstream is unavailable." in text
     assert "The linked deliverable is unavailable." in text
     assert "No allocations in this scope." in text
     assert "openProjectForm(project)" in text
     assert 'openSolutionModal(solution, "details")' in text
-    assert 'openSolutionModal(solution, "subcomponents")' in text
-    assert "fillSubcomponentForm(subcomponent)" in text
+    assert 'openSolutionModal(solution, "tasks")' in text
+    assert "fillTaskForm(task)" in text
 
 
 def test_pm_dashboard_uses_pm_row_link_style_for_dense_title_actions():
@@ -140,8 +140,8 @@ def test_pm_dashboard_surfaces_status_freshness_for_leadership_trust():
     assert "const STALE_STATUS_DAYS = 7;" in render_text
     assert "function isStaleStatusRecord(record, today) {" in render_text
     assert "const staleSolutions = activeSolutions.filter((solution) => isStaleStatusRecord(solution, today));" in render_text
-    assert "const staleSubcomponents = activeSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today));" in render_text
-    assert "const staleTotal = staleSolutions.length + staleSubcomponents.length;" in render_text
+    assert "const staleTasks = activeTasks.filter((task) => isStaleStatusRecord(task, today));" in render_text
+    assert "const staleTotal = staleSolutions.length + staleTasks.length;" in render_text
     assert "const staleCount =" in render_text
     assert "+ staleCount * 4" in render_text
     assert "staleCount," in render_text
@@ -183,7 +183,7 @@ def test_pm_dashboard_uses_business_led_workstream_and_deliverable_language():
     assert "Open Sol." not in sections_text
     assert "Solutions by Status" not in sections_text
     assert "Tasks by Status" not in sections_text
-    assert "Subcomponents</a>" not in sections_text
+    assert "Tasks</a>" not in sections_text
 
 
 def test_pm_dashboard_quick_links_use_text_first_styling():

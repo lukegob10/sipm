@@ -9,7 +9,7 @@ from .projects import router as projects_router
 from .programs import router as programs_router
 from .phases import router as phases_router
 from .solutions import router as solutions_router
-from .subcomponents import router as subcomponents_router
+from .tasks import router as tasks_router
 from .sync import router as sync_router
 from .spaces import router as spaces_router
 from .teams import router as teams_router
@@ -24,7 +24,7 @@ protected_router.include_router(programs_router, tags=["programs"])
 protected_router.include_router(projects_router, tags=["projects"])
 protected_router.include_router(solutions_router, tags=["solutions"])
 protected_router.include_router(phases_router, tags=["phases"])
-protected_router.include_router(subcomponents_router, tags=["subcomponents"])
+protected_router.include_router(tasks_router, tags=["tasks"])
 protected_router.include_router(teams_router, tags=["teams"])
 protected_router.include_router(spaces_router, tags=["spaces"])
 protected_router.include_router(users_router, tags=["users"])

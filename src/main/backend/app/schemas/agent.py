@@ -18,11 +18,11 @@ class AgentManifestRead(BaseModel):
     max_patch_operations: int
 
 
-class AgentSubcomponentNode(BaseModel):
-    subcomponent_id: str
+class AgentTaskNode(BaseModel):
+    task_id: str
     project_id: str
     solution_id: str
-    subcomponent_name: str
+    task_name: str
     status: str
     priority: int | None = None
     assignee: str | None = None
@@ -43,7 +43,7 @@ class AgentSolutionNode(BaseModel):
     assignee: str | None = None
     assignee_user_soeid: str | None = None
     updated_at: datetime
-    subcomponents: list[AgentSubcomponentNode] = Field(default_factory=list)
+    tasks: list[AgentTaskNode] = Field(default_factory=list)
 
 
 class AgentProjectNode(BaseModel):

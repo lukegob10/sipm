@@ -192,7 +192,7 @@ export function bindDeliverablesTable(ctx) {
     clearBulkFeedback,
     openProjectForm,
     openSolutionModal,
-    showSubcomponentForm,
+    showTaskForm,
   } = ctx;
 
   if (!els.masterTable || els.masterTable._bound) return;
@@ -233,10 +233,10 @@ export function bindDeliverablesTable(ctx) {
         openSolutionModal(solution, "details");
       }
     }
-    if (action === "add-subcomponent" && type === "solution") {
+    if (action === "add-task" && type === "solution") {
       const solution = state.solutions.find((row) => row.solution_id === id);
-      openSolutionModal(solution, "subcomponents");
-      showSubcomponentForm(solution);
+      openSolutionModal(solution, "tasks");
+      showTaskForm(solution);
     }
   });
   els.masterTable._bound = true;

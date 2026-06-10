@@ -7,7 +7,7 @@ from io import StringIO
 import pytest
 
 from backend.app.utils.enums import ProjectStatus, SolutionStatus
-from backend.app.models import Phase, Project, Solution, SolutionPhase
+from backend.app.models import Phase, Program, Project, Solution, SolutionPhase
 from backend.app.utils import (
     derive_abbreviation,
     enable_all_phases,
@@ -93,7 +93,11 @@ def test_read_csv_parses_rows_and_reports_decode_or_header_errors():
 
 def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
     with db_sessionmaker() as session:
+        program = Program(program_name="Default Program")
+        session.add(program)
+        session.flush()
         project = Project(
+            program_id=program.program_id,
             project_name="P",
             status=ProjectStatus.not_started,
             sponsor="S",

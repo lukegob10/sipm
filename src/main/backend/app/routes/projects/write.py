@@ -17,7 +17,9 @@ from ...services.spaces import SpaceContext
 from ...utils import normalize_str
 from .common import (
     _active_project_name_conflict_query,
+    _default_program,
     _deleted_project_name,
+    _ensure_program_exists,
     _get_project_or_404,
     _is_project_name_conflict_integrity_error,
     _project_change_set,
@@ -53,6 +55,11 @@ def create_project(
     _write_gate: User = Depends(require_non_agent_write),
 ):
     project_name = _required_project_name(payload.project_name)
+    program = (
+        _ensure_program_exists(session, payload.program_id, space_ctx)
+        if payload.program_id
+        else _default_program(session, space_ctx)
+    )
     existing = _active_project_name_conflict_query(
         session,
         project_name=project_name,
@@ -88,6 +95,7 @@ def create_project(
 
     project = Project(
         space_id=space_ctx.space_id,
+        program_id=program.program_id,
         project_name=project_name,
         status=payload.status,
         description=payload.description,
@@ -139,7 +147,7 @@ def create_project(
             detail="Failed to create project.",
         ) from exc
     _publish_project_mutation(space_ctx.space_id)
-    return _project_payload(project)
+    return _project_payload(project, program_name=program.program_name)
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
@@ -158,6 +166,10 @@ def update_project(
     update_data = payload.model_dump(exclude_unset=True)
     if "project_name" in update_data:
         update_data["project_name"] = _required_project_name(update_data["project_name"])
+    program = None
+    if "program_id" in update_data:
+        program = _ensure_program_exists(session, update_data["program_id"], space_ctx)
+        update_data["program_id"] = program.program_id
     before = {field: getattr(project, field) for field in update_data.keys()}
     for field, value in update_data.items():
         setattr(project, field, value)
@@ -215,7 +227,9 @@ def update_project(
             detail="Failed to update project.",
         ) from exc
     _publish_project_mutation(space_ctx.space_id)
-    return _project_payload(project)
+    if program is None:
+        program = _ensure_program_exists(session, project.program_id, space_ctx)
+    return _project_payload(project, program_name=program.program_name)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)

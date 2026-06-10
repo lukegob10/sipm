@@ -6,6 +6,7 @@ from .audit import router as audit_router
 from .analytics import router as analytics_router
 from .auth import router as auth_router
 from .projects import router as projects_router
+from .programs import router as programs_router
 from .phases import router as phases_router
 from .solutions import router as solutions_router
 from .subcomponents import router as subcomponents_router
@@ -19,6 +20,7 @@ api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 
 protected_router = APIRouter(dependencies=[Depends(require_user)])
+protected_router.include_router(programs_router, tags=["programs"])
 protected_router.include_router(projects_router, tags=["projects"])
 protected_router.include_router(solutions_router, tags=["solutions"])
 protected_router.include_router(phases_router, tags=["phases"])

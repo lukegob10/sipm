@@ -133,6 +133,7 @@
             </button>
             <div id="topbar-create-panel" class="topbar-create-panel hidden" role="menu" aria-label="Create deliverable">
               <button type="button" id="topbar-create-project" class="secondary topbar-create-item" role="menuitem">Create Project</button>
+              <button type="button" id="topbar-create-program" class="secondary topbar-create-item" role="menuitem">Create Program</button>
               <button type="button" id="topbar-create-solution" class="secondary topbar-create-item" role="menuitem">Create Solution</button>
               <button type="button" id="topbar-create-subcomponent" class="secondary topbar-create-item" role="menuitem">Create Subcomponent</button>
             </div>
@@ -521,6 +522,41 @@
         </div>
       </section>
 
+      <div id="program-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+          <div class="modal-header modal-header-sticky">
+            <h3 id="program-modal-title">Program</h3>
+            <button
+              type="button"
+              id="program-modal-close"
+              class="secondary modal-close-x"
+              aria-label="Close program dialog"
+              title="Close"
+            >
+              Ã—
+            </button>
+          </div>
+          <div class="modal-body">
+            <form id="program-form" class="form compact">
+              <h3 class="form-title">Program Details</h3>
+              <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+              <input type="hidden" name="program_id" />
+              <label class="full-span"><span class="field-label">Program<span class="required-marker" aria-hidden="true">*</span></span><input name="program_name" required /></label>
+              <label class="full-span">Description <textarea name="description"></textarea></label>
+            </form>
+            <div class="modal-form-footer full-span">
+              <div class="form-actions">
+                <button type="submit" id="program-submit-btn" form="program-form">Create Program</button>
+                <button type="reset" class="secondary" form="program-form">Reset</button>
+                <button type="button" id="delete-program" class="secondary" disabled>Delete</button>
+              </div>
+              <p id="program-form-status" class="form-notice" role="status" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div id="project-modal" class="modal hidden">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
@@ -541,6 +577,7 @@
               <h3 class="form-title">Project Details</h3>
               <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
               <input type="hidden" name="project_id" />
+              <label><span class="field-label">Program<span class="required-marker" aria-hidden="true">*</span></span><select name="program_id" required></select></label>
               <label><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required /></label>
               <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
               <label>Status

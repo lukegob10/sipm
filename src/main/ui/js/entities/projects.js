@@ -9,6 +9,7 @@ function nullableTextValue(value) {
 
 export function buildProjectPayload(data) {
   return {
+    program_id: textValue(data.get("program_id")),
     project_name: textValue(data.get("project_name")),
     status: data.get("status"),
     description: data.get("description"),
@@ -70,6 +71,13 @@ export function createProjectEntityController({
       if (field) field.value = value ?? "";
     };
     setVal("project_id", project?.project_id || "");
+    setVal(
+      "program_id",
+      project?.program_id
+        || state.programs?.find((program) => program.program_name === "Default Program")?.program_id
+        || state.programs?.[0]?.program_id
+        || "",
+    );
     setVal("project_name", project?.project_name || "");
     setVal("status", project?.status || "not_started");
     setVal("description", project?.description || "");

@@ -1,7 +1,7 @@
 import pytest
 
 from backend.app import deps as deps_module
-from backend.app.models import Project, Solution, Space, Subcomponent
+from backend.app.models import Program, Project, Solution, Space, Subcomponent
 from backend.app.services.spaces import SpaceContext
 from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
 from backend.main import app as fastapi_app
@@ -36,10 +36,18 @@ async def test_projects_list_excludes_legacy_null_space_rows(client, db_sessionm
     space_id = "strict-space-projects"
     _ensure_space(db_sessionmaker, space_id, "strict-space-projects")
     with db_sessionmaker() as session:
+        legacy_program = Program(
+            program_id="legacy-null-program",
+            space_id=None,
+            program_name="Legacy Null Program",
+        )
+        session.add(legacy_program)
+        session.flush()
         session.add(
             Project(
                 project_id="legacy-null-project",
                 space_id=None,
+                program_id=legacy_program.program_id,
                 project_name="Legacy Null Project",
                 status=ProjectStatus.not_started,
                 sponsor="Legacy Sponsor",
@@ -70,9 +78,17 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
     space_id = "strict-space-solutions"
     _ensure_space(db_sessionmaker, space_id, "strict-space-solutions")
     with db_sessionmaker() as session:
+        legacy_program = Program(
+            program_id="legacy-null-program-solutions",
+            space_id=None,
+            program_name="Legacy Null Program Solutions",
+        )
+        session.add(legacy_program)
+        session.flush()
         legacy_project = Project(
             project_id="legacy-null-project-solutions",
             space_id=None,
+            program_id=legacy_program.program_id,
             project_name="Legacy Null Project Solutions",
             status=ProjectStatus.not_started,
             sponsor="Legacy Sponsor",

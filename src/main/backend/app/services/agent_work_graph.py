@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..models import Project, Solution, Subcomponent
+from ..models import Program, Project, Solution, Subcomponent
 from ..schemas.agent import (
     AgentProjectNode,
     AgentSolutionNode,
@@ -163,9 +163,22 @@ def build_work_graph(
             )
         )
 
+    program_names = {
+        row.program_id: row.program_name
+        for row in (
+            session.query(Program)
+            .filter(Program.deleted_at.is_(None))
+            .filter(Program.space_id == space_ctx.space_id)
+            .filter(Program.program_id.in_([project.program_id for project in projects]))
+            .all()
+        )
+    }
+
     records = [
         AgentProjectNode(
             project_id=project.project_id,
+            program_id=project.program_id,
+            program_name=program_names.get(project.program_id),
             project_name=project.project_name,
             status=_enum_value(project.status),
             priority=project.priority,

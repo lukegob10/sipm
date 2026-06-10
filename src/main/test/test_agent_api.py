@@ -9,6 +9,7 @@ from backend.app.models import (
     AgentChangeRequest,
     ApiToken,
     ChangeLog,
+    Program,
     Project,
     Space,
     SpaceMembership,
@@ -178,8 +179,12 @@ async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_w
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
     with db_sessionmaker() as session:
+        program = Program(space_id=space_id, program_name="Default Program")
+        session.add(program)
+        session.flush()
         project = Project(
             space_id=space_id,
+            program_id=program.program_id,
             project_name="HomeLab Server",
             status="active",
             sponsor="Owner",
@@ -243,8 +248,13 @@ def _seed_work_graph(db_sessionmaker):
     token, space_id = _seed_agent_token(db_sessionmaker)
     other_token, other_space_id = _seed_agent_token(db_sessionmaker, space_id="space-z")
     with db_sessionmaker() as session:
+        program = Program(space_id=space_id, program_name="Default Program")
+        other_program = Program(space_id=other_space_id, program_name="Default Program")
+        session.add_all([program, other_program])
+        session.flush()
         project = Project(
             space_id=space_id,
+            program_id=program.program_id,
             project_name="Agent Project",
             status="active",
             sponsor="Sponsor",
@@ -252,6 +262,7 @@ def _seed_work_graph(db_sessionmaker):
         )
         other_project = Project(
             space_id=other_space_id,
+            program_id=other_program.program_id,
             project_name="Other Project",
             status="active",
             sponsor="Sponsor",

@@ -17,7 +17,7 @@ from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
 from .._mutations import commit_session
-from ..projects.common import _resolve_project_sponsor
+from ..projects.common import _default_program, _resolve_project_sponsor
 from ..solutions.common import _resolve_solution_owner
 from .common import (
     _apply_subcomponent_completion_state,
@@ -136,6 +136,7 @@ def import_subcomponents(
             continue
         project_created_this_row = False
         if not project:
+            program = _default_program(session, space_ctx)
             sponsor_val, sponsor_user_soeid = _resolve_project_sponsor(
                 solution_owner_val,
                 None,
@@ -143,6 +144,7 @@ def import_subcomponents(
             )
             project = Project(
                 space_id=space_ctx.space_id,
+                program_id=program.program_id,
                 project_name=project_name,
                 status=ProjectStatus.not_started,
                 description=None,

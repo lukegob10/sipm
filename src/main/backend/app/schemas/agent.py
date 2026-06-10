@@ -48,6 +48,8 @@ class AgentSolutionNode(BaseModel):
 
 class AgentProjectNode(BaseModel):
     project_id: str
+    program_id: str
+    program_name: str | None = None
     project_name: str
     status: str
     priority: int | None = None

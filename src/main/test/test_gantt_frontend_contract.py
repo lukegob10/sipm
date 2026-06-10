@@ -30,7 +30,7 @@ def test_gantt_route_is_registered_and_rendered():
         assert f'id="{element_id}"' in index_text
 
     assert '"gantt",' in router_text
-    assert 'gantt: ["projects", "solutions", "subcomponents"],' in router_text
+    assert 'gantt: ["programs", "projects", "solutions", "subcomponents"],' in router_text
     assert 'gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`)' in router_text
     assert 'gantt: () => renderGantt(),' in app_text
     assert 'from "./routes/gantt/interactions.js";' in app_text

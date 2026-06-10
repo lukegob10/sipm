@@ -17,7 +17,7 @@ from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
 from .._mutations import commit_session
-from ..projects.common import _resolve_project_sponsor
+from ..projects.common import _default_program, _resolve_project_sponsor
 from .common import (
     _apply_solution_completion_state,
     _exclude_work_allocation_board_solutions,
@@ -152,6 +152,7 @@ def import_solutions(
             continue
         project_created_this_row = False
         if not project:
+            program = _default_program(session, space_ctx)
             project_sponsor, project_sponsor_user_soeid = _resolve_project_sponsor(
                 owner_input,
                 owner_user_soeid,
@@ -159,6 +160,7 @@ def import_solutions(
             )
             project = Project(
                 space_id=space_ctx.space_id,
+                program_id=program.program_id,
                 project_name=project_name,
                 status=ProjectStatus.not_started,
                 description=None,

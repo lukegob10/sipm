@@ -121,7 +121,7 @@ describe("router controller", () => {
     controller.setView("master");
     expect(state.currentView).toBe("master");
     await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
-    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["phases", "projects", "solutions"] }));
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["phases", "programs", "projects", "solutions"] }));
   });
 
   it("loads Gantt route data from existing work entities", async () => {
@@ -130,7 +130,7 @@ describe("router controller", () => {
     controller.setView("gantt");
     expect(state.currentView).toBe("gantt");
     await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
-    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["projects", "solutions", "subcomponents"] }));
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "subcomponents"] }));
   });
 
   it("does not render authenticated data routes before the route module and data store are ready", async () => {

@@ -11,6 +11,8 @@ from ..models import Phase, Project, Solution, Subcomponent, User
 from ..routes._mutations import publish_space_mutation
 from ..routes.projects.common import (
     _active_project_name_conflict_query,
+    _default_program,
+    _ensure_program_exists,
     _is_project_name_conflict_integrity_error,
     _project_change_set,
     _project_create_changes,
@@ -180,6 +182,8 @@ def _validate_project(
     try:
         if operation.op == "create":
             payload = ProjectCreate(**operation.fields)
+            if payload.program_id:
+                _ensure_program_exists(session, payload.program_id, space_ctx)
             project_name = normalize_str(payload.project_name)
             if not project_name:
                 return _invalid(
@@ -213,6 +217,8 @@ def _validate_project(
                 "Project has changed since if_updated_at",
             )
         update_data = payload.model_dump(exclude_unset=True)
+        if "program_id" in update_data:
+            _ensure_program_exists(session, update_data["program_id"], space_ctx)
         if "project_name" in update_data:
             project_name = normalize_str(update_data["project_name"])
             if not project_name:
@@ -499,6 +505,11 @@ def _apply_project(
 ) -> tuple[str, datetime]:
     if operation.op == "create":
         payload = ProjectCreate(**operation.fields)
+        program = (
+            _ensure_program_exists(session, payload.program_id, space_ctx)
+            if payload.program_id
+            else _default_program(session, space_ctx)
+        )
         sponsor, sponsor_user_soeid = _resolve_project_sponsor(
             payload.sponsor,
             payload.sponsor_user_soeid,
@@ -506,6 +517,7 @@ def _apply_project(
         )
         project = Project(
             space_id=space_ctx.space_id,
+            program_id=program.program_id,
             project_name=normalize_str(payload.project_name),
             status=payload.status,
             description=payload.description,
@@ -535,6 +547,9 @@ def _apply_project(
         .first()
     )
     update_data = payload.model_dump(exclude_unset=True)
+    if "program_id" in update_data:
+        program = _ensure_program_exists(session, update_data["program_id"], space_ctx)
+        update_data["program_id"] = program.program_id
     if "project_name" in update_data:
         update_data["project_name"] = normalize_str(update_data["project_name"])
     before = {field: getattr(project, field) for field in update_data}

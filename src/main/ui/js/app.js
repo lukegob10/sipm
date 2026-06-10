@@ -18,6 +18,7 @@ import {
 import { createModalShellController } from "./shell/modal-shell.js";
 import { createSpaceSwitcherController } from "./shell/space-switcher.js";
 import { createTopbarCreateController } from "./shell/topbar-create.js";
+import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createSubcomponentEntityController } from "./entities/subcomponents.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
@@ -248,6 +249,7 @@ const state = {
   agentChangeRequestActiveId: "",
   authMode: "login",
   phases: [],
+  programs: [],
   projects: [],
   solutions: [],
   solutionPhases: {}, // solution_id -> phases
@@ -344,6 +346,22 @@ const ignoreNextRefresh = {
     return dataStoreController.clearIgnoredRefresh(entity);
   },
 };
+const programEntityController = createProgramEntityController({
+  state,
+  els,
+  api,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  removeById,
+  populateSelects,
+  renderActiveView,
+  clearDeliverableFormNotice,
+  setDeliverableFormNotice,
+  timestampLabel,
+  showConfirmModal,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
+});
 const projectEntityController = createProjectEntityController({
   state,
   els,
@@ -536,6 +554,7 @@ const topbarCreateController = createTopbarCreateController({
   state,
   els,
   escapeHtml,
+  openProgramForm,
   openProjectForm,
   openSolutionModal,
   showSubcomponentForm,
@@ -2059,6 +2078,14 @@ function openProjectForm(project = null) {
   return projectEntityController.openProjectForm(project);
 }
 
+function openProgramForm(program = null) {
+  return programEntityController.openProgramForm(program);
+}
+
+function bindProgramForm() {
+  return programEntityController.bindProgramForm();
+}
+
 function closeProjectForm() {
   return projectEntityController.closeProjectForm();
 }
@@ -2376,8 +2403,24 @@ function bindSubcomponentForm() {
   return subcomponentEntityController.bindSubcomponentForm();
 }
 
+function programNameForProject(project) {
+  return project?.program_name
+    || state.programs.find((program) => program.program_id === project?.program_id)?.program_name
+    || "";
+}
+
+function projectLabel(project) {
+  const programName = programNameForProject(project);
+  return programName ? `${programName} / ${project.project_name}` : project.project_name;
+}
+
 function populateSelects() {
-  const projectOpts = state.projects.map((p) => `<option value="${p.project_id}">${p.project_name}</option>`).join("");
+  const programOpts = state.programs
+    .map((program) => `<option value="${program.program_id}">${escapeHtml(program.program_name)}</option>`)
+    .join("");
+  const projectOpts = state.projects
+    .map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`)
+    .join("");
   const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);
   const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });
   const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);
@@ -2388,6 +2431,22 @@ function populateSelects() {
   const projSelects = [
     els.solutionForm?.querySelector('[name="project_id"]'),
   ].filter(Boolean);
+  const programSelects = [
+    els.projectForm?.querySelector('[name="program_id"]'),
+  ].filter(Boolean);
+  programSelects.forEach((sel) => {
+    if (sel.tagName === "SELECT") {
+      const previous = sel.value;
+      sel.innerHTML = `<option value="">Select</option>${programOpts}`;
+      if (previous && state.programs.find((program) => program.program_id === previous)) {
+        sel.value = previous;
+      } else {
+        sel.value = state.programs.find((program) => program.program_name === "Default Program")?.program_id
+          || state.programs[0]?.program_id
+          || "";
+      }
+    }
+  });
   projSelects.forEach((sel) => {
     if (sel.tagName === "SELECT") {
       sel.innerHTML = `<option value="">Select</option>${projectOpts}`;
@@ -2503,7 +2562,7 @@ function populateSelects() {
     if (type === "project") {
       options =
         `<option value=\"\">New project</option>` +
-        state.projects.map((p) => `<option value="${p.project_id}">${p.project_name}</option>`).join("");
+        state.projects.map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`).join("");
     } else if (type === "solution") {
       options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
     } else {
@@ -2521,7 +2580,7 @@ function updateAllocationItems() {
   const type = typeSel.value;
   let options = "";
   if (type === "project") {
-    options = state.projects.map((p) => `<option value="${p.project_id}">${p.project_name}</option>`).join("");
+    options = state.projects.map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`).join("");
   } else if (type === "solution") {
     options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
   } else {
@@ -2678,8 +2737,8 @@ function csvTemplateConfig(kind) {
     return {
       filename: "projects-template.csv",
       content: [
-        "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
-        "Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
+        "program_id,program_name,project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
+        ",Default Program,Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
       ].join("\n"),
     };
   }
@@ -3933,6 +3992,7 @@ function init() {
   renderSpaceSwitcher();
   bindMasterDeliverablesControls(createMasterRouteContext());
   bindMasterDeliverablesTable(createMasterRouteContext());
+  bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
   bindSubcomponentForm();

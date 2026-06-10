@@ -159,11 +159,44 @@ Data flow:
 
 ### Portfolio Work
 
+#### `TB_TA_PM_PROGRAMS`
+
+SQLAlchemy model: `Program`
+
+Purpose: umbrella portfolio grouping above projects.
+
+Key fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `program_id` | string PK | Program identifier. |
+| `space_id` | FK spaces | Owning space. |
+| `program_name` | string | Program display name. |
+| `description` | text nullable | Program description. |
+| `deleted_at` | datetime nullable | Soft-delete marker. |
+
+Important constraints:
+
+- Unique `(space_id, program_name)`.
+
+Primary APIs:
+
+- `GET /api/programs`
+- `GET /api/programs/{program_id}`
+- `POST /api/programs`
+- `PATCH /api/programs/{program_id}`
+- `DELETE /api/programs/{program_id}`
+
+Special rules:
+
+- Programs with active projects cannot be deleted.
+- Existing projects are assigned to a per-space `Default Program` during migration.
+
 #### `TB_TA_PM_PROJECTS`
 
 SQLAlchemy model: `Project`
 
-Purpose: top-level portfolio initiative.
+Purpose: portfolio initiative under a program.
 
 Key fields:
 
@@ -171,6 +204,7 @@ Key fields:
 | --- | --- | --- |
 | `project_id` | string PK | Project identifier. |
 | `space_id` | FK spaces | Owning space. |
+| `program_id` | FK programs | Parent program. |
 | `project_name` | string | Project display name. |
 | `status` | enum | Project lifecycle status. |
 | `description` | text nullable | Project description. |
@@ -199,13 +233,16 @@ Data flow:
 
 1. Frontend project form calls project entity controller.
 2. Controller calls project API through `session.api()`.
-3. Backend validates name uniqueness in the current space.
-4. Backend writes `Project`.
-5. Backend logs changes and broadcasts `projects`.
+3. Backend validates the selected program in the current space.
+4. Backend validates project name uniqueness in the current space.
+5. Backend writes `Project`.
+6. Backend logs changes and broadcasts `projects`.
 
 Special rule:
 
 - Hidden Work Allocation Board projects are excluded from normal project list queries.
+- Project import/export includes `program_id` and `program_name`; imports resolve by `program_id`, then `program_name`, then the default program when both are blank.
+- Updating `Project.program_id` reassigns the project to another active program without changing child solution or subcomponent identifiers.
 
 #### `TB_TA_PM_SOLUTIONS`
 
@@ -743,6 +780,7 @@ The frontend stores fetched entity arrays in memory:
 | State field | Source API | Used by |
 | --- | --- | --- |
 | `state.phases` | `/api/phases` | master, kanban, solution phase controls |
+| `state.programs` | `/api/programs` | project forms, project filters, hierarchy labels |
 | `state.projects` | `/api/projects` | master, dashboards, Gantt, planning |
 | `state.solutions` | `/api/solutions` | master, dashboards, Gantt, Kanban, Calendar |
 | `state.subcomponents` | `/api/subcomponents` | workbench, PM dashboard, planning |
@@ -760,4 +798,3 @@ The frontend stores fetched entity arrays in memory:
 - SIPM does not currently include an in-app retention scheduler.
 - Database schema changes must be applied externally from the canonical SQL.
 - Readiness verifies DB connectivity unless startup DB checks are disabled.
-

@@ -28,6 +28,23 @@ from ..utils.enums import (
 from .base import Base, SoftDeleteMixin, TimestampMixin
 
 
+class Program(TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = physical_table_name("programs")
+    __table_args__ = (
+        UniqueConstraint("space_id", "program_name", name="uix_program_space_name"),
+    )
+
+    program_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    space_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey(fk_target("spaces", "space_id")),
+        nullable=True,
+        index=True,
+    )
+    program_name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
 class Project(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("projects")
     __table_args__ = (UniqueConstraint("space_id", "project_name", name="uix_project_space_name"),)
@@ -38,6 +55,12 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
         ForeignKey(fk_target("spaces", "space_id")),
         nullable=True,
         index=True,
+    )
+    program_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("programs", "program_id")),
+        index=True,
+        nullable=False,
     )
     project_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[ProjectStatus] = mapped_column(
@@ -264,6 +287,7 @@ class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
 __all__ = [
     "Phase",
     "PlanningWindow",
+    "Program",
     "Project",
     "ResourceAllocation",
     "Solution",

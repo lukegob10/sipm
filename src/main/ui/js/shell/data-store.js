@@ -34,6 +34,7 @@ export function createDataStoreController({
 
   function clearDataState() {
     state.phases = [];
+    state.programs = [];
     state.projects = [];
     state.solutions = [];
     state.solutionPhases = {};
@@ -68,6 +69,7 @@ export function createDataStoreController({
 
   async function fetchEntityData(entity) {
     if (entity === "phases") return api("/phases");
+    if (entity === "programs") return api("/programs");
     if (entity === "projects") return api("/projects");
     if (entity === "solutions") return api("/solutions");
     if (entity === "subcomponents") return api("/subcomponents");
@@ -82,6 +84,8 @@ export function createDataStoreController({
     if (entity === "phases") {
       state.phases = Array.isArray(data) ? data : [];
       state.solutionPhases = {};
+    } else if (entity === "programs") {
+      state.programs = Array.isArray(data) ? data : [];
     } else if (entity === "projects") {
       state.projects = Array.isArray(data) ? data : [];
     } else if (entity === "solutions") {
@@ -343,8 +347,8 @@ export function createDataStoreController({
         }
         return;
       }
-      if ((requestedEntities == null || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
-        && !state.projects.length && !state.solutions.length) {
+      if ((requestedEntities == null || requestedEntities.includes("programs") || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
+        && !state.programs.length && !state.projects.length && !state.solutions.length) {
         setStatus("No data loaded", "warn");
       } else if (!silent) {
         setStatus("Online", "positive");

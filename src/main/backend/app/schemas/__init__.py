@@ -85,6 +85,9 @@ __all__ = [
     "AnalyticsSummaryRead",
     "AnalyticsWorkflowRead",
     "PerformanceSampleIn",
+    "ProgramCreate",
+    "ProgramRead",
+    "ProgramUpdate",
     "TelemetryBatchIn",
     "TelemetryIngestResultRead",
     "UsageEventIn",
@@ -303,7 +306,31 @@ class ChangeLogRead(TextLikeReadModel):
     created_at: datetime
 
 
+class ProgramBase(BaseModel):
+    program_name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ProgramCreate(ProgramBase):
+    program_name: str
+
+
+class ProgramUpdate(ProgramBase):
+    pass
+
+
+class ProgramRead(TextLikeReadModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    program_id: str
+    program_name: str
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ProjectBase(BaseModel):
+    program_id: Optional[str] = None
     project_name: Optional[str] = None
     status: Optional[ProjectStatus] = None
     description: Optional[str] = None
@@ -315,6 +342,7 @@ class ProjectBase(BaseModel):
 
 
 class ProjectCreate(ProjectBase):
+    program_id: Optional[str] = None
     project_name: str
     status: ProjectStatus = ProjectStatus.not_started
     priority: int = 3
@@ -328,6 +356,8 @@ class ProjectRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: str
+    program_id: str
+    program_name: Optional[str] = None
     project_name: str
     status: ProjectStatus
     description: Optional[str] = None

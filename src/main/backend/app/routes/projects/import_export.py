@@ -11,12 +11,14 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_non_agent_write, require_space_role
-from ...models import Project, User
+from ...models import Program, Project, User
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus
 from .common import (
+    _default_program,
+    _ensure_program_exists,
     _exclude_work_allocation_board_projects,
     _project_change_set,
     _project_create_changes,
@@ -27,6 +29,7 @@ from .common import (
 
 router = APIRouter()
 _PROJECT_IMPORT_UPDATE_FIELDS = (
+    "program_id",
     "status",
     "description",
     "success_criteria",
@@ -36,6 +39,8 @@ _PROJECT_IMPORT_UPDATE_FIELDS = (
     "priority",
 )
 _PROJECT_EXPORT_FIELDNAMES = [
+    "program_id",
+    "program_name",
     "project_name",
     "status",
     "description",
@@ -45,6 +50,31 @@ _PROJECT_EXPORT_FIELDNAMES = [
     "strategic_objective",
     "priority",
 ]
+
+
+def _resolve_import_program(
+    session: Session,
+    space_ctx: SpaceContext,
+    *,
+    program_id: object | None,
+    program_name: object | None,
+) -> Program:
+    raw_program_id = normalize_str(program_id)
+    if raw_program_id:
+        return _ensure_program_exists(session, raw_program_id, space_ctx)
+    raw_program_name = normalize_str(program_name)
+    if raw_program_name:
+        program = (
+            session.query(Program)
+            .filter(Program.deleted_at.is_(None))
+            .filter(Program.space_id == space_ctx.space_id)
+            .filter(Program.program_name == raw_program_name)
+            .first()
+        )
+        if not program:
+            raise ValueError(f"program_name '{raw_program_name}' does not exist")
+        return program
+    return _default_program(session, space_ctx)
 
 
 @router.post("/import")
@@ -91,6 +121,16 @@ def import_projects(
             errors.append(f"Row {idx}: {exc}")
             continue
         sponsor_user_soeid = normalize_str(row.get("sponsor_user_soeid")) or None
+        try:
+            program = _resolve_import_program(
+                session,
+                space_ctx,
+                program_id=row.get("program_id"),
+                program_name=row.get("program_name"),
+            )
+        except Exception as exc:
+            errors.append(f"Row {idx}: {exc}")
+            continue
         existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
         try:
             if existing:
@@ -107,6 +147,7 @@ def import_projects(
                     resolved_sponsor = existing.sponsor
                     resolved_sponsor_user_soeid = existing.sponsor_user_soeid
                 before = {field: getattr(existing, field) for field in _PROJECT_IMPORT_UPDATE_FIELDS}
+                existing.program_id = program.program_id
                 existing.status = status_enum
                 existing.description = description
                 existing.success_criteria = success_criteria
@@ -145,6 +186,7 @@ def import_projects(
                 )
                 project = Project(
                     space_id=space_ctx.space_id,
+                    program_id=program.program_id,
                     project_name=name,
                     status=status_enum,
                     description=description,
@@ -181,13 +223,22 @@ def export_projects(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    projects = _exclude_work_allocation_board_projects(_project_query(session, space_ctx)).all()
+    rows = (
+        _exclude_work_allocation_board_projects(
+            _project_query(session, space_ctx).join(Program, Program.program_id == Project.program_id)
+        )
+        .filter(Program.deleted_at.is_(None))
+        .with_entities(Project, Program)
+        .all()
+    )
     buffer = StringIO()
     writer = csv.DictWriter(buffer, fieldnames=_PROJECT_EXPORT_FIELDNAMES)
     writer.writeheader()
-    for project in projects:
+    for project, program in rows:
         writer.writerow(
             {
+                "program_id": project.program_id,
+                "program_name": program.program_name,
                 "project_name": project.project_name,
                 "status": project.status.value if hasattr(project.status, "value") else project.status,
                 "description": read_text_value(project.description) or "",

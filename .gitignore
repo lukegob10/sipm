@@ -13,7 +13,9 @@ __pycache__/
 env/
 venv/
 .coverage*
+!.coveragerc
 coverage.xml
+coverage/
 htmlcov/
 .tmp/
 tmp/

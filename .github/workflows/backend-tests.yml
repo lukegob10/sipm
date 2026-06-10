@@ -68,13 +68,13 @@ jobs:
       - name: Run backend tests
         env:
           SIPM_REDIS_URL: redis://127.0.0.1:6379/1
-        run: pytest -q -s src/main/test
+        run: pytest -q -s src/main/test --cov --cov-report=term-missing --cov-report=xml
 
       - name: Lint frontend
         run: npm run lint:ui
 
       - name: Run frontend unit tests
-        run: npm run test:ui
+        run: npm run test:ui:coverage
 
       - name: Run frontend smoke tests
         run: npm run test:ui:smoke

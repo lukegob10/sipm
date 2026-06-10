@@ -83,9 +83,11 @@ Validation highlights:
 npm install
 npm run lint:ui
 npm run test:ui
+npm run test:ui:coverage
 npm run test:ui:smoke
 ```
 
 - `lint:ui` runs the repo ESLint gate over `src/main/ui/js` and the browser test files.
 - `test:ui` runs the Vitest/jsdom unit suite for router and live-sync behavior.
+- `test:ui:coverage` runs the Vitest/jsdom unit suite with coverage over modular UI source. The current gate excludes the legacy `src/main/ui/js/app.js` monolith and should be raised as route modules gain focused unit tests.
 - `test:ui:smoke` runs Playwright against `scripts/run_ui_smoke_app.py`, which boots the app on a temporary SQLite database instead of the Oracle runtime.

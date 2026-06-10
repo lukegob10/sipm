@@ -23,6 +23,8 @@ uv venv
 uv pip install -r requirements.txt
 cd src/main
 pytest -q -s test
+cd ..\..
+pytest -q -s src/main/test --cov --cov-report=term-missing --cov-report=xml
 ```
 
 Frontend:
@@ -30,6 +32,7 @@ Frontend:
 npm install
 npm run lint:ui
 npm run test:ui
+npm run test:ui:coverage
 npm run test:ui:smoke
 ```
 

@@ -11,6 +11,9 @@
     "pm-dashboard.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],
+    "program-dashboard.js": [
+      "src/main/test/test_ui_route_modules_exports.py"
+    ],
     "gantt.js": [
       "src/main/test/test_ui_route_modules_exports.py",
       "src/main/test/test_gantt_frontend_contract.py"

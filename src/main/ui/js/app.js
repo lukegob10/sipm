@@ -1361,6 +1361,7 @@ function renderActiveView() {
     },
     "tasks-workbench": () => renderTasksWorkbench(),
     dashboard: () => renderDashboard(),
+    "program-dashboard": () => renderProgramDashboard(),
     "pm-dashboard": () => renderPMDashboard(),
     kanban: () => renderKanban(),
     calendar: () => renderCalendar(),
@@ -1873,6 +1874,29 @@ function renderDashboard() {
   });
 }
 
+function renderProgramDashboard() {
+  const mod = getRouteModule("program-dashboard");
+  if (!mod || typeof mod.renderProgramDashboard !== "function") {
+    if (state.currentView === "program-dashboard" && els.programDashboardRoot) {
+      els.programDashboardRoot.innerHTML = "<p class='muted'>Loading...</p>";
+    }
+    ensureRouteModule("program-dashboard").then((loaded) => {
+      if (loaded && state.currentView === "program-dashboard") renderProgramDashboard();
+    });
+    return;
+  }
+  mod.renderProgramDashboard({
+    state,
+    els,
+    formatStatus,
+    solutionProgress,
+    showCompletedOperationalWork,
+    openProgramDashboardProjectDrilldown,
+    openProgramDashboardSolutionDrilldown,
+    openProgramDashboardTaskDrilldown,
+  });
+}
+
 function openDashboardSolutionDrilldown(solutionId) {
   const targetId = String(solutionId || "").trim();
   if (!targetId) return;
@@ -1887,6 +1911,25 @@ function openDashboardProjectDrilldown(projectId) {
   const project = state.projects.find((row) => row.project_id === targetId);
   if (!project) return;
   openProjectForm(project);
+}
+
+function openProgramDashboardProjectDrilldown(projectId) {
+  openDashboardProjectDrilldown(projectId);
+}
+
+function openProgramDashboardSolutionDrilldown(solutionId) {
+  openDashboardSolutionDrilldown(solutionId);
+}
+
+function openProgramDashboardTaskDrilldown(taskId) {
+  const targetId = String(taskId || "").trim();
+  if (!targetId) return;
+  const task = state.tasks.find((row) => row.task_id === targetId);
+  if (!task) return;
+  const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
+  if (!solution) return;
+  openSolutionModal(solution, "tasks");
+  fillTaskForm(task);
 }
 
 function renderPMDashboard() {

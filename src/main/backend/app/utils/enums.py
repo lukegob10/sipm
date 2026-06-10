@@ -17,7 +17,7 @@ class SolutionStatus(str, Enum):
     abandoned = "abandoned"
 
 
-class SubcomponentStatus(str, Enum):
+class TaskStatus(str, Enum):
     to_do = "to_do"
     in_progress = "in_progress"
     on_hold = "on_hold"

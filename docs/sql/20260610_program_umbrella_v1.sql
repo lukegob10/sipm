@@ -1,5 +1,5 @@
 -- SIPM program umbrella migration v1
--- Adds Program -> Project -> Solution -> Subcomponent hierarchy.
+-- Adds Program -> Project -> Solution -> Task hierarchy.
 -- Run against an existing schema created before TB_TA_PM_PROGRAMS existed.
 
 CREATE TABLE "TB_TA_PM_PROGRAMS" (

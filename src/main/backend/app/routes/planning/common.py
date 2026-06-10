@@ -6,7 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import PlanningWindow, ResourceAllocation, Subcomponent, Team, User
+from ...models import PlanningWindow, ResourceAllocation, Task, Team, User
 from ...services.planning_work_allocation import (
     active_person_by_soeid,
     month_token,
@@ -184,15 +184,15 @@ def person_payload(user: User, team_map: dict[str, str]) -> WorkAllocationPerson
     )
 
 
-def task_payload(subcomponent: Subcomponent, assigned_ids: set[str]) -> WorkAllocationTaskRead:
+def task_payload(task: Task, assigned_ids: set[str]) -> WorkAllocationTaskRead:
     return WorkAllocationTaskRead(
-        id=subcomponent.subcomponent_id,
-        title=subcomponent.subcomponent_name,
+        id=task.task_id,
+        title=task.task_name,
         fte_months=task_fte_months(
-            subcomponent,
+            task,
             hours_per_fte_month=_HOURS_PER_FTE_MONTH,
         ),
-        status="assigned" if subcomponent.subcomponent_id in assigned_ids else "backlog",
+        status="assigned" if task.task_id in assigned_ids else "backlog",
     )
 
 
@@ -253,7 +253,7 @@ def ensure_work_allocation_assignment_available(
 ) -> None:
     same_assignee = (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_type == "task")
         .filter(ResourceAllocation.work_item_id == task_id)
         .filter(allocation_month_expr() == month_start_value)
     )
@@ -278,7 +278,7 @@ def ensure_work_allocation_assignment_available(
 
     other_team_allocation = (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_type == "task")
         .filter(ResourceAllocation.work_item_id == task_id)
         .filter(allocation_month_expr() == month_start_value)
         .filter(ResourceAllocation.assignee_user_soeid.is_(None))
@@ -305,7 +305,7 @@ def work_allocation_revival_query(
     revive_query = (
         session.query(ResourceAllocation)
         .filter(ResourceAllocation.space_id == space_ctx.space_id)
-        .filter(ResourceAllocation.work_item_type == "subcomponent")
+        .filter(ResourceAllocation.work_item_type == "task")
         .filter(ResourceAllocation.work_item_id == task_id)
         .filter(ResourceAllocation.week_start == month_start_value)
         .filter(ResourceAllocation.window_id.is_(None))

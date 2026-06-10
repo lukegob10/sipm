@@ -277,14 +277,14 @@ def update_solution(
             space_id=space_ctx.space_id,
             changes=changes,
         )
-    invalidate_subcomponents = (
+    invalidate_tasks = (
         "github_repo_url" in update_data and before.get("github_repo_url") != solution.github_repo_url
     )
     commit_session(session)
     session.refresh(solution)
     _publish_solution_mutation(
         space_ctx.space_id,
-        invalidate_subcomponents=invalidate_subcomponents,
+        invalidate_tasks=invalidate_tasks,
     )
     return _solution_payload(solution)
 

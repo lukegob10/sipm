@@ -33,28 +33,28 @@ def _solution_payload(solution: Solution) -> dict:
 def _publish_solution_mutation(
     space_id: str,
     *,
-    invalidate_subcomponents: bool = False,
+    invalidate_tasks: bool = False,
 ) -> None:
     cache_keys = ["solutions"]
-    if invalidate_subcomponents:
-        cache_keys.append("subcomponents")
+    if invalidate_tasks:
+        cache_keys.append("tasks")
     publish_space_mutation(
         space_id,
         cache_keys,
         broadcast_channel="solutions",
     )
-    if invalidate_subcomponents:
+    if invalidate_tasks:
         publish_space_mutation(
             space_id,
-            ["subcomponents"],
-            broadcast_channel="subcomponents",
+            ["tasks"],
+            broadcast_channel="tasks",
         )
 
 
 def _publish_solution_deletion(space_id: str) -> None:
     _publish_solution_mutation(
         space_id,
-        invalidate_subcomponents=True,
+        invalidate_tasks=True,
     )
 
 
@@ -62,7 +62,7 @@ def _publish_solution_import(
     space_id: str,
     *,
     projects_created: int,
-    invalidate_subcomponents: bool = False,
+    invalidate_tasks: bool = False,
 ) -> None:
     if projects_created > 0:
         publish_space_mutation(
@@ -72,7 +72,7 @@ def _publish_solution_import(
         )
     _publish_solution_mutation(
         space_id,
-        invalidate_subcomponents=invalidate_subcomponents,
+        invalidate_tasks=invalidate_tasks,
     )
 
 

@@ -1,11 +1,11 @@
 import {
-  SUBCOMPONENT_STATUS_ORDER,
+  TASK_STATUS_ORDER,
   SOLUTION_STATUS_ORDER,
   buildPMDashboardOwnerDirectory,
   clamp,
   daysUntil,
   isClosedSolutionStatus,
-  isClosedSubcomponentStatus,
+  isClosedTaskStatus,
   nonEmpty,
   parseDate,
   startOfDay,
@@ -70,7 +70,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
 
   const rawProjects = Array.isArray(state.projects) ? state.projects : [];
   const rawSolutions = Array.isArray(state.solutions) ? state.solutions : [];
-  const rawSubcomponents = Array.isArray(state.subcomponents) ? state.subcomponents : [];
+  const rawTasks = Array.isArray(state.tasks) ? state.tasks : [];
   const rawUsers = Array.isArray(state.users) ? state.users : [];
   const rawAllocations = Array.isArray(state.allocations) ? state.allocations : [];
 
@@ -83,13 +83,13 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   });
   const solutionIds = new Set(solutions.map((solution) => String(solution?.solution_id || "").trim()).filter(Boolean));
 
-  const subcomponents = rawSubcomponents.filter((subcomponent) => {
-    const projectId = String(subcomponent?.project_id || "").trim();
-    const solutionId = String(subcomponent?.solution_id || "").trim();
+  const tasks = rawTasks.filter((task) => {
+    const projectId = String(task?.project_id || "").trim();
+    const solutionId = String(task?.solution_id || "").trim();
     return !!projectId && !!solutionId && projectIds.has(projectId) && solutionIds.has(solutionId);
   });
-  const subcomponentIds = new Set(
-    subcomponents.map((subcomponent) => String(subcomponent?.subcomponent_id || "").trim()).filter(Boolean)
+  const taskIds = new Set(
+    tasks.map((task) => String(task?.task_id || "").trim()).filter(Boolean)
   );
 
   const users = [...rawUsers];
@@ -99,7 +99,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     if (!workItemId) return false;
     if (type === "project") return projectIds.has(workItemId);
     if (type === "solution") return solutionIds.has(workItemId);
-    if (type === "subcomponent") return subcomponentIds.has(workItemId);
+    if (type === "task") return taskIds.has(workItemId);
     return false;
   });
   const today = startOfDay(new Date());
@@ -114,20 +114,20 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     solutions.map((solution) => [solution.solution_id, solution.solution_name || "Unnamed Workstream"])
   );
 
-  const subcomponentsByProject = new Map();
-  const subcomponentsBySolution = new Map();
-  subcomponents.forEach((subcomponent) => {
-    const projectBucket = subcomponentsByProject.get(subcomponent.project_id) || [];
-    projectBucket.push(subcomponent);
-    subcomponentsByProject.set(subcomponent.project_id, projectBucket);
+  const tasksByProject = new Map();
+  const tasksBySolution = new Map();
+  tasks.forEach((task) => {
+    const projectBucket = tasksByProject.get(task.project_id) || [];
+    projectBucket.push(task);
+    tasksByProject.set(task.project_id, projectBucket);
 
-    const solutionBucket = subcomponentsBySolution.get(subcomponent.solution_id) || [];
-    solutionBucket.push(subcomponent);
-    subcomponentsBySolution.set(subcomponent.solution_id, solutionBucket);
+    const solutionBucket = tasksBySolution.get(task.solution_id) || [];
+    solutionBucket.push(task);
+    tasksBySolution.set(task.solution_id, solutionBucket);
   });
 
   const activeSolutions = solutions.filter((solution) => !isClosedSolutionStatus(solution.status));
-  const activeSubcomponents = subcomponents.filter((subcomponent) => !isClosedSubcomponentStatus(subcomponent.status));
+  const activeTasks = tasks.filter((task) => !isClosedTaskStatus(task.status));
 
   const redSolutions = activeSolutions.filter((solution) => String(solution.rag_status || "").toLowerCase() === "red");
   const amberSolutions = activeSolutions.filter((solution) => String(solution.rag_status || "").toLowerCase() === "amber");
@@ -144,30 +144,30 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     return days >= 0 && days <= 14;
   });
 
-  const overdueSubcomponents = activeSubcomponents.filter((subcomponent) => {
-    const dueDate = parseDate(subcomponent.due_date);
+  const overdueTasks = activeTasks.filter((task) => {
+    const dueDate = parseDate(task.due_date);
     return !!dueDate && dueDate < today;
   });
-  const dueSoonSubcomponents = activeSubcomponents.filter((subcomponent) => {
-    const dueDate = parseDate(subcomponent.due_date);
+  const dueSoonTasks = activeTasks.filter((task) => {
+    const dueDate = parseDate(task.due_date);
     if (!dueDate) return false;
     const days = daysUntil(today, dueDate);
     return days >= 0 && days <= 14;
   });
-  const blockedSubcomponents = activeSubcomponents.filter((subcomponent) => !!subcomponent.blocked);
-  const unassignedSubcomponents = activeSubcomponents.filter(
-    (subcomponent) => !nonEmpty(subcomponent.assignee) && !nonEmpty(subcomponent.assignee_user_soeid)
+  const blockedTasks = activeTasks.filter((task) => !!task.blocked);
+  const unassignedTasks = activeTasks.filter(
+    (task) => !nonEmpty(task.assignee) && !nonEmpty(task.assignee_user_soeid)
   );
   const staleSolutions = activeSolutions.filter((solution) => isStaleStatusRecord(solution, today));
-  const staleSubcomponents = activeSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today));
-  const staleTotal = staleSolutions.length + staleSubcomponents.length;
+  const staleTasks = activeTasks.filter((task) => isStaleStatusRecord(task, today));
+  const staleTotal = staleSolutions.length + staleTasks.length;
 
   const projectSummaries = projects
     .map((project) => {
       const projectSolutions = solutions.filter((solution) => solution.project_id === project.project_id);
       const openSolutions = projectSolutions.filter((solution) => !isClosedSolutionStatus(solution.status));
-      const projectSubcomponents = subcomponentsByProject.get(project.project_id) || [];
-      const openSubcomponents = projectSubcomponents.filter((subcomponent) => !isClosedSubcomponentStatus(subcomponent.status));
+      const projectTasks = tasksByProject.get(project.project_id) || [];
+      const openTasks = projectTasks.filter((task) => !isClosedTaskStatus(task.status));
 
       const redCount = openSolutions.filter((solution) => String(solution.rag_status || "").toLowerCase() === "red").length;
       const amberCount = openSolutions.filter((solution) => String(solution.rag_status || "").toLowerCase() === "amber").length;
@@ -176,20 +176,20 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         const dueDate = parseDate(solution.due_date);
         return !!dueDate && dueDate < today;
       }).length;
-      const overdueSubcomponentCount = openSubcomponents.filter((subcomponent) => {
-        const dueDate = parseDate(subcomponent.due_date);
+      const overdueTaskCount = openTasks.filter((task) => {
+        const dueDate = parseDate(task.due_date);
         return !!dueDate && dueDate < today;
       }).length;
-      const blockedCount = openSubcomponents.filter((subcomponent) => !!subcomponent.blocked).length;
-      const unassignedCount = openSubcomponents.filter(
-        (subcomponent) => !nonEmpty(subcomponent.assignee) && !nonEmpty(subcomponent.assignee_user_soeid)
+      const blockedCount = openTasks.filter((task) => !!task.blocked).length;
+      const unassignedCount = openTasks.filter(
+        (task) => !nonEmpty(task.assignee) && !nonEmpty(task.assignee_user_soeid)
       ).length;
       const staleCount =
         openSolutions.filter((solution) => isStaleStatusRecord(solution, today)).length
-        + openSubcomponents.filter((subcomponent) => isStaleStatusRecord(subcomponent, today)).length;
+        + openTasks.filter((task) => isStaleStatusRecord(task, today)).length;
       const dueCandidates = [
         ...openSolutions.map((solution) => parseDate(solution.due_date)).filter(Boolean),
-        ...openSubcomponents.map((subcomponent) => parseDate(subcomponent.due_date)).filter(Boolean),
+        ...openTasks.map((task) => parseDate(task.due_date)).filter(Boolean),
       ];
       const nearestDue = dueCandidates.length
         ? dueCandidates.sort((a, b) => a.getTime() - b.getTime())[0]
@@ -200,7 +200,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
           + amberCount * 14
           + onHoldCount * 10
           + overdueSolutionCount * 10
-          + overdueSubcomponentCount * 5
+          + overdueTaskCount * 5
           + staleCount * 4
           + blockedCount * 6
           + unassignedCount * 3,
@@ -213,11 +213,11 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         projectId: project.project_id,
         projectName: project.project_name || "Unnamed Project",
         openSolutions: openSolutions.length,
-        openSubcomponents: openSubcomponents.length,
+        openTasks: openTasks.length,
         redCount,
         amberCount,
         blockedCount,
-        overdueCount: overdueSolutionCount + overdueSubcomponentCount,
+        overdueCount: overdueSolutionCount + overdueTaskCount,
         staleCount,
         riskScore,
         healthScore,
@@ -232,11 +232,11 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
 
   const solutionRiskRows = activeSolutions
     .map((solution) => {
-      const linkedSubcomponents = subcomponentsBySolution.get(solution.solution_id) || [];
-      const openLinkedSubcomponents = linkedSubcomponents.filter((subcomponent) => !isClosedSubcomponentStatus(subcomponent.status));
-      const blockedLinked = openLinkedSubcomponents.filter((subcomponent) => !!subcomponent.blocked).length;
-      const overdueLinked = openLinkedSubcomponents.filter((subcomponent) => {
-        const dueDate = parseDate(subcomponent.due_date);
+      const linkedTasks = tasksBySolution.get(solution.solution_id) || [];
+      const openLinkedTasks = linkedTasks.filter((task) => !isClosedTaskStatus(task.status));
+      const blockedLinked = openLinkedTasks.filter((task) => !!task.blocked).length;
+      const overdueLinked = openLinkedTasks.filter((task) => {
+        const dueDate = parseDate(task.due_date);
         return !!dueDate && dueDate < today;
       }).length;
 
@@ -315,7 +315,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
           itemKind: "solution",
           kind: "Workstream",
           solutionId: solution.solution_id,
-          subcomponentId: "",
+          taskId: "",
           name: solution.solution_name || "Unnamed Workstream",
           projectName: projectNameById.get(solution.project_id) || "Unmapped Project",
           solutionName: "",
@@ -325,26 +325,26 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
           days,
         };
       }),
-    ...activeSubcomponents
-      .filter((subcomponent) => !!subcomponent.due_date)
-      .map((subcomponent) => {
-        const dueDate = parseDate(subcomponent.due_date);
+    ...activeTasks
+      .filter((task) => !!task.due_date)
+      .map((task) => {
+        const dueDate = parseDate(task.due_date);
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
-          itemKind: "subcomponent",
+          itemKind: "task",
           kind: "Deliverable",
-          solutionId: subcomponent.solution_id,
-          subcomponentId: subcomponent.subcomponent_id,
-          name: subcomponent.subcomponent_name || "Unnamed Deliverable",
-          projectName: projectNameById.get(subcomponent.project_id) || "Unmapped Project",
-          solutionName: solutionNameById.get(subcomponent.solution_id) || "Unmapped Workstream",
-          owner: subcomponent.assignee || subcomponent.assignee_user_soeid || "Unassigned",
+          solutionId: task.solution_id,
+          taskId: task.task_id,
+          name: task.task_name || "Unnamed Deliverable",
+          projectName: projectNameById.get(task.project_id) || "Unmapped Project",
+          solutionName: solutionNameById.get(task.solution_id) || "Unmapped Workstream",
+          owner: task.assignee || task.assignee_user_soeid || "Unassigned",
           ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(
-            subcomponent.assignee_user_soeid,
-            subcomponent.assignee,
+            task.assignee_user_soeid,
+            task.assignee,
             ownerDirectory
           ),
-          dueDate: subcomponent.due_date,
+          dueDate: task.due_date,
           days,
         };
       }),
@@ -353,8 +353,8 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     .sort((a, b) => a.days - b.days || a.projectName.localeCompare(b.projectName));
 
   const timelineFocusRows = timelineRows.filter((row) => row.days <= 30).slice(0, 14);
-  const overdueTotal = overdueSolutions.length + overdueSubcomponents.length;
-  const dueSoonTotal = dueSoonSolutions.length + dueSoonSubcomponents.length;
+  const overdueTotal = overdueSolutions.length + overdueTasks.length;
+  const dueSoonTotal = dueSoonSolutions.length + dueSoonTasks.length;
 
   const allocDate = (allocation) => parseDate(allocation?.month_start || allocation?.week_start);
   const scopedAllocations = allocations.filter((allocation) => {
@@ -365,7 +365,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     ? `Current month (${selectedCapacityMonth})`
     : `Selected month (${selectedCapacityMonth})`;
   const planningTaskAllocations = scopedAllocations.filter(
-    (allocation) => String(allocation?.work_item_type || "").trim().toLowerCase() === "subcomponent"
+    (allocation) => String(allocation?.work_item_type || "").trim().toLowerCase() === "task"
   );
   const capacityScopeLabel = planningTaskAllocations.length
     ? allocationScopeLabel
@@ -462,11 +462,11 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     if (!solutionStatusCounts.has(status)) solutionStatusCounts.set(status, 0);
     solutionStatusCounts.set(status, (solutionStatusCounts.get(status) || 0) + 1);
   });
-  const subcomponentStatusCounts = new Map(SUBCOMPONENT_STATUS_ORDER.map((status) => [status, 0]));
-  subcomponents.forEach((subcomponent) => {
-    const status = String(subcomponent.status || "").toLowerCase();
-    if (!subcomponentStatusCounts.has(status)) subcomponentStatusCounts.set(status, 0);
-    subcomponentStatusCounts.set(status, (subcomponentStatusCounts.get(status) || 0) + 1);
+  const taskStatusCounts = new Map(TASK_STATUS_ORDER.map((status) => [status, 0]));
+  tasks.forEach((task) => {
+    const status = String(task.status || "").toLowerCase();
+    if (!taskStatusCounts.has(status)) taskStatusCounts.set(status, 0);
+    taskStatusCounts.set(status, (taskStatusCounts.get(status) || 0) + 1);
   });
 
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -475,9 +475,9 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     if (String(solution.status || "").toLowerCase() !== "complete") return false;
     const date = solution.completed_at ? new Date(solution.completed_at) : parseDate(solution.updated_at);
     return !!date && date >= monthStart && date < nextMonthStart;
-  }).length + subcomponents.filter((subcomponent) => {
-    if (String(subcomponent.status || "").toLowerCase() !== "complete") return false;
-    const date = subcomponent.completed_at ? new Date(subcomponent.completed_at) : parseDate(subcomponent.updated_at);
+  }).length + tasks.filter((task) => {
+    if (String(task.status || "").toLowerCase() !== "complete") return false;
+    const date = task.completed_at ? new Date(task.completed_at) : parseDate(task.updated_at);
     return !!date && date >= monthStart && date < nextMonthStart;
   }).length;
 
@@ -486,10 +486,10 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     + amberSolutions.length * 4
     + onHoldSolutions.length * 3
     + overdueTotal * 2
-    + blockedSubcomponents.length * 2
-    + unassignedSubcomponents.length
+    + blockedTasks.length * 2
+    + unassignedTasks.length
     + staleTotal;
-  const riskDenominator = Math.max(activeSolutions.length * 7 + activeSubcomponents.length * 2, 1);
+  const riskDenominator = Math.max(activeSolutions.length * 7 + activeTasks.length * 2, 1);
   const portfolioHealthScore = Math.round(clamp(100 - (riskUnits / riskDenominator) * 100, 0, 100));
   const atRiskSolutions = solutionRiskRows.filter((row) => row.riskScore >= 45).length;
 
@@ -512,12 +512,12 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       cta: "Open Calendar",
     });
   }
-  if (blockedSubcomponents.length > 0) {
+  if (blockedTasks.length > 0) {
     actions.push({
       tone: "warn",
-      title: `${blockedSubcomponents.length} blocked deliverables are stalling flow`,
+      title: `${blockedTasks.length} blocked deliverables are stalling flow`,
       detail: "Clear blocker notes and escalate dependency owners.",
-      href: hrefFor("subcomponents-workbench"),
+      href: hrefFor("tasks-workbench"),
       cta: "Open Deliverables",
     });
   }
@@ -530,12 +530,12 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       cta: "Open Planning",
     });
   }
-  if (unassignedSubcomponents.length > 0) {
+  if (unassignedTasks.length > 0) {
     actions.push({
       tone: "warn",
-      title: `${unassignedSubcomponents.length} active deliverables are unassigned`,
+      title: `${unassignedTasks.length} active deliverables are unassigned`,
       detail: "Assign owners so execution can start and status can move.",
-      href: hrefFor("subcomponents-workbench"),
+      href: hrefFor("tasks-workbench"),
       cta: "Assign Deliverables",
     });
   }
@@ -564,9 +564,9 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     portfolioHealthScore,
     activeSolutionsCount: activeSolutions.length,
     atRiskSolutions,
-    activeSubcomponentsCount: activeSubcomponents.length,
-    blockedSubcomponentsCount: blockedSubcomponents.length,
-    unassignedSubcomponentsCount: unassignedSubcomponents.length,
+    activeTasksCount: activeTasks.length,
+    blockedTasksCount: blockedTasks.length,
+    unassignedTasksCount: unassignedTasks.length,
     overdueTotal,
     dueSoonTotal,
     staleTotal,
@@ -601,10 +601,10 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   renderPMDashboardStatusSection({
     els,
     solutions,
-    subcomponents,
+    tasks,
     ragCounts,
     solutionStatusCounts,
-    subcomponentStatusCounts,
+    taskStatusCounts,
     formatStatus,
     hrefFor,
   });

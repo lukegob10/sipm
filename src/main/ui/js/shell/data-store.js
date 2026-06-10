@@ -38,7 +38,7 @@ export function createDataStoreController({
     state.projects = [];
     state.solutions = [];
     state.solutionPhases = {};
-    state.subcomponents = [];
+    state.tasks = [];
     state.teams = [];
     state.users = [];
     state.allocations = [];
@@ -47,15 +47,15 @@ export function createDataStoreController({
     state.loadedEntities = new Set();
     state.capacitySelectedSoeid = "";
     state.teamCapacity = createTeamCapacityState();
-    if (state.subcomponentsWorkbench) {
-      state.subcomponentsWorkbench.selected = new Set();
-      state.subcomponentsWorkbench.activeSubcomponentId = "";
-      state.subcomponentsWorkbench.visibleIds = [];
-      state.subcomponentsWorkbench.activityRequestId = 0;
-      state.subcomponentsWorkbench.drawerOpen = false;
-      state.subcomponentsWorkbench.drawerReturnSubcomponentId = "";
-      state.subcomponentsWorkbench.drawerReturnScrollY = null;
-      state.subcomponentsWorkbench.suppressAutoScrollOnce = false;
+    if (state.tasksWorkbench) {
+      state.tasksWorkbench.selected = new Set();
+      state.tasksWorkbench.activeTaskId = "";
+      state.tasksWorkbench.visibleIds = [];
+      state.tasksWorkbench.activityRequestId = 0;
+      state.tasksWorkbench.drawerOpen = false;
+      state.tasksWorkbench.drawerReturnTaskId = "";
+      state.tasksWorkbench.drawerReturnScrollY = null;
+      state.tasksWorkbench.suppressAutoScrollOnce = false;
     }
   }
 
@@ -72,7 +72,7 @@ export function createDataStoreController({
     if (entity === "programs") return api("/programs");
     if (entity === "projects") return api("/projects");
     if (entity === "solutions") return api("/solutions");
-    if (entity === "subcomponents") return api("/subcomponents");
+    if (entity === "tasks") return api("/tasks");
     if (entity === "teams") return api("/teams");
     if (entity === "users") return api("/users");
     if (entity === "allocations") return api("/resource-allocations");
@@ -90,8 +90,8 @@ export function createDataStoreController({
       state.projects = Array.isArray(data) ? data : [];
     } else if (entity === "solutions") {
       state.solutions = Array.isArray(data) ? data : [];
-    } else if (entity === "subcomponents") {
-      state.subcomponents = Array.isArray(data) ? data : [];
+    } else if (entity === "tasks") {
+      state.tasks = Array.isArray(data) ? data : [];
     } else if (entity === "teams") {
       state.teams = Array.isArray(data) ? data : [];
     } else if (entity === "users") {
@@ -133,7 +133,7 @@ export function createDataStoreController({
   function syncUiAfterDataLoad({
     selectedProjectId = "",
     selectedSolutionId = "",
-    selectedSubcomponentId = "",
+    selectedTaskId = "",
     prefetchView = "",
   } = {}) {
     let uiSyncError = null;
@@ -146,7 +146,7 @@ export function createDataStoreController({
     }
 
     try {
-      restoreSelections(selectedProjectId, selectedSolutionId, selectedSubcomponentId);
+      restoreSelections(selectedProjectId, selectedSolutionId, selectedTaskId);
     } catch (err) {
       if (!uiSyncError) uiSyncError = err;
       console.error("Post-load selection restore failed", err);
@@ -187,7 +187,7 @@ export function createDataStoreController({
 
     const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
     const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    const selectedSubcomponentId = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
+    const selectedTaskId = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
 
     refreshInFlight = true;
     try {
@@ -215,7 +215,7 @@ export function createDataStoreController({
         const uiSyncError = syncUiAfterDataLoad({
           selectedProjectId,
           selectedSolutionId,
-          selectedSubcomponentId,
+          selectedTaskId,
         });
         if (uiSyncError) {
           setStatus(`Refresh partially applied: ${uiSyncError.message || "UI sync failed"}`, "warn");
@@ -277,7 +277,7 @@ export function createDataStoreController({
     }
     const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
     const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    const selectedSubcomponentId = els.subcomponentForm?.querySelector('[name="subcomponent_id"]')?.value || "";
+    const selectedTaskId = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
     if (state.loading) {
       state.pendingRefresh = true;
       rememberPendingLoad(options);
@@ -322,7 +322,7 @@ export function createDataStoreController({
         const uiSyncError = syncUiAfterDataLoad({
           selectedProjectId,
           selectedSolutionId,
-          selectedSubcomponentId,
+          selectedTaskId,
           prefetchView: state.currentView,
         });
         const suffix = uiSyncError ? `; UI sync issue: ${uiSyncError.message || "render failed"}` : "";
@@ -337,7 +337,7 @@ export function createDataStoreController({
       const uiSyncError = syncUiAfterDataLoad({
         selectedProjectId,
         selectedSolutionId,
-        selectedSubcomponentId,
+        selectedTaskId,
         prefetchView: state.currentView,
       });
       if (uiSyncError) {

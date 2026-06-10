@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import Project, Solution, SpaceMembership, Subcomponent, Team, User
+from ..models import Project, Solution, SpaceMembership, Task, Team, User
 from ..utils.enums import ProjectStatus, SolutionStatus
 from .spaces import SpaceContext
 from ..routes.programs import ensure_default_program
@@ -123,14 +123,14 @@ def board_solution(session: Session, space_ctx: SpaceContext) -> Solution:
 
 def planning_task_query(session: Session, space_ctx: SpaceContext):
     return (
-        session.query(Subcomponent)
-        .filter(Subcomponent.deleted_at.is_(None))
-        .filter(Subcomponent.space_id == space_ctx.space_id)
+        session.query(Task)
+        .filter(Task.deleted_at.is_(None))
+        .filter(Task.space_id == space_ctx.space_id)
     )
 
 
-def task_fte_months(subcomponent: Subcomponent, *, hours_per_fte_month: float) -> float:
-    hours = int(subcomponent.capacity_hours or subcomponent.estimate_hours or 0)
+def task_fte_months(task: Task, *, hours_per_fte_month: float) -> float:
+    hours = int(task.capacity_hours or task.estimate_hours or 0)
     if hours <= 0:
         return 0.25
     return round(max(float(hours), 0.0) / hours_per_fte_month, 3)

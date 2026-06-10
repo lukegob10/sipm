@@ -483,9 +483,9 @@
   background: var(--solution-pill-bg);
 }
 
-.gantt-bar-subcomponent,
-.gantt-milestone-subcomponent {
-  border-color: var(--calendar-subcomponent-border);
+.gantt-bar-task,
+.gantt-milestone-task {
+  border-color: var(--calendar-task-border);
   background: var(--accent-hover-strong);
 }
 
@@ -549,16 +549,16 @@
   font-weight: 760;
 }
 
-.gantt-row-subcomponent .gantt-label-cell {
+.gantt-row-task .gantt-label-cell {
   background: var(--panel);
-  box-shadow: inset 3px 0 0 var(--calendar-subcomponent-border);
+  box-shadow: inset 3px 0 0 var(--calendar-task-border);
 }
 
-.gantt-row-subcomponent .gantt-level-marker {
-  background: var(--calendar-subcomponent-border);
+.gantt-row-task .gantt-level-marker {
+  background: var(--calendar-task-border);
 }
 
-.gantt-row-subcomponent .gantt-title {
+.gantt-row-task .gantt-title {
   color: var(--text);
   font-weight: 650;
 }

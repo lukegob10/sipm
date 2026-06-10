@@ -5,15 +5,15 @@ from datetime import datetime, timezone
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..models import Program, Project, Solution, Subcomponent
+from ..models import Program, Project, Solution, Task
 from ..schemas.agent import (
     AgentProjectNode,
     AgentSolutionNode,
-    AgentSubcomponentNode,
+    AgentTaskNode,
     AgentWorkGraphRead,
 )
 from ..services.spaces import SpaceContext
-from ..utils.enums import ProjectStatus, SolutionStatus, SubcomponentStatus
+from ..utils.enums import ProjectStatus, SolutionStatus, TaskStatus
 
 
 def _enum_value(value: object) -> str:
@@ -57,7 +57,7 @@ def build_work_graph(
         for enum_type, column in (
             (ProjectStatus, Project.status),
             (SolutionStatus, Solution.status),
-            (SubcomponentStatus, Subcomponent.status),
+            (TaskStatus, Task.status),
         ):
             try:
                 status_filters.append(column == enum_type(status))
@@ -67,7 +67,7 @@ def build_work_graph(
             return AgentWorkGraphRead(space_id=space_ctx.space_id, records=[])
         query = (
             query.outerjoin(Solution, Solution.project_id == Project.project_id)
-            .outerjoin(Subcomponent, Subcomponent.project_id == Project.project_id)
+            .outerjoin(Task, Task.project_id == Project.project_id)
             .filter(or_(*status_filters))
         )
     if owner_user_soeid:
@@ -78,22 +78,22 @@ def build_work_graph(
         )
     if assignee_user_soeid:
         query = query.join(
-            Subcomponent, Subcomponent.project_id == Project.project_id
+            Task, Task.project_id == Project.project_id
         ).filter(
-            Subcomponent.deleted_at.is_(None),
-            Subcomponent.space_id == space_ctx.space_id,
-            Subcomponent.assignee_user_soeid == assignee_user_soeid,
+            Task.deleted_at.is_(None),
+            Task.space_id == space_ctx.space_id,
+            Task.assignee_user_soeid == assignee_user_soeid,
         )
     if updated_since_value:
         query = query.outerjoin(
             Solution, Solution.project_id == Project.project_id
         ).outerjoin(
-            Subcomponent, Subcomponent.project_id == Project.project_id
+            Task, Task.project_id == Project.project_id
         ).filter(
             or_(
                 Project.updated_at >= updated_since_value,
                 Solution.updated_at >= updated_since_value,
-                Subcomponent.updated_at >= updated_since_value,
+                Task.updated_at >= updated_since_value,
             )
         )
 
@@ -116,30 +116,30 @@ def build_work_graph(
         .all()
     )
     solution_ids = [solution.solution_id for solution in solutions]
-    subcomponents = []
+    tasks = []
     if solution_ids:
-        subcomponents = (
-            session.query(Subcomponent)
-            .filter(Subcomponent.deleted_at.is_(None))
-            .filter(Subcomponent.space_id == space_ctx.space_id)
-            .filter(Subcomponent.solution_id.in_(solution_ids))
-            .order_by(Subcomponent.subcomponent_name.asc())
+        tasks = (
+            session.query(Task)
+            .filter(Task.deleted_at.is_(None))
+            .filter(Task.space_id == space_ctx.space_id)
+            .filter(Task.solution_id.in_(solution_ids))
+            .order_by(Task.task_name.asc())
             .all()
         )
 
-    subcomponents_by_solution: dict[str, list[AgentSubcomponentNode]] = {}
-    for subcomponent in subcomponents:
-        subcomponents_by_solution.setdefault(subcomponent.solution_id, []).append(
-            AgentSubcomponentNode(
-                subcomponent_id=subcomponent.subcomponent_id,
-                project_id=subcomponent.project_id,
-                solution_id=subcomponent.solution_id,
-                subcomponent_name=subcomponent.subcomponent_name,
-                status=_enum_value(subcomponent.status),
-                priority=subcomponent.priority,
-                assignee=subcomponent.assignee,
-                assignee_user_soeid=subcomponent.assignee_user_soeid,
-                updated_at=subcomponent.updated_at,
+    tasks_by_solution: dict[str, list[AgentTaskNode]] = {}
+    for task in tasks:
+        tasks_by_solution.setdefault(task.solution_id, []).append(
+            AgentTaskNode(
+                task_id=task.task_id,
+                project_id=task.project_id,
+                solution_id=task.solution_id,
+                task_name=task.task_name,
+                status=_enum_value(task.status),
+                priority=task.priority,
+                assignee=task.assignee,
+                assignee_user_soeid=task.assignee_user_soeid,
+                updated_at=task.updated_at,
             )
         )
 
@@ -159,7 +159,7 @@ def build_work_graph(
                 assignee=solution.assignee,
                 assignee_user_soeid=solution.assignee_user_soeid,
                 updated_at=solution.updated_at,
-                subcomponents=subcomponents_by_solution.get(solution.solution_id, []),
+                tasks=tasks_by_solution.get(solution.solution_id, []),
             )
         )
 

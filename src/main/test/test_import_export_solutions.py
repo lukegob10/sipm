@@ -112,7 +112,7 @@ async def test_solution_import_auto_created_project_and_solution_use_current_use
 
 
 @pytest.mark.anyio
-async def test_solution_import_repo_update_refreshes_cached_subcomponent_repo_inheritance(
+async def test_solution_import_repo_update_refreshes_cached_task_repo_inheritance(
     client,
     db_sessionmaker,
 ):
@@ -132,19 +132,19 @@ async def test_solution_import_repo_update_refreshes_cached_subcomponent_repo_in
         assert solution_resp.status_code == 201, solution_resp.text
         solution = solution_resp.json()
 
-        subcomponent_resp = await client.post(
-            f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
-            json={"subcomponent_name": "Inherited Task", "assignee": "Engineer A"},
+        task_resp = await client.post(
+            f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+            json={"task_name": "Inherited Task", "assignee": "Engineer A"},
         )
-        assert subcomponent_resp.status_code == 201, subcomponent_resp.text
-        subcomponent = subcomponent_resp.json()
+        assert task_resp.status_code == 201, task_resp.text
+        task = task_resp.json()
 
-        primed_list = await client.get("/project-manager/api/subcomponents")
+        primed_list = await client.get("/project-manager/api/tasks")
         assert primed_list.status_code == 200, primed_list.text
         assert primed_list.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
 
         primed_detail = await client.get(
-            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+            f"/project-manager/api/tasks/{task['task_id']}"
         )
         assert primed_detail.status_code == 200, primed_detail.text
         assert primed_detail.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service"
@@ -165,12 +165,12 @@ async def test_solution_import_repo_update_refreshes_cached_subcomponent_repo_in
         assert payload["updated"] == 1
         assert payload["projects_created"] == 0
 
-        list_resp = await client.get("/project-manager/api/subcomponents")
+        list_resp = await client.get("/project-manager/api/tasks")
         assert list_resp.status_code == 200, list_resp.text
         assert list_resp.json()[0]["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"
 
         detail_resp = await client.get(
-            f"/project-manager/api/subcomponents/{subcomponent['subcomponent_id']}"
+            f"/project-manager/api/tasks/{task['task_id']}"
         )
         assert detail_resp.status_code == 200, detail_resp.text
         assert detail_resp.json()["effective_github_repo_url"] == "https://github.com/example-org/platform-service-v2"

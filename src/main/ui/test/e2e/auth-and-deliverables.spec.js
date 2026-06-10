@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 async function loadLocalAuthedApp(page) {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const soeid = `ui${suffix}`.replace(/[^a-z0-9]/g, "").slice(0, 20);
+  const programName = `UI Smoke Program ${suffix}`;
   const register = await page.request.post("/project-manager/api/auth/register", {
     data: {
       soeid,
@@ -13,20 +14,31 @@ async function loadLocalAuthedApp(page) {
   });
   expect(register.ok()).toBeTruthy();
 
+  const program = await page.request.post("/project-manager/api/programs", {
+    data: {
+      program_name: programName,
+      description: "Program for local smoke project creation.",
+    },
+  });
+  expect(program.ok()).toBeTruthy();
+
   await page.goto("/");
   await expect(page.locator("#app-shell")).toBeVisible();
+
+  return { programName };
 }
 
 
 test("local login reaches deliverables and creates a project", async ({ page }) => {
   const suffix = Date.now().toString();
-  await loadLocalAuthedApp(page);
+  const { programName } = await loadLocalAuthedApp(page);
 
   await expect(page.locator("#view-master")).toHaveClass(/active/);
   await expect(page.locator("#master-table")).toBeVisible();
 
   await page.locator("#topbar-create-toggle").click();
   await page.locator("#topbar-create-project").click();
+  await page.locator('#project-form select[name="program_id"]').selectOption({ label: programName });
   await page.locator('#project-form input[name="project_name"]').fill(`UI Project ${suffix}`);
   await page.locator('#project-form input[name="sponsor"]').fill("UI Sponsor");
   await page.locator("#project-submit-btn").click();

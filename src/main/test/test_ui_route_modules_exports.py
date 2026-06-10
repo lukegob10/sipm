@@ -8,7 +8,7 @@ ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 EXPECTED_ROUTE_EXPORTS = {
     "access.js": ["renderAccess", "render"],
     "master.js": ["renderMasterFilters", "renderMasterTable", "render"],
-    "subcomponents-workbench.js": ["renderSubcomponentsWorkbench", "render"],
+    "tasks-workbench.js": ["renderTasksWorkbench", "render"],
     "dashboard.js": ["renderDashboard", "render"],
     "pm-dashboard.js": ["renderPMDashboard", "render"],
     "gantt.js": ["renderGantt", "render"],
@@ -23,7 +23,7 @@ EXPECTED_ROUTE_EXPORTS = {
 EXPECTED_ROUTE_LOADERS = {
     "access": "./routes/access.js",
     "master": "./routes/master.js",
-    "subcomponents-workbench": "./routes/subcomponents-workbench.js",
+    "tasks-workbench": "./routes/tasks-workbench.js",
     "dashboard": "./routes/dashboard.js",
     "pm-dashboard": "./routes/pm-dashboard.js",
     "gantt": "./routes/gantt.js",

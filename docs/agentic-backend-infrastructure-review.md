@@ -30,7 +30,7 @@ SIPM already has several useful pieces for agent workflows:
 - Compact JSON request logs with user, space, auth method, status, and duration.
 - Audit logging through `ChangeLog` and `safe_log_changes`.
 - Cache invalidation and realtime refresh publishing through mutation helpers.
-- Existing CSV import/export for projects, solutions, subcomponents, users, resource allocations, and planning windows.
+- Existing CSV import/export for projects, solutions, tasks, users, resource allocations, and planning windows.
 - Existing WebSocket refresh channel for browser sessions.
 - Existing `docs/agent-data-exchange-api-options.md`, which already recommends JSON import/export as the next agent interchange layer.
 
@@ -117,7 +117,7 @@ Response shape:
     "read_audit",
     "read_open_tasks"
   ],
-  "entities": ["projects", "solutions", "subcomponents", "users", "teams", "planning"]
+  "entities": ["projects", "solutions", "tasks", "users", "teams", "planning"]
 }
 ```
 
@@ -143,7 +143,7 @@ Query parameters:
 - `cursor`
 - `fields`
 
-Purpose: return a compact project -> solution -> subcomponent graph for planning and reasoning.
+Purpose: return a compact project -> solution -> task graph for planning and reasoning.
 
 This should not be the same shape as the browser state. It should be an agent-safe read model with stable IDs, names, statuses, dates, user SOEIDs, dependencies, and update timestamps.
 
@@ -163,7 +163,7 @@ Example:
         {
           "solution_id": "s1",
           "solution_name": "Example solution",
-          "subcomponents": []
+          "tasks": []
         }
       ]
     }
@@ -182,8 +182,8 @@ GET  /api/agent/projects/export
 POST /api/agent/projects/import
 GET  /api/agent/solutions/export
 POST /api/agent/solutions/import
-GET  /api/agent/subcomponents/export
-POST /api/agent/subcomponents/import
+GET  /api/agent/tasks/export
+POST /api/agent/tasks/import
 GET  /api/agent/users/export
 POST /api/agent/users/import
 ```
@@ -240,8 +240,8 @@ Patch plan shape:
   "operations": [
     {
       "op": "update",
-      "entity": "subcomponent",
-      "id": "sub-123",
+      "entity": "task",
+      "id": "task-123",
       "if_updated_at": "2026-05-25T10:15:00Z",
       "fields": {
         "status": "at_risk"
@@ -449,7 +449,7 @@ Value: agents can understand SIPM and read scoped work data safely.
 
 Implement:
 
-- JSON export/import for projects, solutions, and subcomponents
+- JSON export/import for projects, solutions, and tasks
 - `dry_run`
 - per-record errors
 - stable IDs and SOEIDs
@@ -485,7 +485,7 @@ Value: Roo or other agent clients can use SIPM through a standard tool interface
 - Do not let an MCP server mutate database rows outside SIPM services.
 - Do not build agent workflows against frontend DOM or browser-only state.
 - Do not accept bearer tokens in query strings.
-- Do not add a second backend with duplicate project/solution/subcomponent business rules.
+- Do not add a second backend with duplicate project/solution/task business rules.
 - Do not make broad agent writes without `dry_run`, idempotency, and audit records.
 - Do not expose all existing UI endpoints as "agent tools" without curating them.
 - Do not store Roo, scheduled-rule, model, prompt, retry, or agent-run lifecycle state in SIPM.

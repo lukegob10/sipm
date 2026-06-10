@@ -48,11 +48,11 @@ export function bindPMDashboardEvents(pmDashboardState, rerender) {
       return;
     }
 
-    if (action === "open-subcomponent") {
+    if (action === "open-task") {
       event.preventDefault();
-      const subcomponentId = String(actionEl.getAttribute("data-subcomponent-id") || "");
-      if (typeof pmDashboardState.ctx?.openPMDashboardSubcomponentDrilldown === "function") {
-        pmDashboardState.ctx.openPMDashboardSubcomponentDrilldown(subcomponentId);
+      const taskId = String(actionEl.getAttribute("data-task-id") || "");
+      if (typeof pmDashboardState.ctx?.openPMDashboardTaskDrilldown === "function") {
+        pmDashboardState.ctx.openPMDashboardTaskDrilldown(taskId);
       }
     }
   });

@@ -50,7 +50,7 @@ updated_since
 limit
 ```
 
-Returns a nested project -> solution -> subcomponent graph with stable IDs and `updated_at`.
+Returns a nested project -> solution -> task graph with stable IDs and `updated_at`.
 
 ## Patch Shape
 

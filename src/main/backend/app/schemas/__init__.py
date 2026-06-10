@@ -4,7 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
 
 from ..utils import read_text_value
-from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, SubcomponentStatus
+from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 from .agent import (
     AgentChangeRequestBulkReview,
     AgentChangeRequestBulkReviewResult,
@@ -19,7 +19,7 @@ from .agent import (
     AgentPatchResponse,
     AgentProjectNode,
     AgentSolutionNode,
-    AgentSubcomponentNode,
+    AgentTaskNode,
     AgentWorkGraphRead,
 )
 from .analytics import (
@@ -72,7 +72,7 @@ __all__ = [
     "AgentPatchResponse",
     "AgentProjectNode",
     "AgentSolutionNode",
-    "AgentSubcomponentNode",
+    "AgentTaskNode",
     "AgentWorkGraphRead",
     "AnalyticsFailureHotspotRead",
     "AnalyticsPerformanceRouteRead",
@@ -475,10 +475,10 @@ class SolutionPhaseRead(BaseModel):
     updated_at: datetime
 
 
-class SubcomponentBase(BaseModel):
-    subcomponent_name: Optional[str] = None
+class TaskBase(BaseModel):
+    task_name: Optional[str] = None
     github_repo_url: Optional[str] = None
-    status: Optional[SubcomponentStatus] = None
+    status: Optional[TaskStatus] = None
     priority: Optional[int] = None
     due_date: Optional[date] = None
     assignee: Optional[str] = None
@@ -490,20 +490,20 @@ class SubcomponentBase(BaseModel):
     capacity_hours: Optional[int] = None
 
 
-class SubcomponentCreate(SubcomponentBase):
-    subcomponent_name: str
-    status: SubcomponentStatus = SubcomponentStatus.to_do
+class TaskCreate(TaskBase):
+    task_name: str
+    status: TaskStatus = TaskStatus.to_do
     priority: int = 3
     assignee: Optional[str] = None
 
 
-class SubcomponentUpdate(SubcomponentBase):
+class TaskUpdate(TaskBase):
     pass
 
 
-class SubcomponentBatchUpdate(BaseModel):
-    subcomponent_ids: list[str]
-    status: Optional[SubcomponentStatus] = None
+class TaskBatchUpdate(BaseModel):
+    task_ids: list[str]
+    status: Optional[TaskStatus] = None
     priority: Optional[int] = None
     due_date: Optional[date] = None
     due_date_shift_days: Optional[int] = None
@@ -513,17 +513,17 @@ class SubcomponentBatchUpdate(BaseModel):
     blocked: Optional[bool] = None
 
 
-class SubcomponentRead(TextLikeReadModel):
+class TaskRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 
-    subcomponent_id: str
+    task_id: str
     project_id: str
     solution_id: str
-    subcomponent_name: str
+    task_name: str
     github_repo_url: Optional[str] = None
     effective_github_repo_url: Optional[str] = None
     repo_source: str = "none"
-    status: SubcomponentStatus
+    status: TaskStatus
     priority: int
     due_date: Optional[date] = None
     assignee: Optional[str] = None
@@ -642,7 +642,7 @@ class PlanningWindowRead(BaseModel):
 
 
 class ResourceAllocationBase(BaseModel):
-  work_item_type: Optional[str] = None  # project|solution|subcomponent
+  work_item_type: Optional[str] = None  # project|solution|task
   work_item_id: Optional[str] = None
   assignee: Optional[str] = None
   assignee_user_soeid: Optional[str] = None

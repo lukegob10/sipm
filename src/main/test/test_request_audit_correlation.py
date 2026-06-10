@@ -34,7 +34,7 @@ async def test_projects_import_reuses_inbound_request_id_for_audit_rows(client, 
 
 
 @pytest.mark.anyio
-async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_rows(client, db_sessionmaker):
+async def test_task_batch_update_reuses_inbound_request_id_for_audit_rows(client, db_sessionmaker):
     project_resp = await client.post(
         "/project-manager/api/projects/",
         json={"project_name": "Audit Batch Project", "sponsor": "Finance"},
@@ -49,17 +49,17 @@ async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_row
     assert solution_resp.status_code == 201, solution_resp.text
     solution = solution_resp.json()
 
-    sub_resp = await client.post(
-        f"/project-manager/api/solutions/{solution['solution_id']}/subcomponents",
-        json={"subcomponent_name": "Audit Batch Task", "status": "to_do", "assignee": "Engineer"},
+    task_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+        json={"task_name": "Audit Batch Task", "status": "to_do", "assignee": "Engineer"},
     )
-    assert sub_resp.status_code == 201, sub_resp.text
-    subcomponent = sub_resp.json()
+    assert task_resp.status_code == 201, task_resp.text
+    task = task_resp.json()
 
-    request_id = "req-subcomponent-batch-1"
+    request_id = "req-task-batch-1"
     batch_resp = await client.patch(
-        "/project-manager/api/subcomponents/actions/batch",
-        json={"subcomponent_ids": [subcomponent["subcomponent_id"]], "status": "in_progress"},
+        "/project-manager/api/tasks/actions/batch",
+        json={"task_ids": [task["task_id"]], "status": "in_progress"},
         headers={"X-Request-ID": request_id},
     )
     assert batch_resp.status_code == 200, batch_resp.text
@@ -68,8 +68,8 @@ async def test_subcomponent_batch_update_reuses_inbound_request_id_for_audit_row
         rows = (
             session.query(ChangeLog)
             .filter(ChangeLog.request_id == request_id)
-            .filter(ChangeLog.entity_type == "subcomponent")
+            .filter(ChangeLog.entity_type == "task")
             .all()
         )
     assert rows
-    assert any(row.entity_id == subcomponent["subcomponent_id"] for row in rows)
+    assert any(row.entity_id == task["task_id"] for row in rows)

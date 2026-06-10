@@ -9,11 +9,11 @@ export function createCalendarRouteController({
   renderCalendar,
   openProjectForm,
   openSolutionModal,
-  fillSubcomponentForm,
+  fillTaskForm,
   getRouteModule,
   ensureRouteModule,
   filteredSolutionsForCalendar,
-  filteredSubcomponentsForCalendar,
+  filteredTasksForCalendar,
   formatStatus,
 }) {
   function formatMonthInputValue(date) {
@@ -88,16 +88,16 @@ export function createCalendarRouteController({
     openProjectForm(project);
   }
 
-  function openCalendarSubcomponentDrilldown(subcomponentId) {
-    const targetId = String(subcomponentId || "").trim();
+  function openCalendarTaskDrilldown(taskId) {
+    const targetId = String(taskId || "").trim();
     if (!targetId) return;
-    const subcomponent = state.subcomponents.find((row) => row.subcomponent_id === targetId);
-    if (!subcomponent) return;
-    const solution = state.solutions.find((row) => row.solution_id === subcomponent.solution_id);
+    const task = state.tasks.find((row) => row.task_id === targetId);
+    if (!task) return;
+    const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
     if (!solution) return;
     closeCalendarModal();
-    openSolutionModal(solution, "subcomponents");
-    fillSubcomponentForm(subcomponent);
+    openSolutionModal(solution, "tasks");
+    fillTaskForm(task);
   }
 
   function openCalendarModal(day) {
@@ -114,7 +114,7 @@ export function createCalendarRouteController({
       state,
       els,
       filteredSolutionsForCalendar,
-      filteredSubcomponentsForCalendar,
+      filteredTasksForCalendar,
       formatStatus,
     });
   }
@@ -165,8 +165,8 @@ export function createCalendarRouteController({
         openCalendarSolutionDrilldown(actionEl.getAttribute("data-solution-id"));
         return;
       }
-      if (action === "open-subcomponent") {
-        openCalendarSubcomponentDrilldown(actionEl.getAttribute("data-subcomponent-id"));
+      if (action === "open-task") {
+        openCalendarTaskDrilldown(actionEl.getAttribute("data-task-id"));
       }
     });
     els.calendarModal?.addEventListener("click", (e) => {

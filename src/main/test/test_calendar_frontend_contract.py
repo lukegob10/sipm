@@ -10,12 +10,12 @@ CALENDAR_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "c
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
-def test_calendar_view_passes_solution_and_subcomponent_filters_to_route_module():
+def test_calendar_view_passes_solution_and_task_filters_to_route_module():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
     assert "filteredSolutionsForCalendar," in app_text
-    assert "filteredSubcomponentsForCalendar," in app_text
+    assert "filteredTasksForCalendar," in app_text
     assert "mod.openCalendarModal(day, {" in interactions_text
 
 
@@ -25,7 +25,7 @@ def test_calendar_solution_filtering_is_independent_from_deliverables_master_fil
     assert "function filteredSolutionsForCalendar() {" in text
     assert "return (state.solutions || []).filter((s) => {" in text
     assert "if (hideClosedDeliverables() && isClosedSolutionStatus(s.status)) return false;" in text
-    assert "const base = filteredSolutions();" not in text[text.index("function filteredSolutionsForCalendar() {"):text.index("function filteredSubcomponentsForCalendar() {")]
+    assert "const base = filteredSolutions();" not in text[text.index("function filteredSolutionsForCalendar() {"):text.index("function filteredTasksForCalendar() {")]
 
 
 def test_calendar_month_state_is_restored_and_persisted_per_space():
@@ -79,18 +79,18 @@ def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh()
 def test_calendar_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_owner_or_assignee():
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {" in text
+    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {" in text
     assert 'const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {' in text
-    assert "includeSubcomponents: true," in text
+    assert "includeTasks: true," in text
     assert 'filterState.owner = "";' in text
     assert "if (calendarOwnerFilterChanged) {" in text
     assert "persistCalendarViewState();" in text
 
 
-def test_calendar_route_renders_solution_and_subcomponent_sections():
+def test_calendar_route_renders_solution_and_task_sections():
     text = CALENDAR_ROUTE.read_text(encoding="utf-8")
     assert "Solutions" in text
-    assert "Subcomponents" in text
+    assert "Tasks" in text
     assert "calendar-stream-label" in text
     assert "modal-section-title" in text
 
@@ -103,7 +103,7 @@ def test_calendar_route_renders_drilldown_actions_for_modal_items():
     assert 'class="calendar-modal-action-link modal-item-action"' in text
     assert 'actionButtonMarkup("open-project"' in text
     assert 'actionButtonMarkup("open-solution"' in text
-    assert 'actionButtonMarkup("open-subcomponent"' in text
+    assert 'actionButtonMarkup("open-task"' in text
     assert "Open Project" in text
     assert "Open Solution" in text
     assert "Open Work Item" in text
@@ -119,9 +119,9 @@ def test_calendar_modal_actions_reuse_existing_detail_surfaces():
     assert "openProjectForm(project)" in interactions_text
     assert "function openCalendarSolutionDrilldown(solutionId)" in interactions_text
     assert 'openSolutionModal(solution, "details")' in interactions_text
-    assert "function openCalendarSubcomponentDrilldown(subcomponentId)" in interactions_text
-    assert 'openSolutionModal(solution, "subcomponents")' in interactions_text
-    assert "fillSubcomponentForm(subcomponent)" in interactions_text
+    assert "function openCalendarTaskDrilldown(taskId)" in interactions_text
+    assert 'openSolutionModal(solution, "tasks")' in interactions_text
+    assert "fillTaskForm(task)" in interactions_text
     assert 'const previewActionEl = e.target.closest("[data-calendar-preview-action]")' in interactions_text
     assert 'if (action === "open-solution") {' in interactions_text
     assert 'closest("[data-calendar-action]")' in interactions_text

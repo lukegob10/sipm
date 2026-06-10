@@ -390,7 +390,7 @@ Mode: correctness cleanup with responsiveness hardening.
 - Future work can add deeper browser visual QA for drag/drop states, but the route smoke and unit coverage now protect the stale-month-load failure mode.
 ```
 
-### 5. Projects, Solutions, And Subcomponents Core CRUD
+### 5. Projects, Solutions, And Tasks Core CRUD
 
 Status: completed on 2026-05-14.
 
@@ -400,14 +400,14 @@ Primary files:
 
 - `src/main/backend/app/routes/projects/*`
 - `src/main/backend/app/routes/solutions/*`
-- `src/main/backend/app/routes/subcomponents/*`
+- `src/main/backend/app/routes/tasks/*`
 - `src/main/backend/app/models/work.py`
 - `src/main/backend/app/schemas/planning.py`
 - `src/main/ui/js/entities/projects.js`
 - `src/main/ui/js/entities/solutions.js`
-- `src/main/ui/js/entities/subcomponents.js`
+- `src/main/ui/js/entities/tasks.js`
 - `src/main/ui/js/routes/master/*`
-- `src/main/ui/js/routes/subcomponents-workbench/*`
+- `src/main/ui/js/routes/tasks-workbench/*`
 
 Review checks:
 
@@ -419,7 +419,7 @@ Review checks:
 
 Validation:
 
-- Project, solution, and subcomponent backend tests.
+- Project, solution, and task backend tests.
 - Import/export tests.
 - Master and workbench frontend contract tests.
 
@@ -430,28 +430,28 @@ Exit criteria:
 Completion ledger:
 
 ```markdown
-## Pass: Projects, Solutions, And Subcomponents Core CRUD
+## Pass: Projects, Solutions, And Tasks Core CRUD
 
 Mode: lifecycle-route hardening with import/export parity review.
 
 ### Findings
 
-- High / must-fix: JSON create and update routes accepted whitespace-only project, solution, and subcomponent names even though CSV import rejected blank identifiers.
+- High / must-fix: JSON create and update routes accepted whitespace-only project, solution, and task names even though CSV import rejected blank identifiers.
 - Medium / must-fix: solution updates accepted a whitespace-only version, which could create records that are difficult to target consistently by import/export and UI filters.
-- Medium / should-fix: subcomponents could remain unblocked while retaining a stale blocker note, making blocked-state reporting and workbench review misleading.
+- Medium / should-fix: tasks could remain unblocked while retaining a stale blocker note, making blocked-state reporting and workbench review misleading.
 
 ### Implemented
 
 - Normalized required project names on JSON create/update and rejected blank names before persistence.
 - Normalized required solution names and versions on JSON create/update, while preserving the existing `0.1.0` create default when version is omitted.
-- Normalized required subcomponent names on JSON create/update and rejected blank names before persistence.
-- Cleared blocker notes automatically when a subcomponent is saved as not blocked.
+- Normalized required task names on JSON create/update and rejected blank names before persistence.
+- Cleared blocker notes automatically when a task is saved as not blocked.
 - Added focused backend regression tests for identifier normalization, blank rejection, version rejection, and stale blocker-note cleanup.
 
 ### Validation
 
-- `cd src/main; pytest -q test/test_projects.py test/test_solutions.py test/test_subcomponents.py`: 47 passed.
-- `cd src/main; pytest -q test/test_import_export_projects.py test/test_import_export_solutions.py test/test_import_export_subcomponents.py`: 20 passed.
+- `cd src/main; pytest -q test/test_projects.py test/test_solutions.py test/test_tasks.py`: 47 passed.
+- `cd src/main; pytest -q test/test_import_export_projects.py test/test_import_export_solutions.py test/test_import_export_tasks.py`: 20 passed.
 - `npm run lint:ui`: passed.
 - `npm run test:ui`: 35 passed.
 - `cd src/main; pytest -q`: 493 passed, 1 skipped.
@@ -468,19 +468,19 @@ Mode: JavaScript entity contract alignment and refresh-state cleanup.
 ### Findings
 
 - Medium / must-fix: solution payload construction could copy a display-name assignee into `assignee_user_soeid` when the SOEID field was blank, corrupting user-key semantics across backend filters and dashboards.
-- Medium / should-fix: solution and subcomponent entity payloads sent unsupported FTE alias fields that the CRUD schemas ignore, creating noisy route-to-JavaScript contract drift.
-- Medium / should-fix: `restoreSelections` maintained a stale second copy of project, solution, and subcomponent form population logic, missing newer fields such as repository URLs and increasing refresh-state fragility.
+- Medium / should-fix: solution and task entity payloads sent unsupported FTE alias fields that the CRUD schemas ignore, creating noisy route-to-JavaScript contract drift.
+- Medium / should-fix: `restoreSelections` maintained a stale second copy of project, solution, and task form population logic, missing newer fields such as repository URLs and increasing refresh-state fragility.
 - Low / should-fix: entity payload builders were nested inside controllers, which made contract testing harder and let route payload drift go untested.
 
 ### Implemented
 
-- Exported focused project, solution, and subcomponent payload builders from the entity modules.
+- Exported focused project, solution, and task payload builders from the entity modules.
 - Trimmed identifier, URL, and SOEID fields before submit while preserving long-text body fields where user spacing can be intentional.
-- Removed unsupported `capacity_fte_months` and `estimate_fte_months` keys from solution/subcomponent CRUD payloads.
+- Removed unsupported `capacity_fte_months` and `estimate_fte_months` keys from solution/task CRUD payloads.
 - Removed display-name fallback for `solution.assignee_user_soeid`; the field now submits only an explicit SOEID or `null`.
-- Made subcomponent payloads clear `blocker_note` client-side when `blocked` is false, matching the backend route behavior.
+- Made task payloads clear `blocker_note` client-side when `blocked` is false, matching the backend route behavior.
 - Changed refresh selection restore to delegate to the entity controllers instead of duplicating form-field assignment in `app.js`.
-- Removed the now-unused `updateSubcomponentSolutionOptions` helper.
+- Removed the now-unused `updateTaskSolutionOptions` helper.
 - Added UI unit tests for entity payload normalization and route-contract shape.
 
 ### Validation
@@ -488,7 +488,7 @@ Mode: JavaScript entity contract alignment and refresh-state cleanup.
 - `npm run test:ui -- src/main/ui/test/unit/entities.test.js`: 3 passed.
 - `npm run lint:ui`: passed.
 - `npm run test:ui`: 38 passed.
-- `cd src/main; pytest -q test/test_projects.py test/test_solutions.py test/test_subcomponents.py`: 47 passed.
+- `cd src/main; pytest -q test/test_projects.py test/test_solutions.py test/test_tasks.py`: 47 passed.
 - `cd src/main; pytest -q test/test_frontend_ux_improvement_contract.py test/test_deliverables_save_feedback_frontend_contract.py`: 72 passed.
 - `cd src/main; pytest -q`: 493 passed, 1 skipped.
 - `$env:SIPM_UI_SMOKE_PORT='8014'; npm run test:ui:smoke`: 2 passed.
@@ -725,7 +725,7 @@ Goal: make environment migration repeatable and low-risk.
 
 Primary files:
 
-- Project, solution, subcomponent, user, planning import/export routes.
+- Project, solution, task, user, planning import/export routes.
 - `docs/sql/first_deploy_reference_data.sql`
 - `docs/sql/first_time_global_admin.sql`
 - `docs/sql/schema_oracle_ta.sql`
@@ -880,7 +880,7 @@ Mode: testing and validation hardening.
 
 ### Implemented
 
-- Added route rendering tests for governance entrypoints, shell context merging, team capacity rendering, and subcomponents workbench rendering.
+- Added route rendering tests for governance entrypoints, shell context merging, team capacity rendering, and tasks workbench rendering.
 - Added route entrypoint tests for dashboard, PM dashboard, master table orchestration, and planning route orchestration.
 - Added project entity controller tests for open/close, create, update, failure recovery, and delete behavior.
 - Guarded project form reset handling to prevent recursive reset/fill cycles.
@@ -895,7 +895,7 @@ Mode: testing and validation hardening.
 
 ### Remaining
 
-- To approach full frontend coverage honestly, add focused tests for the current 0% modules under dashboard, master, planning, PM dashboard, subcomponents workbench, topbar create, modal shell, space switcher, and route interactions.
+- To approach full frontend coverage honestly, add focused tests for the current 0% modules under dashboard, master, planning, PM dashboard, tasks workbench, topbar create, modal shell, space switcher, and route interactions.
 - Backend remains at the prior 82.19% line coverage gate; full backend coverage needs separate work on planning, user/team admin, coordination, agent patch planning, and PDF report branches.
 
 ## Per-Pass Output Format

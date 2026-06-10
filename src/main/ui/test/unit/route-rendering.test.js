@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createShellContext } from "../../js/shell/context.js";
 import { renderAccess } from "../../js/routes/access.js";
 import { renderSpaces } from "../../js/routes/spaces.js";
-import { renderSubcomponentsWorkbench } from "../../js/routes/subcomponents-workbench.js";
+import { renderTasksWorkbench } from "../../js/routes/tasks-workbench.js";
 import { renderTeamCapacity } from "../../js/routes/team-capacity.js";
 
 describe("simple route rendering", () => {
@@ -109,35 +109,35 @@ describe("simple route rendering", () => {
     expect(capacityUserList.textContent).toContain("Loading roster");
   });
 
-  it("renders subcomponents workbench empty states and summary cards", () => {
-    const subcomponentsWorkbenchKpis = document.createElement("section");
-    const subcomponentsWorkbenchTable = document.createElement("section");
+  it("renders tasks workbench empty states and summary cards", () => {
+    const tasksWorkbenchKpis = document.createElement("section");
+    const tasksWorkbenchTable = document.createElement("section");
 
-    renderSubcomponentsWorkbench({
-      els: { subcomponentsWorkbenchKpis, subcomponentsWorkbenchTable },
+    renderTasksWorkbench({
+      els: { tasksWorkbenchKpis, tasksWorkbenchTable },
       rows: [],
-      activeSubcomponentId: "",
+      activeTaskId: "",
       selectedIds: new Set(),
       formatStatus: (status) => status,
       summary: { total: 3, visible: 0, overdue: 1, dueSoon: 2, blocked: 1, unassigned: 1, hiddenClosed: 2 },
     });
 
-    expect(subcomponentsWorkbenchKpis.textContent).toContain("Visible Queue");
-    expect(subcomponentsWorkbenchKpis.textContent).toContain("Blocked");
-    expect(subcomponentsWorkbenchTable.textContent).toContain("No open subcomponents match");
-    expect(subcomponentsWorkbenchTable.textContent).toContain("2 completed or abandoned items");
+    expect(tasksWorkbenchKpis.textContent).toContain("Visible Queue");
+    expect(tasksWorkbenchKpis.textContent).toContain("Blocked");
+    expect(tasksWorkbenchTable.textContent).toContain("No open tasks match");
+    expect(tasksWorkbenchTable.textContent).toContain("2 completed or abandoned items");
   });
 
-  it("renders subcomponents rows with escaped links, status, and selection state", () => {
-    const subcomponentsWorkbenchKpis = document.createElement("section");
-    const subcomponentsWorkbenchTable = document.createElement("section");
+  it("renders tasks rows with escaped links, status, and selection state", () => {
+    const tasksWorkbenchKpis = document.createElement("section");
+    const tasksWorkbenchTable = document.createElement("section");
 
-    renderSubcomponentsWorkbench({
-      els: { subcomponentsWorkbenchKpis, subcomponentsWorkbenchTable },
+    renderTasksWorkbench({
+      els: { tasksWorkbenchKpis, tasksWorkbenchTable },
       rows: [
         {
-          subcomponent_id: "sub-1",
-          subcomponent_name: "API <Gateway>",
+          task_id: "task-1",
+          task_name: "API <Gateway>",
           project_id: "proj-1",
           project_name: "Project & One",
           solution_id: "sol-1",
@@ -150,22 +150,22 @@ describe("simple route rendering", () => {
           urgency_score: 88,
         },
       ],
-      activeSubcomponentId: "sub-1",
-      selectedIds: new Set(["sub-1"]),
+      activeTaskId: "task-1",
+      selectedIds: new Set(["task-1"]),
       formatStatus: (status) => `Status: ${status}`,
       summary: { total: 1, visible: 1, overdue: 0, dueSoon: 1, blocked: 1, unassigned: 1 },
     });
 
-    expect(subcomponentsWorkbenchTable.querySelector("tr.active-row")?.dataset.id).toBe("sub-1");
-    expect(subcomponentsWorkbenchTable.querySelector(".scwb-select-row")?.checked).toBe(true);
-    expect(subcomponentsWorkbenchTable.querySelector("#scwb-select-all")?.checked).toBe(true);
-    expect(subcomponentsWorkbenchTable.textContent).toContain("Status: in_progress");
-    expect(subcomponentsWorkbenchTable.textContent).toContain("Blocked");
-    expect(subcomponentsWorkbenchTable.textContent).toContain("Unassigned");
-    expect(subcomponentsWorkbenchTable.innerHTML).toContain("API &lt;Gateway&gt;");
-    expect(subcomponentsWorkbenchTable.innerHTML).toContain("Project &amp; One");
-    expect(subcomponentsWorkbenchTable.textContent).toContain("Solution 'A'");
-    expect(subcomponentsWorkbenchTable.querySelector("[data-project-id='proj-1']")).toBeTruthy();
-    expect(subcomponentsWorkbenchTable.querySelector(".sub-workbench-urgency")?.className).toContain("danger");
+    expect(tasksWorkbenchTable.querySelector("tr.active-row")?.dataset.id).toBe("task-1");
+    expect(tasksWorkbenchTable.querySelector(".scwb-select-row")?.checked).toBe(true);
+    expect(tasksWorkbenchTable.querySelector("#scwb-select-all")?.checked).toBe(true);
+    expect(tasksWorkbenchTable.textContent).toContain("Status: in_progress");
+    expect(tasksWorkbenchTable.textContent).toContain("Blocked");
+    expect(tasksWorkbenchTable.textContent).toContain("Unassigned");
+    expect(tasksWorkbenchTable.innerHTML).toContain("API &lt;Gateway&gt;");
+    expect(tasksWorkbenchTable.innerHTML).toContain("Project &amp; One");
+    expect(tasksWorkbenchTable.textContent).toContain("Solution 'A'");
+    expect(tasksWorkbenchTable.querySelector("[data-project-id='proj-1']")).toBeTruthy();
+    expect(tasksWorkbenchTable.querySelector(".task-workbench-urgency")?.className).toContain("danger");
   });
 });

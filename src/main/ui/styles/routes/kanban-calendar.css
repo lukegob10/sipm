@@ -195,8 +195,8 @@
 .calendar-item.solution {
   border-left: 3px solid var(--calendar-solution-border);
 }
-.calendar-item.subcomponent {
-  border-left: 3px solid var(--calendar-subcomponent-border);
+.calendar-item.task {
+  border-left: 3px solid var(--calendar-task-border);
 }
 .calendar-item-title {
   font-weight: 600;
@@ -485,20 +485,20 @@ button.primary.danger:hover {
   bottom: auto;
   margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
 }
-#solution-modal .modal-tab[data-tab-panel="subcomponents"].active {
+#solution-modal .modal-tab[data-tab-panel="tasks"].active {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 0;
   overflow: hidden;
 }
-#solution-modal .modal-tab[data-tab-panel="subcomponents"] > .subcomponent-tab-scroll {
+#solution-modal .modal-tab[data-tab-panel="tasks"] > .task-tab-scroll {
   display: grid;
   gap: 12px;
   min-height: 0;
   overflow: auto;
   padding-bottom: 12px;
 }
-#solution-modal .modal-tab[data-tab-panel="subcomponents"] > .modal-form-footer {
+#solution-modal .modal-tab[data-tab-panel="tasks"] > .modal-form-footer {
   position: relative;
   bottom: auto;
   margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
@@ -508,7 +508,7 @@ button.primary.danger:hover {
   min-width: 0;
 }
 #solution-form .modal-form-footer,
-#subcomponent-form .modal-form-footer {
+#task-form .modal-form-footer {
   align-self: end;
 }
 .modal-close-x {
@@ -573,19 +573,19 @@ button.primary.danger:hover {
   color: var(--muted);
   font-size: 12px;
 }
-.subcomponent-header {
+.task-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
 }
-.subcomponent-actions {
+.task-actions {
   display: flex;
   gap: 8px;
 }
-.subcomponent-table th:first-child,
-.subcomponent-table td:first-child {
+.task-table th:first-child,
+.task-table td:first-child {
   width: 6%;
   text-align: center;
 }
@@ -698,8 +698,8 @@ button.primary.danger:hover {
 .modal-item.solution {
   border-left: 3px solid var(--calendar-solution-border);
 }
-.modal-item.subcomponent {
-  border-left: 3px solid var(--calendar-subcomponent-border);
+.modal-item.task {
+  border-left: 3px solid var(--calendar-task-border);
 }
 
 /* Priority / Capacity / Reporting */
@@ -752,8 +752,8 @@ button.primary.danger:hover {
   background: var(--button-secondary-active-bg);
   box-shadow: var(--button-secondary-active-shadow);
 }
-#subcomponents-workbench-saved-select,
-#subcomponents-workbench-saved-name {
+#tasks-workbench-saved-select,
+#tasks-workbench-saved-name {
   height: 38px;
   min-height: 38px;
   box-sizing: border-box;
@@ -763,11 +763,11 @@ button.primary.danger:hover {
   background: var(--panel-soft);
   color: var(--text);
 }
-#subcomponents-workbench-saved-name {
+#tasks-workbench-saved-name {
   min-width: 190px;
 }
-#subcomponents-workbench-saved-save,
-#subcomponents-workbench-saved-delete {
+#tasks-workbench-saved-save,
+#tasks-workbench-saved-delete {
   height: 38px;
   min-height: 38px;
   box-sizing: border-box;
@@ -776,13 +776,13 @@ button.primary.danger:hover {
   align-items: center;
   justify-content: center;
 }
-#subcomponents-workbench-saved-name::placeholder {
+#tasks-workbench-saved-name::placeholder {
   color: var(--muted);
 }
-#subcomponents-workbench-saved-name:focus {
+#tasks-workbench-saved-name:focus {
   outline: 1px solid var(--focus-ring);
   border-color: var(--focus-border);
 }
-#subcomponents-workbench-saved-status {
+#tasks-workbench-saved-status {
   font-size: 12px;
 }

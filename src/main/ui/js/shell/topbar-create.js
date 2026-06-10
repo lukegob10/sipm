@@ -5,7 +5,7 @@ export function createTopbarCreateController({
   openProgramForm,
   openProjectForm,
   openSolutionModal,
-  showSubcomponentForm,
+  showTaskForm,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
 }) {
@@ -16,7 +16,7 @@ export function createTopbarCreateController({
     if (restoreFocus) els.topbarCreateToggle.focus();
   }
 
-  function subcomponentCreateCandidateSolutions() {
+  function taskCreateCandidateSolutions() {
     return [...(state.solutions || [])].sort((a, b) => {
       const projectA = state.projects.find((project) => project.project_id === a.project_id)?.project_name || "";
       const projectB = state.projects.find((project) => project.project_id === b.project_id)?.project_name || "";
@@ -26,51 +26,51 @@ export function createTopbarCreateController({
     });
   }
 
-  function subcomponentCreateSolutionLabel(solution) {
+  function taskCreateSolutionLabel(solution) {
     const projectName = state.projects.find((project) => project.project_id === solution?.project_id)?.project_name || "";
     const solutionName = String(solution?.solution_name || "").trim() || "Untitled Solution";
     return projectName ? `${projectName} / ${solutionName}` : solutionName;
   }
 
-  function closeSubcomponentCreatePicker() {
-    if (!els.subcomponentCreatePickerModal) return;
-    els.subcomponentCreatePickerModal.classList.add("hidden");
-    clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
+  function closeTaskCreatePicker() {
+    if (!els.taskCreatePickerModal) return;
+    els.taskCreatePickerModal.classList.add("hidden");
+    clearDeliverableFormNotice(els.taskCreatePickerStatus);
   }
 
-  function continueSubcomponentCreateForSolution(solution) {
+  function continueTaskCreateForSolution(solution) {
     if (!solution?.solution_id) return;
-    closeSubcomponentCreatePicker();
-    openSolutionModal(solution, "subcomponents");
-    showSubcomponentForm(solution);
+    closeTaskCreatePicker();
+    openSolutionModal(solution, "tasks");
+    showTaskForm(solution);
   }
 
-  function populateSubcomponentCreatePickerOptions(selectedSolutionId = "") {
-    if (!els.subcomponentCreatePickerSelect) return;
-    const solutions = subcomponentCreateCandidateSolutions();
+  function populateTaskCreatePickerOptions(selectedSolutionId = "") {
+    if (!els.taskCreatePickerSelect) return;
+    const solutions = taskCreateCandidateSolutions();
     const options = solutions
       .map((solution) => {
         const selected = solution.solution_id === selectedSolutionId ? "selected" : "";
-        return `<option value="${escapeHtml(solution.solution_id)}" ${selected}>${escapeHtml(subcomponentCreateSolutionLabel(solution))}</option>`;
+        return `<option value="${escapeHtml(solution.solution_id)}" ${selected}>${escapeHtml(taskCreateSolutionLabel(solution))}</option>`;
       })
       .join("");
-    els.subcomponentCreatePickerSelect.innerHTML = options;
+    els.taskCreatePickerSelect.innerHTML = options;
     if (selectedSolutionId) {
-      els.subcomponentCreatePickerSelect.value = selectedSolutionId;
+      els.taskCreatePickerSelect.value = selectedSolutionId;
     }
   }
 
-  function openSubcomponentCreatePicker(selectedSolutionId = "") {
-    if (!els.subcomponentCreatePickerModal) return;
-    populateSubcomponentCreatePickerOptions(selectedSolutionId);
-    clearDeliverableFormNotice(els.subcomponentCreatePickerStatus);
-    els.subcomponentCreatePickerModal.classList.remove("hidden");
+  function openTaskCreatePicker(selectedSolutionId = "") {
+    if (!els.taskCreatePickerModal) return;
+    populateTaskCreatePickerOptions(selectedSolutionId);
+    clearDeliverableFormNotice(els.taskCreatePickerStatus);
+    els.taskCreatePickerModal.classList.remove("hidden");
     window.setTimeout(() => {
-      els.subcomponentCreatePickerSelect?.focus();
+      els.taskCreatePickerSelect?.focus();
     }, 0);
   }
 
-  function handleTopbarSubcomponentCreate() {
+  function handleTopbarTaskCreate() {
     closeTopbarCreateMenu({ restoreFocus: false });
     const currentOpenSolutionId = !els.solutionModal?.classList.contains("hidden")
       ? (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "")
@@ -79,20 +79,20 @@ export function createTopbarCreateController({
       ? state.solutions.find((solution) => solution.solution_id === currentOpenSolutionId)
       : null;
     if (currentOpenSolution?.solution_id) {
-      continueSubcomponentCreateForSolution(currentOpenSolution);
+      continueTaskCreateForSolution(currentOpenSolution);
       return;
     }
-    const solutions = subcomponentCreateCandidateSolutions();
+    const solutions = taskCreateCandidateSolutions();
     if (!solutions.length) {
       openSolutionModal(null, "details");
-      setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add subcomponents.", "error");
+      setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add tasks.", "error");
       return;
     }
     if (solutions.length === 1) {
-      continueSubcomponentCreateForSolution(solutions[0]);
+      continueTaskCreateForSolution(solutions[0]);
       return;
     }
-    openSubcomponentCreatePicker(currentOpenSolutionId);
+    openTaskCreatePicker(currentOpenSolutionId);
   }
 
   function openTopbarCreateMenu() {
@@ -208,44 +208,44 @@ export function createTopbarCreateController({
       els.topbarCreateSolution._bound = true;
     }
 
-    if (els.topbarCreateSubcomponent && !els.topbarCreateSubcomponent._bound) {
-      els.topbarCreateSubcomponent.addEventListener("click", handleTopbarSubcomponentCreate);
-      els.topbarCreateSubcomponent._bound = true;
+    if (els.topbarCreateTask && !els.topbarCreateTask._bound) {
+      els.topbarCreateTask.addEventListener("click", handleTopbarTaskCreate);
+      els.topbarCreateTask._bound = true;
     }
   }
 
-  function bindSubcomponentCreatePicker() {
-    if (els.subcomponentCreatePickerClose && !els.subcomponentCreatePickerClose._bound) {
-      els.subcomponentCreatePickerClose.addEventListener("click", closeSubcomponentCreatePicker);
-      els.subcomponentCreatePickerClose._bound = true;
+  function bindTaskCreatePicker() {
+    if (els.taskCreatePickerClose && !els.taskCreatePickerClose._bound) {
+      els.taskCreatePickerClose.addEventListener("click", closeTaskCreatePicker);
+      els.taskCreatePickerClose._bound = true;
     }
-    if (els.subcomponentCreatePickerCancel && !els.subcomponentCreatePickerCancel._bound) {
-      els.subcomponentCreatePickerCancel.addEventListener("click", closeSubcomponentCreatePicker);
-      els.subcomponentCreatePickerCancel._bound = true;
+    if (els.taskCreatePickerCancel && !els.taskCreatePickerCancel._bound) {
+      els.taskCreatePickerCancel.addEventListener("click", closeTaskCreatePicker);
+      els.taskCreatePickerCancel._bound = true;
     }
-    if (els.subcomponentCreatePickerModal && !els.subcomponentCreatePickerModal._bound) {
-      els.subcomponentCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeSubcomponentCreatePicker);
-      els.subcomponentCreatePickerModal._bound = true;
+    if (els.taskCreatePickerModal && !els.taskCreatePickerModal._bound) {
+      els.taskCreatePickerModal.querySelector(".modal-backdrop")?.addEventListener("click", closeTaskCreatePicker);
+      els.taskCreatePickerModal._bound = true;
     }
-    if (els.subcomponentCreatePickerForm && !els.subcomponentCreatePickerForm._bound) {
-      els.subcomponentCreatePickerForm.addEventListener("submit", (event) => {
+    if (els.taskCreatePickerForm && !els.taskCreatePickerForm._bound) {
+      els.taskCreatePickerForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        const solutionId = (new FormData(els.subcomponentCreatePickerForm).get("solution_id") || "").toString().trim();
+        const solutionId = (new FormData(els.taskCreatePickerForm).get("solution_id") || "").toString().trim();
         const solution = state.solutions.find((row) => row.solution_id === solutionId);
         if (!solution?.solution_id) {
-          setDeliverableFormNotice(els.subcomponentCreatePickerStatus, "Choose a solution first.", "error");
+          setDeliverableFormNotice(els.taskCreatePickerStatus, "Choose a solution first.", "error");
           return;
         }
-        continueSubcomponentCreateForSolution(solution);
+        continueTaskCreateForSolution(solution);
       });
-      els.subcomponentCreatePickerForm._bound = true;
+      els.taskCreatePickerForm._bound = true;
     }
   }
 
   return {
-    bindSubcomponentCreatePicker,
+    bindTaskCreatePicker,
     bindTopbarCreateMenu,
     closeTopbarCreateMenu,
-    closeSubcomponentCreatePicker,
+    closeTaskCreatePicker,
   };
 }

@@ -20,7 +20,7 @@ erDiagram
   TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACE_MEMBERSHIPS : has
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_PROJECTS : scopes
   TB_TA_PM_PROJECTS ||--o{ TB_TA_PM_SOLUTIONS : owns
-  TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SUBCOMPONENTS : owns
+  TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_TASKS : owns
   TB_TA_PM_PHASES ||--o{ TB_TA_PM_SOLUTION_PHASES : configures
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_PHASES : enables
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_TEAMS : scopes
@@ -242,7 +242,7 @@ Special rule:
 
 - Hidden Work Allocation Board projects are excluded from normal project list queries.
 - Project import/export includes `program_id` and `program_name`; imports resolve by `program_id`, then `program_name`, then the default program when both are blank.
-- Updating `Project.program_id` reassigns the project to another active program without changing child solution or subcomponent identifiers.
+- Updating `Project.program_id` reassigns the project to another active program without changing child solution or task identifiers.
 
 #### `TB_TA_PM_SOLUTIONS`
 
@@ -303,11 +303,11 @@ Primary APIs:
 Special rules:
 
 - Hidden Work Allocation Board backlog solutions are excluded from normal solution list queries.
-- Subcomponents inherit an effective GitHub repo URL from their parent solution unless overridden.
+- Tasks inherit an effective GitHub repo URL from their parent solution unless overridden.
 
-#### `TB_TA_PM_SUBCOMPONENTS`
+#### `TB_TA_PM_TASKS`
 
-SQLAlchemy model: `Subcomponent`
+SQLAlchemy model: `Task`
 
 Purpose: execution-level work item under a solution.
 
@@ -315,18 +315,18 @@ Key fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `subcomponent_id` | string PK | Subcomponent identifier. |
+| `task_id` | string PK | Task identifier. |
 | `space_id` | FK spaces | Owning space. |
 | `project_id` | FK projects | Parent project. |
 | `solution_id` | FK solutions | Parent solution. |
-| `subcomponent_name` | string | Work item name. |
+| `task_name` | string | Work item name. |
 | `status` | enum | Work lifecycle status. |
 | `priority` | integer | Priority ranking. |
 | `due_date` | date nullable | Target date. |
 | `completed_at` | datetime nullable | Completion timestamp. |
 | `assignee_user_soeid` | string nullable | Assignee identity link. |
 | `assignee` | string | Assignee display label. |
-| `github_repo_url` | string nullable | Subcomponent repository override. |
+| `github_repo_url` | string nullable | Task repository override. |
 | `estimate_hours` | integer nullable | Estimated effort. |
 | `blocked` | boolean | Blocked flag. |
 | `blocker_note` | text nullable | Blocker explanation. |
@@ -336,20 +336,20 @@ Key fields:
 
 Important constraints:
 
-- Unique `(solution_id, subcomponent_name)`.
+- Unique `(solution_id, task_name)`.
 
 Primary APIs:
 
-- `GET /api/subcomponents`
-- `GET /api/solutions/{solution_id}/subcomponents`
-- `GET /api/subcomponents/{subcomponent_id}`
-- `GET /api/subcomponents/{subcomponent_id}/activity`
-- `POST /api/solutions/{solution_id}/subcomponents`
-- `PATCH /api/subcomponents/{subcomponent_id}`
-- `PATCH /api/subcomponents/actions/batch`
-- `DELETE /api/subcomponents/{subcomponent_id}`
-- `POST /api/subcomponents/import`
-- `GET /api/subcomponents/export`
+- `GET /api/tasks`
+- `GET /api/solutions/{solution_id}/tasks`
+- `GET /api/tasks/{task_id}`
+- `GET /api/tasks/{task_id}/activity`
+- `POST /api/solutions/{solution_id}/tasks`
+- `PATCH /api/tasks/{task_id}`
+- `PATCH /api/tasks/actions/batch`
+- `DELETE /api/tasks/{task_id}`
+- `POST /api/tasks/import`
+- `GET /api/tasks/export`
 
 Derived API fields:
 
@@ -359,7 +359,7 @@ Derived API fields:
 
 Planning board rule:
 
-- Work Allocation Board tasks are persisted as subcomponents under the hidden board solution.
+- Work Allocation Board tasks are persisted as tasks under the hidden board solution.
 
 ### Phase Reference Data
 
@@ -477,7 +477,7 @@ Key fields:
 | --- | --- | --- |
 | `allocation_id` | string PK | Allocation identifier. |
 | `space_id` | FK spaces | Owning space. |
-| `work_item_type` | string | `project`, `solution`, or `subcomponent`. |
+| `work_item_type` | string | `project`, `solution`, or `task`. |
 | `work_item_id` | string | Id of the referenced work item. |
 | `assignee_user_soeid` | string nullable | User assignment. |
 | `assignee` | string nullable | Display label. |
@@ -543,7 +543,7 @@ Key fields:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `change_id` | string PK | Change record id. |
-| `entity_type` | string | Entity category, such as `project`, `solution`, `subcomponent`, `authz`. |
+| `entity_type` | string | Entity category, such as `project`, `solution`, `task`, `authz`. |
 | `entity_id` | string | Entity identifier. |
 | `action` | string | Action, such as `create`, `update`, `delete`, or forbidden action. |
 | `field` | string nullable | Field changed. |
@@ -657,7 +657,7 @@ Primary read APIs:
 
 | Field | Meaning |
 | --- | --- |
-| `tasks` | List of board tasks from subcomponents. |
+| `tasks` | List of board tasks from tasks. |
 | `teams` | List of active teams in the space. |
 | `people` | List of active users with active memberships. |
 | `allocations` | Month-specific assignment rows. |
@@ -666,8 +666,8 @@ Primary read APIs:
 
 | Field | Meaning |
 | --- | --- |
-| `id` | `Subcomponent.subcomponent_id`. |
-| `title` | `Subcomponent.subcomponent_name`. |
+| `id` | `Task.task_id`. |
+| `title` | `Task.task_name`. |
 | `fte_months` | Derived from capacity/estimate hours. |
 | `status` | `backlog` or `assigned` for the selected month. |
 
@@ -720,16 +720,16 @@ flowchart TD
   Cache --> WS["Broadcast projects refresh"]
 ```
 
-### Solution And Subcomponent Flow
+### Solution And Task Flow
 
 ```mermaid
 flowchart TD
   Project["Project"] --> Solution["Solution"]
   Solution --> PhaseConfig["Solution phases"]
-  Solution --> Subcomponent["Subcomponent"]
+  Solution --> Task["Task"]
   Solution --> Repo["Solution GitHub repo URL"]
-  Subcomponent --> EffectiveRepo["Effective repo = override or inherited"]
-  Subcomponent --> Allocation["ResourceAllocation when planned"]
+  Task --> EffectiveRepo["Effective repo = override or inherited"]
+  Task --> Allocation["ResourceAllocation when planned"]
 ```
 
 ### Work Allocation Flow
@@ -739,7 +739,7 @@ flowchart TD
   Board["Planning board UI"] --> BoardApi["/api/planning/work-allocation/board"]
   BoardApi --> HiddenProject["Hidden Work Allocation Board project"]
   HiddenProject --> HiddenSolution["Backlog solution"]
-  HiddenSolution --> Task["Subcomponent task"]
+  HiddenSolution --> Task["Task task"]
   BoardApi --> Person["User + SpaceMembership"]
   BoardApi --> Team["Team"]
   Task --> Assignment["ResourceAllocation"]
@@ -764,7 +764,7 @@ flowchart TD
 - Project names are unique within a space.
 - Team names are unique within a space.
 - Solution names are unique by project and version.
-- Subcomponent names are unique within a solution.
+- Task names are unique within a solution.
 - Space membership is unique by `(space_id, user_id)`.
 - Soft-deleted entities are normally excluded from reads.
 - Work allocation month tokens must use `YYYY-MM`.
@@ -783,7 +783,7 @@ The frontend stores fetched entity arrays in memory:
 | `state.programs` | `/api/programs` | project forms, project filters, hierarchy labels |
 | `state.projects` | `/api/projects` | master, dashboards, Gantt, planning |
 | `state.solutions` | `/api/solutions` | master, dashboards, Gantt, Kanban, Calendar |
-| `state.subcomponents` | `/api/subcomponents` | workbench, PM dashboard, planning |
+| `state.tasks` | `/api/tasks` | workbench, PM dashboard, planning |
 | `state.teams` | `/api/teams` | planning, team capacity |
 | `state.users` | `/api/users` | assignment selectors, governance, dashboards |
 | `state.allocations` | `/api/resource-allocations` | planning, PM dashboard, team capacity |

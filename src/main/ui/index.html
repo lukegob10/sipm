@@ -96,7 +96,7 @@
         <p class="nav-label">Work</p>
         <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
         <button type="button" data-view="planning" class="nav-btn">Planning</button>
-        <button type="button" data-view="subcomponents-workbench" class="nav-btn">Subcomponents</button>
+        <button type="button" data-view="tasks-workbench" class="nav-btn">Tasks</button>
         <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
         <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
       </div>
@@ -135,7 +135,7 @@
               <button type="button" id="topbar-create-program" class="secondary topbar-create-item" role="menuitem">Create Program</button>
               <button type="button" id="topbar-create-project" class="secondary topbar-create-item" role="menuitem">Create Project</button>
               <button type="button" id="topbar-create-solution" class="secondary topbar-create-item" role="menuitem">Create Solution</button>
-              <button type="button" id="topbar-create-subcomponent" class="secondary topbar-create-item" role="menuitem">Create Subcomponent</button>
+              <button type="button" id="topbar-create-task" class="secondary topbar-create-item" role="menuitem">Create Task</button>
             </div>
           </div>
           <div id="space-switcher-shell" class="space-switcher-shell">
@@ -299,15 +299,15 @@
         </div>
       </section>
 
-      <section id="view-subcomponents-workbench" class="view">
+      <section id="view-tasks-workbench" class="view">
         <div class="panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Work / Subcomponents</p>
-              <h2>Subcomponents Workbench</h2>
+              <p class="view-breadcrumb">Work / Tasks</p>
+              <h2>Tasks Workbench</h2>
             </div>
             <div class="panel-actions">
-              <button type="button" id="subcomponents-workbench-clear-filters" class="secondary">Clear Filters</button>
+              <button type="button" id="tasks-workbench-clear-filters" class="secondary">Clear Filters</button>
             </div>
           </div>
 
@@ -323,30 +323,30 @@
             </div>
             <div class="toolbar-group">
               <label class="inline-field">Saved View
-                <select id="subcomponents-workbench-saved-select">
+                <select id="tasks-workbench-saved-select">
                   <option value="">Select</option>
                 </select>
               </label>
-              <input type="text" id="subcomponents-workbench-saved-name" placeholder="View name" />
-              <button type="button" id="subcomponents-workbench-saved-save" class="secondary">Save View</button>
-              <button type="button" id="subcomponents-workbench-saved-delete" class="secondary">Delete</button>
-              <span id="subcomponents-workbench-saved-status" class="muted"></span>
+              <input type="text" id="tasks-workbench-saved-name" placeholder="View name" />
+              <button type="button" id="tasks-workbench-saved-save" class="secondary">Save View</button>
+              <button type="button" id="tasks-workbench-saved-delete" class="secondary">Delete</button>
+              <span id="tasks-workbench-saved-status" class="muted"></span>
             </div>
           </div>
 
-          <div id="subcomponents-workbench-kpis" class="sub-workbench-kpis"></div>
+          <div id="tasks-workbench-kpis" class="task-workbench-kpis"></div>
 
-          <div class="sub-workbench-layout" id="subcomponents-workbench-layout">
-            <section class="sub-workbench-main">
-              <div class="table sub-workbench-filters-wrap">
-                <table class="sub-workbench-filters-table">
+          <div class="task-workbench-layout" id="tasks-workbench-layout">
+            <section class="task-workbench-main">
+              <div class="table task-workbench-filters-wrap">
+                <table class="task-workbench-filters-table">
                   <colgroup>
-                    <col class="sub-workbench-filter-search" />
-                    <col class="sub-workbench-filter-project" />
-                    <col class="sub-workbench-filter-solution" />
-                    <col class="sub-workbench-filter-assignee" />
-                    <col class="sub-workbench-filter-status" />
-                    <col class="sub-workbench-filter-priority" />
+                    <col class="task-workbench-filter-search" />
+                    <col class="task-workbench-filter-project" />
+                    <col class="task-workbench-filter-solution" />
+                    <col class="task-workbench-filter-assignee" />
+                    <col class="task-workbench-filter-status" />
+                    <col class="task-workbench-filter-priority" />
                   </colgroup>
                   <thead>
                     <tr>
@@ -358,24 +358,24 @@
                       <th>Priority (max)</th>
                     </tr>
                     <tr class="filter-row">
-                      <td><input class="table-filter" type="text" id="subcomponents-workbench-search" placeholder="Task, project, solution, assignee" /></td>
+                      <td><input class="table-filter" type="text" id="tasks-workbench-search" placeholder="Task, project, solution, assignee" /></td>
                       <td>
-                        <select id="subcomponents-workbench-project">
+                        <select id="tasks-workbench-project">
                           <option value="">All Projects</option>
                         </select>
                       </td>
                       <td>
-                        <select id="subcomponents-workbench-solution">
+                        <select id="tasks-workbench-solution">
                           <option value="">All Solutions</option>
                         </select>
                       </td>
                       <td>
-                        <select id="subcomponents-workbench-assignee">
+                        <select id="tasks-workbench-assignee">
                           <option value="">Any</option>
                         </select>
                       </td>
                       <td>
-                        <select id="subcomponents-workbench-status">
+                        <select id="tasks-workbench-status">
                           <option value="">Any</option>
                           <option value="to_do">To do</option>
                           <option value="in_progress">In progress</option>
@@ -384,19 +384,19 @@
                           <option value="abandoned">Abandoned</option>
                         </select>
                       </td>
-                      <td><input class="table-filter" type="number" id="subcomponents-workbench-priority" min="1" max="5" placeholder="e.g. 2" /></td>
+                      <td><input class="table-filter" type="number" id="tasks-workbench-priority" min="1" max="5" placeholder="e.g. 2" /></td>
                     </tr>
                   </thead>
                 </table>
               </div>
               <div class="panel-toolbar compact">
                 <div class="toolbar-group">
-                  <span id="subcomponents-workbench-selection-count" class="muted">0 selected</span>
+                  <span id="tasks-workbench-selection-count" class="muted">0 selected</span>
                   <span class="muted">Shortcuts: <code>↑</code>/<code>↓</code> navigate, <code>e</code> edit, <code>Delete</code> remove selected, <code>/</code> search, <code>Esc</code> close edit</span>
                 </div>
                 <div class="toolbar-group">
                   <label class="inline-field">Bulk
-                    <select id="subcomponents-workbench-bulk-action">
+                    <select id="tasks-workbench-bulk-action">
                       <option value="">Select Action</option>
                       <option value="status">Set Status</option>
                       <option value="assignee">Reassign</option>
@@ -404,38 +404,38 @@
                       <option value="delete">Delete Selected</option>
                     </select>
                   </label>
-                  <select id="subcomponents-workbench-bulk-status" class="hidden">
+                  <select id="tasks-workbench-bulk-status" class="hidden">
                     <option value="to_do">To do</option>
                     <option value="in_progress">In progress</option>
                     <option value="on_hold">On hold</option>
                     <option value="complete">Complete</option>
                     <option value="abandoned">Abandoned</option>
                   </select>
-                  <select id="subcomponents-workbench-bulk-assignee" class="hidden">
+                  <select id="tasks-workbench-bulk-assignee" class="hidden">
                     <option value="">Unassigned</option>
                   </select>
-                  <input id="subcomponents-workbench-bulk-shift" class="hidden" type="number" step="1" placeholder="Days (e.g. 3 or -2)" />
-                  <button type="button" id="subcomponents-workbench-bulk-apply" class="secondary">Apply</button>
-                  <span id="subcomponents-workbench-bulk-feedback" class="form-notice" role="status" aria-live="polite"></span>
+                  <input id="tasks-workbench-bulk-shift" class="hidden" type="number" step="1" placeholder="Days (e.g. 3 or -2)" />
+                  <button type="button" id="tasks-workbench-bulk-apply" class="secondary">Apply</button>
+                  <span id="tasks-workbench-bulk-feedback" class="form-notice" role="status" aria-live="polite"></span>
                 </div>
               </div>
-              <div id="subcomponents-workbench-table" class="table"></div>
+              <div id="tasks-workbench-table" class="table"></div>
             </section>
 
-            <aside class="sub-workbench-drawer" id="subcomponents-workbench-drawer">
+            <aside class="task-workbench-drawer" id="tasks-workbench-drawer">
               <div class="drawer-panel">
                 <div class="drawer-head">
                   <h3>Quick Edit</h3>
                   <div class="toolbar-group">
-                    <button type="button" class="secondary" id="subcomponents-workbench-reset">Reset</button>
-                    <button type="button" class="secondary" id="subcomponents-workbench-close">Close</button>
+                    <button type="button" class="secondary" id="tasks-workbench-reset">Reset</button>
+                    <button type="button" class="secondary" id="tasks-workbench-close">Close</button>
                   </div>
                 </div>
-                <p id="subcomponents-workbench-context" class="form-hint muted">Select a subcomponent to edit.</p>
-                <form id="subcomponents-workbench-form" class="form compact">
-                  <input type="hidden" name="subcomponent_id" />
+                <p id="tasks-workbench-context" class="form-hint muted">Select a task to edit.</p>
+                <form id="tasks-workbench-form" class="form compact">
+                  <input type="hidden" name="task_id" />
                   <label class="full-span">Task
-                    <input type="text" name="subcomponent_name" required />
+                    <input type="text" name="task_name" required />
                   </label>
                   <label>Status
                     <select name="status">
@@ -456,12 +456,12 @@
                   <label class="full-span">Blocker Note <textarea name="blocker_note" rows="3"></textarea></label>
                   <div class="form-actions full-span">
                     <button type="submit">Save Changes</button>
-                    <button type="button" id="subcomponents-workbench-delete" class="primary danger" disabled>Delete</button>
+                    <button type="button" id="tasks-workbench-delete" class="primary danger" disabled>Delete</button>
                   </div>
-                  <p id="subcomponents-workbench-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+                  <p id="tasks-workbench-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
                 </form>
                 <h4>Activity</h4>
-                <div id="subcomponents-workbench-activity" class="activity-list"></div>
+                <div id="tasks-workbench-activity" class="activity-list"></div>
               </div>
             </aside>
           </div>
@@ -626,7 +626,7 @@
             <div class="modal-tabs">
               <button class="tab active" data-tab="details" type="button">Details</button>
               <button class="tab" data-tab="phases" type="button">Phases</button>
-              <button class="tab" data-tab="subcomponents" type="button">Subcomponents</button>
+              <button class="tab" data-tab="tasks" type="button">Tasks</button>
               <button class="tab" data-tab="activity" type="button">Activity</button>
             </div>
           </div>
@@ -708,28 +708,28 @@
                 <div id="phases-table" class="table"></div>
               </div>
             </div>
-            <div class="modal-tab" data-tab-panel="subcomponents">
-              <div class="subcomponent-tab-scroll">
-                <div class="subcomponent-header">
-                  <h3>Subcomponents</h3>
-                  <div class="subcomponent-actions">
-                    <button id="subcomponent-view-toggle" class="secondary" type="button">Swimlane View</button>
-                    <button id="show-subcomponent-form" class="secondary" type="button">Add Subcomponent</button>
+            <div class="modal-tab" data-tab-panel="tasks">
+              <div class="task-tab-scroll">
+                <div class="task-header">
+                  <h3>Tasks</h3>
+                  <div class="task-actions">
+                    <button id="task-view-toggle" class="secondary" type="button">Swimlane View</button>
+                    <button id="show-task-form" class="secondary" type="button">Add Task</button>
                   </div>
                 </div>
-                <div id="solution-subcomponent-table" class="table"></div>
-                <form id="subcomponent-form" class="form compact hidden">
-                  <h3 class="form-title">Subcomponent Details</h3>
+                <div id="solution-task-table" class="table"></div>
+                <form id="task-form" class="form compact hidden">
+                  <h3 class="form-title">Task Details</h3>
                   <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
-                  <input type="hidden" name="subcomponent_id" />
+                  <input type="hidden" name="task_id" />
                   <input type="hidden" name="project_id" />
                   <input type="hidden" name="solution_id" />
-                  <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="subcomponent_name" required /></label>
+                  <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="task_name" required /></label>
                   <label class="full-span">GitHub Repo Override
                     <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
                   </label>
                   <p class="form-hint full-span">Leave blank to inherit the solution repo.</p>
-                  <p id="subcomponent-repo-preview" class="form-hint full-span">No solution repo set.</p>
+                  <p id="task-repo-preview" class="form-hint full-span">No solution repo set.</p>
                   <label>Priority
                     <input type="number" name="priority" min="0" max="5" value="3" />
                   </label>
@@ -754,13 +754,13 @@
                   <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
                 </form>
               </div>
-              <div id="subcomponent-form-footer" class="modal-form-footer full-span hidden">
+              <div id="task-form-footer" class="modal-form-footer full-span hidden">
                 <div class="form-actions">
-                  <button type="submit" id="subcomponent-submit-btn" form="subcomponent-form">Create Subcomponent</button>
-                  <button type="reset" class="secondary" form="subcomponent-form">Reset</button>
-                  <button type="button" id="delete-subcomponent" class="secondary" disabled>Delete</button>
+                  <button type="submit" id="task-submit-btn" form="task-form">Create Task</button>
+                  <button type="reset" class="secondary" form="task-form">Reset</button>
+                  <button type="button" id="delete-task" class="secondary" disabled>Delete</button>
                 </div>
-                <p id="subcomponent-form-status" class="form-notice" role="status" aria-live="polite"></p>
+                <p id="task-form-status" class="form-notice" role="status" aria-live="polite"></p>
               </div>
             </div>
             <div class="modal-tab" data-tab-panel="activity">
@@ -790,24 +790,24 @@
         </div>
       </div>
 
-      <div id="subcomponent-create-picker-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="subcomponent-create-picker-title">
+      <div id="task-create-picker-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="task-create-picker-title">
         <div class="modal-backdrop"></div>
         <div class="modal-content">
           <div class="modal-header">
-            <h3 id="subcomponent-create-picker-title">Create Subcomponent</h3>
-            <button type="button" id="subcomponent-create-picker-close" class="secondary modal-close-x" aria-label="Close subcomponent picker" title="Close">×</button>
+            <h3 id="task-create-picker-title">Create Task</h3>
+            <button type="button" id="task-create-picker-close" class="secondary modal-close-x" aria-label="Close task picker" title="Close">×</button>
           </div>
           <div class="modal-body">
-            <form id="subcomponent-create-picker-form" class="form compact">
-              <p class="form-hint full-span">Choose the solution that should own the new subcomponent.</p>
+            <form id="task-create-picker-form" class="form compact">
+              <p class="form-hint full-span">Choose the solution that should own the new task.</p>
               <label class="full-span"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span>
-                <select id="subcomponent-create-picker-select" name="solution_id" required></select>
+                <select id="task-create-picker-select" name="solution_id" required></select>
               </label>
               <div class="form-actions full-span">
                 <button type="submit" class="primary">Continue</button>
-                <button type="button" id="subcomponent-create-picker-cancel" class="secondary">Cancel</button>
+                <button type="button" id="task-create-picker-cancel" class="secondary">Cancel</button>
               </div>
-              <p id="subcomponent-create-picker-status" class="form-notice full-span" role="status" aria-live="polite"></p>
+              <p id="task-create-picker-status" class="form-notice full-span" role="status" aria-live="polite"></p>
             </form>
           </div>
         </div>

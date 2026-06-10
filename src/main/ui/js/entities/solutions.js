@@ -55,14 +55,14 @@ export function createSolutionEntityController({
   renderCalendar,
   renderGantt,
   renderSolutionPhases,
-  renderSolutionSubcomponents,
+  renderSolutionTasks,
   renderSolutionActivity,
-  setSubcomponentFormVisibility,
-  setSubcomponentActionButtonLabel,
+  setTaskFormVisibility,
+  setTaskActionButtonLabel,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   updateCurrentPhaseOptions,
-  updateSubcomponentRepoPreview,
+  updateTaskRepoPreview,
   setSolutionTab,
   timestampLabel,
   showConfirmModal,
@@ -114,36 +114,36 @@ export function createSolutionEntityController({
     }
   }
 
-  function setSubcomponentCreateAvailability(solutionId) {
-    if (!els.showSubcomponentFormBtn) return;
+  function setTaskCreateAvailability(solutionId) {
+    if (!els.showTaskFormBtn) return;
     const hasSolution = !!String(solutionId || "").trim();
-    els.showSubcomponentFormBtn.disabled = !hasSolution;
-    els.showSubcomponentFormBtn.title = hasSolution
+    els.showTaskFormBtn.disabled = !hasSolution;
+    els.showTaskFormBtn.title = hasSolution
       ? "Add a task to this solution"
-      : "Save the solution before adding subcomponents.";
+      : "Save the solution before adding tasks.";
   }
 
   function openSolutionModal(solution = null, tab = "details") {
     if (!els.solutionModal) return;
     fillSolutionForm(solution);
     setSolutionActionButtonLabel(!!solution?.solution_id);
-    setSubcomponentCreateAvailability(solution?.solution_id || "");
-    if (els.subcomponentForm) {
-      setSubcomponentFormVisibility(false);
-      setSubcomponentActionButtonLabel(false);
+    setTaskCreateAvailability(solution?.solution_id || "");
+    if (els.taskForm) {
+      setTaskFormVisibility(false);
+      setTaskActionButtonLabel(false);
     }
     els.solutionModal.classList.remove("hidden");
-    if (els.subcomponentViewToggle) {
-      els.subcomponentViewToggle.textContent = state.subcomponentView === "table" ? "Swimlane View" : "Table View";
+    if (els.taskViewToggle) {
+      els.taskViewToggle.textContent = state.taskView === "table" ? "Swimlane View" : "Table View";
     }
     setSolutionTab(tab);
     if (solution?.solution_id) {
       renderSolutionPhases(solution.solution_id);
-      renderSolutionSubcomponents(solution.solution_id);
+      renderSolutionTasks(solution.solution_id);
       renderSolutionActivity(solution.solution_id);
     } else {
       if (els.phasesTable) els.phasesTable.innerHTML = "<p class='muted'>Save the solution to manage phases.</p>";
-      if (els.solutionSubcomponentTable) els.solutionSubcomponentTable.innerHTML = "<p class='muted'>Save the solution to add subcomponents.</p>";
+      if (els.solutionTaskTable) els.solutionTaskTable.innerHTML = "<p class='muted'>Save the solution to add tasks.</p>";
       if (els.solutionActivity) els.solutionActivity.innerHTML = "<p class='muted'>Save the solution to see activity.</p>";
     }
   }
@@ -152,12 +152,12 @@ export function createSolutionEntityController({
     if (!els.solutionModal) return;
     fillSolutionForm(null);
     setSolutionActionButtonLabel(false);
-    setSubcomponentCreateAvailability("");
+    setTaskCreateAvailability("");
     els.solutionModal.classList.add("hidden");
     setSolutionTab("details");
-    if (els.subcomponentForm) {
-      setSubcomponentFormVisibility(false);
-      setSubcomponentActionButtonLabel(false);
+    if (els.taskForm) {
+      setTaskFormVisibility(false);
+      setTaskActionButtonLabel(false);
     }
   }
 
@@ -193,14 +193,14 @@ export function createSolutionEntityController({
         upsertById(state.solutions, saved, "solution_id");
         populateSelects();
         fillSolutionForm(saved);
-        if (els.subcomponentForm && !els.subcomponentForm.classList.contains("hidden")) {
-          const activeOverride = els.subcomponentForm.querySelector('[name="github_repo_url"]')?.value || "";
-          updateSubcomponentRepoPreview(saved.solution_id, activeOverride);
+        if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
+          const activeOverride = els.taskForm.querySelector('[name="github_repo_url"]')?.value || "";
+          updateTaskRepoPreview(saved.solution_id, activeOverride);
         }
         setSolutionActionButtonLabel(true);
         renderActiveView();
         renderSolutionPhases(saved.solution_id);
-        renderSolutionSubcomponents(saved.solution_id);
+        renderSolutionTasks(saved.solution_id);
         renderSolutionActivity(saved.solution_id);
         const successMessage = isEditing
           ? `Saved solution at ${timestampLabel()}.`
@@ -284,6 +284,6 @@ export function createSolutionEntityController({
     bindSolutionForm,
     closeSolutionModal,
     openSolutionModal,
-    setSubcomponentCreateAvailability,
+    setTaskCreateAvailability,
   };
 }

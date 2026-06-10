@@ -7,11 +7,11 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..models import AgentChangeRequest, Project, Solution, Subcomponent, User
+from ..models import AgentChangeRequest, Project, Solution, Task, User
 from ..routes._mutations import publish_space_mutation
 from ..routes.projects.common import _project_query
 from ..routes.solutions.common import _solution_query
-from ..routes.subcomponents.common import _subcomponent_query
+from ..routes.tasks.common import _task_query
 from ..schemas.agent import (
     AgentChangeRequestBulkReviewResult,
     AgentChangeRequestDiffItem,
@@ -83,8 +83,8 @@ def _entity_label(row: Any, entity: str) -> str | None:
         return getattr(row, "project_name", None)
     if entity == "solution":
         return getattr(row, "solution_name", None)
-    if entity == "subcomponent":
-        return getattr(row, "subcomponent_name", None)
+    if entity == "task":
+        return getattr(row, "task_name", None)
     return None
 
 
@@ -105,10 +105,10 @@ def _entity_row(
             .filter(Solution.solution_id == operation.id)
             .first()
         )
-    if operation.entity == "subcomponent" and operation.id:
+    if operation.entity == "task" and operation.id:
         return (
-            _subcomponent_query(session, space_ctx)
-            .filter(Subcomponent.subcomponent_id == operation.id)
+            _task_query(session, space_ctx)
+            .filter(Task.task_id == operation.id)
             .first()
         )
     return None

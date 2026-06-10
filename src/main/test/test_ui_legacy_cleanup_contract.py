@@ -12,14 +12,14 @@ def test_removed_legacy_function_defs_are_not_present():
         "function tableFrom(",
         "function bindProjectListClicks(",
         "function bindSolutionListClicks(",
-        "function bindSubcomponentListClicks(",
+        "function bindTaskListClicks(",
         "function bindTeamSettings(",
         "function renderPriorityLane(",
         "function renderCapacityPanel(",
         "function renderReportingPanel(",
         "function renderProjects(",
         "function renderSolutions(",
-        "function renderSubcomponents(",
+        "function renderTasks(",
     ]
     for marker in removed:
         assert marker not in text
@@ -30,11 +30,11 @@ def test_stale_legacy_els_references_are_not_present():
     removed_refs = [
         "els.projectList",
         "els.solutionList",
-        "els.subcomponentList",
-        "els.subcomponentsDownload",
-        "els.subcomponentsUpload",
-        "els.subcomponentsFile",
-        "els.subcomponentsImportResult",
+        "els.taskList",
+        "els.tasksDownload",
+        "els.tasksUpload",
+        "els.tasksFile",
+        "els.tasksImportResult",
         "els.priorityLanePanel",
         "els.capacityPanel",
         "els.reportingPanel",
@@ -48,7 +48,7 @@ def test_legacy_list_view_mount_points_not_present_in_html():
     removed_ids = [
         'id="project-list"',
         'id="solution-list"',
-        'id="subcomponent-list"',
+        'id="task-list"',
     ]
     for marker in removed_ids:
         assert marker not in text

@@ -17,7 +17,7 @@ router = APIRouter()
     "/work-graph",
     response_model=AgentWorkGraphRead,
     operation_id="agent_get_work_graph",
-    summary="Get scoped project solution subcomponent graph",
+    summary="Get scoped project solution task graph",
 )
 def get_agent_work_graph(
     project_id: str | None = None,

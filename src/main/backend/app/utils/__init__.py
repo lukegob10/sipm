@@ -6,9 +6,9 @@ from datetime import date, datetime, timezone
 from io import StringIO
 from typing import Any, Optional, Sequence, Tuple, Type, TypeVar
 
-from .enums import ProjectStatus, SolutionStatus, SubcomponentStatus
+from .enums import ProjectStatus, SolutionStatus, TaskStatus
 
-EnumType = TypeVar("EnumType", ProjectStatus, SolutionStatus, SubcomponentStatus)
+EnumType = TypeVar("EnumType", ProjectStatus, SolutionStatus, TaskStatus)
 
 
 def get_default_user_id() -> str:

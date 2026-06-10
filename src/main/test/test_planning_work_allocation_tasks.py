@@ -1,7 +1,7 @@
 import pytest
 
 
-async def create_regular_subcomponent(client, name: str, capacity_hours: int = 80):
+async def create_regular_task(client, name: str, capacity_hours: int = 80):
     project_resp = await client.post(
         "/project-manager/api/projects/",
         json={"project_name": f"{name} Project"},
@@ -16,27 +16,27 @@ async def create_regular_subcomponent(client, name: str, capacity_hours: int = 8
     assert solution_resp.status_code == 201, solution_resp.text
     solution_id = solution_resp.json()["solution_id"]
 
-    subcomponent_resp = await client.post(
-        f"/project-manager/api/solutions/{solution_id}/subcomponents",
+    task_resp = await client.post(
+        f"/project-manager/api/solutions/{solution_id}/tasks",
         json={
-            "subcomponent_name": name,
+            "task_name": name,
             "estimate_hours": capacity_hours,
             "capacity_hours": capacity_hours,
         },
     )
-    assert subcomponent_resp.status_code == 201, subcomponent_resp.text
-    return subcomponent_resp.json()
+    assert task_resp.status_code == 201, task_resp.text
+    return task_resp.json()
 
 
 @pytest.mark.anyio
-async def test_planning_task_list_includes_regular_subcomponents(client):
-    subcomponent = await create_regular_subcomponent(client, "Planning Visible Task")
+async def test_planning_task_list_includes_regular_tasks(client):
+    task = await create_regular_task(client, "Planning Visible Task")
 
     response = await client.get("/project-manager/api/planning/work-allocation/tasks?month=2026-03")
     assert response.status_code == 200, response.text
 
     rows = response.json()
-    task = next((row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next((row for row in rows if row["id"] == task["task_id"]), None)
     assert task is not None
     assert task["title"] == "Planning Visible Task"
     assert task["fte_months"] == pytest.approx(0.5, abs=1e-6)
@@ -44,8 +44,8 @@ async def test_planning_task_list_includes_regular_subcomponents(client):
 
 
 @pytest.mark.anyio
-async def test_planning_allocation_can_target_regular_subcomponents(client):
-    subcomponent = await create_regular_subcomponent(client, "Planning Assigned Task")
+async def test_planning_allocation_can_target_regular_tasks(client):
+    task = await create_regular_task(client, "Planning Assigned Task")
 
     team_resp = await client.post(
         "/project-manager/api/planning/work-allocation/teams",
@@ -57,7 +57,7 @@ async def test_planning_allocation_can_target_regular_subcomponents(client):
     allocation_resp = await client.post(
         "/project-manager/api/planning/work-allocation/allocations",
         json={
-            "task_id": subcomponent["subcomponent_id"],
+            "task_id": task["task_id"],
             "assignee_type": "team",
             "assignee_id": team_id,
             "month": "2026-03",
@@ -66,14 +66,14 @@ async def test_planning_allocation_can_target_regular_subcomponents(client):
     )
     assert allocation_resp.status_code == 201, allocation_resp.text
     allocation = allocation_resp.json()
-    assert allocation["task_id"] == subcomponent["subcomponent_id"]
+    assert allocation["task_id"] == task["task_id"]
     assert allocation["assignee_type"] == "team"
     assert allocation["assignee_id"] == team_id
 
     tasks_resp = await client.get("/project-manager/api/planning/work-allocation/tasks?month=2026-03")
     assert tasks_resp.status_code == 200, tasks_resp.text
     rows = tasks_resp.json()
-    task = next((row for row in rows if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next((row for row in rows if row["id"] == task["task_id"]), None)
     assert task is not None
     assert task["status"] == "assigned"
 
@@ -85,7 +85,7 @@ async def test_planning_allocation_can_target_regular_subcomponents(client):
 
 @pytest.mark.anyio
 async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocations(client):
-    subcomponent = await create_regular_subcomponent(client, "Planning Snapshot Task", capacity_hours=120)
+    created_task = await create_regular_task(client, "Planning Snapshot Task", capacity_hours=120)
 
     team_resp = await client.post(
         "/project-manager/api/planning/work-allocation/teams",
@@ -97,7 +97,7 @@ async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocation
     allocation_resp = await client.post(
         "/project-manager/api/planning/work-allocation/allocations",
         json={
-            "task_id": subcomponent["subcomponent_id"],
+            "task_id": created_task["task_id"],
             "assignee_type": "team",
             "assignee_id": team["id"],
             "month": "2026-03",
@@ -112,19 +112,19 @@ async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocation
 
     payload = response.json()
     assert set(payload) == {"tasks", "teams", "people", "allocations"}
-    task = next((row for row in payload["tasks"] if row["id"] == subcomponent["subcomponent_id"]), None)
+    task = next((row for row in payload["tasks"] if row["id"] == created_task["task_id"]), None)
     assert task is not None
     assert task["title"] == "Planning Snapshot Task"
     assert task["fte_months"] == pytest.approx(0.75, abs=1e-6)
     assert task["status"] == "assigned"
     assert any(row["id"] == team["id"] and row["name"] == "Snapshot Team" for row in payload["teams"])
-    assert any(row["id"] == allocation["id"] and row["task_id"] == subcomponent["subcomponent_id"] for row in payload["allocations"])
+    assert any(row["id"] == allocation["id"] and row["task_id"] == created_task["task_id"] for row in payload["allocations"])
     assert isinstance(payload["people"], list)
 
 
 @pytest.mark.anyio
 async def test_planning_allocation_can_move_between_teams_and_people(client):
-    subcomponent = await create_regular_subcomponent(client, "Planning Reassigned Task")
+    task = await create_regular_task(client, "Planning Reassigned Task")
 
     first_team_resp = await client.post(
         "/project-manager/api/planning/work-allocation/teams",
@@ -150,7 +150,7 @@ async def test_planning_allocation_can_move_between_teams_and_people(client):
     allocation_resp = await client.post(
         "/project-manager/api/planning/work-allocation/allocations",
         json={
-            "task_id": subcomponent["subcomponent_id"],
+            "task_id": task["task_id"],
             "assignee_type": "team",
             "assignee_id": first_team_id,
             "month": "2026-03",
@@ -166,7 +166,7 @@ async def test_planning_allocation_can_move_between_teams_and_people(client):
     )
     assert moved_team_resp.status_code == 200, moved_team_resp.text
     moved_team = moved_team_resp.json()
-    assert moved_team["task_id"] == subcomponent["subcomponent_id"]
+    assert moved_team["task_id"] == task["task_id"]
     assert moved_team["assignee_type"] == "team"
     assert moved_team["assignee_id"] == second_team_id
 
@@ -176,13 +176,13 @@ async def test_planning_allocation_can_move_between_teams_and_people(client):
     )
     assert moved_person_resp.status_code == 200, moved_person_resp.text
     moved_person = moved_person_resp.json()
-    assert moved_person["task_id"] == subcomponent["subcomponent_id"]
+    assert moved_person["task_id"] == task["task_id"]
     assert moved_person["assignee_type"] == "person"
     assert moved_person["assignee_id"] == person_id
 
     allocations_resp = await client.get("/project-manager/api/planning/work-allocation/allocations?month=2026-03")
     assert allocations_resp.status_code == 200, allocations_resp.text
-    task_allocations = [row for row in allocations_resp.json() if row["task_id"] == subcomponent["subcomponent_id"]]
+    task_allocations = [row for row in allocations_resp.json() if row["task_id"] == task["task_id"]]
     assert len(task_allocations) == 1
     assert task_allocations[0]["assignee_type"] == "person"
     assert task_allocations[0]["assignee_id"] == person_id

@@ -198,7 +198,7 @@ def main() -> int:
 
     sub.add_parser("list-spaces", help="List spaces accessible to the token")
 
-    graph = sub.add_parser("work-graph", help="Read scoped project/solution/subcomponent context")
+    graph = sub.add_parser("work-graph", help="Read scoped project/solution/task context")
     graph.add_argument("--space", help="Space name, slug, or ID")
     graph.add_argument("--project-id")
     graph.add_argument("--solution-id")

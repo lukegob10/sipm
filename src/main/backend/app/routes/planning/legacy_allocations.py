@@ -14,7 +14,7 @@ from ...deps import (
     get_db,
     require_space_role,
 )
-from ...models import PlanningWindow, Project, ResourceAllocation, Solution, Subcomponent, Team, User
+from ...models import PlanningWindow, Project, ResourceAllocation, Solution, Task, Team, User
 from ...schemas import (
     PlanningWindowCreate,
     PlanningWindowRead,
@@ -56,7 +56,7 @@ _ALLOCATION_EXPORT_FIELDNAMES = [
     "project_name",
     "solution_name",
     "version",
-    "subcomponent_name",
+    "task_name",
     "assignee",
     "assignee_user_soeid",
     "team_name",
@@ -113,15 +113,15 @@ def _solution_by_natural_key(
     )
 
 
-def _subcomponent_by_natural_key(
+def _task_by_natural_key(
     session: Session,
     space_ctx: SpaceContext,
     *,
     project_name: str,
     solution_name: str,
     version: str,
-    subcomponent_name: str,
-) -> Subcomponent | None:
+    task_name: str,
+) -> Task | None:
     solution = _solution_by_natural_key(
         session,
         space_ctx,
@@ -132,11 +132,11 @@ def _subcomponent_by_natural_key(
     if not solution:
         return None
     return (
-        session.query(Subcomponent)
-        .filter(Subcomponent.deleted_at.is_(None))
-        .filter(Subcomponent.space_id == space_ctx.space_id)
-        .filter(Subcomponent.solution_id == solution.solution_id)
-        .filter(func.lower(Subcomponent.subcomponent_name) == subcomponent_name.lower())
+        session.query(Task)
+        .filter(Task.deleted_at.is_(None))
+        .filter(Task.space_id == space_ctx.space_id)
+        .filter(Task.solution_id == solution.solution_id)
+        .filter(func.lower(Task.task_name) == task_name.lower())
         .first()
     )
 
@@ -147,7 +147,7 @@ def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row
     project_name = normalize_str(row.get("project_name"))
     solution_name = normalize_str(row.get("solution_name"))
     version = normalize_str(row.get("version")) or "0.1.0"
-    subcomponent_name = normalize_str(row.get("subcomponent_name"))
+    task_name = normalize_str(row.get("task_name"))
     if work_item_type == "project" and project_name:
         project = _project_by_name(session, space_ctx, project_name)
         if not project:
@@ -166,20 +166,20 @@ def _resolve_allocation_work_item(session: Session, space_ctx: SpaceContext, row
                 f"Row {row_num}: solution '{solution_name}' version '{version}' for project '{project_name}' does not exist"
             )
         return solution.solution_id
-    if work_item_type == "subcomponent" and project_name and solution_name and subcomponent_name:
-        subcomponent = _subcomponent_by_natural_key(
+    if work_item_type == "task" and project_name and solution_name and task_name:
+        task = _task_by_natural_key(
             session,
             space_ctx,
             project_name=project_name,
             solution_name=solution_name,
             version=version,
-            subcomponent_name=subcomponent_name,
+            task_name=task_name,
         )
-        if not subcomponent:
+        if not task:
             raise ValueError(
-                f"Row {row_num}: subcomponent '{subcomponent_name}' for solution '{solution_name}' does not exist"
+                f"Row {row_num}: task '{task_name}' for solution '{solution_name}' does not exist"
             )
-        return subcomponent.subcomponent_id
+        return task.task_id
     if work_item_id:
         return work_item_id
     raise ValueError(f"Row {row_num}: work item natural key or work_item_id is required")
@@ -268,11 +268,11 @@ def export_resource_allocations(
         row.solution_id: row
         for row in session.query(Solution).filter(Solution.deleted_at.is_(None)).filter(Solution.space_id == space_ctx.space_id).all()
     }
-    subcomponent_map = {
-        row.subcomponent_id: row
-        for row in session.query(Subcomponent)
-        .filter(Subcomponent.deleted_at.is_(None))
-        .filter(Subcomponent.space_id == space_ctx.space_id)
+    task_map = {
+        row.task_id: row
+        for row in session.query(Task)
+        .filter(Task.deleted_at.is_(None))
+        .filter(Task.space_id == space_ctx.space_id)
         .all()
     }
     team_map = {
@@ -285,7 +285,7 @@ def export_resource_allocations(
     }
     rows = []
     for alloc in allocations:
-        project_name = solution_name = version = subcomponent_name = ""
+        project_name = solution_name = version = task_name = ""
         if alloc.work_item_type == "project":
             project = project_map.get(alloc.work_item_id)
             project_name = project.project_name if project else ""
@@ -296,15 +296,15 @@ def export_resource_allocations(
                 project_name = project.project_name if project else ""
                 solution_name = solution.solution_name
                 version = solution.version
-        elif alloc.work_item_type == "subcomponent":
-            subcomponent = subcomponent_map.get(alloc.work_item_id)
-            if subcomponent:
-                project = project_map.get(subcomponent.project_id)
-                solution = solution_map.get(subcomponent.solution_id)
+        elif alloc.work_item_type == "task":
+            task = task_map.get(alloc.work_item_id)
+            if task:
+                project = project_map.get(task.project_id)
+                solution = solution_map.get(task.solution_id)
                 project_name = project.project_name if project else ""
                 solution_name = solution.solution_name if solution else ""
                 version = solution.version if solution else ""
-                subcomponent_name = subcomponent.subcomponent_name
+                task_name = task.task_name
         payload = allocation_to_payload(alloc)
         rows.append(
             {
@@ -313,7 +313,7 @@ def export_resource_allocations(
                 "project_name": project_name,
                 "solution_name": solution_name,
                 "version": version,
-                "subcomponent_name": subcomponent_name,
+                "task_name": task_name,
                 "assignee": alloc.assignee or "",
                 "assignee_user_soeid": alloc.assignee_user_soeid or "",
                 "team_name": team_map.get(alloc.team_id, ""),
@@ -345,8 +345,8 @@ def import_resource_allocations(
     for idx, row in enumerate(rows, start=2):
         try:
             work_item_type = normalize_str(row.get("work_item_type")).lower()
-            if work_item_type not in {"project", "solution", "subcomponent"}:
-                raise ValueError(f"Row {idx}: work_item_type must be project, solution, or subcomponent")
+            if work_item_type not in {"project", "solution", "task"}:
+                raise ValueError(f"Row {idx}: work_item_type must be project, solution, or task")
             work_item_id = _resolve_allocation_work_item(session, space_ctx, row, idx)
             month_value = parse_date(row.get("month_start"))
             if month_value is None:

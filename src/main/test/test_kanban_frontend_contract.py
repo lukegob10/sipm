@@ -111,7 +111,7 @@ def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
 def test_kanban_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_solution_owner():
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeSubcomponents = false } = {}) {" in text
+    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {" in text
     assert 'const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });' in text
     assert 'filterState.owner = "";' in text
     assert "if (kanbanOwnerFilterChanged) {" in text

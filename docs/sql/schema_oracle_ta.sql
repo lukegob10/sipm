@@ -390,6 +390,25 @@ CREATE TABLE "TB_TA_PM_SOLUTIONS" (
 	FOREIGN KEY(project_id) REFERENCES "TB_TA_PM_PROJECTS" (project_id)
 );
 
+-- Table: TB_TA_PM_SOLUTION_DOCUMENTS
+
+CREATE TABLE "TB_TA_PM_SOLUTION_DOCUMENTS" (
+	document_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	solution_id VARCHAR2(255 CHAR) NOT NULL,
+	filename VARCHAR2(1024 CHAR) NOT NULL,
+	content_type VARCHAR2(255 CHAR),
+	size_bytes INTEGER NOT NULL,
+	content BLOB NOT NULL,
+	uploaded_by_user_id VARCHAR2(255 CHAR) NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (document_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id)
+);
+
 -- Table: TB_TA_PM_TEAM_MEMBERS
 
 CREATE TABLE "TB_TA_PM_TEAM_MEMBERS" (
@@ -631,6 +650,18 @@ CREATE INDEX "ix_TB_TA_PM_SOLUTIONS_space_id" ON "TB_TA_PM_SOLUTIONS" (space_id)
 
 -- Index: ix_TB_TA_PM_SOLUTIONS_status
 CREATE INDEX "ix_TB_TA_PM_SOLUTIONS_status" ON "TB_TA_PM_SOLUTIONS" (status);
+
+-- Index: ix_TB_TA_PM_SOLUTION_DOCUMENTS_deleted_at
+CREATE INDEX "ix_TB_TA_PM_SOLUTION_DOCUMENTS_deleted_at" ON "TB_TA_PM_SOLUTION_DOCUMENTS" (deleted_at);
+
+-- Index: ix_TB_TA_PM_SOLUTION_DOCUMENTS_solution_id
+CREATE INDEX "ix_TB_TA_PM_SOLUTION_DOCUMENTS_solution_id" ON "TB_TA_PM_SOLUTION_DOCUMENTS" (solution_id);
+
+-- Index: ix_TB_TA_PM_SOLUTION_DOCUMENTS_space_id
+CREATE INDEX "ix_TB_TA_PM_SOLUTION_DOCUMENTS_space_id" ON "TB_TA_PM_SOLUTION_DOCUMENTS" (space_id);
+
+-- Index: ix_TB_TA_PM_SOLUTION_DOCUMENTS_uploaded_by_user_id
+CREATE INDEX "ix_TB_TA_PM_SOLUTION_DOCUMENTS_uploaded_by_user_id" ON "TB_TA_PM_SOLUTION_DOCUMENTS" (uploaded_by_user_id);
 
 -- Index: ix_TB_TA_PM_SOLUTION_PHASES_sequence_override
 CREATE INDEX "ix_TB_TA_PM_SOLUTION_PHASES_sequence_override" ON "TB_TA_PM_SOLUTION_PHASES" (sequence_override);

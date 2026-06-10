@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -172,6 +173,29 @@ class SolutionPhase(TimestampMixin, Base):
     sequence_override: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
 
 
+class SolutionDocument(TimestampMixin, SoftDeleteMixin, Base):
+    __tablename__ = physical_table_name("solution_documents")
+
+    document_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    space_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey(fk_target("spaces", "space_id")),
+        nullable=True,
+        index=True,
+    )
+    solution_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("solutions", "solution_id")),
+        index=True,
+        nullable=False,
+    )
+    filename: Mapped[str] = mapped_column(String(1024), nullable=False)
+    content_type: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    uploaded_by_user_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+
 class Task(TimestampMixin, SoftDeleteMixin, Base):
     __tablename__ = physical_table_name("tasks")
     __table_args__ = (
@@ -291,6 +315,7 @@ __all__ = [
     "Project",
     "ResourceAllocation",
     "Solution",
+    "SolutionDocument",
     "SolutionPhase",
     "Task",
 ]

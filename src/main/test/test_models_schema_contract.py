@@ -5,13 +5,13 @@ from types import SimpleNamespace
 
 import backend.app.models as models
 from sqlalchemy import create_engine
-from sqlalchemy import Text
+from sqlalchemy import LargeBinary, Text
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects import oracle
 from sqlalchemy.orm import sessionmaker
 
 from backend.app.db.table_names import physical_table_name
-from backend.app.models import Base, ChangeLog, Project, Solution, Task, Team
+from backend.app.models import Base, ChangeLog, Project, Solution, SolutionDocument, Task, Team
 from backend.app.schemas import ChangeLogRead, ProjectRead, SolutionRead, TaskRead
 from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 
@@ -134,6 +134,10 @@ def test_solution_long_text_fields_use_text_type():
 def test_task_long_text_fields_use_text_type():
     assert isinstance(Task.__table__.c.blocker_note.type, Text)
     assert isinstance(Task.__table__.c.done_criteria.type, Text)
+
+
+def test_solution_document_content_uses_binary_type():
+    assert isinstance(SolutionDocument.__table__.c.content.type, LargeBinary)
 
 
 def test_oracle_solution_repo_url_column_uses_documented_length():

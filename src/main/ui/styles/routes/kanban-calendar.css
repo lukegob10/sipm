@@ -503,6 +503,78 @@ button.primary.danger:hover {
   bottom: auto;
   margin: 0 calc(var(--modal-shell-padding, 16px) * -1) calc(var(--modal-shell-padding, 16px) * -1);
 }
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.solution-documents-panel {
+  display: grid;
+  gap: 12px;
+}
+.solution-documents-header,
+.solution-document-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.solution-documents-actions,
+.solution-document-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.solution-documents-list {
+  display: grid;
+  gap: 8px;
+}
+.solution-document-row {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-bg);
+}
+.solution-document-main {
+  min-width: 0;
+}
+.solution-document-name {
+  color: var(--text);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.solution-document-meta {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.button-like {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+.button-like:hover {
+  background: var(--hover);
+  border-color: var(--hover-border);
+}
+.solution-document-delete {
+  color: var(--danger);
+}
 .modal-content .form.compact,
 .modal-content .form.compact > * {
   min-width: 0;

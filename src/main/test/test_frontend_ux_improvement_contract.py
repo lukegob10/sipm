@@ -410,6 +410,28 @@ def test_solution_and_task_forms_include_github_repo_fields():
     assert "function updateTaskRepoPreview(solutionId, overrideUrl) {" in app_text
 
 
+def test_solution_modal_includes_documents_tab_and_controls():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
+
+    assert 'data-tab="documents"' in html_text
+    assert 'data-tab-panel="documents"' in html_text
+    assert 'id="solution-document-file"' in html_text
+    assert 'id="solution-document-upload"' in html_text
+    assert 'id="solution-documents-list"' in html_text
+    assert 'id="solution-documents-status"' in html_text
+    assert 'solutionDocumentsList: document.getElementById("solution-documents-list")' in dom_text
+    assert 'solutionDocumentFile: document.getElementById("solution-document-file")' in dom_text
+    assert 'function renderSolutionDocuments(solutionId, options = {}) {' in app_text
+    assert 'if (tab === "documents") {' in app_text
+    assert "renderSolutionDocuments(solutionId);" in app_text
+    assert "bindSolutionDocumentControls();" in app_text
+    assert "renderSolutionDocuments(solution.solution_id);" in solution_text
+    assert "Save the solution to upload documents." in solution_text
+
+
 def test_master_corrupt_scoped_view_state_is_rewritten_to_defaults():
     app_text = APP_JS.read_text(encoding="utf-8")
 

@@ -56,6 +56,7 @@ export function createSolutionEntityController({
   renderGantt,
   renderSolutionPhases,
   renderSolutionTasks,
+  renderSolutionDocuments,
   renderSolutionActivity,
   setTaskFormVisibility,
   setTaskActionButtonLabel,
@@ -140,10 +141,12 @@ export function createSolutionEntityController({
     if (solution?.solution_id) {
       renderSolutionPhases(solution.solution_id);
       renderSolutionTasks(solution.solution_id);
+      renderSolutionDocuments(solution.solution_id);
       renderSolutionActivity(solution.solution_id);
     } else {
       if (els.phasesTable) els.phasesTable.innerHTML = "<p class='muted'>Save the solution to manage phases.</p>";
       if (els.solutionTaskTable) els.solutionTaskTable.innerHTML = "<p class='muted'>Save the solution to add tasks.</p>";
+      if (els.solutionDocumentsList) els.solutionDocumentsList.innerHTML = "<p class='muted'>Save the solution to upload documents.</p>";
       if (els.solutionActivity) els.solutionActivity.innerHTML = "<p class='muted'>Save the solution to see activity.</p>";
     }
   }
@@ -201,6 +204,7 @@ export function createSolutionEntityController({
         renderActiveView();
         renderSolutionPhases(saved.solution_id);
         renderSolutionTasks(saved.solution_id);
+        renderSolutionDocuments(saved.solution_id, { force: true });
         renderSolutionActivity(saved.solution_id);
         const successMessage = isEditing
           ? `Saved solution at ${timestampLabel()}.`
@@ -255,6 +259,7 @@ export function createSolutionEntityController({
           await api(`/solutions/${id}`, { method: "DELETE" });
           removeById(state.solutions, id, "solution_id");
           delete state.solutionPhases[id];
+          delete state.solutionDocuments[id];
           closeSolutionModal();
           populateSelects();
           renderMasterTable();

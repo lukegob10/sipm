@@ -1,11 +1,13 @@
 from fastapi import APIRouter
 
 from . import common as _common
+from .documents import router as documents_router
 from .import_export import router as import_export_router
 from .read import router as read_router
 from .write import router as write_router
 
 router = APIRouter()
+router.include_router(documents_router)
 router.include_router(import_export_router)
 router.include_router(read_router)
 router.include_router(write_router)

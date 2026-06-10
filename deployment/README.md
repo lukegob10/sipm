@@ -150,3 +150,14 @@ startup. For a new database, run the SQL artifacts in this order:
 `first_deploy_reference_data.sql` seeds the canonical phase catalog required by
 the planning and solution phase workflows. It is idempotent and can be rerun if
 an environment is missing phase rows.
+
+## Oracle Migration Repairs
+
+If an environment has already renamed `TB_TA_PM_SUBCOMPONENTS` to
+`TB_TA_PM_TASKS` but still errors with `ORA-00904:
+"TB_TA_PM_TASKS"."TASK_NAME": invalid identifier`, run:
+
+1. `docs/sql/20260610_repair_partial_task_rename.sql`
+
+The repair script is guarded by Oracle data-dictionary checks and is safe to run
+after a successful task rename migration.

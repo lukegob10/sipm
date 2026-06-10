@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..models import Project, Solution, SpaceMembership, Subcomponent, Team, User
 from ..utils.enums import ProjectStatus, SolutionStatus
 from .spaces import SpaceContext
+from ..routes.programs import ensure_default_program
 
 WORK_ALLOCATION_DOMAIN = os.getenv("DOMAIN_NAME", "local.invalid")
 WORK_ALLOCATION_PROJECT_PREFIX = "Work Allocation Board"
@@ -62,8 +63,10 @@ def board_solution(session: Session, space_ctx: SpaceContext) -> Solution:
         .first()
     )
     if not project:
+        program = ensure_default_program(session, space_ctx)
         project = Project(
             space_id=space_ctx.space_id,
+            program_id=program.program_id,
             project_name=project_name,
             status=ProjectStatus.not_started,
             sponsor="Planning Board",

@@ -23,7 +23,7 @@ def test_deliverables_forms_have_status_placeholders():
 def test_deliverables_forms_mark_required_fields():
     text = INDEX_HTML.read_text(encoding="utf-8")
     styles_text = read_ui_styles(STYLES_CSS)
-    assert text.count('Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.') == 3
+    assert text.count('Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.') == 4
     assert '<span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required />' in text
     assert '<span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required />' in text
     assert '<span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span>' in text

@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ...models import Project
+from ...models import Program, Project
 from ...schemas import ProjectRead
 from ...services.realtime import schedule_broadcast
 from ...services.smart_cache import invalidate_space
@@ -18,6 +18,7 @@ _PROJECTS_LIST_TTL_SECONDS = 20
 _PROJECTS_DETAIL_TTL_SECONDS = 30
 _WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 _PROJECT_CREATE_AUDIT_FIELDS = (
+    "program_id",
     "project_name",
     "status",
     "description",
@@ -35,8 +36,10 @@ def _role_scope(space_ctx: SpaceContext) -> str:
     return space_ctx.space_role or "member"
 
 
-def _project_payload(project: Project) -> dict:
-    return ProjectRead.model_validate(project).model_dump(mode="json")
+def _project_payload(project: Project, *, program_name: str | None = None) -> dict:
+    data = ProjectRead.model_validate(project).model_dump(mode="json")
+    data["program_name"] = program_name
+    return data
 
 
 def _project_query(session: Session, space_ctx: SpaceContext):
@@ -54,6 +57,25 @@ def _active_project_name_conflict_query(session: Session, *, project_name: str, 
         .filter(Project.space_id == space_id)
         .filter(Project.project_name == project_name)
     )
+
+
+def _ensure_program_exists(session: Session, program_id: str, space_ctx: SpaceContext) -> Program:
+    program = (
+        session.query(Program)
+        .filter(Program.program_id == program_id)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
+        .first()
+    )
+    if not program:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Program not found")
+    return program
+
+
+def _default_program(session: Session, space_ctx: SpaceContext) -> Program:
+    from ..programs import ensure_default_program
+
+    return ensure_default_program(session, space_ctx)
 
 
 def _exclude_work_allocation_board_projects(query):
@@ -153,8 +175,10 @@ __all__ = [
     "_PROJECTS_DETAIL_TTL_SECONDS",
     "_PROJECTS_LIST_TTL_SECONDS",
     "_active_project_name_conflict_query",
+    "_default_program",
     "_deleted_project_name",
     "_exclude_work_allocation_board_projects",
+    "_ensure_program_exists",
     "_get_project_or_404",
     "_is_project_name_conflict_integrity_error",
     "_project_change_set",

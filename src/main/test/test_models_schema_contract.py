@@ -222,6 +222,8 @@ def test_long_text_read_schemas_coerce_lob_values():
     project = ProjectRead.model_validate(
         SimpleNamespace(
             project_id="project-1",
+            program_id="program-1",
+            program_name="Default Program",
             project_name="Long Form Project",
             status=ProjectStatus.not_started,
             description=FakeLob("project description"),

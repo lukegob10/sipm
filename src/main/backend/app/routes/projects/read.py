@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db
-from ...models import Project, User
+from ...models import Program, Project, User
 from ...schemas import ProjectRead
 from ...services.smart_cache import cached_call, make_scope_token
 from ...services.spaces import SpaceContext
@@ -29,6 +29,7 @@ router = APIRouter()
 
 def list_projects(
     status_filter: Optional[ProjectStatus] = None,
+    program_id: Optional[str] = None,
     sponsor: Optional[str] = None,
     sponsor_user_soeid: Optional[str] = None,
     session: Session = Depends(get_db),
@@ -39,20 +40,28 @@ def list_projects(
     sponsor_norm = sponsor.strip().lower() if sponsor else None
     params = {
         "status": status_val,
+        "program_id": program_id,
         "sponsor": sponsor_norm,
         "sponsor_user_soeid": sponsor_user_soeid,
     }
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
     def _load():
-        query = _exclude_work_allocation_board_projects(_project_query(session, space_ctx))
+        query = _exclude_work_allocation_board_projects(
+            _project_query(session, space_ctx).join(Program, Program.program_id == Project.program_id)
+        ).filter(Program.deleted_at.is_(None))
         if status_filter:
             query = query.filter(Project.status == status_filter)
+        if program_id:
+            query = query.filter(Project.program_id == program_id)
         if sponsor_norm:
             query = query.filter(func.lower(Project.sponsor) == sponsor_norm)
         if sponsor_user_soeid:
             query = query.filter(Project.sponsor_user_soeid == sponsor_user_soeid)
-        return [_project_payload(project) for project in query.all()]
+        return [
+            _project_payload(project, program_name=program.program_name)
+            for project, program in query.with_entities(Project, Program).all()
+        ]
 
     return cached_call(
         endpoint="projects:list",
@@ -76,7 +85,14 @@ def get_project(
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
     def _load():
-        return _project_payload(_get_project_or_404(session, project_id, space_ctx))
+        project = _get_project_or_404(session, project_id, space_ctx)
+        program = (
+            session.query(Program)
+            .filter(Program.program_id == project.program_id)
+            .filter(Program.space_id == space_ctx.space_id)
+            .first()
+        )
+        return _project_payload(project, program_name=program.program_name if program else None)
 
     return cached_call(
         endpoint="projects:detail",

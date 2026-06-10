@@ -2,6 +2,7 @@ export function createTopbarCreateController({
   state,
   els,
   escapeHtml,
+  openProgramForm,
   openProjectForm,
   openSolutionModal,
   showSubcomponentForm,
@@ -189,6 +190,14 @@ export function createTopbarCreateController({
         openProjectForm(null);
       });
       els.topbarCreateProject._bound = true;
+    }
+
+    if (els.topbarCreateProgram && !els.topbarCreateProgram._bound) {
+      els.topbarCreateProgram.addEventListener("click", () => {
+        closeTopbarCreateMenu({ restoreFocus: false });
+        openProgramForm(null);
+      });
+      els.topbarCreateProgram._bound = true;
     }
 
     if (els.topbarCreateSolution && !els.topbarCreateSolution._bound) {

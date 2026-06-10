@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { buildProgramPayload } from "../../js/entities/programs.js";
 import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
 import { buildSolutionPayload } from "../../js/entities/solutions.js";
 import { buildSubcomponentPayload } from "../../js/entities/subcomponents.js";
@@ -20,6 +21,7 @@ function projectEls() {
       <h2 id="title"></h2>
       <form id="project-form">
         <input name="project_id" />
+        <select name="program_id"><option value="program-1"></option></select>
         <input name="project_name" />
         <select name="status"><option value="not_started"></option><option value="active"></option></select>
         <textarea name="description"></textarea>
@@ -46,7 +48,7 @@ function projectEls() {
 }
 
 function buildProjectController(overrides = {}) {
-  const state = { projects: [] };
+  const state = { programs: [{ program_id: "program-1", program_name: "Default Program" }], projects: [] };
   const ignoreNextRefresh = new Set();
   const deps = {
     state,
@@ -83,6 +85,7 @@ async function flushPromises() {
 describe("entity payload builders", () => {
   it("normalizes project identifiers and nullable text fields", () => {
     const payload = buildProjectPayload(formData({
+      program_id: " program-1 ",
       project_name: "  Project Alpha  ",
       status: "active",
       description: " Keep spacing in long text ",
@@ -94,6 +97,7 @@ describe("entity payload builders", () => {
     }));
 
     expect(payload).toEqual({
+      program_id: "program-1",
       project_name: "Project Alpha",
       status: "active",
       description: " Keep spacing in long text ",
@@ -102,6 +106,18 @@ describe("entity payload builders", () => {
       sponsor_user_soeid: "tu12345",
       strategic_objective: null,
       priority: 2,
+    });
+  });
+
+  it("normalizes program payload fields", () => {
+    const payload = buildProgramPayload(formData({
+      program_name: "  Enterprise Change  ",
+      description: "   ",
+    }));
+
+    expect(payload).toEqual({
+      program_name: "Enterprise Change",
+      description: null,
     });
   });
 

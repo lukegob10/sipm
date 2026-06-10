@@ -250,12 +250,28 @@ CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
 );
 
+-- Table: TB_TA_PM_PROGRAMS
+
+CREATE TABLE "TB_TA_PM_PROGRAMS" (
+	program_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	program_name VARCHAR2(255 CHAR) NOT NULL,
+	description CLOB,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	deleted_at DATE,
+	PRIMARY KEY (program_id),
+	CONSTRAINT uix_program_space_name UNIQUE (space_id, program_name),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
+);
+
 -- Table: TB_TA_PM_PROJECTS
 
 CREATE TABLE "TB_TA_PM_PROJECTS" (
-	project_id VARCHAR2(255 CHAR) NOT NULL, 
-	space_id VARCHAR2(255 CHAR), 
-	project_name VARCHAR2(255 CHAR) NOT NULL, 
+	project_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR),
+	program_id VARCHAR2(255 CHAR) NOT NULL,
+	project_name VARCHAR2(255 CHAR) NOT NULL,
 	status VARCHAR(11 CHAR) NOT NULL, 
 	description CLOB, 
 	success_criteria CLOB, 
@@ -266,9 +282,10 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	created_at DATE NOT NULL, 
 	updated_at DATE NOT NULL, 
 	deleted_at DATE, 
-	PRIMARY KEY (project_id), 
-	CONSTRAINT uix_project_space_name UNIQUE (space_id, project_name), 
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
+	PRIMARY KEY (project_id),
+	CONSTRAINT uix_project_space_name UNIQUE (space_id, project_name),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(program_id) REFERENCES "TB_TA_PM_PROGRAMS" (program_id)
 );
 
 -- Table: TB_TA_PM_SPACE_MEMBERSHIPS
@@ -537,8 +554,17 @@ CREATE INDEX "ix_TB_TA_PM_PLANNING_WINDOWS_deleted_at" ON "TB_TA_PM_PLANNING_WIN
 -- Index: ix_TB_TA_PM_PLANNING_WINDOWS_space_id
 CREATE INDEX "ix_TB_TA_PM_PLANNING_WINDOWS_space_id" ON "TB_TA_PM_PLANNING_WINDOWS" (space_id);
 
+-- Index: ix_TB_TA_PM_PROGRAMS_deleted_at
+CREATE INDEX "ix_TB_TA_PM_PROGRAMS_deleted_at" ON "TB_TA_PM_PROGRAMS" (deleted_at);
+
+-- Index: ix_TB_TA_PM_PROGRAMS_space_id
+CREATE INDEX "ix_TB_TA_PM_PROGRAMS_space_id" ON "TB_TA_PM_PROGRAMS" (space_id);
+
 -- Index: ix_TB_TA_PM_PROJECTS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_deleted_at" ON "TB_TA_PM_PROJECTS" (deleted_at);
+
+-- Index: ix_TB_TA_PM_PROJECTS_program_id
+CREATE INDEX "ix_TB_TA_PM_PROJECTS_program_id" ON "TB_TA_PM_PROJECTS" (program_id);
 
 -- Index: ix_TB_TA_PM_PROJECTS_space_id
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_space_id" ON "TB_TA_PM_PROJECTS" (space_id);

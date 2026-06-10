@@ -19,6 +19,7 @@ from .identity import (
 from .work import (
     Phase,
     PlanningWindow,
+    Program,
     Project,
     ResourceAllocation,
     Solution,
@@ -34,6 +35,7 @@ __all__ = [
     "PerformanceSample",
     "Phase",
     "PlanningWindow",
+    "Program",
     "Project",
     "ResourceAllocation",
     "SoftDeleteMixin",

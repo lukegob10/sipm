@@ -14,7 +14,7 @@ export function createRouterController({
   onModuleLoadFailure = null,
   routeModuleLoaders = null,
 }) {
-  const DATA_ENTITIES = ["phases", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
+  const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"];
   const KNOWN_VIEWS = [
     "master",
     "gantt",
@@ -32,14 +32,14 @@ export function createRouterController({
   const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
-    master: ["phases", "projects", "solutions"],
-    gantt: ["projects", "solutions", "subcomponents"],
-    "subcomponents-workbench": ["projects", "solutions", "subcomponents", "users"],
-    dashboard: ["projects", "solutions", "users"],
-    "pm-dashboard": ["projects", "solutions", "subcomponents", "users", "allocations", "windows"],
-    kanban: ["phases", "projects", "solutions"],
-    calendar: ["projects", "solutions"],
-    planning: ["projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
+    master: ["phases", "programs", "projects", "solutions"],
+    gantt: ["programs", "projects", "solutions", "subcomponents"],
+    "subcomponents-workbench": ["programs", "projects", "solutions", "subcomponents", "users"],
+    dashboard: ["programs", "projects", "solutions", "users"],
+    "pm-dashboard": ["programs", "projects", "solutions", "subcomponents", "users", "allocations", "windows"],
+    kanban: ["phases", "programs", "projects", "solutions"],
+    calendar: ["programs", "projects", "solutions"],
+    planning: ["programs", "projects", "solutions", "subcomponents", "teams", "users", "allocations", "windows"],
     "team-capacity": ["users", "allocations"],
     spaces: ["users"],
     access: ["users"],

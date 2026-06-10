@@ -88,6 +88,7 @@ __all__ = [
     "ProgramCreate",
     "ProgramRead",
     "ProgramUpdate",
+    "SolutionDocumentRead",
     "TelemetryBatchIn",
     "TelemetryIngestResultRead",
     "UsageEventIn",
@@ -442,6 +443,19 @@ class SolutionRead(TextLikeReadModel):
     rag_confidence: Optional[float] = None
     completed_at: Optional[datetime] = None
     capacity_hours: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SolutionDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: str
+    solution_id: str
+    filename: str
+    content_type: Optional[str] = None
+    size_bytes: int
+    uploaded_by_user_id: str
     created_at: datetime
     updated_at: datetime
 

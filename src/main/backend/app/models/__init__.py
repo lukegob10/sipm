@@ -23,6 +23,7 @@ from .work import (
     Project,
     ResourceAllocation,
     Solution,
+    SolutionDocument,
     SolutionPhase,
     Task,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "ResourceAllocation",
     "SoftDeleteMixin",
     "Solution",
+    "SolutionDocument",
     "SolutionPhase",
     "Space",
     "SpaceMembership",

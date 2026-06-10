@@ -627,6 +627,7 @@
               <button class="tab active" data-tab="details" type="button">Details</button>
               <button class="tab" data-tab="phases" type="button">Phases</button>
               <button class="tab" data-tab="tasks" type="button">Tasks</button>
+              <button class="tab" data-tab="documents" type="button">Documents</button>
               <button class="tab" data-tab="activity" type="button">Activity</button>
             </div>
           </div>
@@ -761,6 +762,19 @@
                   <button type="button" id="delete-task" class="secondary" disabled>Delete</button>
                 </div>
                 <p id="task-form-status" class="form-notice" role="status" aria-live="polite"></p>
+              </div>
+            </div>
+            <div class="modal-tab" data-tab-panel="documents">
+              <div class="panel soft solution-documents-panel">
+                <div class="solution-documents-header">
+                  <h3>Documents</h3>
+                  <div class="solution-documents-actions">
+                    <input id="solution-document-file" type="file" class="visually-hidden" />
+                    <button id="solution-document-upload" class="secondary" type="button">Upload Document</button>
+                  </div>
+                </div>
+                <p id="solution-documents-status" class="form-notice" role="status" aria-live="polite"></p>
+                <div id="solution-documents-list" class="solution-documents-list"></div>
               </div>
             </div>
             <div class="modal-tab" data-tab-panel="activity">

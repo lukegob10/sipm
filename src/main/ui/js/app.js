@@ -1,6 +1,7 @@
 import {
   API_BASE,
   buildAppUrl,
+  buildApiUrl,
   buildResetPageUrl,
   buildWsUrl,
   formatDateTime,
@@ -253,6 +254,7 @@ const state = {
   projects: [],
   solutions: [],
   solutionPhases: {}, // solution_id -> phases
+  solutionDocuments: {}, // solution_id -> document metadata
   tasks: [],
   teams: [],
   users: [],
@@ -401,6 +403,7 @@ const solutionEntityController = createSolutionEntityController({
   renderGantt,
   renderSolutionPhases,
   renderSolutionTasks,
+  renderSolutionDocuments,
   renderSolutionActivity,
   setTaskFormVisibility,
   setTaskActionButtonLabel,
@@ -2131,6 +2134,10 @@ function setSolutionTab(tab) {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (solutionId) renderSolutionTasks(solutionId);
   }
+  if (tab === "documents") {
+    const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+    renderSolutionDocuments(solutionId);
+  }
   if (tab === "phases") {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (solutionId) renderSolutionPhases(solutionId);
@@ -2231,6 +2238,138 @@ function renderSolutionTasks(solutionId) {
         </thead>
         <tbody>${rows || `<tr><td colspan='6' class='muted'>${hiddenClosedCount ? "No open tasks in view." : "No tasks"}</td></tr>`}</tbody>
       </table>`;
+  }
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (!Number.isFinite(size) || size <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = size;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function documentDownloadUrl(solutionId, documentId) {
+  return buildApiUrl(
+    `/solutions/${encodeURIComponent(solutionId)}/documents/${encodeURIComponent(documentId)}/download`
+  );
+}
+
+async function loadSolutionDocuments(solutionId, { force = false } = {}) {
+  if (!solutionId) return [];
+  if (!force && state.solutionDocuments[solutionId]) return state.solutionDocuments[solutionId];
+  state.solutionDocuments[solutionId] = await api(`/solutions/${encodeURIComponent(solutionId)}/documents`);
+  return state.solutionDocuments[solutionId];
+}
+
+async function renderSolutionDocuments(solutionId, options = {}) {
+  if (!els.solutionDocumentsList) return;
+  const id = solutionId || els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+  if (!id) {
+    els.solutionDocumentsList.innerHTML = "<p class='muted'>Save the solution to upload documents.</p>";
+    if (els.solutionDocumentUpload) els.solutionDocumentUpload.disabled = true;
+    return;
+  }
+  if (els.solutionDocumentUpload) els.solutionDocumentUpload.disabled = false;
+  if (!options.silent) {
+    els.solutionDocumentsList.innerHTML = "<p class='muted'>Loading documents...</p>";
+  }
+  try {
+    const documents = await loadSolutionDocuments(id, options);
+    if (!documents.length) {
+      els.solutionDocumentsList.innerHTML = "<p class='muted'>No documents uploaded.</p>";
+      return;
+    }
+    const rows = documents
+      .map((doc) => {
+        const created = doc.created_at ? new Date(doc.created_at).toLocaleString() : "";
+        const downloadUrl = documentDownloadUrl(id, doc.document_id);
+        return `<div class="solution-document-row" data-document-id="${escapeAttr(doc.document_id)}">
+          <div class="solution-document-main">
+            <a href="${escapeAttr(downloadUrl)}" download="${escapeAttr(doc.filename || "document")}" class="solution-document-name">${esc(doc.filename || "document")}</a>
+            <div class="solution-document-meta">${esc(formatFileSize(doc.size_bytes))}${created ? ` &middot; ${esc(created)}` : ""}</div>
+          </div>
+          <div class="solution-document-actions">
+            <a href="${escapeAttr(downloadUrl)}" download="${escapeAttr(doc.filename || "document")}" class="secondary button-like">Download</a>
+            <button type="button" class="secondary danger solution-document-delete" data-document-id="${escapeAttr(doc.document_id)}">Delete</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+    els.solutionDocumentsList.innerHTML = rows;
+  } catch (err) {
+    els.solutionDocumentsList.innerHTML = "<p class='muted'>Unable to load documents.</p>";
+    setDeliverableFormNotice(els.solutionDocumentsStatus, `Unable to load documents: ${err.message}`, "error");
+  }
+}
+
+function bindSolutionDocumentControls() {
+  if (els.solutionDocumentUpload && !els.solutionDocumentUpload._bound) {
+    els.solutionDocumentUpload.addEventListener("click", () => {
+      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      if (!solutionId) {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "Save the solution to upload documents.", "error");
+        return;
+      }
+      els.solutionDocumentFile?.click();
+    });
+    els.solutionDocumentUpload._bound = true;
+  }
+  if (els.solutionDocumentFile && !els.solutionDocumentFile._bound) {
+    els.solutionDocumentFile.addEventListener("change", async () => {
+      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      const file = els.solutionDocumentFile?.files?.[0] || null;
+      if (!solutionId || !file) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      try {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "Uploading document...");
+        await api(`/solutions/${encodeURIComponent(solutionId)}/documents`, {
+          method: "POST",
+          body: formData,
+          timeoutMs: 60000,
+        });
+        await renderSolutionDocuments(solutionId, { force: true, silent: true });
+        setDeliverableFormNotice(els.solutionDocumentsStatus, `Uploaded ${file.name}.`, "success", 3200);
+      } catch (err) {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, `Upload failed: ${err.message}`, "error");
+      } finally {
+        els.solutionDocumentFile.value = "";
+      }
+    });
+    els.solutionDocumentFile._bound = true;
+  }
+  if (els.solutionDocumentsList && !els.solutionDocumentsList._bound) {
+    els.solutionDocumentsList.addEventListener("click", async (event) => {
+      const btn = event.target.closest(".solution-document-delete");
+      if (!btn) return;
+      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      const documentId = btn.getAttribute("data-document-id") || "";
+      if (!solutionId || !documentId) return;
+      const row = state.solutionDocuments[solutionId]?.find((item) => item.document_id === documentId);
+      const confirmed = await showConfirmModal({
+        title: "Delete Document?",
+        message: `Delete document "${row?.filename || "document"}"? This cannot be undone.`,
+        confirmLabel: "Delete Document",
+      });
+      if (!confirmed) return;
+      try {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "Deleting document...");
+        await api(`/solutions/${encodeURIComponent(solutionId)}/documents/${encodeURIComponent(documentId)}`, {
+          method: "DELETE",
+        });
+        await renderSolutionDocuments(solutionId, { force: true, silent: true });
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "Deleted document.", "success", 3200);
+      } catch (err) {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, `Delete failed: ${err.message}`, "error");
+      }
+    });
+    els.solutionDocumentsList._bound = true;
   }
 }
 
@@ -3997,6 +4136,7 @@ function init() {
   bindSolutionForm();
   bindTaskForm();
   bindSolutionTabs();
+  bindSolutionDocumentControls();
   bindSolutionTaskControls();
   bindModalShortcuts();
   bindCalendarControls();

@@ -21,6 +21,7 @@ erDiagram
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_PROJECTS : scopes
   TB_TA_PM_PROJECTS ||--o{ TB_TA_PM_SOLUTIONS : owns
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_TASKS : owns
+  TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_DOCUMENTS : stores
   TB_TA_PM_PHASES ||--o{ TB_TA_PM_SOLUTION_PHASES : configures
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_PHASES : enables
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_TEAMS : scopes
@@ -297,6 +298,10 @@ Primary APIs:
 - `POST /api/projects/{project_id}/solutions`
 - `PATCH /api/solutions/{solution_id}`
 - `DELETE /api/solutions/{solution_id}`
+- `GET /api/solutions/{solution_id}/documents`
+- `POST /api/solutions/{solution_id}/documents`
+- `GET /api/solutions/{solution_id}/documents/{document_id}/download`
+- `DELETE /api/solutions/{solution_id}/documents/{document_id}`
 - `POST /api/solutions/import`
 - `GET /api/solutions/export`
 
@@ -304,6 +309,40 @@ Special rules:
 
 - Hidden Work Allocation Board backlog solutions are excluded from normal solution list queries.
 - Tasks inherit an effective GitHub repo URL from their parent solution unless overridden.
+- Documents are stored as DB-backed attachments under the solution and are downloaded individually.
+
+#### `TB_TA_PM_SOLUTION_DOCUMENTS`
+
+SQLAlchemy model: `SolutionDocument`
+
+Purpose: stores binary documents attached to a solution.
+
+Key fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `document_id` | string PK | Document identifier. |
+| `space_id` | FK spaces | Owning space. |
+| `solution_id` | FK solutions | Parent solution. |
+| `filename` | string | Original uploaded filename. |
+| `content_type` | string nullable | Uploaded media type. |
+| `size_bytes` | integer | File size in bytes. |
+| `content` | BLOB | Raw file bytes. |
+| `uploaded_by_user_id` | string | User that uploaded the document. |
+| `deleted_at` | datetime nullable | Soft-delete marker. |
+
+Primary APIs:
+
+- `GET /api/solutions/{solution_id}/documents`
+- `POST /api/solutions/{solution_id}/documents`
+- `GET /api/solutions/{solution_id}/documents/{document_id}/download`
+- `DELETE /api/solutions/{solution_id}/documents/{document_id}`
+
+Special rules:
+
+- Uploads allow any file type up to 25 MB.
+- Normal solution list/detail payloads include no document bytes or document metadata.
+- CSV solution import/export does not include documents.
 
 #### `TB_TA_PM_TASKS`
 

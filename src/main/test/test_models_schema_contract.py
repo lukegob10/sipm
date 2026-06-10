@@ -17,6 +17,7 @@ from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, Ta
 
 
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
+TASK_REPAIR_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_repair_partial_task_rename.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -183,6 +184,23 @@ def test_oracle_schema_document_creates_indexes_after_target_tables():
         if index_match and index_match.group(1) not in seen_tables:
             violations.append(f"line {line_number}: {line}")
     assert violations == []
+
+
+def test_task_rename_repair_script_handles_partial_oracle_column_rename():
+    sql = TASK_REPAIR_SQL_PATH.read_text(encoding="utf-8")
+
+    assert "TB_TA_PM_TASKS" in sql
+    assert "SUBCOMPONENT_NAME" in sql
+    assert "TASK_NAME" in sql
+    assert "ALTER TABLE \"TB_TA_PM_TASKS\" RENAME COLUMN subcomponent_name TO task_name" in sql
+    assert "SUBCOMPONENT_ID" in sql
+    assert "TASK_ID" in sql
+    assert "ALTER TABLE \"TB_TA_PM_TASKS\" RENAME COLUMN subcomponent_id TO task_id" in sql
+    assert "v_old_count > 0 AND v_new_count = 0" in sql
+    assert "UIX_SUBCOMPONENT_SOLUTION_NAME" in sql
+    assert "UIX_TASK_SOLUTION_NAME" in sql
+    assert "work_item_type = 'subcomponent'" in sql
+    assert "entity_type = 'subcomponent'" in sql
 
 
 def test_models_package_reexports_and_registers_metadata():

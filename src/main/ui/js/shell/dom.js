@@ -129,6 +129,7 @@ export function queryShellElements() {
     dashboardCompletedQuarter: document.getElementById("dashboard-completed-quarter"),
     dashboardUpcomingQuarter: document.getElementById("dashboard-upcoming-quarter"),
     dashboardBacklog: document.getElementById("dashboard-backlog"),
+    programDashboardRoot: document.getElementById("program-dashboard-root"),
     pmDashboardSummary: document.getElementById("pm-dashboard-summary"),
     pmDashboardHealth: document.getElementById("pm-dashboard-health"),
     pmDashboardRisks: document.getElementById("pm-dashboard-risks"),

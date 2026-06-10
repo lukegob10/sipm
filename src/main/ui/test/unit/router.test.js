@@ -7,11 +7,13 @@ function buildRouterHarness() {
   document.body.innerHTML = `
     <button class="nav-btn" data-view="master"></button>
     <button class="nav-btn" data-view="gantt"></button>
+    <button class="nav-btn" data-view="program-dashboard"></button>
     <button class="nav-btn" data-view="team-capacity"></button>
     <button class="nav-btn" data-view="spaces"></button>
     <button class="nav-btn" data-view="analytics"></button>
     <section class="view" id="view-master"></section>
     <section class="view" id="view-gantt"></section>
+    <section class="view" id="view-program-dashboard"></section>
     <section class="view" id="view-team-capacity"></section>
     <section class="view" id="view-spaces"></section>
     <section class="view" id="view-analytics"></section>
@@ -34,6 +36,7 @@ function buildRouterHarness() {
   const routeModuleLoaders = {
     master: vi.fn().mockResolvedValue({}),
     gantt: vi.fn().mockResolvedValue({}),
+    "program-dashboard": vi.fn().mockResolvedValue({}),
     "team-capacity": vi.fn().mockResolvedValue({}),
     spaces: vi.fn().mockResolvedValue({}),
     analytics: vi.fn().mockResolvedValue({}),
@@ -64,6 +67,7 @@ describe("router controller", () => {
 
     expect(controller.viewFromLocationPath("/")).toBe("master");
     expect(controller.viewFromLocationPath("/gantt")).toBe("gantt");
+    expect(controller.viewFromLocationPath("/program-dashboard")).toBe("program-dashboard");
     expect(controller.viewFromLocationPath("/spaces")).toBe("spaces");
     expect(controller.appRelativePath("/dashboard")).toBe("/dashboard");
   });
@@ -129,6 +133,15 @@ describe("router controller", () => {
 
     controller.setView("gantt");
     expect(state.currentView).toBe("gantt");
+    await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
+    expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "tasks"] }));
+  });
+
+  it("loads program dashboard data from program-scoped work entities", async () => {
+    const { controller, state, loadData } = buildRouterHarness();
+
+    controller.setView("program-dashboard");
+    expect(state.currentView).toBe("program-dashboard");
     await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
     expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "tasks"] }));
   });

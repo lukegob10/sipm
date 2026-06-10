@@ -26,6 +26,10 @@ test("dashboard and planning routes load from the shared shell", async ({ page }
   await expect(page.locator("#dashboard-space-capacity")).toBeVisible();
   await expect(page.locator("#dashboard-top-projects")).toBeVisible();
 
+  await page.locator('.nav-btn[data-view="program-dashboard"]').click();
+  await expect(page.locator("#view-program-dashboard")).toHaveClass(/active/);
+  await expect(page.locator("#program-dashboard-root")).toBeVisible();
+
   await page.locator('.nav-btn[data-view="planning"]').click();
   await expect(page.locator("#view-planning")).toHaveClass(/active/);
   await expect(page.locator("#planning-board")).toBeVisible();

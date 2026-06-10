@@ -1,5 +1,6 @@
 @import "./styles/base.css";
 @import "./styles/routes/dashboard.css";
+@import "./styles/routes/program-dashboard.css";
 @import "./styles/routes/pm-dashboard.css";
 @import "./styles/routes/kanban-calendar.css";
 @import "./styles/routes/gantt.css";

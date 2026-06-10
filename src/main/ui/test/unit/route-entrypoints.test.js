@@ -12,6 +12,12 @@ const pmDashboardMock = vi.hoisted(() => ({
   renderPMDashboardView: vi.fn(),
 }));
 
+const programDashboardMock = vi.hoisted(() => ({
+  programDashboardState: { route: "program-dashboard" },
+  createProgramDashboardState: vi.fn(),
+  renderProgramDashboardView: vi.fn(),
+}));
+
 const masterTableMock = vi.hoisted(() => ({
   bindMasterTableInteractions: vi.fn(),
   buildMasterTable: vi.fn(),
@@ -42,6 +48,11 @@ vi.mock("../../js/routes/dashboard/render.js", () => ({
 vi.mock("../../js/routes/pm-dashboard/render.js", () => ({
   createPMDashboardState: pmDashboardMock.createPMDashboardState,
   renderPMDashboardView: pmDashboardMock.renderPMDashboardView,
+}));
+
+vi.mock("../../js/routes/program-dashboard/render.js", () => ({
+  createProgramDashboardState: programDashboardMock.createProgramDashboardState,
+  renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));
 
 vi.mock("../../js/routes/master/table.js", () => ({
@@ -77,9 +88,11 @@ vi.mock("../../js/routes/planning/storage.js", () => ({
 
 dashboardMock.createDashboardState.mockReturnValue(dashboardMock.dashboardState);
 pmDashboardMock.createPMDashboardState.mockReturnValue(pmDashboardMock.pmDashboardState);
+programDashboardMock.createProgramDashboardState.mockReturnValue(programDashboardMock.programDashboardState);
 
 const dashboardRoute = await import("../../js/routes/dashboard.js");
 const pmDashboardRoute = await import("../../js/routes/pm-dashboard.js");
+const programDashboardRoute = await import("../../js/routes/program-dashboard.js");
 const masterRoute = await import("../../js/routes/master.js");
 const planningRoute = await import("../../js/routes/planning.js");
 
@@ -115,6 +128,24 @@ describe("route entrypoints", () => {
 
     expect(pmDashboardMock.renderPMDashboardView).toHaveBeenNthCalledWith(1, pmDashboardMock.pmDashboardState, ctx);
     expect(pmDashboardMock.renderPMDashboardView).toHaveBeenNthCalledWith(2, pmDashboardMock.pmDashboardState, ctx);
+  });
+
+  it("creates stable program dashboard state and delegates program dashboard rendering", () => {
+    const ctx = { state: { programs: [] } };
+
+    programDashboardRoute.renderProgramDashboard(ctx);
+    programDashboardRoute.render(ctx);
+
+    expect(programDashboardMock.renderProgramDashboardView).toHaveBeenNthCalledWith(
+      1,
+      programDashboardMock.programDashboardState,
+      ctx
+    );
+    expect(programDashboardMock.renderProgramDashboardView).toHaveBeenNthCalledWith(
+      2,
+      programDashboardMock.programDashboardState,
+      ctx
+    );
   });
 
   it("clears master filters because filters live in the table header", () => {

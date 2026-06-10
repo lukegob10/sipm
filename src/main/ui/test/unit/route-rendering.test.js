@@ -1,12 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createShellContext } from "../../js/shell/context.js";
+import {
+  createProgramDashboardState,
+  renderProgramDashboardView,
+  splitProgramName,
+} from "../../js/routes/program-dashboard/render.js";
 import { renderAccess } from "../../js/routes/access.js";
 import { renderSpaces } from "../../js/routes/spaces.js";
 import { renderTasksWorkbench } from "../../js/routes/tasks-workbench.js";
 import { renderTeamCapacity } from "../../js/routes/team-capacity.js";
 
 describe("simple route rendering", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = "";
+  });
+
   it("builds shell context by applying route overrides last", () => {
     const base = { state: { currentView: "master" }, render: "base", stable: true };
     const context = createShellContext(base, { render: "route", transient: true });
@@ -167,5 +177,197 @@ describe("simple route rendering", () => {
     expect(tasksWorkbenchTable.textContent).toContain("Solution 'A'");
     expect(tasksWorkbenchTable.querySelector("[data-project-id='proj-1']")).toBeTruthy();
     expect(tasksWorkbenchTable.querySelector(".task-workbench-urgency")?.className).toContain("danger");
+  });
+
+  it("splits program names into dashboard team and sub-area labels", () => {
+    expect(splitProgramName("TAP - Data Sourcing")).toEqual({ team: "TAP", subArea: "Data Sourcing" });
+    expect(splitProgramName("Transformation / Risk")).toEqual({ team: "Transformation", subArea: "Risk" });
+    expect(splitProgramName("Default Program")).toEqual({ team: "", subArea: "Default Program" });
+  });
+
+  it("renders program project groups and child solutions for the selected program", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    const programDashboardState = createProgramDashboardState();
+
+    renderProgramDashboardView(programDashboardState, {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "TAP - Data Sourcing" }],
+        projects: [
+          { project_id: "project-1", program_id: "program-1", project_name: "Data Sourcing - APIs", status: "active", sponsor: "Sam Sponsor" },
+          { project_id: "project-2", program_id: "program-2", project_name: "Other Program Project", status: "active" },
+        ],
+        solutions: [
+          {
+            solution_id: "solution-1",
+            project_id: "project-1",
+            solution_name: "CitiVelocity",
+            status: "active",
+            planned_start_date: "2026-05-01",
+            due_date: "2026-06-26",
+            owner: "Spencer Emma",
+            current_phase: "Build / Docs",
+          },
+        ],
+        tasks: [],
+      },
+      formatStatus: (value) => `Status: ${value}`,
+      solutionProgress: () => 50,
+      showCompletedOperationalWork: () => false,
+    });
+
+    const root = document.getElementById("program-dashboard-root");
+    expect(root.textContent).toContain("TAP");
+    expect(root.textContent).toContain("Data Sourcing");
+    expect(root.textContent).toContain("Data Sourcing - APIs");
+    expect(root.textContent).toContain("CitiVelocity");
+    expect(root.textContent).toContain("Spencer Emma");
+    expect(root.textContent).toContain("50%");
+    expect(root.textContent).not.toContain("Other Program Project");
+    expect(root.querySelectorAll(".program-dashboard-group-row")).toHaveLength(1);
+    expect(root.querySelectorAll(".program-dashboard-child-row")).toHaveLength(1);
+  });
+
+  it("restores persisted program and tab choices for the active space", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramId: "program-2",
+      activeTab: "tasks",
+    }));
+
+    renderProgramDashboardView(createProgramDashboardState(), {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [
+          { program_id: "program-1", program_name: "Program One" },
+          { program_id: "program-2", program_name: "TAP - Data Sourcing" },
+        ],
+        projects: [{ project_id: "project-2", program_id: "program-2", project_name: "Selected Project", status: "active" }],
+        solutions: [],
+        tasks: [],
+      },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+      showCompletedOperationalWork: () => false,
+    });
+
+    const root = document.getElementById("program-dashboard-root");
+    expect(root.querySelector("select")?.value).toBe("program-2");
+    expect(root.querySelector('[data-program-dashboard-tab="tasks"]')?.className).toContain("active");
+    expect(root.textContent).toContain("No tasks match");
+  });
+
+  it("filters task rows by selected program and hides completed tasks when global visibility is off", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramId: "program-1",
+      activeTab: "tasks",
+    }));
+    const openTask = vi.fn();
+
+    renderProgramDashboardView(createProgramDashboardState(), {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "TAP - Data Sourcing" }],
+        projects: [
+          { project_id: "project-1", program_id: "program-1", project_name: "Program Project" },
+          { project_id: "project-2", program_id: "program-2", project_name: "Other Project" },
+        ],
+        solutions: [{ solution_id: "solution-1", project_id: "project-1", solution_name: "Solution One" }],
+        tasks: [
+          {
+            task_id: "task-1",
+            project_id: "project-1",
+            solution_id: "solution-1",
+            task_name: "Connect source",
+            status: "in_progress",
+            assignee: "Nilesh",
+            due_date: "2026-06-12",
+            priority: 2,
+          },
+          {
+            task_id: "task-2",
+            project_id: "project-1",
+            solution_id: "solution-1",
+            task_name: "Closed task",
+            status: "complete",
+          },
+          {
+            task_id: "task-3",
+            project_id: "project-2",
+            solution_id: "solution-2",
+            task_name: "Other task",
+            status: "in_progress",
+          },
+        ],
+      },
+      formatStatus: (value) => `Status: ${value}`,
+      solutionProgress: () => 0,
+      showCompletedOperationalWork: () => false,
+      openProgramDashboardTaskDrilldown: openTask,
+    });
+
+    const root = document.getElementById("program-dashboard-root");
+    expect(root.textContent).toContain("Connect source");
+    expect(root.textContent).toContain("1 closed hidden");
+    expect(root.textContent).not.toContain("Closed task");
+    expect(root.textContent).not.toContain("Other task");
+
+    root.querySelector('[data-program-dashboard-action="open-task"]')?.click();
+    expect(openTask).toHaveBeenCalledWith("task-1");
+  });
+
+  it("renders program dashboard empty states for missing programs and empty task lists", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    const root = document.getElementById("program-dashboard-root");
+
+    renderProgramDashboardView(createProgramDashboardState(), {
+      els: { programDashboardRoot: root },
+      state: { activeSpace: { space_id: "space-1" }, programs: [], projects: [], solutions: [], tasks: [] },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+      showCompletedOperationalWork: () => false,
+    });
+
+    expect(root.textContent).toContain("Create a program");
+
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramId: "program-1",
+      activeTab: "tasks",
+    }));
+    renderProgramDashboardView(createProgramDashboardState(), {
+      els: { programDashboardRoot: root },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "Program One" }],
+        projects: [{ project_id: "project-1", program_id: "program-1", project_name: "Project One" }],
+        solutions: [],
+        tasks: [],
+      },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+      showCompletedOperationalWork: () => false,
+    });
+
+    expect(root.textContent).toContain("No tasks match");
   });
 });

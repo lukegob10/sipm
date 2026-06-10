@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { buildProjectPayload } from "../../js/entities/projects.js";
+import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
 import { buildSolutionPayload } from "../../js/entities/solutions.js";
 import { buildSubcomponentPayload } from "../../js/entities/subcomponents.js";
 
@@ -10,6 +10,74 @@ function formData(values) {
     if (value !== undefined) data.set(key, value);
   });
   return data;
+}
+
+function projectEls() {
+  document.body.innerHTML = `
+    <section id="project-modal" class="hidden">
+      <div class="modal-backdrop"></div>
+      <button id="close" type="button"></button>
+      <h2 id="title"></h2>
+      <form id="project-form">
+        <input name="project_id" />
+        <input name="project_name" />
+        <select name="status"><option value="not_started"></option><option value="active"></option></select>
+        <textarea name="description"></textarea>
+        <textarea name="success_criteria"></textarea>
+        <input name="sponsor" />
+        <input name="sponsor_user_soeid" />
+        <input name="strategic_objective" />
+        <input name="priority" />
+        <button id="submit" type="submit"></button>
+        <button id="delete" type="button"></button>
+      </form>
+      <p id="status"></p>
+    </section>
+  `;
+  return {
+    projectModal: document.querySelector("#project-modal"),
+    projectModalClose: document.querySelector("#close"),
+    projectModalTitle: document.querySelector("#title"),
+    projectForm: document.querySelector("#project-form"),
+    projectSubmitBtn: document.querySelector("#submit"),
+    deleteProjectBtn: document.querySelector("#delete"),
+    projectFormStatus: document.querySelector("#status"),
+  };
+}
+
+function buildProjectController(overrides = {}) {
+  const state = { projects: [] };
+  const ignoreNextRefresh = new Set();
+  const deps = {
+    state,
+    els: projectEls(),
+    api: vi.fn(),
+    markIgnoreRefresh: vi.fn(),
+    ignoreNextRefresh,
+    upsertById: vi.fn((rows, saved) => rows.push(saved)),
+    removeById: vi.fn((rows, id) => {
+      const index = rows.findIndex((row) => row.project_id === id);
+      if (index >= 0) rows.splice(index, 1);
+    }),
+    populateSelects: vi.fn(),
+    renderMasterTable: vi.fn(),
+    renderDashboard: vi.fn(),
+    renderKanban: vi.fn(),
+    renderCalendar: vi.fn(),
+    renderGantt: vi.fn(),
+    clearDeliverableFormNotice: vi.fn(),
+    setDeliverableFormNotice: vi.fn(),
+    timestampLabel: vi.fn(() => "12:00"),
+    showConfirmModal: vi.fn().mockResolvedValue(true),
+    trackWorkflow: vi.fn(),
+    ...overrides,
+  };
+  return { controller: createProjectEntityController(deps), deps };
+}
+
+async function flushPromises() {
+  await Promise.resolve();
+  await Promise.resolve();
 }
 
 describe("entity payload builders", () => {
@@ -110,5 +178,131 @@ describe("entity payload builders", () => {
     );
     expect(unblocked.blocked).toBe(false);
     expect(unblocked.blocker_note).toBeNull();
+  });
+});
+
+describe("project entity controller", () => {
+  it("opens and closes the project form with edit state", () => {
+    const { controller, deps } = buildProjectController();
+
+    controller.openProjectForm({
+      project_id: "proj-1",
+      project_name: "Project One",
+      status: "active",
+      description: "Description",
+      success_criteria: "Criteria",
+      sponsor: "Sponsor",
+      sponsor_user_soeid: "sp123",
+      strategic_objective: "Objective",
+      priority: 1,
+    });
+
+    expect(deps.els.projectModal.classList.contains("hidden")).toBe(false);
+    expect(deps.els.projectModalTitle.textContent).toBe("Edit Project");
+    expect(deps.els.projectSubmitBtn.textContent).toBe("Save Changes");
+    expect(deps.els.deleteProjectBtn.disabled).toBe(false);
+    expect(deps.els.projectForm.querySelector("[name='project_name']").value).toBe("Project One");
+
+    controller.closeProjectForm();
+
+    expect(deps.els.projectModal.classList.contains("hidden")).toBe(true);
+    expect(deps.els.projectModalTitle.textContent).toBe("Create Project");
+    expect(deps.els.projectSubmitBtn.textContent).toBe("Create Project");
+    expect(deps.els.deleteProjectBtn.disabled).toBe(true);
+  });
+
+  it("creates a project and refreshes dependent views", async () => {
+    const saved = { project_id: "proj-1", project_name: "Created" };
+    const { controller, deps } = buildProjectController({
+      api: vi.fn().mockResolvedValue(saved),
+    });
+    controller.bindProjectForm();
+    deps.els.projectForm.querySelector("[name='project_name']").value = " Created ";
+    deps.els.projectForm.querySelector("[name='status']").value = "active";
+    deps.els.projectForm.querySelector("[name='priority']").value = "2";
+
+    deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flushPromises();
+
+    expect(deps.markIgnoreRefresh).toHaveBeenCalledWith("projects");
+    expect(deps.api).toHaveBeenCalledWith("/projects", expect.objectContaining({ method: "POST" }));
+    expect(JSON.parse(deps.api.mock.calls[0][1].body)).toMatchObject({ project_name: "Created", priority: 2 });
+    expect(deps.upsertById).toHaveBeenCalledWith(deps.state.projects, saved, "project_id");
+    expect(deps.populateSelects).toHaveBeenCalledTimes(1);
+    expect(deps.renderMasterTable).toHaveBeenCalledTimes(1);
+    expect(deps.renderDashboard).toHaveBeenCalledTimes(1);
+    expect(deps.renderKanban).toHaveBeenCalledTimes(1);
+    expect(deps.renderCalendar).toHaveBeenCalledTimes(1);
+    expect(deps.renderGantt).toHaveBeenCalledTimes(1);
+    expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "create", "success", { source: "project_form" });
+    expect(deps.setDeliverableFormNotice).toHaveBeenLastCalledWith(
+      deps.els.projectFormStatus,
+      "Created project at 12:00.",
+      "success",
+      3200
+    );
+  });
+
+  it("updates a project through the edit path", async () => {
+    const saved = { project_id: "proj-1", project_name: "Updated" };
+    const { controller, deps } = buildProjectController({
+      api: vi.fn().mockResolvedValue(saved),
+    });
+    controller.openProjectForm(saved);
+    controller.bindProjectForm();
+
+    deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flushPromises();
+
+    expect(deps.api).toHaveBeenCalledWith("/projects/proj-1", expect.objectContaining({ method: "PATCH" }));
+    expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "update", "success", { source: "project_form" });
+    expect(deps.setDeliverableFormNotice).toHaveBeenLastCalledWith(
+      deps.els.projectFormStatus,
+      "Saved project at 12:00.",
+      "success",
+      3200
+    );
+  });
+
+  it("reports create failures and clears the ignored refresh marker", async () => {
+    const ignoreNextRefresh = new Set(["projects"]);
+    const { controller, deps } = buildProjectController({
+      api: vi.fn().mockRejectedValue(new Error("backend down")),
+      ignoreNextRefresh,
+    });
+    controller.bindProjectForm();
+    deps.els.projectForm.querySelector("[name='project_name']").value = "Created";
+
+    deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await flushPromises();
+
+    expect(ignoreNextRefresh.has("projects")).toBe(false);
+    expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "create", "failure", { source: "project_form" });
+    expect(deps.setDeliverableFormNotice).toHaveBeenLastCalledWith(
+      deps.els.projectFormStatus,
+      "Create failed: backend down",
+      "error"
+    );
+  });
+
+  it("deletes a confirmed project and closes the form", async () => {
+    const { controller, deps } = buildProjectController({
+      api: vi.fn().mockResolvedValue({ ok: true }),
+    });
+    deps.state.projects.push({ project_id: "proj-1", project_name: "Project One" });
+    controller.openProjectForm({ project_id: "proj-1", project_name: "Project One" });
+    controller.bindProjectForm();
+
+    deps.els.deleteProjectBtn.click();
+    await flushPromises();
+
+    expect(deps.showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Delete Project?",
+      confirmLabel: "Delete Project",
+    }));
+    expect(deps.api).toHaveBeenCalledWith("/projects/proj-1", { method: "DELETE" });
+    expect(deps.removeById).toHaveBeenCalledWith(deps.state.projects, "proj-1", "project_id");
+    expect(deps.els.projectModal.classList.contains("hidden")).toBe(true);
+    expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "delete", "success", { source: "project_form" });
   });
 });

@@ -836,6 +836,68 @@ Mode: full-surface review with contract alignment and operational hardening.
 - Use a clean project virtual environment for final release validation; the current shared Python environment contains unrelated package conflicts outside `requirements.in`.
 ```
 
+## Pass: Test Coverage Gate Repair
+
+Mode: full-surface review with testing and validation hardening.
+
+### Findings
+
+- High / must-fix: frontend coverage was not runnable because `@vitest/coverage-v8` was missing from dev dependencies.
+- Medium / must-fix: backend coverage was not reproducible from the canonical local or CI workflow, and stale `htmlcov` output could be mistaken for a current signal.
+- Medium / should-fix: modular frontend unit coverage is still low. The first enforced gate prevents regression, but the route modules with 0% unit coverage need focused tests before the frontend can be called production-level by coverage alone.
+
+### Implemented
+
+- Added `pytest-cov` to the Python dependency lock.
+- Upgraded Vitest and added `@vitest/coverage-v8` with the `npm run test:ui:coverage` command.
+- Added `.coveragerc` with an 80% backend line coverage floor over `src/main/backend`.
+- Scoped Vitest coverage to modular UI source, excluding the legacy `src/main/ui/js/app.js` monolith for the initial gate.
+- Updated CI to run backend and frontend coverage gates.
+- Updated root, contribution, and app README validation commands.
+
+### Validation
+
+- `pytest -q src/main/test --cov --cov-report=term-missing --cov-report=xml`: 523 passed, 1 skipped; backend line coverage measured at 82% before branch coverage was removed from the enforced gate.
+- `npm run test:ui:coverage`: 53 passed; modular frontend coverage measured at 14.82% statements, 12.38% branches, 17.81% functions, and 16.05% lines under Vitest 4.
+- `python scripts/check_requirements_lock.py`: passed.
+- `npm audit --audit-level=high`: passed after Vitest upgrade and `npm audit fix`.
+
+### Remaining
+
+- Raise frontend coverage by adding unit coverage for the 0% route and shell modules before increasing the UI statement/line gate materially.
+- Add a separate backend branch coverage target after the planning, user/team admin, coordination, PDF report, and agent patch planning branch gaps are covered.
+- Review whether the frontend coverage scope should eventually include the legacy `src/main/ui/js/app.js` monolith once its behavior is either retired or covered through higher-level browser tests.
+
+## Pass: Frontend Coverage Expansion
+
+Mode: testing and validation hardening.
+
+### Findings
+
+- High / must-fix: project form reset handling could recurse because `fillProjectForm()` called `form.reset()` while the reset listener called `fillProjectForm(null)`.
+- Medium / should-fix: route entrypoints and render-only modules had little to no unit coverage, leaving UI delegation and rendering contracts protected mostly by broad smoke tests.
+- Medium / advisory: literal 100% coverage is not reachable in one bounded pass without either excluding active modules or adding many more tests for large dashboard, planning, master, PM dashboard, and interaction submodules.
+
+### Implemented
+
+- Added route rendering tests for governance entrypoints, shell context merging, team capacity rendering, and subcomponents workbench rendering.
+- Added route entrypoint tests for dashboard, PM dashboard, master table orchestration, and planning route orchestration.
+- Added project entity controller tests for open/close, create, update, failure recovery, and delete behavior.
+- Guarded project form reset handling to prevent recursive reset/fill cycles.
+- Raised the frontend coverage gate to the new measured floor.
+
+### Validation
+
+- `npx vitest run src/main/ui/test/unit/route-rendering.test.js`: passed.
+- `npx vitest run src/main/ui/test/unit/route-entrypoints.test.js`: passed.
+- `npx vitest run src/main/ui/test/unit/entities.test.js`: passed.
+- `npm run test:ui:coverage`: 72 passed; modular frontend coverage measured at 18.00% statements, 15.05% branches, 20.77% functions, and 19.60% lines.
+
+### Remaining
+
+- To approach full frontend coverage honestly, add focused tests for the current 0% modules under dashboard, master, planning, PM dashboard, subcomponents workbench, topbar create, modal shell, space switcher, and route interactions.
+- Backend remains at the prior 82.19% line coverage gate; full backend coverage needs separate work on planning, user/team admin, coordination, agent patch planning, and PDF report branches.
+
 ## Per-Pass Output Format
 
 Each component pass should end with this short ledger.

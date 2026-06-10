@@ -40,6 +40,8 @@ export function createProjectEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
+  let resettingProjectForm = false;
+
   function setProjectFormVisibility(show) {
     if (!els.projectModal) return;
     els.projectModal.classList.toggle("hidden", !show);
@@ -56,7 +58,12 @@ export function createProjectEntityController({
 
   function fillProjectForm(project = null) {
     if (!els.projectForm) return;
-    els.projectForm.reset();
+    resettingProjectForm = true;
+    try {
+      els.projectForm.reset();
+    } finally {
+      resettingProjectForm = false;
+    }
     clearDeliverableFormNotice(els.projectFormStatus);
     const setVal = (name, value = "") => {
       const field = els.projectForm.querySelector(`[name="${name}"]`);
@@ -142,6 +149,7 @@ export function createProjectEntityController({
       }
     });
     els.projectForm.addEventListener("reset", () => {
+      if (resettingProjectForm) return;
       clearDeliverableFormNotice(els.projectFormStatus);
       fillProjectForm(null);
       setProjectActionButtonLabel(false);

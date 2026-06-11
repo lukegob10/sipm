@@ -211,12 +211,13 @@ describe("simple route rendering", () => {
             planned_start_date: "2026-05-01",
             due_date: "2026-06-26",
             owner: "Spencer Emma",
-            current_phase: "Build / Docs",
+            current_phase: "build_docs",
           },
         ],
         tasks: [],
       },
       formatStatus: (value) => `Status: ${value}`,
+      phaseDisplayName: (phaseId) => (phaseId === "build_docs" ? "Build / Docs" : phaseId),
       solutionProgress: () => 50,
       showCompletedOperationalWork: () => false,
     });
@@ -227,6 +228,8 @@ describe("simple route rendering", () => {
     expect(root.textContent).toContain("Data Sourcing - APIs");
     expect(root.textContent).toContain("CitiVelocity");
     expect(root.textContent).toContain("Spencer Emma");
+    expect(root.textContent).toContain("Build / Docs");
+    expect(root.textContent).not.toContain("build_docs");
     expect(root.textContent).toContain("50%");
     expect(root.textContent).not.toContain("Other Program Project");
     expect(root.textContent).not.toContain("Confidential");

@@ -131,7 +131,7 @@
 }
 
 .space-summary-card strong {
-  font-size: 22px;
+  font-size: var(--font-size-display);
   line-height: 1;
 }
 
@@ -154,7 +154,7 @@
 
 .space-member-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .space-member-actions {
@@ -242,14 +242,14 @@
 }
 
 .space-directory-stat span {
-  font-size: 10px;
+  font-size: var(--font-size-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .space-directory-stat strong {
-  font-size: 25px;
+  font-size: var(--font-size-display);
   line-height: 1;
 }
 
@@ -326,7 +326,7 @@
 .space-directory-preview-id {
   margin: 0;
   color: var(--text-subtle);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-family: ui-monospace, SFMono-Regular, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   overflow-wrap: anywhere;
 }
@@ -347,14 +347,14 @@
 }
 
 .space-directory-card-fact span {
-  font-size: 10px;
+  font-size: var(--font-size-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .space-directory-card-fact strong {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.2;
 }
 
@@ -476,7 +476,7 @@
 }
 
 .compact-table table {
-  font-size: 0.9rem;
+  font-size: var(--font-size-table);
 }
 
 tr.is-selected {

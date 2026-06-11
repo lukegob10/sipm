@@ -205,7 +205,7 @@
       </header>
 
       <section id="view-master" class="view active">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Work / Deliverables</p>
@@ -277,7 +277,7 @@
       </section>
 
       <section id="view-gantt" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / Gantt</p>
@@ -423,54 +423,61 @@
               <div id="tasks-workbench-table" class="table"></div>
             </section>
 
-            <aside class="task-workbench-drawer" id="tasks-workbench-drawer">
-              <div class="drawer-panel">
-                <div class="drawer-head">
-                  <h3>Quick Edit</h3>
-                  <div class="toolbar-group">
+            <div id="tasks-workbench-drawer" class="modal task-workbench-editor-modal hidden" role="dialog" aria-modal="true" aria-labelledby="tasks-workbench-editor-title">
+              <div class="modal-backdrop task-workbench-editor-backdrop"></div>
+              <div class="modal-content task-workbench-editor-content">
+                <div class="modal-header modal-header-sticky">
+                  <h3 id="tasks-workbench-editor-title" tabindex="-1">Edit Task</h3>
+                  <div class="task-workbench-editor-actions">
                     <button type="button" class="secondary" id="tasks-workbench-reset">Reset</button>
-                    <button type="button" class="secondary" id="tasks-workbench-close">Close</button>
+                    <button type="button" class="secondary modal-close-x" id="tasks-workbench-close" aria-label="Close task editor" title="Close">&times;</button>
                   </div>
                 </div>
-                <p id="tasks-workbench-context" class="form-hint muted">Select a task to edit.</p>
-                <form id="tasks-workbench-form" class="form compact">
-                  <input type="hidden" name="task_id" />
-                  <label class="full-span">Task
-                    <input type="text" name="task_name" required />
-                  </label>
-                  <label>Status
-                    <select name="status">
-                      <option value="to_do">To do</option>
-                      <option value="in_progress">In progress</option>
-                      <option value="on_hold">On hold</option>
-                      <option value="complete">Complete</option>
-                      <option value="abandoned">Abandoned</option>
-                    </select>
-                  </label>
-                  <label>Assignee
-                    <select name="assignee"></select>
-                  </label>
-                  <input type="hidden" name="assignee_user_soeid" />
-                  <label>Due Date <input type="date" name="due_date" /></label>
-                  <label>Priority <input type="number" name="priority" min="1" max="5" /></label>
-                  <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
-                  <label class="full-span">Blocker Note <textarea name="blocker_note" rows="3"></textarea></label>
-                  <div class="form-actions full-span">
-                    <button type="submit">Save Changes</button>
+                <div class="modal-body task-workbench-editor-body">
+                  <p id="tasks-workbench-context" class="form-hint muted">Select a task to edit.</p>
+                  <form id="tasks-workbench-form" class="form compact">
+                    <input type="hidden" name="task_id" />
+                    <label class="full-span">Task
+                      <input type="text" name="task_name" required />
+                    </label>
+                    <label>Status
+                      <select name="status">
+                        <option value="to_do">To do</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="on_hold">On hold</option>
+                        <option value="complete">Complete</option>
+                        <option value="abandoned">Abandoned</option>
+                      </select>
+                    </label>
+                    <label>Assignee
+                      <select name="assignee"></select>
+                    </label>
+                    <input type="hidden" name="assignee_user_soeid" />
+                    <label>Due Date <input type="date" name="due_date" /></label>
+                    <label>Priority <input type="number" name="priority" min="1" max="5" /></label>
+                    <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
+                    <label class="full-span">Blocker Note <textarea name="blocker_note" rows="3"></textarea></label>
+                  </form>
+                  <section class="task-workbench-editor-activity">
+                    <h4>Activity</h4>
+                    <div id="tasks-workbench-activity" class="activity-list"></div>
+                  </section>
+                </div>
+                <div class="modal-form-footer task-workbench-editor-footer">
+                  <div class="form-actions">
+                    <button type="submit" form="tasks-workbench-form">Save Changes</button>
                     <button type="button" id="tasks-workbench-delete" class="primary danger" disabled>Delete</button>
                   </div>
-                  <p id="tasks-workbench-form-status" class="form-notice full-span" role="status" aria-live="polite"></p>
-                </form>
-                <h4>Activity</h4>
-                <div id="tasks-workbench-activity" class="activity-list"></div>
+                  <p id="tasks-workbench-form-status" class="form-notice" role="status" aria-live="polite"></p>
+                </div>
               </div>
-            </aside>
+            </div>
           </div>
         </div>
       </section>
 
       <section id="view-dashboard" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / Dashboard</p>
@@ -490,13 +497,19 @@
       </section>
 
       <section id="view-program-dashboard" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
+          <div class="panel-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Insight / Program Dashboard</p>
+              <h2>Program Dashboard</h2>
+            </div>
+          </div>
           <div id="program-dashboard-root"></div>
         </div>
       </section>
 
       <section id="view-pm-dashboard" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / PM Command Center</p>
@@ -912,7 +925,7 @@
       </div>
 
       <section id="view-kanban" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Work / Kanban</p>
@@ -934,7 +947,7 @@
       </section>
 
       <section id="view-calendar" class="view">
-          <div class="panel">
+          <div class="panel product-route-panel">
             <div class="panel-header">
               <div class="view-heading">
                 <p class="view-breadcrumb">Work / Calendar</p>
@@ -961,7 +974,7 @@
       </section>
 
       <section id="view-planning" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Work / Planning</p>

@@ -214,6 +214,28 @@ def test_pm_dashboard_signal_tokens_use_quieter_styling():
     assert "background: transparent;" in text
 
 
+def test_pm_dashboard_uses_shared_display_tokens_for_rag_and_status_distribution():
+    sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert 'from "../../utils/display-tokens.js";' in sections_text
+    assert "ragTone," in sections_text
+    assert "statusTone," in sections_text
+    assert 'class="pill rag-pill rag-red ${ragTone("red")}" data-rag-state="red"' in sections_text
+    assert 'class="pill rag-pill rag-amber ${ragTone("amber")}" data-rag-state="amber"' in sections_text
+    assert 'class="pm-status-list-row ${tone}" data-status-state=' in sections_text
+    assert 'class="${tone}" style=' in sections_text
+
+    assert ".pm-rag-stack > span.rag-red {" in styles_text
+    assert "background: var(--rag-red-border);" in styles_text
+    assert ".pm-rag-stack > span.rag-amber {" in styles_text
+    assert "background: var(--rag-amber-border);" in styles_text
+    assert ".pm-rag-stack > span.rag-green {" in styles_text
+    assert "background: var(--rag-green-border);" in styles_text
+    assert ".pm-mini-meter span.positive {" in styles_text
+    assert "background: var(--tone-positive-border);" in styles_text
+
+
 def test_pm_dashboard_item_kind_tokens_use_quieter_styling():
     text = read_ui_styles(STYLES_CSS)
 

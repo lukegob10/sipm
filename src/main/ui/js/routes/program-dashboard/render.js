@@ -1,3 +1,5 @@
+import { statusPillMarkup } from "../../utils/display-tokens.js";
+
 const PREFS_KEY_PREFIX = "sipm-program-dashboard-v1";
 const VALID_TABS = new Set(["projects", "tasks"]);
 const CLOSED_STATUSES = new Set(["complete", "abandoned"]);
@@ -29,18 +31,9 @@ function statusIsClosed(value) {
   return CLOSED_STATUSES.has(normalize(value));
 }
 
-function statusTone(value) {
-  const status = normalize(value);
-  if (status === "complete") return "positive";
-  if (status === "active" || status === "in_progress") return "positive";
-  if (status === "on_hold") return "warn";
-  if (status === "abandoned") return "danger";
-  return "muted";
-}
-
 function statusMarkup(value, formatStatus) {
   const label = typeof formatStatus === "function" ? formatStatus(value) : displayValue(value);
-  return `<span class="program-dashboard-status pill ${statusTone(value)}">${esc(label)}</span>`;
+  return statusPillMarkup(value, label, "program-dashboard-status");
 }
 
 function progressMarkup(value) {
@@ -72,10 +65,6 @@ function classificationTone(label) {
   if (normalized.includes("hold") || normalized.includes("entitlement")) return "warn";
   if (normalized.includes("enhancement")) return "muted";
   return "info";
-}
-
-function deckSlideNumber(activeTab) {
-  return activeTab === "tasks" ? 3 : 2;
 }
 
 function prefsKey(spaceId) {
@@ -232,8 +221,8 @@ function renderProjectsTable({
   selectedProgram,
   projects,
   solutionsByProject,
-  programParts,
   formatStatus,
+  phaseDisplayName,
   solutionProgress,
 }) {
   if (!projects.length) {
@@ -254,7 +243,6 @@ function renderProjectsTable({
       const projectRow = `
         <tr class="program-dashboard-group-row">
           <td><span class="program-dashboard-tag">${esc(programLabel)}</span></td>
-          <td>${esc(programParts.subArea)}</td>
           <td>${projectLinkMarkup(project)}</td>
           <td>${esc(projectStart)}</td>
           <td>${esc(projectEnd)}</td>
@@ -268,12 +256,11 @@ function renderProjectsTable({
         .map((solution) => `
           <tr class="program-dashboard-child-row">
             <td></td>
-            <td></td>
             <td><span class="program-dashboard-indent">${solutionLinkMarkup(solution)}</span></td>
             <td>${esc(displayValue(dateValue(solution.planned_start_date)))}</td>
             <td>${esc(displayValue(dateValue(solution.due_date)))}</td>
             <td>${statusMarkup(solution.status, formatStatus)}</td>
-            <td>${esc(displayValue(solution.current_phase))}</td>
+            <td>${esc(displayValue(phaseDisplayName(solution.current_phase)))}</td>
             <td>${esc(displayValue(solution.owner || solution.assignee || solution.key_stakeholder))}</td>
             <td>${progressMarkup(solutionProgress(solution))}</td>
           </tr>
@@ -289,7 +276,6 @@ function renderProjectsTable({
         <thead>
           <tr>
             <th>Program</th>
-            <th>Sub-Area</th>
             <th>Project / Solution</th>
             <th>Start</th>
             <th>End</th>
@@ -387,7 +373,7 @@ function renderSummary({ activeTab, projectCount, solutionCount, visibleCount, c
 }
 
 export function renderProgramDashboardView(programDashboardState, ctx) {
-  const { state, els, formatStatus, solutionProgress, showCompletedOperationalWork } = ctx;
+  const { state, els, formatStatus, phaseDisplayName, solutionProgress, showCompletedOperationalWork } = ctx;
   const root = els.programDashboardRoot || document.getElementById("program-dashboard-root");
   if (!root) return;
 
@@ -403,8 +389,6 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   if (!programs.length) {
     root.innerHTML = `
       <div class="program-dashboard-stage">
-        <p class="view-breadcrumb">Insight / Program Dashboard</p>
-        <h2>Program Dashboard</h2>
         <p class="program-dashboard-empty muted">Create a program before using this dashboard.</p>
       </div>
     `;
@@ -472,14 +456,17 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   const progressForSolution = typeof solutionProgress === "function"
     ? solutionProgress
     : (solution) => (normalize(solution?.status) === "complete" ? 100 : 0);
+  const displayPhase = typeof phaseDisplayName === "function"
+    ? phaseDisplayName
+    : (phaseId) => displayValue(phaseId);
 
   const bodyHtml = activeTab === "projects"
     ? renderProjectsTable({
       selectedProgram,
       projects,
       solutionsByProject,
-      programParts,
       formatStatus,
+      phaseDisplayName: displayPhase,
       solutionProgress: progressForSolution,
     })
     : renderTasksTable({
@@ -492,24 +479,16 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
       formatStatus,
     });
 
-  const activeSlide = deckSlideNumber(activeTab);
   const titleText = activeTab === "projects"
     ? `${programParts.team ? `${programParts.team} - ` : ""}${programParts.subArea || selectedProgram.program_name}`
     : `${programParts.subArea || selectedProgram.program_name} - Open Tasks & Milestones`;
   const subtitleText = activeTab === "projects"
     ? "Platform data pipeline and source onboarding projects"
     : "Granular task tracker for active data connections, entitlements, and enhancements";
-  const crumbText = activeTab === "projects"
-    ? `${programParts.team || "TAP"} - ${programParts.subArea || "Projects"}`
-    : `${programParts.team || "TAP"} - ${programParts.subArea || "Data Sourcing"} - Open Tasks`;
 
   root.innerHTML = `
     <div class="program-dashboard-stage">
-      <div class="program-dashboard-slide">
-        <div class="program-dashboard-brandbar">
-          <div class="program-dashboard-brand"><span>citi</span><i></i><strong>Project &amp; Solutions Dashboard</strong></div>
-          <div class="program-dashboard-slide-path">${esc(crumbText)}</div>
-        </div>
+      <div class="program-dashboard-slide product-surface">
         <div class="program-dashboard-header">
           <div>
             <p class="program-dashboard-kicker">${esc(programParts.team || "Program")} &middot; ${esc(programParts.subArea || "Dashboard")}</p>
@@ -533,15 +512,11 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
             hiddenClosedCount,
           })}
           <div class="program-dashboard-tabs" role="tablist" aria-label="Program dashboard views">
-            <span class="program-dashboard-slide-count">Slide ${activeSlide} / 7</span>
             ${tabButton("projects", activeTab, "Projects & Solutions")}
             ${tabButton("tasks", activeTab, "Open Tasks")}
           </div>
         </div>
         ${bodyHtml}
-        <div class="program-dashboard-slide-footer">
-          <span>Slide ${activeSlide} of 7</span>
-        </div>
       </div>
     </div>
   `;

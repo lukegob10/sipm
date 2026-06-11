@@ -189,6 +189,15 @@ export function bindTasksWorkbenchControls(ctx) {
     els.tasksWorkbenchClose._bound = true;
   }
 
+  if (els.tasksWorkbenchDrawer && !els.tasksWorkbenchDrawer._bound) {
+    els.tasksWorkbenchDrawer.addEventListener("click", (event) => {
+      if (event.target === els.tasksWorkbenchDrawer || event.target?.classList?.contains("task-workbench-editor-backdrop")) {
+        closeTasksWorkbenchDrawer(ctx);
+      }
+    });
+    els.tasksWorkbenchDrawer._bound = true;
+  }
+
   if (!document._scwbShortcutsBound) {
     document.addEventListener("keydown", async (event) => {
       await handleTasksWorkbenchShortcut(ctx, event);

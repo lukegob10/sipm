@@ -31,8 +31,8 @@ def test_tasks_workbench_styles_move_into_route_partial():
 
     for snippet in [
         ".task-workbench-context-link {",
-        ".drawer-panel {",
-        "#view-tasks-workbench .panel {",
+        ".task-workbench-editor-content {",
+        "#view-tasks-workbench > .panel {",
     ]:
         assert snippet in route_text
         assert snippet not in shared_text

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 from ui_style_contract import read_ui_styles
@@ -69,6 +70,83 @@ def test_route_hint_copy_removed_from_main_html_views():
         "#/access",
         ]:
         assert route_hint not in text
+
+
+def test_work_object_views_use_consistent_product_shells():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
+
+    for view_id in ("view-master", "view-gantt", "view-kanban", "view-calendar", "view-planning"):
+        section_start = html_text.index(f'id="{view_id}"')
+        section_text = html_text[section_start:section_start + 220]
+        assert 'class="panel product-route-panel"' in section_text
+
+    assert ".object-shell {" in styles_text
+    assert "#view-master #master-table {" in styles_text
+    assert ".gantt-scroll {" in styles_text
+    assert ".kanban {" in styles_text
+    assert ".calendar {" in styles_text
+    assert "#view-planning #planning-board {" in styles_text
+    assert "var(--product-border" in styles_text
+
+
+def test_shared_typography_tokens_define_compact_product_scale():
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
+
+    for token in (
+        "--font-size-route-title:",
+        "--font-size-section-title:",
+        "--font-size-card-title:",
+        "--font-size-body:",
+        "--font-size-table:",
+        "--font-size-table-header:",
+        "--font-size-label:",
+        "--font-size-meta:",
+        "--font-size-chip:",
+        "--font-size-control:",
+        "--font-size-display:",
+        "--font-size-display-compact:",
+        "--font-size-icon-action:",
+    ):
+        assert token in styles_text
+
+    assert "--view-title-font-size: var(--font-size-route-title);" in styles_text
+    assert "body {" in styles_text
+    assert "font-size: var(--font-size-body);" in styles_text
+    assert ".table th {" in styles_text
+    assert "font-size: var(--font-size-table-header);" in styles_text
+
+
+def test_route_styles_use_typography_tokens_instead_of_raw_font_sizes():
+    style_paths = [
+        REPO_ROOT / "src" / "main" / "ui" / "styles.css",
+        REPO_ROOT / "src" / "main" / "ui" / "styles" / "base.css",
+    ]
+    style_paths.extend((REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes").glob("*.css"))
+
+    raw_font_size = re.compile(r"font-size:\s*(?:\d+(?:\.\d+)?px|\d+(?:\.\d+)?rem|clamp\(|calc\()", re.IGNORECASE)
+    offenders = []
+    for path in style_paths:
+        text = path.read_text(encoding="utf-8")
+        for match in raw_font_size.finditer(text):
+            line_no = text.count("\n", 0, match.start()) + 1
+            offenders.append(f"{path.relative_to(REPO_ROOT)}:{line_no}:{match.group(0)}")
+
+    assert offenders == []
+
+
+def test_modernized_work_views_map_visible_typography_to_shared_roles():
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
+
+    assert "--master-row-font-size: var(--font-size-table);" in styles_text
+    assert "--task-workbench-row-font-size: var(--font-size-table);" in styles_text
+    assert ".program-dashboard-table th," in styles_text
+    assert ".program-dashboard-table td {" in styles_text
+    assert "font-size: var(--font-size-table);" in styles_text
+    assert ".dashboard-main-table thead th," in styles_text
+    assert ".gantt-title {" in styles_text
+    assert ".pm-kpi-value {" in styles_text
+    assert "font-size: var(--font-size-display);" in styles_text
 
 
 def test_topbar_create_menu_exists_in_authenticated_shell():
@@ -697,13 +775,18 @@ def test_tasks_workbench_delete_outcomes_use_inline_feedback():
     assert 'setStatus(`Deleted ${result.deletedIds.length} task${result.deletedIds.length === 1 ? "" : "s"}.`, "positive");' not in bulk_text
 
 
-def test_tasks_workbench_drawer_editor_behaviors_are_route_local():
+def test_tasks_workbench_modal_editor_behaviors_are_route_local():
     app_text = APP_JS.read_text(encoding="utf-8")
     drawer_text = TASKS_WORKBENCH_DRAWER.read_text(encoding="utf-8")
     interactions_text = TASKS_WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'from "./routes/tasks-workbench/drawer.js";' in app_text
+    assert 'id="tasks-workbench-drawer" class="modal task-workbench-editor-modal hidden"' in html_text
+    assert 'id="tasks-workbench-editor-title" tabindex="-1">Edit Task</h3>' in html_text
+    assert 'form="tasks-workbench-form">Save Changes</button>' in html_text
     assert "function syncTasksWorkbenchDrawer(ctx) {" in drawer_text
+    assert 'els.tasksWorkbenchDrawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");' in drawer_text
     assert "function fillTasksWorkbenchForm(ctx, task) {" in drawer_text
     assert "async function saveTasksWorkbenchForm(ctx) {" in drawer_text
     assert "async function deleteActiveTasksWorkbenchItem(ctx) {" in drawer_text
@@ -712,6 +795,8 @@ def test_tasks_workbench_drawer_editor_behaviors_are_route_local():
     assert "fillTasksWorkbenchForm(workbenchCtx, active);" in app_text
     assert "await saveTasksWorkbenchForm(ctx);" in interactions_text
     assert "await deleteActiveTasksWorkbenchItem(ctx);" in interactions_text
+    assert 'els.tasksWorkbenchDrawer.addEventListener("click", (event) => {' in interactions_text
+    assert 'event.target?.classList?.contains("task-workbench-editor-backdrop")' in interactions_text
     assert "await handleTasksWorkbenchShortcut(ctx, event);" in interactions_text
 
 

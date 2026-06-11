@@ -44,14 +44,15 @@ export function syncTasksWorkbenchDrawer(ctx) {
   const drawerOpen = wb.drawerOpen !== false;
   if (els.tasksWorkbenchDrawer) {
     els.tasksWorkbenchDrawer.classList.toggle("hidden", !drawerOpen);
+    els.tasksWorkbenchDrawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");
   }
   if (els.tasksWorkbenchLayout) {
-    els.tasksWorkbenchLayout.classList.toggle("task-workbench-layout-drawer-hidden", !drawerOpen);
+    els.tasksWorkbenchLayout.classList.toggle("task-workbench-layout-editor-open", drawerOpen);
   }
 }
 
 export function openTasksWorkbenchDrawer(ctx, preferredTaskId = "") {
-  const { state, persistTasksWorkbenchUiState, renderTasksWorkbench } = ctx;
+  const { state, els, persistTasksWorkbenchUiState, renderTasksWorkbench } = ctx;
   const wb = state.tasksWorkbench;
   if (wb.drawerOpen === false) {
     const anchorId =
@@ -67,6 +68,17 @@ export function openTasksWorkbenchDrawer(ctx, preferredTaskId = "") {
   wb.drawerOpen = true;
   persistTasksWorkbenchUiState();
   renderTasksWorkbench();
+  window.requestAnimationFrame(() => {
+    const target = document.getElementById("tasks-workbench-editor-title")
+      || els.tasksWorkbenchForm?.querySelector('[name="task_name"]');
+    if (target && typeof target.focus === "function") {
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        target.focus();
+      }
+    }
+  });
 }
 
 export function closeTasksWorkbenchDrawer(ctx) {

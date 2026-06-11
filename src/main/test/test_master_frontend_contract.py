@@ -11,6 +11,7 @@ MASTER_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master.js"
 MASTER_ROUTE_TABLE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "table.js"
 MASTER_ROUTE_FILTERS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "filters.js"
 MASTER_ROUTE_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "master" / "interactions.js"
+DISPLAY_TOKENS = REPO_ROOT / "src" / "main" / "ui" / "js" / "utils" / "display-tokens.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -74,6 +75,90 @@ def test_master_type_chip_uses_colored_chip_styling():
     assert "background: var(--project-pill-bg);" in text
     assert ".pill-solution {" in text
     assert "background: var(--solution-pill-bg);" in text
+
+
+def test_master_deliverables_uses_shared_product_route_shell():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert '<section id="view-master" class="view active">' in html_text
+    assert '<div class="panel product-route-panel">' in html_text
+    assert "#view-master .panel.product-route-panel {" in styles_text
+    assert "#view-master #master-table {" in styles_text
+    assert "var(--product-table-head" in styles_text
+    assert "#view-master #master-table .deliverables-table th {" in styles_text
+
+
+def test_master_deliverables_table_uses_product_object_shell_texture():
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert "#view-master #master-table {" in styles_text
+    assert "border: 1px solid var(--product-border, var(--border));" in styles_text
+    assert "border-radius: 8px;" in styles_text
+    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in styles_text
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in styles_text
+    assert "#view-master .panel-toolbar.compact {" in styles_text
+    assert "#view-master .quickstart-card {" in styles_text
+
+
+def test_master_deliverables_rows_and_chips_match_modern_object_language():
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert "#view-master #master-table .deliverables-table tbody tr:nth-child(even) {" in styles_text
+    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in styles_text
+    assert "#view-master #master-table .deliverables-table tbody tr:hover," in styles_text
+    assert "background: var(--hover);" in styles_text
+    assert "#view-master #master-table .deliverables-table tr.deliverable-row-project," in styles_text
+    assert "background: color-mix(in srgb, var(--panel-soft) 92%, var(--project-pill-bg));" in styles_text
+    assert "font-weight: 500;" in styles_text
+    assert "#view-master #master-table .deliverables-table .pill {" in styles_text
+    assert "border-radius: 5px;" in styles_text
+    assert "background: var(--tone-positive-bg);" in styles_text
+    assert "background: var(--tone-warn-bg);" in styles_text
+    assert "background: var(--tone-danger-bg);" in styles_text
+
+
+def test_master_deliverables_use_shared_display_tokens_for_status_rag_and_phase_labels():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
+    table_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
+    token_text = DISPLAY_TOKENS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert "export function formatStatusLabel" in token_text
+    assert "export function statusTone" in token_text
+    assert "export function ragTone" in token_text
+    assert 'status === "in_progress"' in token_text
+    assert 'rag === "green"' in token_text
+    assert 'import { formatStatusLabel } from "./utils/display-tokens.js";' in app_text
+    assert "return formatStatusLabel(status, \"—\");" in app_text
+
+    assert "phaseDisplayName(solution.current_phase)" in filters_text
+    assert "lower(phaseLabel).includes(lower(f.current_phase))" in filters_text
+    assert "lower(solution.current_phase).includes(lower(f.current_phase))" not in filters_text
+
+    assert 'import { ragTone, statusTone } from "../../utils/display-tokens.js";' in table_text
+    assert "ragTone(ragValue)" in table_text
+    assert "statusTone(statusState)" in table_text
+    assert 'class="inline-select status-select' in table_text
+    assert "data-status-state=" in table_text
+    assert "data-rag-state=" in table_text
+
+    assert ".status-select[data-status-state=\"active\"]," in styles_text
+    assert ".rag-select[data-rag-state=\"green\"] {" in styles_text
+
+
+def test_master_deliverables_project_solution_titles_use_dense_wrapping():
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert "#view-master #master-table .deliverables-table .deliverables-name-link {" in styles_text
+    assert "display: -webkit-box;" in styles_text
+    assert "-webkit-line-clamp: 2;" in styles_text
+    assert "#view-master #master-table .deliverables-table .deliverables-name-link-project {" in styles_text
+    assert "font-weight: 600;" in styles_text
+    assert "#view-master #master-table .deliverables-table .deliverables-name-link-solution {" in styles_text
+    assert "font-weight: 500;" in styles_text
+    assert "color: var(--accent-strong);" in styles_text
 
 
 def test_master_table_keeps_broad_deliverables_columns_without_repo_mode():

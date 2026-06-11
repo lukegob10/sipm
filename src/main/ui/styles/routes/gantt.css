@@ -1,5 +1,6 @@
 #view-gantt .panel {
-  padding: 8px 10px 10px;
+  padding: 10px 12px 12px;
+  overflow: hidden;
 }
 
 #view-gantt .panel-header {
@@ -18,16 +19,17 @@
   gap: 8px;
   flex-wrap: wrap;
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--product-border, var(--border));
   border-radius: 8px;
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel-soft) 78%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
 }
 
 .gantt-controls label {
   display: grid;
   gap: 3px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -41,7 +43,7 @@
   min-height: 32px;
   padding: 6px 8px;
   box-sizing: border-box;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   font-variant-numeric: tabular-nums;
 }
 
@@ -72,9 +74,9 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
   padding: 6px 8px;
   margin: 0 0 8px;
 }
@@ -88,13 +90,13 @@
 
 .gantt-summary-title {
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 800;
 }
 
 .gantt-summary-window {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
@@ -111,7 +113,7 @@
   border-radius: 6px;
   background: var(--panel-soft);
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   padding: 4px 7px;
 }
 
@@ -121,21 +123,22 @@
 }
 
 .gantt-empty {
-  border: 1px dashed var(--border);
-  border-radius: 6px;
+  border: 1px dashed var(--product-border, var(--border));
+  border-radius: 8px;
   color: var(--muted);
   padding: 16px;
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel-soft) 78%, transparent);
 }
 
 .gantt-scroll {
   --gantt-left-width: 620px;
   overflow: auto;
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
-  background: var(--panel);
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
   max-height: calc(100dvh - 220px);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
 .gantt-row {
@@ -175,11 +178,12 @@
 .gantt-header-label {
   z-index: 12;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: var(--panel-soft);
+  background: var(--product-table-head, var(--panel-soft));
+  color: var(--product-table-head-text, var(--text-strong));
 }
 
 .gantt-left-header,
@@ -215,7 +219,7 @@
 }
 
 .gantt-header-track {
-  background: var(--panel-soft);
+  background: var(--product-table-head, var(--panel-soft));
 }
 
 .gantt-track {
@@ -233,7 +237,7 @@
 
 .gantt-time-header {
   min-height: 44px;
-  background-color: var(--panel-soft);
+  background: var(--product-table-head, var(--panel-soft));
 }
 
 .gantt-month-tick,
@@ -249,7 +253,7 @@
   height: 17px;
   border-left: 1px solid var(--border-strong);
   padding-left: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -257,7 +261,7 @@
 .gantt-week-tick {
   bottom: 5px;
   transform: translateX(4px);
-  font-size: 10px;
+  font-size: var(--font-size-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -314,7 +318,7 @@
   background: var(--panel);
   color: var(--text);
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-label);
   font-weight: 800;
   line-height: 1;
   padding: 0;
@@ -364,7 +368,7 @@
 
 .gantt-title {
   display: -webkit-box;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   font-weight: 740;
   line-height: 1.18;
   white-space: normal;
@@ -374,7 +378,7 @@
 
 .gantt-row-field {
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   min-width: 0;
 }
 
@@ -402,7 +406,7 @@
   padding: 4px 6px;
   background: var(--panel-soft);
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   font-weight: 700;
 }
 
@@ -448,7 +452,7 @@
   border-radius: 5px;
   padding: 0 6px;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--font-size-label);
   font-weight: 700;
   line-height: 16px;
   text-align: left;
@@ -532,7 +536,7 @@
 }
 
 .gantt-row-project .gantt-title {
-  font-size: 12.5px;
+  font-size: var(--font-size-section-title);
   font-weight: 820;
 }
 

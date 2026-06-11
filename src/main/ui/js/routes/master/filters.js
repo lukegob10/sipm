@@ -73,7 +73,7 @@ function projectMatchesDeliverablesFilters(ctx, project, filters, preset) {
 }
 
 export function filteredSolutions(ctx) {
-  const { state, hideClosedDeliverables, isClosedSolutionStatus, solutionProgress } = ctx;
+  const { state, hideClosedDeliverables, isClosedSolutionStatus, formatStatus, phaseDisplayName, solutionProgress } = ctx;
   const f = state.filters || {};
   if (f.type && f.type !== "solution") return [];
   const preset = state.deliverablesPreset || "";
@@ -88,11 +88,15 @@ export function filteredSolutions(ctx) {
     if (f.solution && !lower(solution.solution_name).includes(lower(f.solution))) return false;
     if (f.version && !lower(solution.version).includes(lower(f.version))) return false;
     if (f.owner && !lower(solution.owner).includes(lower(f.owner))) return false;
-    if (f.current_phase && !lower(solution.current_phase).includes(lower(f.current_phase))) return false;
+    const phaseLabel = typeof phaseDisplayName === "function"
+      ? phaseDisplayName(solution.current_phase)
+      : solution.current_phase;
+    if (f.current_phase && !lower(phaseLabel).includes(lower(f.current_phase))) return false;
     if (f.priority && Number(solution.priority) > Number(f.priority)) return false;
     if (f.due && !lower(solution.due_date).includes(lower(f.due))) return false;
     if (f.rag && !lower(solution.rag_status).includes(lower(f.rag))) return false;
-    if (f.status && !lower(solution.status).includes(lower(f.status))) return false;
+    const statusLabel = typeof formatStatus === "function" ? formatStatus(solution.status) : solution.status;
+    if (f.status && !lower(statusLabel).includes(lower(f.status))) return false;
     if (f.progress && solutionProgress(solution) > Number(f.progress)) return false;
     if (preset === "my") {
       const ownerMatch = lower(solution.owner).includes(userName);

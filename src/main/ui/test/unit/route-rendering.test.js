@@ -229,6 +229,11 @@ describe("simple route rendering", () => {
     expect(root.textContent).toContain("Spencer Emma");
     expect(root.textContent).toContain("50%");
     expect(root.textContent).not.toContain("Other Program Project");
+    expect(root.textContent).not.toContain("Confidential");
+    expect(root.textContent).not.toContain("Internal Use Only");
+    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).toContain("Program");
+    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).not.toContain("Team");
+    expect(root.querySelector(".program-dashboard-group-row .program-dashboard-tag")?.textContent).toBe("TAP - Data Sourcing");
     expect(root.querySelectorAll(".program-dashboard-group-row")).toHaveLength(1);
     expect(root.querySelectorAll(".program-dashboard-child-row")).toHaveLength(1);
   });

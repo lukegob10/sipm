@@ -193,3 +193,16 @@ def test_dashboard_risk_badges_use_quieter_styling():
     assert "border: none;" in text
     assert "border-radius: 0;" in text
     assert "background: transparent;" in text
+
+
+def test_program_dashboard_has_light_theme_overrides():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert ".theme-light #view-program-dashboard > .panel {" in text
+    assert ".theme-light .program-dashboard-stage {" in text
+    assert "--slide-bg: #ffffff;" in text
+    assert "--slide-text: #18212c;" in text
+    assert ".theme-light .program-dashboard-table th," in text
+    assert ".theme-light .program-dashboard-table td {" in text
+    assert ".theme-light .program-dashboard-slide-footer {" in text
+    assert ".theme-light .program-dashboard-status.pill.positive {" in text

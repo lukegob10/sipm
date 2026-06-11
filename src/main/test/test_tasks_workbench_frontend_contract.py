@@ -14,6 +14,8 @@ WORKBENCH_DRAWER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-
 WORKBENCH_SAVED_VIEWS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "saved-views.js"
 WORKBENCH_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "interactions.js"
 WORKBENCH_OPTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "options.js"
+INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
+TASKS_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "tasks-workbench.css"
 
 
 def test_workbench_route_renders_project_context_as_drilldown_link():
@@ -57,6 +59,27 @@ def test_workbench_project_context_link_reuses_existing_project_modal():
     assert 'renderTasksWorkbenchDrawerRepoContext(ctx, task)' in drawer_text
 
 
+def test_workbench_editor_uses_centered_modal_shell():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    drawer_text = WORKBENCH_DRAWER.read_text(encoding="utf-8")
+    interactions_text = WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+    styles_text = TASKS_STYLES.read_text(encoding="utf-8")
+
+    assert 'id="tasks-workbench-drawer" class="modal task-workbench-editor-modal hidden"' in html_text
+    assert 'role="dialog" aria-modal="true" aria-labelledby="tasks-workbench-editor-title"' in html_text
+    assert 'class="modal-backdrop task-workbench-editor-backdrop"' in html_text
+    assert 'id="tasks-workbench-editor-title" tabindex="-1">Edit Task</h3>' in html_text
+    assert 'id="tasks-workbench-form" class="form compact"' in html_text
+    assert 'form="tasks-workbench-form">Save Changes</button>' in html_text
+    assert "task-workbench-layout-drawer-hidden" not in html_text
+    assert 'els.tasksWorkbenchDrawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");' in drawer_text
+    assert 'event.target?.classList?.contains("task-workbench-editor-backdrop")' in interactions_text
+    assert ".task-workbench-editor-modal {" in styles_text
+    assert ".task-workbench-editor-content {" in styles_text
+    assert ".task-workbench-layout {" in styles_text
+    assert "grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);" not in styles_text
+
+
 def test_workbench_context_links_use_compact_local_styling():
     text = read_ui_styles(STYLES)
 
@@ -70,6 +93,22 @@ def test_workbench_context_links_use_compact_local_styling():
     assert ".task-workbench-context-primary," in text
     assert ".task-workbench-context-secondary {" in text
     assert ".task-workbench-context-source {" in text
+
+
+def test_workbench_status_cells_use_shared_status_pills_and_compact_table_language():
+    route_text = WORKBENCH_ROUTE.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES)
+
+    assert 'import { statusPillMarkup } from "../utils/display-tokens.js";' in route_text
+    assert "statusPillMarkup(row.status, statusLabel)" in route_text
+    assert 'class="task-workbench-status-cell"' in route_text
+    assert ".task-workbench-table thead th {" in styles_text
+    assert "background: var(--product-table-head" in styles_text
+    assert "#view-tasks-workbench .task-workbench-table tbody tr:nth-child(even) {" in styles_text
+    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in styles_text
+    assert ".task-workbench-table tbody tr:hover td {" in styles_text
+    assert ".task-workbench-table .pill {" in styles_text
+    assert "border-radius: 5px;" in styles_text
 
 
 def test_workbench_drawer_context_surfaces_effective_repo_link():

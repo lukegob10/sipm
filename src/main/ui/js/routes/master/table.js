@@ -1,3 +1,5 @@
+import { ragTone, statusTone } from "../../utils/display-tokens.js";
+
 function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -132,7 +134,7 @@ export function buildMasterTable(ctx) {
     const statusValue = isSolution ? solution.status : project.status;
     const normalizedRag = isSolution ? String(solution.rag_status || "green").toLowerCase() : "";
     const ragValue = normalizedRag === "red" || normalizedRag === "amber" ? normalizedRag : "green";
-    const ragToneClass = `rag-${ragValue}`;
+    const ragToneClass = `rag-${ragValue} ${ragTone(ragValue)}`;
     const ragCell = isSolution
       ? `<select class="inline-select rag-select ${ragToneClass}" data-rag-state="${ragValue}" data-field="rag_status" data-type="solution" data-id="${solution.solution_id}">
           <option value="amber" ${ragValue === "amber" ? "selected" : ""}>Amber</option>
@@ -141,7 +143,8 @@ export function buildMasterTable(ctx) {
         </select>`
       : "—";
     const fteMonthsCell = isSolution ? solutionFteMonths(solution).toFixed(2) : "—";
-    const statusCell = `<select class="inline-select" data-field="status" data-type="${row.type}" data-id="${itemId}">
+    const statusState = String(statusValue || "").toLowerCase();
+    const statusCell = `<select class="inline-select status-select ${statusTone(statusState)}" data-status-state="${esc(statusState)}" data-field="status" data-type="${row.type}" data-id="${itemId}">
         <option value="not_started" ${statusValue === "not_started" ? "selected" : ""}>Not started</option>
         <option value="active" ${statusValue === "active" ? "selected" : ""}>Active</option>
         <option value="on_hold" ${statusValue === "on_hold" ? "selected" : ""}>On hold</option>

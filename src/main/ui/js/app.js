@@ -68,6 +68,7 @@ import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
 import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
 import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
+import { formatStatusLabel } from "./utils/display-tokens.js";
 import { safeExternalUrl } from "./utils/external-url.js";
 
 const HOURS_PER_FTE_MONTH = 160;
@@ -1787,12 +1788,7 @@ function solutionProgress(solution) {
 }
 
 function formatStatus(status) {
-  if (!status) return "—";
-  return status
-    .toString()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+  return formatStatusLabel(status, "—");
 }
 
 function escapeAttr(value) {
@@ -1889,6 +1885,7 @@ function renderProgramDashboard() {
     state,
     els,
     formatStatus,
+    phaseDisplayName,
     solutionProgress,
     showCompletedOperationalWork,
     openProgramDashboardProjectDrilldown,
@@ -3787,7 +3784,7 @@ function persistTasksWorkbenchUiState() {
       },
       activeTaskId: wb.activeTaskId || "",
       selectedSavedViewId: wb.selectedSavedViewId || "",
-      drawerOpen: wb.drawerOpen !== false,
+      drawerOpen: wb.drawerOpen === true,
     }
   );
 }
@@ -3808,7 +3805,7 @@ function restoreTasksWorkbenchUiState() {
   wb.selected.clear();
   wb.activeTaskId = String(stored.activeTaskId || "");
   wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
-  wb.drawerOpen = stored.drawerOpen !== false;
+  wb.drawerOpen = stored.drawerOpen === true;
   normalizeWorkbenchUiState(createTasksWorkbenchContext());
   if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
 }

@@ -1,6 +1,5 @@
 import {
   applyScope,
-  clamp,
   createColumnDefinitions,
   currentUserTokens,
   daysAgo,
@@ -222,26 +221,11 @@ export function renderDashboardView(dashboardState, ctx) {
   }
 
   if (els.dashboardSpaceCapacity) {
-    const utilClass = utilizationPct >= 100 ? "danger" : utilizationPct >= 85 ? "warn" : "positive";
-    const utilWidth = clamp(utilizationPct, 0, 140);
     els.dashboardSpaceCapacity.innerHTML = `
-      <div class="dashboard-card-head">
-        <div>
-          <h3>Space Snapshot</h3>
-          <p class="dashboard-card-sub">Executive capacity summary for the current solution view.</p>
-        </div>
-      </div>
-      <div class="dashboard-capacity-lines">
-        <div class="dashboard-capacity-line"><span>Total Capacity</span><strong>${formatFte(totalSpaceCapacity)} FTE-mo</strong></div>
-        <div class="dashboard-capacity-line"><span>Working Now</span><strong>${formatFte(workingDemand)} FTE-mo</strong></div>
-        <div class="dashboard-capacity-line"><span>Coming (Fits FTE)</span><strong>${formatFte(scheduledDemand)} FTE-mo</strong></div>
-        <div class="dashboard-capacity-line"><span>Backlog (Outside FTE)</span><strong>${formatFte(deferredDemand)} FTE-mo</strong></div>
-      </div>
-      <div class="dashboard-util-wrap">
-        <div class="dashboard-util-bar" role="img" aria-label="Capacity utilization ${Math.round(utilizationPct)} percent">
-          <span class="${utilClass}" style="width:${utilWidth}%;"></span>
-        </div>
-        <div class="dashboard-util-meta">Utilization ${utilizationPct.toFixed(1)}% · Headroom ${formatFte(headroom)} FTE-mo</div>
+      <div class="dashboard-snapshot-bar" aria-label="Space capacity snapshot">
+        <div class="dashboard-snapshot-stat"><span>Total Capacity</span><strong>${formatFte(totalSpaceCapacity)} FTE-mo</strong></div>
+        <div class="dashboard-snapshot-stat"><span>Working Now</span><strong>${formatFte(workingDemand)} FTE-mo</strong></div>
+        <div class="dashboard-snapshot-stat"><span>Utilization</span><strong>${utilizationPct.toFixed(1)}%</strong></div>
       </div>
     `;
   }

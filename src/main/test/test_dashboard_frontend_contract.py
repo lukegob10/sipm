@@ -5,12 +5,14 @@ from ui_style_contract import read_ui_styles
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
+INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 DASHBOARD_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard.js"
 DASHBOARD_COMMON = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "common.js"
 DASHBOARD_PREFS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "prefs.js"
 DASHBOARD_MODAL = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "modal.js"
 DASHBOARD_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "interactions.js"
 DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "render.js"
+PROGRAM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "program-dashboard" / "render.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -19,7 +21,7 @@ def test_dashboard_route_uses_single_customize_tables_control_with_section_tabs(
     modal_text = DASHBOARD_MODAL.read_text(encoding="utf-8")
     render_text = DASHBOARD_RENDER.read_text(encoding="utf-8")
 
-    assert 'import { createDashboardState, renderDashboardView } from "./dashboard/render.js";' in route_text
+    assert 'import { createDashboardState, renderDashboardView } from "./dashboard/render.js?v=dashboard-snapshot-kpis-v4";' in route_text
     assert "Customize Tables" in modal_text
     assert "renderDashboardConfigButton()" in render_text
     assert '"dashboard-card-action"' in modal_text
@@ -193,3 +195,182 @@ def test_dashboard_risk_badges_use_quieter_styling():
     assert "border: none;" in text
     assert "border-radius: 0;" in text
     assert "background: transparent;" in text
+
+
+def test_dashboard_theme_converges_toward_product_object_language():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert "#view-dashboard .dashboard-capacity-card," in text
+    assert "#view-dashboard #dashboard-backlog {" in text
+    assert "grid-template-rows: auto minmax(0, 0.95fr) minmax(0, 1.15fr);" in text
+    assert "border: 1px solid var(--product-border, var(--border));" in text
+    assert "border-radius: 8px;" in text
+    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
+    assert "box-shadow:" in text
+    assert "inset 0 0 0 1px rgba(255, 255, 255, 0.03)" in text
+    assert ".dashboard-table-shell {" in text
+    assert ".dashboard-main-table tbody tr:nth-child(even)," in text
+    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in text
+    assert "#view-dashboard .dashboard-condensed-table tbody tr:hover td {" in text
+    assert "background: var(--hover);" in text
+    assert "background: var(--product-table-head" in text
+
+
+def test_dashboard_chips_and_capacity_bars_use_compact_tokenized_styling():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert "#view-dashboard .dashboard-condensed-table .pill {" in text
+    assert "min-height: 18px;" in text
+    assert "border-radius: 5px;" in text
+    assert "background: var(--tone-positive-bg);" in text
+    assert "background: var(--tone-warn-bg);" in text
+    assert "background: var(--tone-danger-bg);" in text
+    assert ".dashboard-fte-box {" in text
+    assert "background: var(--panel-soft);" in text
+    assert ".dashboard-util-bar {" in text
+    assert "height: 5px;" in text
+    assert ".dashboard-util-bar > span.positive {" in text
+    assert "background: var(--tone-positive-border);" in text
+
+
+def test_dashboard_space_snapshot_uses_compact_full_width_summary_row():
+    render_text = DASHBOARD_RENDER.read_text(encoding="utf-8")
+    style_text = read_ui_styles(STYLES_CSS)
+
+    assert "dashboard-snapshot-bar" in render_text
+    assert "dashboard-snapshot-stat" in render_text
+    assert "dashboard-snapshot-stat-util" not in render_text
+    assert "dashboard-util-bar" not in render_text[render_text.index("els.dashboardSpaceCapacity.innerHTML"):render_text.index("if (els.dashboardTopProjects)")]
+    assert "Capacity and delivery pressure." not in render_text
+    assert "Space Snapshot" not in render_text
+    assert "Executive capacity summary for the current solution view." not in render_text
+    assert "Coming (Fits FTE)" not in render_text
+    assert "<span>Total Capacity</span>" in render_text
+    assert "<strong>${formatFte(totalSpaceCapacity)} FTE-mo</strong>" in render_text
+    assert "<span>Working Now</span>" in render_text
+    assert "<strong>${formatFte(workingDemand)} FTE-mo</strong>" in render_text
+    assert "<span>Utilization</span>" in render_text
+    assert "<strong>${utilizationPct.toFixed(1)}%</strong>" in render_text
+    assert "<span>Backlog</span>" not in render_text
+    assert "<span>Headroom</span>" not in render_text
+
+    assert "#view-dashboard .dashboard-capacity-card {" in style_text
+    assert "padding: 7px 16px 7px 8px;" in style_text
+    assert "box-sizing: border-box;" in style_text
+    assert "justify-self: stretch;" in style_text
+    assert "width: 100%;" in style_text
+    assert ".dashboard-snapshot-bar {" in style_text
+    assert "display: grid;" in style_text
+    assert "grid-template-columns: repeat(3, max-content);" in style_text
+    assert "justify-content: end;" in style_text
+    assert "width: 100%;" in style_text
+    assert "max-width: 100%;" in style_text
+    assert "min-width: max-content;" in style_text
+    assert "justify-content: flex-end;" in style_text
+    assert "#view-dashboard .dashboard-capacity-card > .dashboard-util-wrap {" in style_text
+    assert "#view-dashboard .dashboard-capacity-card > .dashboard-util-wrap .dashboard-util-bar {\n  display: none;" in style_text
+
+
+def test_dashboard_solution_project_titles_use_gantt_like_dense_wrapping():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert ".dashboard-solution-link {" in text
+    assert "font-weight: 820;" in text
+    assert "#view-dashboard .dashboard-condensed-table td.dashboard-col-solution .dashboard-solution-link," in text
+    assert "-webkit-line-clamp: 2;" in text
+    assert ".dashboard-project-link.strong {" in text
+    assert "color: var(--text-strong);" in text
+    assert ".dashboard-cell-meta .dashboard-project-link {" in text
+    assert "color: var(--muted);" in text
+
+
+def test_program_dashboard_has_light_theme_overrides():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert ".product-route-panel {" in text
+    assert ".product-surface {" in text
+    assert ".theme-light .program-dashboard-stage {" in text
+    assert ".theme-light .program-dashboard-status.pill.positive {" in text
+    assert "program-dashboard-brandbar" not in text
+    assert "program-dashboard-slide-footer" not in text
+
+
+def test_program_dashboard_theme_converges_toward_gantt_object_language():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert ".program-dashboard-table-shell {" in text
+    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in text
+    assert ".program-dashboard-group-row .program-dashboard-indent::before {" in text
+    assert "background: var(--project-pill-dot);" in text
+    assert ".program-dashboard-task-table .program-dashboard-indent::before {" in text
+    assert "background: var(--calendar-task-border);" in text
+    assert ".program-dashboard-status.pill {" in text
+    assert "border-radius: 5px;" in text
+    assert "background: var(--tone-positive-bg);" in text
+    assert "background: var(--tone-warn-bg);" in text
+    assert "background: var(--tone-danger-bg);" in text
+    assert ".program-dashboard-group-row .program-dashboard-tag {" in text
+    assert "background: var(--project-pill-bg);" in text
+    assert "box-shadow: 0 0 9px" not in text[text.index(".program-dashboard-progress span {"):text.index(".program-dashboard-progress strong {")]
+
+
+def test_dashboard_and_program_dashboard_use_shared_status_and_rag_display_tokens():
+    common_text = DASHBOARD_COMMON.read_text(encoding="utf-8")
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+
+    assert 'from "../../utils/display-tokens.js";' in common_text
+    assert "ragPillMarkup as sharedRagPillMarkup" in common_text
+    assert "statusPillMarkup" in common_text
+    assert "export const ragPillMarkup = sharedRagPillMarkup;" in common_text
+    assert "statusPillMarkup(row.statusRaw, formatStatusLabel(row.statusRaw))" in common_text
+    assert "function ragStatusLabel" not in common_text
+
+    assert 'import { statusPillMarkup } from "../../utils/display-tokens.js";' in render_text
+    assert 'return statusPillMarkup(value, label, "program-dashboard-status");' in render_text
+    assert "function statusTone" not in render_text
+
+
+def test_program_dashboard_projects_table_does_not_show_sub_area_column():
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+
+    assert "<th>Sub-Area</th>" not in render_text
+    assert "<th>Project / Solution</th>" in render_text
+    assert "<th>Program</th>" in render_text
+
+
+def test_program_dashboard_phase_column_reuses_deliverables_phase_display():
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+
+    assert "phaseDisplayName: displayPhase," in render_text
+    assert "phaseDisplayName(solution.current_phase)" in render_text
+    assert "displayValue(solution.current_phase)" not in render_text
+
+
+def test_program_dashboard_project_solution_column_uses_gantt_like_title_styling():
+    text = read_ui_styles(STYLES_CSS)
+
+    assert ".program-dashboard-project-table td:nth-child(2) {" in text
+    assert "white-space: normal;" in text
+    assert ".program-dashboard-project-table td:nth-child(2) .program-dashboard-link {" in text
+    assert "-webkit-line-clamp: 2;" in text
+    assert ".program-dashboard-project-link {" in text
+    assert "font-weight: 820;" in text
+    assert ".program-dashboard-solution-link {" in text
+    assert "font-weight: 760;" in text
+    assert ".program-dashboard-indent {" in text
+    assert "width: 100%;" in text
+
+
+def test_dashboard_routes_use_shared_product_route_shell():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert '<section id="view-dashboard" class="view">' in html_text
+    assert '<section id="view-program-dashboard" class="view">' in html_text
+    assert '<section id="view-pm-dashboard" class="view">' in html_text
+    assert html_text.count('class="panel product-route-panel"') >= 3
+    assert "#view-program-dashboard > .panel {" in styles_text
+    assert ".dashboard-table-shell {" in styles_text
+    assert ".pm-table-wrap {" in styles_text
+    assert "var(--product-table-head" in styles_text

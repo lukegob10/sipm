@@ -45,6 +45,11 @@ vi.mock("../../js/routes/dashboard/render.js", () => ({
   renderDashboardView: dashboardMock.renderDashboardView,
 }));
 
+vi.mock("../../js/routes/dashboard/render.js?v=dashboard-snapshot-kpis-v4", () => ({
+  createDashboardState: dashboardMock.createDashboardState,
+  renderDashboardView: dashboardMock.renderDashboardView,
+}));
+
 vi.mock("../../js/routes/pm-dashboard/render.js", () => ({
   createPMDashboardState: pmDashboardMock.createPMDashboardState,
   renderPMDashboardView: pmDashboardMock.renderPMDashboardView,

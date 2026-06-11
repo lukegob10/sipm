@@ -211,12 +211,13 @@ describe("simple route rendering", () => {
             planned_start_date: "2026-05-01",
             due_date: "2026-06-26",
             owner: "Spencer Emma",
-            current_phase: "Build / Docs",
+            current_phase: "build_docs",
           },
         ],
         tasks: [],
       },
       formatStatus: (value) => `Status: ${value}`,
+      phaseDisplayName: (phaseId) => (phaseId === "build_docs" ? "Build / Docs" : phaseId),
       solutionProgress: () => 50,
       showCompletedOperationalWork: () => false,
     });
@@ -227,8 +228,15 @@ describe("simple route rendering", () => {
     expect(root.textContent).toContain("Data Sourcing - APIs");
     expect(root.textContent).toContain("CitiVelocity");
     expect(root.textContent).toContain("Spencer Emma");
+    expect(root.textContent).toContain("Build / Docs");
+    expect(root.textContent).not.toContain("build_docs");
     expect(root.textContent).toContain("50%");
     expect(root.textContent).not.toContain("Other Program Project");
+    expect(root.textContent).not.toContain("Confidential");
+    expect(root.textContent).not.toContain("Internal Use Only");
+    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).toContain("Program");
+    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).not.toContain("Team");
+    expect(root.querySelector(".program-dashboard-group-row .program-dashboard-tag")?.textContent).toBe("TAP - Data Sourcing");
     expect(root.querySelectorAll(".program-dashboard-group-row")).toHaveLength(1);
     expect(root.querySelectorAll(".program-dashboard-child-row")).toHaveLength(1);
   });

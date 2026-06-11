@@ -32,14 +32,14 @@
 }
 
 .analytics-card-label {
-  font-size: 0.8rem;
+  font-size: var(--font-size-label);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
 
 .analytics-card strong {
-  font-size: 1.2rem;
+  font-size: var(--font-size-display-compact);
 }
 
 .analytics-grid {

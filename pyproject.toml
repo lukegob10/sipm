@@ -1,0 +1,27 @@
+[tool.pytest.ini_options]
+testpaths = ["src/main/test"]
+pythonpath = ["src/main"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    "anyio: run async tests through AnyIO",
+    "integration: tests that require an external service such as Redis",
+]
+
+[tool.coverage.run]
+source = ["src/main/backend"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.xml]
+output = "coverage/backend-coverage.xml"

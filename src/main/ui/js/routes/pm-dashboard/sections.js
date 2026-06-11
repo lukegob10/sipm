@@ -15,6 +15,12 @@ import {
   scoreTone,
   utilTone,
 } from "./analytics.js";
+import {
+  escDisplay,
+  normalizeDisplayToken,
+  ragTone,
+  statusTone,
+} from "../../utils/display-tokens.js";
 
 export function renderPMDashboardSummarySection({
   els,
@@ -90,8 +96,8 @@ export function renderPMDashboardHealthSection({ els, projectSummaries, hrefFor 
     .slice(0, 12)
     .map((summary) => {
       const hotspots = [
-        summary.redCount ? `<span class="pill danger">Red ${summary.redCount}</span>` : "",
-        summary.amberCount ? `<span class="pill warn">Amber ${summary.amberCount}</span>` : "",
+        summary.redCount ? `<span class="pill rag-pill rag-red ${ragTone("red")}" data-rag-state="red">Red ${summary.redCount}</span>` : "",
+        summary.amberCount ? `<span class="pill rag-pill rag-amber ${ragTone("amber")}" data-rag-state="amber">Amber ${summary.amberCount}</span>` : "",
         summary.overdueCount ? `<span class="pill danger">Overdue ${summary.overdueCount}</span>` : "",
         summary.staleCount ? `<span class="pill warn">Stale ${summary.staleCount}</span>` : "",
         summary.blockedCount ? `<span class="pill warn">Blocked ${summary.blockedCount}</span>` : "",
@@ -261,10 +267,11 @@ export function renderPMDashboardStatusSection({
       .map((status) => {
         const count = counts.get(status) || 0;
         const width = Math.round((count / total) * 100);
-        return `<li>
+        const tone = statusTone(status);
+        return `<li class="pm-status-list-row ${tone}" data-status-state="${escDisplay(normalizeDisplayToken(status))}">
           <span>${esc(formatStatus(status))}</span>
           <strong>${count}</strong>
-          <div class="pm-mini-meter"><span style="width:${width}%;"></span></div>
+          <div class="pm-mini-meter"><span class="${tone}" style="width:${width}%;"></span></div>
         </li>`;
       })
       .join("");

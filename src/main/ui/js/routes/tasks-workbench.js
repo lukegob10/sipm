@@ -1,3 +1,5 @@
+import { statusPillMarkup } from "../utils/display-tokens.js";
+
 function esc(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -81,7 +83,7 @@ export function renderTasksWorkbench(ctx) {
             <strong>${esc(row.task_name || "—")}</strong>
             <span class="task-workbench-context">${renderTasksWorkbenchProjectLink(row.project_name, row.project_id)} / ${renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)}</span>
           </td>
-          <td class="task-workbench-status-cell">${statusLabel} ${blocker}</td>
+          <td class="task-workbench-status-cell">${statusPillMarkup(row.status, statusLabel)} ${blocker}</td>
           <td>${esc(row.assignee || "Unassigned")}</td>
           <td>${due}</td>
           <td>${Number(row.priority ?? 0) || "—"}</td>

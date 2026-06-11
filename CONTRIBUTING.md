@@ -8,16 +8,17 @@
 
 ## Required Checks
 - Backend or shared-runtime changes:
-  - `pytest -q -s src/main/test`
-  - `pytest -q -s src/main/test --cov --cov-report=term-missing --cov-report=xml`
+  - `npm run test:backend`
+  - `npm run test:backend:coverage`
+  - `npm run test:backend:integration` (requires SIPM_REDIS_URL for the Redis coordination contract)
 - Frontend structural changes:
-  - `python3 scripts/check_route_module_test_mapping.py`
+  - `python scripts/check_route_module_test_mapping.py`
   - `npm run lint:ui`
   - `npm run test:ui`
   - `npm run test:ui:coverage`
   - `npm run test:ui:smoke`
 - Dependency changes:
-  - `python3 scripts/check_requirements_lock.py`
+  - `python scripts/check_requirements_lock.py`
 
 ## Production-Review Workspace Expectations
 - `docs/stepwise-production-review-process.md` is the active production-readiness review ledger.

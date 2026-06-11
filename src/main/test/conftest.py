@@ -15,6 +15,8 @@ MAIN_DIR = Path(__file__).resolve().parents[1]
 if str(MAIN_DIR) not in sys.path:
     sys.path.insert(0, str(MAIN_DIR))
 
+os.environ.setdefault("ENV", "test")
+os.environ.setdefault("SIPM_BCRYPT_ROUNDS", "4")
 os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
 
 from backend.app.deps import current_user, get_db, require_user

@@ -1,3 +1,5 @@
+import { statusPillMarkup } from "../../utils/display-tokens.js";
+
 const PREFS_KEY_PREFIX = "sipm-program-dashboard-v1";
 const VALID_TABS = new Set(["projects", "tasks"]);
 const CLOSED_STATUSES = new Set(["complete", "abandoned"]);
@@ -29,18 +31,9 @@ function statusIsClosed(value) {
   return CLOSED_STATUSES.has(normalize(value));
 }
 
-function statusTone(value) {
-  const status = normalize(value);
-  if (status === "complete") return "positive";
-  if (status === "active" || status === "in_progress") return "positive";
-  if (status === "on_hold") return "warn";
-  if (status === "abandoned") return "danger";
-  return "muted";
-}
-
 function statusMarkup(value, formatStatus) {
   const label = typeof formatStatus === "function" ? formatStatus(value) : displayValue(value);
-  return `<span class="pill ${statusTone(value)}">${esc(label)}</span>`;
+  return statusPillMarkup(value, label, "program-dashboard-status");
 }
 
 function progressMarkup(value) {
@@ -51,6 +44,27 @@ function progressMarkup(value) {
       <strong>${pct}%</strong>
     </div>
   `;
+}
+
+function connectionLabel(programParts) {
+  return programParts.subArea
+    ? programParts.subArea.replace(/\s+/g, " ").trim().toUpperCase()
+    : "PROGRAM";
+}
+
+function classificationForTask(task) {
+  if (task?.blocked) return "Sequential - Hold";
+  const priority = Number(task?.priority);
+  if (Number.isFinite(priority) && priority <= 2) return "Entitlements";
+  if (Number.isFinite(priority) && priority >= 4) return "Enhancement";
+  return "New Source";
+}
+
+function classificationTone(label) {
+  const normalized = normalize(label);
+  if (normalized.includes("hold") || normalized.includes("entitlement")) return "warn";
+  if (normalized.includes("enhancement")) return "muted";
+  return "info";
 }
 
 function prefsKey(spaceId) {
@@ -207,8 +221,8 @@ function renderProjectsTable({
   selectedProgram,
   projects,
   solutionsByProject,
-  programParts,
   formatStatus,
+  phaseDisplayName,
   solutionProgress,
 }) {
   if (!projects.length) {
@@ -225,10 +239,10 @@ function renderProjectsTable({
       const progress = projectSolutions.length
         ? averageProgress(projectSolutions, solutionProgress)
         : (normalize(project.status) === "complete" ? 100 : 0);
+      const programLabel = displayValue(selectedProgram.program_name, "Program");
       const projectRow = `
         <tr class="program-dashboard-group-row">
-          <td><span class="program-dashboard-tag">${esc(programParts.team)}</span></td>
-          <td>${esc(programParts.subArea)}</td>
+          <td><span class="program-dashboard-tag">${esc(programLabel)}</span></td>
           <td>${projectLinkMarkup(project)}</td>
           <td>${esc(projectStart)}</td>
           <td>${esc(projectEnd)}</td>
@@ -242,12 +256,11 @@ function renderProjectsTable({
         .map((solution) => `
           <tr class="program-dashboard-child-row">
             <td></td>
-            <td></td>
             <td><span class="program-dashboard-indent">${solutionLinkMarkup(solution)}</span></td>
             <td>${esc(displayValue(dateValue(solution.planned_start_date)))}</td>
             <td>${esc(displayValue(dateValue(solution.due_date)))}</td>
             <td>${statusMarkup(solution.status, formatStatus)}</td>
-            <td>${esc(displayValue(solution.current_phase))}</td>
+            <td>${esc(displayValue(phaseDisplayName(solution.current_phase)))}</td>
             <td>${esc(displayValue(solution.owner || solution.assignee || solution.key_stakeholder))}</td>
             <td>${progressMarkup(solutionProgress(solution))}</td>
           </tr>
@@ -262,8 +275,7 @@ function renderProjectsTable({
       <table class="program-dashboard-table program-dashboard-project-table">
         <thead>
           <tr>
-            <th>Team</th>
-            <th>Sub-Area</th>
+            <th>Program</th>
             <th>Project / Solution</th>
             <th>Start</th>
             <th>End</th>
@@ -299,21 +311,19 @@ function renderTasksTable({
     .map((task) => {
       const project = projectById.get(String(task.project_id || ""));
       const solution = solutionById.get(String(task.solution_id || ""));
-      const flags = [
-        Number.isFinite(Number(task.priority)) ? `P${Number(task.priority)}` : "",
-        task.blocked ? "Blocked" : "",
-      ].filter(Boolean);
+      const classification = classificationForTask(task);
+      const system = solution?.solution_name || project?.project_name || "-";
+      const customer = project?.sponsor || project?.sponsor_user_soeid || "TAP";
       return `
         <tr>
-          <td><span class="program-dashboard-tag">${esc(programParts.team)}</span></td>
-          <td>${esc(programParts.subArea)}</td>
-          <td>${projectLinkMarkup(project)}</td>
-          <td>${solutionLinkMarkup(solution)}</td>
+          <td><span class="program-dashboard-tag">${esc(connectionLabel(programParts))}</span></td>
+          <td><span class="program-dashboard-tag ${classificationTone(classification)}">${esc(classification)}</span></td>
+          <td>${esc(displayValue(system))}</td>
           <td>${taskLinkMarkup(task)}</td>
           <td>${esc(displayValue(task.assignee || task.assignee_user_soeid, "Unassigned"))}</td>
+          <td>${esc(displayValue(customer))}</td>
           <td>${statusMarkup(task.status, formatStatus)}</td>
           <td>${esc(displayValue(dateValue(task.due_date)))}</td>
-          <td>${flags.length ? flags.map((flag) => `<span class="pill ${flag === "Blocked" ? "warn" : "muted"}">${esc(flag)}</span>`).join(" ") : "-"}</td>
         </tr>
       `;
     })
@@ -324,15 +334,14 @@ function renderTasksTable({
       <table class="program-dashboard-table program-dashboard-task-table">
         <thead>
           <tr>
-            <th>Team</th>
-            <th>Sub-Area</th>
-            <th>Project</th>
-            <th>Solution</th>
-            <th>Task</th>
-            <th>Assignee</th>
+            <th>Connection</th>
+            <th>Classification</th>
+            <th>System</th>
+            <th>Description</th>
+            <th>Project Contact</th>
+            <th>Customer</th>
             <th>Status</th>
-            <th>Due Date</th>
-            <th>Priority</th>
+            <th>Target Date</th>
           </tr>
         </thead>
         <tbody>${rowsHtml}</tbody>
@@ -347,7 +356,7 @@ function tabButton(tab, activeTab, label) {
 }
 
 function renderSummary({ activeTab, projectCount, solutionCount, visibleCount, completeCount, activeCount, notStartedCount, hiddenClosedCount }) {
-  const visibleLabel = activeTab === "projects" ? "project groups" : "visible tasks";
+  const visibleLabel = activeTab === "projects" ? "projects" : "total tasks";
   const hiddenText = activeTab === "tasks" && hiddenClosedCount
     ? ` - ${hiddenClosedCount} closed hidden`
     : "";
@@ -364,7 +373,7 @@ function renderSummary({ activeTab, projectCount, solutionCount, visibleCount, c
 }
 
 export function renderProgramDashboardView(programDashboardState, ctx) {
-  const { state, els, formatStatus, solutionProgress, showCompletedOperationalWork } = ctx;
+  const { state, els, formatStatus, phaseDisplayName, solutionProgress, showCompletedOperationalWork } = ctx;
   const root = els.programDashboardRoot || document.getElementById("program-dashboard-root");
   if (!root) return;
 
@@ -380,8 +389,6 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   if (!programs.length) {
     root.innerHTML = `
       <div class="program-dashboard-stage">
-        <p class="view-breadcrumb">Insight / Program Dashboard</p>
-        <h2>Program Dashboard</h2>
         <p class="program-dashboard-empty muted">Create a program before using this dashboard.</p>
       </div>
     `;
@@ -449,14 +456,17 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   const progressForSolution = typeof solutionProgress === "function"
     ? solutionProgress
     : (solution) => (normalize(solution?.status) === "complete" ? 100 : 0);
+  const displayPhase = typeof phaseDisplayName === "function"
+    ? phaseDisplayName
+    : (phaseId) => displayValue(phaseId);
 
   const bodyHtml = activeTab === "projects"
     ? renderProjectsTable({
       selectedProgram,
       projects,
       solutionsByProject,
-      programParts,
       formatStatus,
+      phaseDisplayName: displayPhase,
       solutionProgress: progressForSolution,
     })
     : renderTasksTable({
@@ -469,36 +479,45 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
       formatStatus,
     });
 
+  const titleText = activeTab === "projects"
+    ? `${programParts.team ? `${programParts.team} - ` : ""}${programParts.subArea || selectedProgram.program_name}`
+    : `${programParts.subArea || selectedProgram.program_name} - Open Tasks & Milestones`;
+  const subtitleText = activeTab === "projects"
+    ? "Platform data pipeline and source onboarding projects"
+    : "Granular task tracker for active data connections, entitlements, and enhancements";
+
   root.innerHTML = `
     <div class="program-dashboard-stage">
-      <div class="program-dashboard-header">
-        <div>
-          <p class="view-breadcrumb">Insight / Program Dashboard</p>
-          <h2>${esc(selectedProgram.program_name || "Program Dashboard")}</h2>
-          <p class="program-dashboard-subtitle">Program-scoped delivery view for projects, solutions, and tasks.</p>
+      <div class="program-dashboard-slide product-surface">
+        <div class="program-dashboard-header">
+          <div>
+            <p class="program-dashboard-kicker">${esc(programParts.team || "Program")} &middot; ${esc(programParts.subArea || "Dashboard")}</p>
+            <h2>${esc(titleText)}</h2>
+            <p class="program-dashboard-subtitle">${esc(subtitleText)}</p>
+          </div>
+          <label class="program-dashboard-picker">
+            <span>Program</span>
+            <select data-program-dashboard-control="program">${programOptionMarkup(programs, String(selectedProgram.program_id || ""))}</select>
+          </label>
         </div>
-        <label class="program-dashboard-picker">
-          <span>Program</span>
-          <select data-program-dashboard-control="program">${programOptionMarkup(programs, String(selectedProgram.program_id || ""))}</select>
-        </label>
-      </div>
-      <div class="program-dashboard-toolbar">
-        <div class="program-dashboard-tabs" role="tablist" aria-label="Program dashboard views">
-          ${tabButton("projects", activeTab, "Projects & Solutions")}
-          ${tabButton("tasks", activeTab, "Tasks")}
+        <div class="program-dashboard-toolbar">
+          ${renderSummary({
+            activeTab,
+            projectCount: projects.length,
+            solutionCount: allSolutions.length,
+            visibleCount: activeTab === "tasks" ? visibleTasks.length : projects.length,
+            completeCount,
+            activeCount,
+            notStartedCount,
+            hiddenClosedCount,
+          })}
+          <div class="program-dashboard-tabs" role="tablist" aria-label="Program dashboard views">
+            ${tabButton("projects", activeTab, "Projects & Solutions")}
+            ${tabButton("tasks", activeTab, "Open Tasks")}
+          </div>
         </div>
-        ${renderSummary({
-          activeTab,
-          projectCount: projects.length,
-          solutionCount: allSolutions.length,
-          visibleCount: activeTab === "tasks" ? visibleTasks.length : projects.length,
-          completeCount,
-          activeCount,
-          notStartedCount,
-          hiddenClosedCount,
-        })}
+        ${bodyHtml}
       </div>
-      ${bodyHtml}
     </div>
   `;
 }

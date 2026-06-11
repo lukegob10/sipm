@@ -1,13 +1,22 @@
 .kanban {
-  margin-top: 12px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  max-height: calc(100dvh - 210px);
+  min-height: 280px;
+  padding: 10px;
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  overflow: auto;
 }
 .kanban-column {
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel-soft) 86%, transparent);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 10px;
 }
 .kanban-card {
@@ -57,14 +66,14 @@
 }
 .kanban-card .meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }
 .kanban-project {
   margin-bottom: 10px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 8px;
   padding: 12px;
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 90%, transparent);
   box-shadow: none;
 }
 .kanban-project-title {
@@ -111,7 +120,7 @@
   background: transparent;
 }
 .kanban-solution-title {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   color: var(--text);
   display: flex;
   align-items: center;
@@ -128,6 +137,16 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-top: 8px;
+  max-height: calc(100dvh - 210px);
+  min-height: 360px;
+  padding: 10px;
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  overflow: auto;
 }
 .calendar-weekdays,
 .calendar-week {
@@ -137,7 +156,7 @@
 }
 .calendar-weekdays {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -149,9 +168,9 @@
   align-items: stretch;
 }
 .calendar-cell {
-  background: var(--panel-soft);
+  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 10px;
   min-height: 120px;
   display: flex;
@@ -161,7 +180,7 @@
   cursor: pointer;
 }
 .calendar-cell.empty {
-  background: transparent;
+  background: color-mix(in srgb, var(--panel) 44%, transparent);
   border-style: dashed;
 }
 .calendar-cell.today {
@@ -182,7 +201,7 @@
   color: var(--muted);
   border-radius: 0;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--font-size-label);
   font-weight: 700;
 }
 .calendar-item {
@@ -190,7 +209,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }
 .calendar-item.solution {
   border-left: 3px solid var(--calendar-solution-border);
@@ -234,7 +253,7 @@
 }
 .calendar-item-meta {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
 }
 .calendar-stream {
   display: grid;
@@ -247,19 +266,19 @@
 }
 .calendar-stream-label {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--font-size-label);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 700;
 }
 .calendar-more {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-label);
   padding-left: 2px;
 }
 .calendar-month-label {
   font-weight: 700;
-  font-size: 18px;
+  font-size: var(--font-size-section-title);
   margin-bottom: 2px;
 }
 .calendar-controls {
@@ -378,7 +397,7 @@ button.primary.danger:hover {
 }
 .csv-dropzone-file {
   margin: 8px 0 0;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   color: var(--muted);
   word-break: break-all;
 }
@@ -392,7 +411,7 @@ button.primary.danger:hover {
 .csv-upload-status {
   margin: 8px 0 0;
   min-height: 16px;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   color: var(--muted);
 }
 .csv-upload-status.success {
@@ -553,7 +572,7 @@ button.primary.danger:hover {
 .solution-document-meta {
   margin-top: 3px;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--font-size-meta);
 }
 .button-like {
   display: inline-flex;
@@ -589,7 +608,7 @@ button.primary.danger:hover {
   height: 34px;
   padding: 0;
   border-radius: 999px;
-  font-size: 22px;
+  font-size: var(--font-size-display);
   line-height: 1;
   font-weight: 500;
   display: inline-flex;
@@ -612,7 +631,7 @@ button.primary.danger:hover {
   padding: 8px 12px;
   border-radius: 999px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }
 .modal-tabs .tab.active {
   background: var(--tab-active-bg);
@@ -643,7 +662,7 @@ button.primary.danger:hover {
 }
 .activity-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }
 .task-header {
   display: flex;
@@ -674,7 +693,7 @@ button.primary.danger:hover {
 }
 .swimlane-column h4 {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--font-size-table);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -692,7 +711,7 @@ button.primary.danger:hover {
   margin-bottom: 4px;
 }
 .swimlane-meta {
-  font-size: 12px;
+  font-size: var(--font-size-table);
   color: var(--muted);
 }
 .modal-list {
@@ -712,7 +731,7 @@ button.primary.danger:hover {
 }
 .modal-item-meta {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }
 .modal-item-actions {
   display: flex;
@@ -750,7 +769,7 @@ button.primary.danger:hover {
 }
 .modal-empty {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-style: italic;
 }
 .modal-section {
@@ -762,7 +781,7 @@ button.primary.danger:hover {
 }
 .modal-section-title {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 700;
@@ -810,11 +829,11 @@ button.primary.danger:hover {
 }
 .kpi-label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-table);
   margin-bottom: 4px;
 }
 .kpi-value {
-  font-size: 24px;
+  font-size: var(--font-size-display);
   font-weight: 800;
   color: var(--text);
 }
@@ -856,5 +875,5 @@ button.primary.danger:hover {
   border-color: var(--focus-border);
 }
 #tasks-workbench-saved-status {
-  font-size: 12px;
+  font-size: var(--font-size-table);
 }

@@ -4,6 +4,10 @@ import {
   daysBetweenDateOnly,
   startOfDateOnlyDay,
 } from "../../utils/date-only.js";
+import {
+  ragPillMarkup as sharedRagPillMarkup,
+  statusPillMarkup,
+} from "../../utils/display-tokens.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
@@ -168,21 +172,7 @@ export function isClosedStatus(status) {
   return CLOSED_STATUSES.has(statusKey(status));
 }
 
-export function ragStatusLabel(value) {
-  const rag = normalize(value);
-  if (rag === "red") return "Red";
-  if (rag === "amber") return "Amber";
-  if (rag === "green") return "Green";
-  return "Unknown";
-}
-
-export function ragPillMarkup(value) {
-  const rag = normalize(value);
-  if (rag === "red" || rag === "amber" || rag === "green") {
-    return `<span class="pill rag-pill rag-${rag}">${ragStatusLabel(rag)}</span>`;
-  }
-  return `<span class="pill muted">${ragStatusLabel(rag)}</span>`;
-}
+export const ragPillMarkup = sharedRagPillMarkup;
 
 export function dueTone(days) {
   if (!Number.isFinite(days)) return "muted";
@@ -344,7 +334,7 @@ export function createColumnDefinitions(formatStatusLabel) {
     },
     status: {
       label: "Status",
-      render: (row) => esc(formatStatusLabel(row.statusRaw)),
+      render: (row) => statusPillMarkup(row.statusRaw, formatStatusLabel(row.statusRaw)),
     },
     rag: {
       label: "RAG",

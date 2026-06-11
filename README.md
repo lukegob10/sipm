@@ -21,10 +21,10 @@ Backend:
 uv venv
 .venv\Scripts\activate
 uv pip install -r requirements.txt
-cd src/main
-pytest -q -s test
-cd ..\..
-pytest -q -s src/main/test --cov --cov-report=term-missing --cov-report=xml
+python -m pytest
+python -m pytest -m "not integration"
+python -m pytest --cov --cov-report=term-missing --cov-report=xml
+python -m pytest -m integration
 ```
 
 Frontend:
@@ -34,6 +34,12 @@ npm run lint:ui
 npm run test:ui
 npm run test:ui:coverage
 npm run test:ui:smoke
+```
+
+All unit tests:
+```bash
+npm test
+npm run test:coverage
 ```
 
 Repo quality helpers:

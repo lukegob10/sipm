@@ -4,7 +4,10 @@ from threading import Lock
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from ..environment import load_repo_env
 from ..runtime import get_ta_connection_env
+
+load_repo_env()
 
 
 _SESSION_LOCAL_LOCK = Lock()
@@ -50,6 +53,7 @@ def _build_engine():
     # Always use TAConnection + Oracle for this application runtime.
     def _ta_creator():
         from treasury_analytics import TAConnection
+        load_repo_env()
 
         ta = TAConnection(env=get_ta_connection_env())
         return ta.connect()

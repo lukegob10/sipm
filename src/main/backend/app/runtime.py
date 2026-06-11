@@ -1,5 +1,10 @@
 import os
 
+from .environment import load_repo_env
+
+
+load_repo_env()
+
 
 _PROFILE_ALIASES = {
     "production": "prod",
@@ -14,6 +19,7 @@ _VALID_TA_ENVS = {"dev", "uat", "prod"}
 
 
 def get_ta_connection_env() -> str:
+    load_repo_env()
     """
     Resolve TAConnection env name.
 

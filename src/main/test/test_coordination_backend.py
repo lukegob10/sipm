@@ -29,6 +29,7 @@ def test_prod_like_env_requires_redis(monkeypatch):
 
 
 @pytest.mark.anyio
+@pytest.mark.integration
 async def test_redis_coordination_propagates_scope_versions_and_refresh_events(monkeypatch):
     redis_url = str(os.getenv("SIPM_REDIS_URL", "")).strip()
     if not redis_url:

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from contextlib import asynccontextmanager
 import json
 import os
@@ -14,6 +15,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+from backend.app import environment as _environment
+
+_load_env_file = _environment._load_env_file
+_repo_dir_for = _environment._repo_dir_for
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -51,53 +58,8 @@ def _require_min_or_disable(name: str, value: int, disable_value: int, minimum: 
     return value
 
 
-def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None:
-    if not path.exists():
-        return
-    if override_existing is None:
-        override_existing = _bool_env("SIPM_ENV_OVERRIDE", False)
-    for line in path.read_text().splitlines():
-        raw = line.strip()
-        if not raw or raw.startswith("#"):
-            continue
-        if "=" not in raw:
-            continue
-        key, value = raw.split("=", 1)
-        key = key.strip()
-        # Support common dotenv style: `export KEY=value`
-        if key.lower().startswith("export "):
-            parts = key.split(None, 1)
-            key = parts[1].strip() if len(parts) > 1 else ""
-        value = value.strip().strip("'").strip('"')
-        # Support inline comments: KEY=value # comment
-        if " #" in value:
-            value = value.split(" #", 1)[0].rstrip()
-        # Prefer explicit process env by default. Opt in to file overrides with
-        # SIPM_ENV_OVERRIDE=true when local development needs it.
-        if key and (override_existing or key not in os.environ or not str(os.environ.get(key) or "").strip()):
-            os.environ[key] = value
-
-
-def _repo_dir_for(base_dir: Path) -> Path:
-    # Local source runs from <repo>/src/main, while the Docker image flattens that to /app.
-    if len(base_dir.parents) > 1:
-        return base_dir.parents[1]
-    return base_dir
-
-
 BASE_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = _repo_dir_for(BASE_DIR)
-REPO_ENV = REPO_DIR / ".env"
-REPO_ENV_LOCAL = REPO_DIR / ".env.local"
-
-# Use the repo-root env files as the single source of truth.
-# Keep `src/main/.env` only as a legacy fallback for older local setups.
-if REPO_ENV.exists() or REPO_ENV_LOCAL.exists():
-    _load_env_file(REPO_ENV)
-    _load_env_file(REPO_ENV_LOCAL)
-else:
-    _load_env_file(BASE_DIR / ".env")
-    _load_env_file(BASE_DIR / ".env.local")
+_environment.load_repo_env()
 
 
 from backend.app.auth.auth import validate_auth_configuration

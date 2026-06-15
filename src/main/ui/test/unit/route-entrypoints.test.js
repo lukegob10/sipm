@@ -60,6 +60,11 @@ vi.mock("../../js/routes/program-dashboard/render.js", () => ({
   renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));
 
+vi.mock("../../js/routes/program-dashboard/render.js?v=program-dashboard-grid-v2", () => ({
+  createProgramDashboardState: programDashboardMock.createProgramDashboardState,
+  renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
+}));
+
 vi.mock("../../js/routes/master/table.js", () => ({
   bindMasterTableInteractions: masterTableMock.bindMasterTableInteractions,
   buildMasterTable: masterTableMock.buildMasterTable,

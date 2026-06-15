@@ -46,27 +46,6 @@ function progressMarkup(value) {
   `;
 }
 
-function connectionLabel(programParts) {
-  return programParts.subArea
-    ? programParts.subArea.replace(/\s+/g, " ").trim().toUpperCase()
-    : "PROGRAM";
-}
-
-function classificationForTask(task) {
-  if (task?.blocked) return "Sequential - Hold";
-  const priority = Number(task?.priority);
-  if (Number.isFinite(priority) && priority <= 2) return "Entitlements";
-  if (Number.isFinite(priority) && priority >= 4) return "Enhancement";
-  return "New Source";
-}
-
-function classificationTone(label) {
-  const normalized = normalize(label);
-  if (normalized.includes("hold") || normalized.includes("entitlement")) return "warn";
-  if (normalized.includes("enhancement")) return "muted";
-  return "info";
-}
-
 function prefsKey(spaceId) {
   return `${PREFS_KEY_PREFIX}:${String(spaceId || "no-space")}`;
 }
@@ -111,6 +90,7 @@ export function createProgramDashboardState() {
     prefsSpaceId: "",
     selectedProgramId: "",
     activeTab: "projects",
+    collapsedProjectIds: new Set(),
   };
 }
 
@@ -120,12 +100,16 @@ function loadStateForSpace(programDashboardState, spaceId) {
   programDashboardState.prefsSpaceId = spaceId;
   programDashboardState.selectedProgramId = String(prefs.selectedProgramId || "");
   programDashboardState.activeTab = VALID_TABS.has(prefs.activeTab) ? prefs.activeTab : "projects";
+  programDashboardState.collapsedProjectIds = new Set(
+    Array.isArray(prefs.collapsedProjectIds) ? prefs.collapsedProjectIds.map((id) => String(id || "")) : []
+  );
 }
 
 function persistState(programDashboardState) {
   writePrefs(programDashboardState.prefsSpaceId, {
     selectedProgramId: programDashboardState.selectedProgramId,
     activeTab: programDashboardState.activeTab,
+    collapsedProjectIds: Array.from(programDashboardState.collapsedProjectIds || []),
   });
 }
 
@@ -154,6 +138,35 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       const tab = actionEl.getAttribute("data-program-dashboard-tab") || "projects";
       if (!VALID_TABS.has(tab)) return;
       programDashboardState.activeTab = tab;
+      persistState(programDashboardState);
+      rerender();
+      return;
+    }
+
+    if (action === "toggle-project") {
+      event.preventDefault();
+      const projectId = String(actionEl.getAttribute("data-project-id") || "");
+      if (!projectId) return;
+      if (!(programDashboardState.collapsedProjectIds instanceof Set)) {
+        programDashboardState.collapsedProjectIds = new Set();
+      }
+      if (programDashboardState.collapsedProjectIds.has(projectId)) {
+        programDashboardState.collapsedProjectIds.delete(projectId);
+      } else {
+        programDashboardState.collapsedProjectIds.add(projectId);
+      }
+      persistState(programDashboardState);
+      rerender();
+      return;
+    }
+
+    if (action === "collapse-projects" || action === "expand-projects") {
+      event.preventDefault();
+      const ids = String(actionEl.getAttribute("data-project-ids") || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean);
+      programDashboardState.collapsedProjectIds = action === "collapse-projects" ? new Set(ids) : new Set();
       persistState(programDashboardState);
       rerender();
       return;
@@ -197,11 +210,28 @@ function projectLinkMarkup(project) {
   return `<button type="button" class="program-dashboard-link program-dashboard-project-link" data-program-dashboard-action="open-project" data-project-id="${esc(id)}">${esc(label)}</button>`;
 }
 
+function projectToggleMarkup(project, collapsed, solutionCount) {
+  const id = String(project?.project_id || "");
+  if (!id || !solutionCount) return `<span class="program-dashboard-toggle-spacer" aria-hidden="true"></span>`;
+  const label = collapsed ? "Expand project deliverables" : "Collapse project deliverables";
+  return `<button type="button" class="program-dashboard-toggle" data-program-dashboard-action="toggle-project" data-project-id="${esc(id)}" aria-label="${label}: ${esc(project?.project_name || "Unnamed Project")}">${collapsed ? "+" : "-"}</button>`;
+}
+
 function solutionLinkMarkup(solution) {
   const id = String(solution?.solution_id || "");
   const label = displayValue(solution?.solution_name, "Unnamed Solution");
   if (!id) return esc(label);
   return `<button type="button" class="program-dashboard-link program-dashboard-solution-link" data-program-dashboard-action="open-solution" data-solution-id="${esc(id)}">${esc(label)}</button>`;
+}
+
+function hierarchyLabelMarkup({ depth, rowType, toggleHtml, linkHtml }) {
+  return `<div class="program-dashboard-label-content program-dashboard-depth-${esc(depth)} program-dashboard-row-${esc(rowType)}">
+    <div class="program-dashboard-item-cell">
+      ${toggleHtml || `<span class="program-dashboard-toggle-spacer" aria-hidden="true"></span>`}
+      <span class="program-dashboard-level-marker" aria-hidden="true"></span>
+      ${linkHtml}
+    </div>
+  </div>`;
 }
 
 function taskLinkMarkup(task) {
@@ -211,6 +241,14 @@ function taskLinkMarkup(task) {
   return `<button type="button" class="program-dashboard-link program-dashboard-task-link" data-program-dashboard-action="open-task" data-task-id="${esc(id)}">${esc(label)}</button>`;
 }
 
+function taskEntityMarkup(value) {
+  const label = String(value || "").trim();
+  if (!label) return "-";
+  return `<div class="program-dashboard-task-context">
+    <strong>${esc(label)}</strong>
+  </div>`;
+}
+
 function averageProgress(rows, solutionProgress) {
   if (!rows.length) return 0;
   const total = rows.reduce((sum, solution) => sum + Math.max(0, Math.min(100, Number(solutionProgress(solution)) || 0)), 0);
@@ -218,6 +256,7 @@ function averageProgress(rows, solutionProgress) {
 }
 
 function renderProjectsTable({
+  programDashboardState,
   selectedProgram,
   projects,
   solutionsByProject,
@@ -229,9 +268,14 @@ function renderProjectsTable({
     return `<p class="program-dashboard-empty muted">No projects are assigned to ${esc(selectedProgram.program_name || "this program")}.</p>`;
   }
 
+  const collapsedProjectIds = programDashboardState.collapsedProjectIds instanceof Set
+    ? programDashboardState.collapsedProjectIds
+    : new Set();
   const rowsHtml = projects
     .map((project) => {
+      const projectId = String(project.project_id || "");
       const projectSolutions = solutionsByProject.get(String(project.project_id || "")) || [];
+      const collapsed = collapsedProjectIds.has(projectId);
       const startDates = projectSolutions.map((solution) => dateValue(solution.planned_start_date)).filter(Boolean).sort();
       const endDates = projectSolutions.map((solution) => dateValue(solution.due_date)).filter(Boolean).sort();
       const projectStart = startDates[0] || "-";
@@ -239,54 +283,69 @@ function renderProjectsTable({
       const progress = projectSolutions.length
         ? averageProgress(projectSolutions, solutionProgress)
         : (normalize(project.status) === "complete" ? 100 : 0);
-      const programLabel = displayValue(selectedProgram.program_name, "Program");
       const projectRow = `
-        <tr class="program-dashboard-group-row">
-          <td><span class="program-dashboard-tag">${esc(programLabel)}</span></td>
-          <td>${projectLinkMarkup(project)}</td>
-          <td>${esc(projectStart)}</td>
-          <td>${esc(projectEnd)}</td>
-          <td>${statusMarkup(project.status, formatStatus)}</td>
-          <td>-</td>
-          <td>${esc(displayValue(project.sponsor || project.sponsor_user_soeid))}</td>
-          <td>${progressMarkup(progress)}</td>
-        </tr>
+        <div class="program-dashboard-grid-row program-dashboard-group-row ${collapsed ? "program-dashboard-group-row-collapsed" : ""}" role="row" data-program-dashboard-project-id="${esc(projectId)}">
+          <div class="program-dashboard-grid-cell program-dashboard-deliverable-cell" role="cell">
+            ${hierarchyLabelMarkup({
+              depth: 1,
+              rowType: "project",
+              toggleHtml: projectToggleMarkup(project, collapsed, projectSolutions.length),
+              linkHtml: projectLinkMarkup(project),
+            })}
+          </div>
+          <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="cell">${esc(projectStart)}</div>
+          <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="cell">${esc(projectEnd)}</div>
+          <div class="program-dashboard-grid-cell program-dashboard-status-cell" role="cell">${statusMarkup(project.status, formatStatus)}</div>
+          <div class="program-dashboard-grid-cell program-dashboard-phase-cell" role="cell">-</div>
+          <div class="program-dashboard-grid-cell program-dashboard-owner-cell" role="cell">${esc(displayValue(project.sponsor || project.sponsor_user_soeid))}</div>
+          <div class="program-dashboard-grid-cell program-dashboard-progress-cell" role="cell">${progressMarkup(progress)}</div>
+        </div>
       `;
-      const solutionRows = projectSolutions
+      const solutionRows = collapsed
+        ? ""
+        : projectSolutions
         .map((solution) => `
-          <tr class="program-dashboard-child-row">
-            <td></td>
-            <td><span class="program-dashboard-indent">${solutionLinkMarkup(solution)}</span></td>
-            <td>${esc(displayValue(dateValue(solution.planned_start_date)))}</td>
-            <td>${esc(displayValue(dateValue(solution.due_date)))}</td>
-            <td>${statusMarkup(solution.status, formatStatus)}</td>
-            <td>${esc(displayValue(phaseDisplayName(solution.current_phase)))}</td>
-            <td>${esc(displayValue(solution.owner || solution.assignee || solution.key_stakeholder))}</td>
-            <td>${progressMarkup(solutionProgress(solution))}</td>
-          </tr>
+          <div class="program-dashboard-grid-row program-dashboard-child-row" role="row" data-program-dashboard-solution-id="${esc(solution.solution_id || "")}">
+            <div class="program-dashboard-grid-cell program-dashboard-deliverable-cell" role="cell">
+              ${hierarchyLabelMarkup({
+                depth: 2,
+                rowType: "solution",
+                toggleHtml: "",
+                linkHtml: solutionLinkMarkup(solution),
+              })}
+            </div>
+            <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="cell">${esc(displayValue(dateValue(solution.planned_start_date)))}</div>
+            <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="cell">${esc(displayValue(dateValue(solution.due_date)))}</div>
+            <div class="program-dashboard-grid-cell program-dashboard-status-cell" role="cell">${statusMarkup(solution.status, formatStatus)}</div>
+            <div class="program-dashboard-grid-cell program-dashboard-phase-cell" role="cell">${esc(displayValue(phaseDisplayName(solution.current_phase)))}</div>
+            <div class="program-dashboard-grid-cell program-dashboard-owner-cell" role="cell">${esc(displayValue(solution.owner || solution.assignee || solution.key_stakeholder))}</div>
+            <div class="program-dashboard-grid-cell program-dashboard-progress-cell" role="cell">${progressMarkup(solutionProgress(solution))}</div>
+          </div>
         `)
         .join("");
       return `${projectRow}${solutionRows}`;
     })
     .join("");
+  const projectIds = projects.map((project) => String(project.project_id || "")).filter(Boolean);
 
   return `
-    <div class="program-dashboard-table-shell">
-      <table class="program-dashboard-table program-dashboard-project-table">
-        <thead>
-          <tr>
-            <th>Program</th>
-            <th>Project / Solution</th>
-            <th>Start</th>
-            <th>End</th>
-            <th>Status</th>
-            <th>Phase</th>
-            <th>Owner</th>
-            <th>% Complete</th>
-          </tr>
-        </thead>
-        <tbody>${rowsHtml}</tbody>
-      </table>
+    <div class="program-dashboard-table-shell program-dashboard-project-grid-shell">
+      <div class="program-dashboard-table-actions">
+        <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="expand-projects">Expand All</button>
+        <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="collapse-projects" data-project-ids="${esc(projectIds.join(","))}">Collapse All</button>
+      </div>
+      <div class="program-dashboard-project-grid" role="table" aria-label="Projects and solutions">
+        <div class="program-dashboard-grid-row program-dashboard-grid-header" role="row">
+          <div class="program-dashboard-grid-cell program-dashboard-deliverable-cell" role="columnheader">Deliverable</div>
+          <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="columnheader">Start</div>
+          <div class="program-dashboard-grid-cell program-dashboard-date-cell" role="columnheader">End</div>
+          <div class="program-dashboard-grid-cell program-dashboard-status-cell" role="columnheader">Status</div>
+          <div class="program-dashboard-grid-cell program-dashboard-phase-cell" role="columnheader">Phase</div>
+          <div class="program-dashboard-grid-cell program-dashboard-owner-cell" role="columnheader">Owner</div>
+          <div class="program-dashboard-grid-cell program-dashboard-progress-cell" role="columnheader">% Complete</div>
+        </div>
+        ${rowsHtml}
+      </div>
     </div>
   `;
 }
@@ -297,7 +356,6 @@ function renderTasksTable({
   hiddenClosedCount,
   projectById,
   solutionById,
-  programParts,
   formatStatus,
 }) {
   if (!tasks.length) {
@@ -311,14 +369,12 @@ function renderTasksTable({
     .map((task) => {
       const project = projectById.get(String(task.project_id || ""));
       const solution = solutionById.get(String(task.solution_id || ""));
-      const classification = classificationForTask(task);
-      const system = solution?.solution_name || project?.project_name || "-";
       const customer = project?.sponsor || project?.sponsor_user_soeid || "TAP";
       return `
         <tr>
-          <td><span class="program-dashboard-tag">${esc(connectionLabel(programParts))}</span></td>
-          <td><span class="program-dashboard-tag ${classificationTone(classification)}">${esc(classification)}</span></td>
-          <td>${esc(displayValue(system))}</td>
+          <td>${taskEntityMarkup(selectedProgram.program_name)}</td>
+          <td>${taskEntityMarkup(project?.project_name)}</td>
+          <td>${taskEntityMarkup(solution?.solution_name)}</td>
           <td>${taskLinkMarkup(task)}</td>
           <td>${esc(displayValue(task.assignee || task.assignee_user_soeid, "Unassigned"))}</td>
           <td>${esc(displayValue(customer))}</td>
@@ -330,13 +386,13 @@ function renderTasksTable({
     .join("");
 
   return `
-    <div class="program-dashboard-table-shell">
+    <div class="program-dashboard-table-shell program-dashboard-task-table-shell">
       <table class="program-dashboard-table program-dashboard-task-table">
         <thead>
           <tr>
-            <th>Connection</th>
-            <th>Classification</th>
-            <th>System</th>
+            <th>Program</th>
+            <th>Project</th>
+            <th>Solution</th>
             <th>Description</th>
             <th>Project Contact</th>
             <th>Customer</th>
@@ -462,6 +518,7 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
 
   const bodyHtml = activeTab === "projects"
     ? renderProjectsTable({
+      programDashboardState,
       selectedProgram,
       projects,
       solutionsByProject,
@@ -475,7 +532,6 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
       hiddenClosedCount,
       projectById,
       solutionById,
-      programParts,
       formatStatus,
     });
 

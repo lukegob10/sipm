@@ -37,7 +37,7 @@ export function createRouterController({
     gantt: ["programs", "projects", "solutions", "tasks"],
     "tasks-workbench": ["programs", "projects", "solutions", "tasks", "users"],
     dashboard: ["programs", "projects", "solutions", "users"],
-    "program-dashboard": ["programs", "projects", "solutions", "tasks"],
+    "program-dashboard": ["phases", "programs", "projects", "solutions", "tasks"],
     "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users", "allocations", "windows"],
     kanban: ["phases", "programs", "projects", "solutions"],
     calendar: ["programs", "projects", "solutions"],

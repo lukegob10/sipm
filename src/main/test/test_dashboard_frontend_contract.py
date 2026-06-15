@@ -13,6 +13,7 @@ DASHBOARD_MODAL = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboa
 DASHBOARD_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "interactions.js"
 DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "render.js"
 PROGRAM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "program-dashboard" / "render.js"
+ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -202,7 +203,6 @@ def test_dashboard_theme_converges_toward_product_object_language():
 
     assert "#view-dashboard .dashboard-capacity-card," in text
     assert "#view-dashboard #dashboard-backlog {" in text
-    assert "grid-template-rows: auto minmax(0, 0.95fr) minmax(0, 1.15fr);" in text
     assert "border: 1px solid var(--product-border, var(--border));" in text
     assert "border-radius: 8px;" in text
     assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
@@ -214,7 +214,6 @@ def test_dashboard_theme_converges_toward_product_object_language():
     assert "#view-dashboard .dashboard-condensed-table tbody tr:hover td {" in text
     assert "background: var(--hover);" in text
     assert "background: var(--product-table-head" in text
-
 
 def test_dashboard_chips_and_capacity_bars_use_compact_tokenized_styling():
     text = read_ui_styles(STYLES_CSS)
@@ -301,23 +300,24 @@ def test_program_dashboard_theme_converges_toward_gantt_object_language():
     assert ".program-dashboard-table-shell {" in text
     assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
     assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in text
-    assert ".program-dashboard-group-row .program-dashboard-indent::before {" in text
+    assert ".program-dashboard-row-project .program-dashboard-level-marker {" in text
     assert "background: var(--project-pill-dot);" in text
-    assert ".program-dashboard-task-table .program-dashboard-indent::before {" in text
-    assert "background: var(--calendar-task-border);" in text
+    assert ".program-dashboard-row-solution .program-dashboard-level-marker {" in text
+    assert "background: var(--solution-pill-dot);" in text
     assert ".program-dashboard-status.pill {" in text
     assert "border-radius: 5px;" in text
     assert "background: var(--tone-positive-bg);" in text
     assert "background: var(--tone-warn-bg);" in text
     assert "background: var(--tone-danger-bg);" in text
-    assert ".program-dashboard-group-row .program-dashboard-tag {" in text
-    assert "background: var(--project-pill-bg);" in text
+    assert ".program-dashboard-project-grid .program-dashboard-group-row .program-dashboard-grid-cell {" in text
+    assert "var(--project-pill-bg)" in text
     assert "box-shadow: 0 0 9px" not in text[text.index(".program-dashboard-progress span {"):text.index(".program-dashboard-progress strong {")]
 
 
 def test_dashboard_and_program_dashboard_use_shared_status_and_rag_display_tokens():
     common_text = DASHBOARD_COMMON.read_text(encoding="utf-8")
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    route_text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "program-dashboard.js").read_text(encoding="utf-8")
 
     assert 'from "../../utils/display-tokens.js";' in common_text
     assert "ragPillMarkup as sharedRagPillMarkup" in common_text
@@ -329,37 +329,110 @@ def test_dashboard_and_program_dashboard_use_shared_status_and_rag_display_token
     assert 'import { statusPillMarkup } from "../../utils/display-tokens.js";' in render_text
     assert 'return statusPillMarkup(value, label, "program-dashboard-status");' in render_text
     assert "function statusTone" not in render_text
+    assert 'from "./program-dashboard/render.js?v=program-dashboard-grid-v2";' in route_text
 
 
-def test_program_dashboard_projects_table_does_not_show_sub_area_column():
+def test_program_dashboard_projects_grid_uses_deliverable_column_only():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
 
     assert "<th>Sub-Area</th>" not in render_text
-    assert "<th>Project / Solution</th>" in render_text
-    assert "<th>Program</th>" in render_text
+    assert "<th>Project / Solution</th>" not in render_text
+    assert 'class="program-dashboard-project-grid" role="table" aria-label="Projects and solutions"' in render_text
+    assert 'role="columnheader">Deliverable</div>' in render_text
+    assert 'role="columnheader">Start</div>' in render_text
+    assert 'role="columnheader">End</div>' in render_text
+    assert 'role="columnheader">Status</div>' in render_text
+    assert 'role="columnheader">Phase</div>' in render_text
+    assert 'role="columnheader">Owner</div>' in render_text
+    assert 'role="columnheader">% Complete</div>' in render_text
 
 
 def test_program_dashboard_phase_column_reuses_deliverables_phase_display():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
 
+    assert '"program-dashboard": ["phases", "programs", "projects", "solutions", "tasks"],' in router_text
     assert "phaseDisplayName: displayPhase," in render_text
     assert "phaseDisplayName(solution.current_phase)" in render_text
     assert "displayValue(solution.current_phase)" not in render_text
 
 
+def test_program_dashboard_projects_remain_collapsible_headers():
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+
+    assert "collapsedProjectIds: new Set()," in render_text
+    assert 'data-program-dashboard-action="toggle-project"' in render_text
+    assert 'data-program-dashboard-action="expand-projects"' in render_text
+    assert 'data-program-dashboard-action="collapse-projects"' in render_text
+    assert 'class="program-dashboard-grid-row program-dashboard-group-row ${collapsed ? "program-dashboard-group-row-collapsed" : ""}"' in render_text
+    assert 'class="program-dashboard-grid-row program-dashboard-child-row"' in render_text
+
+
 def test_program_dashboard_project_solution_column_uses_gantt_like_title_styling():
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     text = read_ui_styles(STYLES_CSS)
 
-    assert ".program-dashboard-project-table td:nth-child(2) {" in text
+    assert "function hierarchyLabelMarkup" in render_text
+    assert "program-dashboard-label-content program-dashboard-depth-${esc(depth)} program-dashboard-row-${esc(rowType)}" in render_text
+    assert "program-dashboard-item-cell" in render_text
+    assert "program-dashboard-level-marker" in render_text
+    assert ".program-dashboard-project-grid {" in text
+    assert ".program-dashboard-grid-row {" in text
+    assert ".program-dashboard-grid-cell {" in text
+    assert "grid-template-columns: 25% repeat(6, 12.5%);" in text
+    assert "column-gap: 1px;" in text
+    assert ".program-dashboard-deliverable-cell {" in text
     assert "white-space: normal;" in text
-    assert ".program-dashboard-project-table td:nth-child(2) .program-dashboard-link {" in text
+    assert ".program-dashboard-project-grid .program-dashboard-deliverable-cell .program-dashboard-link {" in text
     assert "-webkit-line-clamp: 2;" in text
+    assert ".program-dashboard-label-content {" in text
+    assert ".program-dashboard-item-cell {" in text
+    assert "grid-template-columns: 18px 8px minmax(0, 1fr);" in text
+    assert ".program-dashboard-depth-2 {" in text
+    assert "--program-dashboard-indent: 26px;" in text
+    assert ".program-dashboard-level-marker {" in text
     assert ".program-dashboard-project-link {" in text
     assert "font-weight: 820;" in text
     assert ".program-dashboard-solution-link {" in text
     assert "font-weight: 760;" in text
-    assert ".program-dashboard-indent {" in text
     assert "width: 100%;" in text
+    assert ".program-dashboard-progress-cell {\n  justify-content: center;" in text
+    assert ".program-dashboard-progress {\n  display: grid;" in text
+    assert "border: 1px solid var(--border-strong);" in text
+    assert "background: color-mix(in srgb, var(--tone-positive-border) 82%, var(--accent-strong));" in text
+
+
+def test_program_dashboard_open_tasks_table_matches_project_grid_language():
+    render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    text = read_ui_styles(STYLES_CSS)
+
+    assert 'class="program-dashboard-table-shell program-dashboard-task-table-shell"' in render_text
+    assert "<th>System</th>" not in render_text
+    assert "<th>Connection</th>" not in render_text
+    assert "<th>Classification</th>" not in render_text
+    assert "<th>Project / Solution</th>" not in render_text
+    assert "<th>Program</th>" in render_text
+    assert "<th>Project</th>" in render_text
+    assert "<th>Solution</th>" in render_text
+    assert "function classificationForTask" not in render_text
+    assert "function taskEntityMarkup" in render_text
+    assert "program-dashboard-task-context" in render_text
+    assert ".program-dashboard-task-table-shell {" in text
+    assert ".program-dashboard-table th,\n.program-dashboard-table td {" in text
+    table_cell_block = text[text.index(".program-dashboard-table th,"):text.index(".program-dashboard-table th {")]
+    assert "text-align: center;" in table_cell_block
+    assert "height: 48px;" in text
+    assert "height: 42px;" in text
+    assert "border-collapse: separate;" in text
+    assert "border-spacing: 1px 0;" in text
+    program_table_block = text[text.index(".program-dashboard-grid-cell {"):text.index(".program-dashboard-task-table th:nth-child(1),")]
+    assert "border-right:" not in program_table_block
+    assert ".program-dashboard-task-table td:nth-child(1)," in text
+    assert ".program-dashboard-task-table th:nth-child(8) {" in text
+    assert ".program-dashboard-task-table td:nth-child(4) .program-dashboard-link {" in text
+    assert "margin-inline: auto;" in text
+    assert ".program-dashboard-task-context {" in text
+    assert "-webkit-line-clamp: 2;" in text
 
 
 def test_dashboard_routes_use_shared_product_route_shell():

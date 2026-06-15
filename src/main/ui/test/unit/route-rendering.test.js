@@ -234,11 +234,28 @@ describe("simple route rendering", () => {
     expect(root.textContent).not.toContain("Other Program Project");
     expect(root.textContent).not.toContain("Confidential");
     expect(root.textContent).not.toContain("Internal Use Only");
-    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).toContain("Program");
-    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).not.toContain("Team");
-    expect(root.querySelector(".program-dashboard-group-row .program-dashboard-tag")?.textContent).toBe("TAP - Data Sourcing");
-    expect(root.querySelectorAll(".program-dashboard-group-row")).toHaveLength(1);
-    expect(root.querySelectorAll(".program-dashboard-child-row")).toHaveLength(1);
+    expect([...root.querySelectorAll(".program-dashboard-grid-header [role='columnheader']")].map((cell) => cell.textContent)).toEqual([
+      "Deliverable",
+      "Start",
+      "End",
+      "Status",
+      "Phase",
+      "Owner",
+      "% Complete",
+    ]);
+    expect([...root.querySelectorAll("th")].map((th) => th.textContent)).not.toContain("Program");
+    expect(root.querySelector(".program-dashboard-project-grid")).not.toBeNull();
+    expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-group-row")).toHaveLength(1);
+    expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-child-row")).toHaveLength(1);
+
+    root.querySelector('[data-program-dashboard-action="toggle-project"]')?.click();
+    expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-child-row")).toHaveLength(0);
+    expect(root.querySelector(".program-dashboard-group-row")?.className).toContain("program-dashboard-group-row-collapsed");
+    expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual(["project-1"]);
+
+    root.querySelector('[data-program-dashboard-action="expand-projects"]')?.click();
+    expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-child-row")).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual([]);
   });
 
   it("restores persisted program and tab choices for the active space", () => {
@@ -332,6 +349,20 @@ describe("simple route rendering", () => {
 
     const root = document.getElementById("program-dashboard-root");
     expect(root.textContent).toContain("Connect source");
+    expect([...root.querySelectorAll(".program-dashboard-task-table thead th")].map((cell) => cell.textContent)).toEqual([
+      "Program",
+      "Project",
+      "Solution",
+      "Description",
+      "Project Contact",
+      "Customer",
+      "Status",
+      "Target Date",
+    ]);
+    expect(root.querySelector(".program-dashboard-task-table")?.textContent).toContain("TAP - Data Sourcing");
+    expect(root.querySelector(".program-dashboard-task-table")?.textContent).toContain("Program Project");
+    expect(root.querySelector(".program-dashboard-task-table")?.textContent).toContain("Solution One");
+    expect(root.querySelector(".program-dashboard-task-table")?.textContent).not.toContain("Entitlements");
     expect(root.textContent).toContain("1 closed hidden");
     expect(root.textContent).not.toContain("Closed task");
     expect(root.textContent).not.toContain("Other task");

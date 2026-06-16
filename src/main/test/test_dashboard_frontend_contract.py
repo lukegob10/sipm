@@ -214,6 +214,12 @@ def test_dashboard_theme_converges_toward_product_object_language():
     assert "#view-dashboard .dashboard-condensed-table tbody tr:hover td {" in text
     assert "background: var(--hover);" in text
     assert "background: var(--product-table-head" in text
+    assert "#view-dashboard .dashboard-main-head," in text
+    assert "#view-dashboard .dashboard-card-head {" in text
+    dashboard_head_block = text[text.index("#view-dashboard .dashboard-main-head,"):text.index("#view-dashboard .dashboard-title-block,")]
+    assert "background: var(--product-table-head" in dashboard_head_block
+    assert "color: var(--product-table-head-text" in dashboard_head_block
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in dashboard_head_block
 
 def test_dashboard_chips_and_capacity_bars_use_compact_tokenized_styling():
     text = read_ui_styles(STYLES_CSS)
@@ -311,6 +317,14 @@ def test_program_dashboard_theme_converges_toward_gantt_object_language():
     assert "background: var(--tone-danger-bg);" in text
     assert ".program-dashboard-project-grid .program-dashboard-group-row .program-dashboard-grid-cell {" in text
     assert "var(--project-pill-bg)" in text
+    grid_header_block = text[text.index(".program-dashboard-grid-header .program-dashboard-grid-cell {"):text.index(".program-dashboard-grid-row:not(.program-dashboard-grid-header):hover")]
+    table_header_block = text[text.index(".program-dashboard-table th {"):text.index(".program-dashboard-table tbody tr {")]
+    assert "background: var(--product-table-head" in grid_header_block
+    assert "color: var(--product-table-head-text" in grid_header_block
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in grid_header_block
+    assert "background: var(--product-table-head" in table_header_block
+    assert "color: var(--product-table-head-text" in table_header_block
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in table_header_block
     assert "box-shadow: 0 0 9px" not in text[text.index(".program-dashboard-progress span {"):text.index(".program-dashboard-progress strong {")]
 
 

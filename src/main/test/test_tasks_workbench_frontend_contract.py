@@ -104,11 +104,43 @@ def test_workbench_status_cells_use_shared_status_pills_and_compact_table_langua
     assert 'class="task-workbench-status-cell"' in route_text
     assert ".task-workbench-table thead th {" in styles_text
     assert "background: var(--product-table-head" in styles_text
+    task_header_block = styles_text[
+        styles_text.index("#view-tasks-workbench .task-workbench-table thead th {"):
+        styles_text.index("#view-tasks-workbench .task-workbench-table tbody tr {")
+    ]
+    assert "color: var(--product-table-head-text" in task_header_block
+    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in task_header_block
     assert "#view-tasks-workbench .task-workbench-table tbody tr:nth-child(even) {" in styles_text
     assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in styles_text
     assert ".task-workbench-table tbody tr:hover td {" in styles_text
     assert ".task-workbench-table .pill {" in styles_text
     assert "border-radius: 5px;" in styles_text
+
+
+def test_workbench_task_table_columns_are_balanced_and_centered():
+    styles_text = read_ui_styles(STYLES)
+
+    task_column_block = styles_text[
+        styles_text.index(".task-workbench-table th:nth-child(2),"):
+        styles_text.index(".task-workbench-context {")
+    ]
+    scoped_cell_block = styles_text[
+        styles_text.index("#view-tasks-workbench .task-workbench-table th,"):
+        styles_text.index("#view-tasks-workbench .task-workbench-table thead th {")
+    ]
+    task_cell_block = styles_text[
+        styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) {"):
+        styles_text.index("#view-tasks-workbench .task-workbench-table tbody tr[data-id] {")
+    ]
+
+    assert "width: 26%;" in task_column_block
+    assert "width: 18%;" in task_column_block
+    assert "width: 14%;" in task_column_block
+    assert "width: 12%;" in task_column_block
+    assert "text-align: center;" in scoped_cell_block
+    assert "text-align: center;" in task_cell_block
+    assert "text-align: left;" not in task_cell_block
+    assert "margin-inline: auto;" in styles_text
 
 
 def test_workbench_drawer_context_surfaces_effective_repo_link():

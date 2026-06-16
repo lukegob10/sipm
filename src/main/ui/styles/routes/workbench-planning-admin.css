@@ -13,7 +13,7 @@
 .text-link {
   background: transparent;
   border: none;
-  color: var(--muted);
+  color: var(--button-link-text);
   cursor: pointer;
   padding: 0 6px;
   font-size: var(--font-size-control);
@@ -23,7 +23,7 @@
   align-items: center;
 }
 .text-link:hover {
-  color: var(--text);
+  color: var(--button-link-hover-text);
 }
 
 @media (max-width: 1024px) {
@@ -220,13 +220,6 @@
   background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
 }
 
-#view-master #master-table .deliverables-table th:nth-child(3),
-#view-master #master-table .deliverables-table td:nth-child(3),
-#view-master #master-table .deliverables-table th:nth-child(5),
-#view-master #master-table .deliverables-table td:nth-child(5) {
-  text-align: left;
-}
-
 #view-master #master-table .deliverables-table .table-filter,
 #view-master #master-table .deliverables-table .inline-input,
 #view-master #master-table .deliverables-table .inline-select {
@@ -247,6 +240,30 @@
 #view-master #master-table .deliverables-table .inline-select:focus {
   outline: 1px solid var(--focus-ring);
   border-color: var(--focus-border);
+}
+
+#view-master #master-table .deliverables-table .rag-select.rag-green,
+#view-master #master-table .deliverables-table .rag-select[data-rag-state="green"] {
+  border-color: var(--rag-green-border);
+  background: var(--rag-green-bg);
+  box-shadow: inset 0 0 0 1px var(--rag-green-border);
+  color: var(--rag-green-text);
+}
+
+#view-master #master-table .deliverables-table .rag-select.rag-amber,
+#view-master #master-table .deliverables-table .rag-select[data-rag-state="amber"] {
+  border-color: var(--rag-amber-border);
+  background: var(--rag-amber-bg);
+  box-shadow: inset 0 0 0 1px var(--rag-amber-border);
+  color: var(--rag-amber-text);
+}
+
+#view-master #master-table .deliverables-table .rag-select.rag-red,
+#view-master #master-table .deliverables-table .rag-select[data-rag-state="red"] {
+  border-color: var(--rag-red-border);
+  background: var(--rag-red-bg);
+  box-shadow: inset 0 0 0 1px var(--rag-red-border);
+  color: var(--rag-red-text);
 }
 
 #view-master #master-table .deliverables-table .pill {
@@ -273,6 +290,12 @@
   min-width: 0;
   width: 100%;
   text-transform: uppercase;
+}
+
+#view-master #master-table .deliverables-table tr.deliverable-row-solution td:nth-child(2) .deliverable-chip-btn {
+  display: flex;
+  width: 85%;
+  margin-left: auto;
 }
 
 #view-master #master-table .deliverables-table .pill.positive,
@@ -322,6 +345,46 @@
 #view-master #master-table .deliverables-table .deliverables-name-link-solution {
   color: var(--text);
   font-weight: 500;
+}
+
+#view-master #master-table .deliverables-table th:nth-child(3),
+#view-master #master-table .deliverables-table td:nth-child(3),
+#view-master #master-table .deliverables-table th:nth-child(5),
+#view-master #master-table .deliverables-table td:nth-child(5) {
+  text-align: center !important;
+}
+
+#view-master #master-table .deliverables-table td:nth-child(3) .deliverables-name-link,
+#view-master #master-table .deliverables-table td:nth-child(5) .deliverables-name-link {
+  margin: 0 auto;
+  text-align: center;
+}
+
+#view-master #master-table .deliverables-table td:nth-child(5) .deliverables-name-link-solution {
+  width: 100%;
+  justify-content: center;
+  text-align: center !important;
+}
+
+#view-master #master-table .deliverables-table th:nth-child(12),
+#view-master #master-table .deliverables-table td:nth-child(12),
+#view-master #master-table .deliverables-table th:nth-child(13),
+#view-master #master-table .deliverables-table td:nth-child(13) {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+#view-master #master-table .deliverables-table td:nth-child(12) .inline-select,
+#view-master #master-table .deliverables-table td:nth-child(13) .inline-select {
+  display: block !important;
+  width: 100% !important;
+  height: 27px !important;
+  margin: 0 auto !important;
+  padding: 0 6px !important;
+  line-height: 25px !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  vertical-align: middle !important;
 }
 
 #view-master #master-table .deliverables-table .deliverables-name-link:hover,
@@ -491,7 +554,7 @@
   border-color: rgba(0, 58, 114, 0.14);
 }
 .theme-light .table th {
-  color: var(--accent);
+  color: var(--product-table-head-text, var(--text-strong));
 }
 .theme-light .card {
   border-color: rgba(0, 58, 114, 0.12);

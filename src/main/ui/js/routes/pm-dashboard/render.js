@@ -12,7 +12,7 @@ import {
   resolvePMDashboardOwnerAssigneeKey,
 } from "./analytics.js";
 import { bindPMDashboardEvents } from "./interactions.js";
-import { ensureCapacityMonth, monthKey } from "./storage.js";
+import { ensureActiveSection, ensureCapacityMonth, monthKey } from "./storage.js";
 import {
   renderPMDashboardActionsSection,
   renderPMDashboardCapacitySection,
@@ -24,6 +24,14 @@ import {
 } from "./sections.js";
 
 const STALE_STATUS_DAYS = 7;
+const PM_DASHBOARD_FOCUS_SECTIONS = [
+  { id: "actions", label: "Immediate Actions", panelId: "pm-dashboard-actions", inputId: "pm-focus-actions" },
+  { id: "health", label: "Project Health", panelId: "pm-dashboard-health", inputId: "pm-focus-health" },
+  { id: "risks", label: "Risk Radar", panelId: "pm-dashboard-risks", inputId: "pm-focus-risks" },
+  { id: "timeline", label: "Delivery Timeline", panelId: "pm-dashboard-timeline", inputId: "pm-focus-timeline" },
+  { id: "capacity", label: "Capacity", panelId: "pm-dashboard-capacity", inputId: "pm-focus-capacity" },
+  { id: "status", label: "Portfolio Flow", panelId: "pm-dashboard-status", inputId: "pm-focus-status" },
+];
 
 function isStaleStatusRecord(record, today) {
   if (record?.is_stale === true) return true;
@@ -31,10 +39,68 @@ function isStaleStatusRecord(record, today) {
   return !!updatedAt && daysUntil(updatedAt, today) > STALE_STATUS_DAYS;
 }
 
+function renderPMDashboardFocusNav(activeSection, metrics) {
+  const nav = typeof document !== "undefined" ? document.getElementById("pm-dashboard-focus-nav") : null;
+  if (!nav) return;
+  const sectionMeta = {
+    actions: {
+      meta: `${metrics.actionCount} action${metrics.actionCount === 1 ? "" : "s"}`,
+      tone: metrics.actionCount > 0 && metrics.hasCriticalAction ? "danger" : metrics.actionCount > 0 ? "warn" : "positive",
+    },
+    health: {
+      meta: `${metrics.projectCount} project${metrics.projectCount === 1 ? "" : "s"}`,
+      tone: metrics.atRiskSolutions > 0 ? "warn" : "positive",
+    },
+    risks: {
+      meta: `${metrics.riskCount} elevated`,
+      tone: metrics.riskCount > 0 ? "danger" : "positive",
+    },
+    timeline: {
+      meta: `${metrics.overdueTotal} overdue`,
+      tone: metrics.overdueTotal > 0 ? "danger" : metrics.dueSoonTotal > 0 ? "warn" : "positive",
+    },
+    capacity: {
+      meta: `${metrics.overloadedCount} overloaded`,
+      tone: metrics.overloadedCount > 0 ? "warn" : "positive",
+    },
+    status: {
+      meta: `${metrics.staleTotal} stale`,
+      tone: metrics.staleTotal > 0 ? "warn" : "positive",
+    },
+  };
+
+  PM_DASHBOARD_FOCUS_SECTIONS.forEach((section) => {
+    const isActive = section.id === activeSection;
+    const meta = sectionMeta[section.id] || { meta: "", tone: "positive" };
+    const label = document.getElementById(`pm-focus-label-${section.id}`);
+    if (!label) return;
+    label.classList.toggle("active", isActive);
+    label.setAttribute("aria-current", isActive ? "page" : "false");
+    label.innerHTML = `
+      <span>${section.label}</span>
+      <strong class="${meta.tone}">${meta.meta}</strong>
+    `;
+  });
+}
+
+function applyPMDashboardFocus(activeSection) {
+  if (typeof document === "undefined") return;
+  PM_DASHBOARD_FOCUS_SECTIONS.forEach((section) => {
+    const input = document.getElementById(section.inputId);
+    if (input instanceof HTMLInputElement) input.checked = section.id === activeSection;
+    const panel = document.getElementById(section.panelId);
+    if (!panel) return;
+    const isActive = section.id === activeSection;
+    panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+    panel.classList.toggle("active", isActive);
+  });
+}
+
 export function createPMDashboardState() {
   return {
     ctx: null,
     bound: false,
+    activeSection: "",
     capacityDrilldowns: new Map(),
     capacityScopeLabel: "",
     capacityMonth: "",
@@ -58,6 +124,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   bindPMDashboardEvents(pmDashboardState, () => {
     if (pmDashboardState.ctx) renderPMDashboardView(pmDashboardState, pmDashboardState.ctx);
   });
+  const activeSection = ensureActiveSection(pmDashboardState);
   const hrefFor = (view) => {
     const normalized = String(view || "master").trim();
     if (typeof viewHref === "function") return viewHref(normalized);
@@ -558,6 +625,18 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     });
   }
 
+  renderPMDashboardFocusNav(activeSection, {
+    actionCount: actions.length,
+    hasCriticalAction: actions.some((action) => action.tone === "danger"),
+    projectCount: projectSummaries.length,
+    atRiskSolutions,
+    riskCount: solutionRiskRows.filter((row) => row.riskScore > 0).length,
+    overdueTotal,
+    dueSoonTotal,
+    overloadedCount: overloadedRows.length,
+    staleTotal,
+  });
+
   renderPMDashboardSummarySection({
     els,
     activeSpaceLabel,
@@ -609,4 +688,5 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     hrefFor,
   });
   renderPMDashboardActionsSection({ els, actions, hrefFor });
+  applyPMDashboardFocus(activeSection);
 }

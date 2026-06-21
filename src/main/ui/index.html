@@ -518,13 +518,41 @@
           </div>
           <div class="pm-dashboard-stack">
             <div id="pm-dashboard-summary" class="pm-summary-grid"></div>
-            <div class="pm-dashboard-grid">
-              <div class="panel pm-dashboard-card" id="pm-dashboard-health"></div>
-              <div class="panel pm-dashboard-card" id="pm-dashboard-risks"></div>
-              <div class="panel pm-dashboard-card" id="pm-dashboard-timeline"></div>
-              <div class="panel pm-dashboard-card" id="pm-dashboard-capacity"></div>
-              <div class="panel pm-dashboard-card" id="pm-dashboard-status"></div>
-              <div class="panel pm-dashboard-card" id="pm-dashboard-actions"></div>
+            <div class="pm-focus-shell">
+              <input id="pm-focus-actions" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="actions" checked data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="actions" />
+              <input id="pm-focus-health" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="health" data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="health" />
+              <input id="pm-focus-risks" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="risks" data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="risks" />
+              <input id="pm-focus-timeline" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="timeline" data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="timeline" />
+              <input id="pm-focus-capacity" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="capacity" data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="capacity" />
+              <input id="pm-focus-status" class="pm-focus-radio" type="radio" name="pm-dashboard-focus-section" value="status" data-pm-dashboard-action="set-focus-section" data-pm-dashboard-section="status" />
+              <nav id="pm-dashboard-focus-nav" class="pm-focus-nav" aria-label="PM Command Center review sections">
+                <label id="pm-focus-label-actions" class="pm-focus-nav-button active" for="pm-focus-actions" aria-controls="pm-dashboard-actions">
+                  <span>Immediate Actions</span>
+                </label>
+                <label id="pm-focus-label-health" class="pm-focus-nav-button" for="pm-focus-health" aria-controls="pm-dashboard-health">
+                  <span>Project Health</span>
+                </label>
+                <label id="pm-focus-label-risks" class="pm-focus-nav-button" for="pm-focus-risks" aria-controls="pm-dashboard-risks">
+                  <span>Risk Radar</span>
+                </label>
+                <label id="pm-focus-label-timeline" class="pm-focus-nav-button" for="pm-focus-timeline" aria-controls="pm-dashboard-timeline">
+                  <span>Delivery Timeline</span>
+                </label>
+                <label id="pm-focus-label-capacity" class="pm-focus-nav-button" for="pm-focus-capacity" aria-controls="pm-dashboard-capacity">
+                  <span>Capacity</span>
+                </label>
+                <label id="pm-focus-label-status" class="pm-focus-nav-button" for="pm-focus-status" aria-controls="pm-dashboard-status">
+                  <span>Portfolio Flow</span>
+                </label>
+              </nav>
+              <div class="pm-focus-pane" aria-live="polite">
+                <section class="pm-dashboard-card" id="pm-dashboard-actions"></section>
+                <section class="pm-dashboard-card" id="pm-dashboard-health"></section>
+                <section class="pm-dashboard-card" id="pm-dashboard-risks"></section>
+                <section class="pm-dashboard-card" id="pm-dashboard-timeline"></section>
+                <section class="pm-dashboard-card" id="pm-dashboard-capacity"></section>
+                <section class="pm-dashboard-card" id="pm-dashboard-status"></section>
+              </div>
             </div>
           </div>
         </div>

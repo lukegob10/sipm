@@ -51,7 +51,7 @@ export function renderPMDashboardSummarySection({
     <article class="pm-kpi-card pm-kpi-health ${healthTone(portfolioHealthScore)}">
       <div class="pm-kpi-label">Portfolio Health</div>
       <div class="pm-kpi-value">${portfolioHealthScore}</div>
-      <div class="pm-kpi-meta">Composite risk-adjusted score</div>
+      <div class="pm-kpi-meta">Reduced by red, overdue, blocked, unassigned, and stale work</div>
     </article>
     <article class="pm-kpi-card">
       <div class="pm-kpi-label">Active Workstreams</div>

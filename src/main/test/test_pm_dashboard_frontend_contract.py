@@ -81,6 +81,37 @@ def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown
     assert "function ensureCapacityMonth(pmDashboardState, spaceId) {" in storage_text
 
 
+def test_pm_dashboard_uses_focus_sections_with_persisted_default_action_view():
+    index_text = (REPO_ROOT / "src" / "main" / "ui" / "index.html").read_text(encoding="utf-8")
+    render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
+    interactions_text = PM_DASHBOARD_INTERACTIONS.read_text(encoding="utf-8")
+    storage_text = PM_DASHBOARD_STORAGE.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert 'id="pm-dashboard-focus-nav"' in index_text
+    assert 'class="pm-focus-shell"' in index_text
+    assert 'class="pm-focus-pane"' in index_text
+    assert 'name="pm-dashboard-focus-section"' in index_text
+    assert 'id="pm-focus-actions"' in index_text
+    assert 'for="pm-focus-health"' in index_text
+    assert 'export const DEFAULT_PM_DASHBOARD_SECTION = "actions";' in storage_text
+    assert "function normalizePMDashboardSection(value) {" in storage_text
+    assert "function persistActiveSection(sectionId) {" in storage_text
+    assert "function ensureActiveSection(pmDashboardState) {" in storage_text
+    assert 'data-pm-dashboard-action="set-focus-section"' in index_text
+    assert "input.checked = section.id === activeSection;" in render_text
+    assert 'document.getElementById(`pm-focus-label-${section.id}`)' in render_text
+    assert "const activeSection = ensureActiveSection(pmDashboardState);" in render_text
+    assert "renderPMDashboardFocusNav(activeSection" in render_text
+    assert "applyPMDashboardFocus(activeSection);" in render_text
+    assert 'if (action === "set-focus-section") {' in interactions_text
+    assert "persistActiveSection(sectionId);" in interactions_text
+    assert ".pm-focus-shell {" in styles_text
+    assert ".pm-focus-nav-button.active {" in styles_text
+    assert ".pm-dashboard-card.active {" in styles_text
+    assert "#pm-focus-health:checked ~ .pm-focus-pane #pm-dashboard-health" not in styles_text
+
+
 def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and_capacity_surfaces():
     text = APP_JS.read_text(encoding="utf-8")
     assert "function closePlanningModal()" in text

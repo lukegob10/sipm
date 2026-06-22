@@ -460,7 +460,7 @@ def test_master_query_filter_supports_free_text_and_field_tokens():
     assert "field:value" not in filters_text
     assert "MASTER_QUERY_FIELDS" in filters_text
     assert 'tokens.push(MASTER_QUERY_FIELDS.has(field) ? { field, value }' in filters_text
-    assert "freeTextHaystack(ctx, program, project, solution).includes(value)" in filters_text
+    assert "freeTextHaystack(ctx, program, project, solution, tasks).includes(value)" in filters_text
 
 
 def test_master_priority_and_progress_query_filters_use_existing_numeric_semantics():
@@ -897,8 +897,8 @@ def test_icon_only_controls_have_accessible_tooltips_and_svg_icons():
 
     assert "\u270e" not in master_table_text
     assert "\uff0b" not in master_table_text
-    assert 'data-action="edit" data-type="solution" data-id="${itemId}" aria-label="Edit solution" title="Edit" data-tooltip="Edit"' in master_table_text
-    assert 'data-action="add-task" data-type="solution" data-id="${solution.solution_id}" aria-label="Add task" title="Add task" data-tooltip="Add task"' in master_table_text
+    assert 'data-action="edit" data-type="solution" data-id="${safeSolutionId}" aria-label="Edit solution" title="Edit" data-tooltip="Edit"' in master_table_text
+    assert 'data-action="add-task" data-type="solution" data-id="${safeSolutionId}" aria-label="Add task" title="Add task" data-tooltip="Add task"' in master_table_text
     assert 'class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"' in master_table_text
 
     assert "\u25c0" not in html_text

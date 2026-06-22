@@ -11,6 +11,15 @@
 @import "./styles/routes/space-governance.css";
 @import "./styles/routes/analytics.css";
 
+:root {
+  --master-row-font-size: var(--font-size-table);
+  --task-workbench-row-font-size: var(--font-size-table);
+}
+
+.table th {
+  font-size: var(--font-size-table-header);
+}
+
 body.public-program-dashboard-page #auth-screen,
 body.public-program-dashboard-page #reset-screen,
 body.public-program-dashboard-page #idle-modal,

@@ -54,6 +54,33 @@ def test_master_remains_default_view_and_fallback():
     assert 'return normalizeView(firstSegment);' in router_text
 
 
+def test_authenticated_shell_left_nav_matches_information_architecture():
+    text = INDEX_HTML.read_text(encoding="utf-8")
+
+    work_section = text[text.index('<p class="nav-label">Work</p>'):text.index('<p class="nav-label">Insight</p>')]
+    insight_section = text[text.index('<p class="nav-label">Insight</p>'):text.index('<div id="nav-admin-section"')]
+    admin_section = text[text.index('<p class="nav-label">Admin</p>'):text.index("</aside>")]
+
+    assert [match.group(1) for match in re.finditer(r'data-view="([^"]+)"', work_section)] == [
+        "master",
+        "tasks-workbench",
+        "planning",
+    ]
+    assert [match.group(1) for match in re.finditer(r'data-view="([^"]+)"', insight_section)] == [
+        "pm-dashboard",
+        "dashboard",
+        "program-dashboard",
+        "kanban",
+        "calendar",
+        "gantt",
+    ]
+    assert [match.group(1) for match in re.finditer(r'data-view="([^"]+)"', admin_section)] == [
+        "spaces",
+        "team-capacity",
+        "analytics",
+    ]
+
+
 def test_route_hint_copy_removed_from_main_html_views():
     text = INDEX_HTML.read_text(encoding="utf-8")
     assert "view-route-hint" not in text
@@ -140,8 +167,8 @@ def test_modernized_work_views_map_visible_typography_to_shared_roles():
 
     assert "--master-row-font-size: var(--font-size-table);" in styles_text
     assert "--task-workbench-row-font-size: var(--font-size-table);" in styles_text
-    assert ".program-dashboard-table th," in styles_text
-    assert ".program-dashboard-table td {" in styles_text
+    assert ".program-dashboard-grid-cell {" in styles_text
+    assert ".program-dashboard-grid-header .program-dashboard-grid-cell {" in styles_text
     assert "font-size: var(--font-size-table);" in styles_text
     assert ".dashboard-main-table thead th," in styles_text
     assert ".gantt-title {" in styles_text
@@ -207,12 +234,14 @@ def test_frontend_ux_state_is_persisted_per_space():
     app_text = APP_JS.read_text(encoding="utf-8")
     planning_state_text = PLANNING_STATE.read_text(encoding="utf-8")
     planning_storage_text = PLANNING_STORAGE.read_text(encoding="utf-8")
-    master_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
+    master_text = MASTER_ROUTE.read_text(encoding="utf-8")
 
     assert 'const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";' in app_text
     assert 'const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";' in app_text
     assert 'const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";' in planning_state_text
     assert "persistMasterViewState" in app_text
+    assert "collapsed: Array.from(state.masterCollapsed || [])," in app_text
+    assert "state.masterCollapsed = normalizeMasterCollapsedKeys(stored.collapsed);" in app_text
     assert "persistTasksWorkbenchUiState" in app_text
     assert "persistViewState()" in planning_storage_text
     assert "persistMasterViewState" in master_text
@@ -401,50 +430,45 @@ def test_topbar_create_menu_uses_compact_topbar_menu_styling():
     assert ".topbar-create-item {" in styles_text
 
 
-def test_master_invalid_preset_is_auto_cleared_and_persisted():
+def test_master_query_filter_is_auto_cleared_and_persisted():
     app_text = APP_JS.read_text(encoding="utf-8")
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'export const VALID_DELIVERABLE_PRESETS = new Set(["", "my", "overdue", "blocked"]);' in filters_text
-    assert 'state.deliverablesPreset = String(stored.deliverablesPreset || "");' in app_text
-    assert "if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {" in app_text
-    assert 'state.deliverablesPreset = "";' in app_text
-    assert 'const normalized = normalizeMasterFilters(rawFilters, state.deliverablesPreset);' in app_text
+    assert "VALID_DELIVERABLE_PRESETS" not in filters_text
+    assert "deliverablesPreset" not in app_text
+    assert 'const normalized = normalizeMasterFilters(rawFilters);' in app_text
     assert "if (normalized.changed) changed = true;" in app_text
     assert "if (changed) persistMasterViewState();" in app_text
 
 
-def test_master_invalid_type_filter_is_auto_cleared_and_persisted():
+def test_master_query_filter_discards_legacy_field_filters():
     app_text = APP_JS.read_text(encoding="utf-8")
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'export const VALID_DELIVERABLE_TYPES = new Set(["", "project", "solution"]);' in filters_text
+    assert "VALID_DELIVERABLE_TYPES" not in filters_text
     assert 'const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};' in app_text
-    assert "export function normalizeMasterFilters(filters = {}, _preset = \"\") {" in filters_text
-    assert "next.type = VALID_DELIVERABLE_TYPES.has(type) ? type : \"\";" in filters_text
+    assert "export function normalizeMasterFilters(filters = {}) {" in filters_text
+    assert 'Object.keys(source).some((key) => key !== "query")' in filters_text
     assert 'state.filters = normalized.filters;' in app_text
     assert "if (changed) persistMasterViewState();" in app_text
 
 
-def test_master_text_filters_self_heal_to_plain_strings():
+def test_master_query_filter_supports_free_text_and_field_tokens():
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert 'export const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in filters_text
-    assert "MASTER_TEXT_FILTER_KEYS.forEach((key) => {" in filters_text
-    assert 'if (typeof value === "string") {' in filters_text
-    assert 'next[key] = "";' in filters_text
-    assert 'if (value !== null && value !== undefined && value !== "") changed = true;' in filters_text
+    assert "function tokenizeQuery(query) {" in filters_text
+    assert "field:value" not in filters_text
+    assert "MASTER_QUERY_FIELDS" in filters_text
+    assert 'tokens.push(MASTER_QUERY_FIELDS.has(field) ? { field, value }' in filters_text
+    assert "freeTextHaystack(ctx, program, project, solution, tasks).includes(value)" in filters_text
 
 
-def test_master_priority_and_progress_filters_self_heal_to_valid_ranges():
+def test_master_priority_and_progress_query_filters_use_existing_numeric_semantics():
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
-    assert "export function normalizeMasterPriorityFilter(value) {" in filters_text
-    assert "return Number.isInteger(n) && n >= 0 && n <= 5 ? String(n) : \"\";" in filters_text
-    assert "export function normalizeMasterProgressFilter(value) {" in filters_text
-    assert "return Number.isFinite(n) && n >= 0 && n <= 100 ? String(n) : \"\";" in filters_text
-    assert "const priority = normalizeMasterPriorityFilter(source.priority);" in filters_text
-    assert "const progress = normalizeMasterProgressFilter(source.progress);" in filters_text
+    assert "function numericFieldMatches(ctx, field, value, solution) {" in filters_text
+    assert 'if (field === "priority") return Number(solution?.priority) <= target;' in filters_text
+    assert 'if (field === "progress") return Number(ctx.solutionProgress?.(solution) || 0) <= target;' in filters_text
 
 
 def test_master_deliverables_presets_do_not_hide_project_rows_or_columns():
@@ -455,12 +479,14 @@ def test_master_deliverables_presets_do_not_hide_project_rows_or_columns():
 
     assert "engineering" not in filters_text
     assert "presetEngineering" not in interactions_text
-    assert 'const includeProjectRows = f.type !== "solution";' in filters_text
-    assert 'value="project"' in route_text
-    assert 'value="solution"' in route_text
+    assert "VALID_DELIVERABLE_TYPES" not in filters_text
+    assert 'Object.keys(source).some((key) => key !== "query")' in filters_text
+    assert 'id="filter-type"' not in route_text
+    assert 'value="project"' not in route_text
+    assert 'value="solution"' not in route_text
     assert "<th>Version</th>" in route_text
     assert "<th>Repo</th>" not in route_text
-    assert "const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);" in interactions_text
+    assert "setDeliverablesPreset" not in interactions_text
     assert 'state.filters = normalized.filters;' in app_text
 
 
@@ -468,9 +494,9 @@ def test_master_legacy_repo_presence_filter_self_heals_out_of_storage():
     filters_text = MASTER_ROUTE_FILTERS.read_text(encoding="utf-8")
 
     assert "VALID_DELIVERABLE_REPO_PRESENCE" not in filters_text
-    assert 'export const MASTER_TEXT_FILTER_KEYS = ["project", "sponsor", "solution", "version", "owner", "current_phase", "due", "rag", "status"];' in filters_text
-    assert "if (source.repo_presence) {" in filters_text
-    assert "changed = true;" in filters_text
+    assert "MASTER_QUERY_FIELDS" in filters_text
+    assert "repo_presence" not in filters_text
+    assert 'Object.keys(source).some((key) => key !== "query")' in filters_text
 
 
 def test_solution_and_task_forms_include_github_repo_fields():
@@ -829,18 +855,18 @@ def test_tasks_workbench_option_population_is_route_local():
     assert "populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
 
 
-def test_deliverables_bulk_actions_use_inline_feedback():
+def test_deliverables_bulk_actions_are_removed_from_deliverables_route():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
     html_text = INDEX_HTML.read_text(encoding="utf-8")
 
-    assert 'id="bulk-feedback"' in html_text
-    assert "function setBulkFeedback(message, tone = \"info\", autoClearMs = 0)" in app_text
-    assert 'setBulkFeedback("Updating deliverables…");' in interactions_text
-    assert 'setBulkFeedback("Select a status first.", "error");' in interactions_text
-    assert 'setBulkFeedback("Enter an owner name.", "error");' in interactions_text
-    assert 'setBulkFeedback("Deliverables updated.", "success", 3200);' in interactions_text
-    assert 'setBulkFeedback(`Bulk update failed: ${err.message}`, "error");' in interactions_text
+    assert 'id="bulk-feedback"' not in html_text
+    assert 'id="deliverables-bulk-toolbar"' not in html_text
+    assert 'id="deliverables-select-all"' not in html_text
+    assert 'class="deliverable-select"' not in interactions_text
+    assert "applyBulkDeliverableAction" not in interactions_text
+    assert "deliverableSelection" not in interactions_text
+    assert "updateBulkSelectionCount" not in app_text
     assert 'setStatus("Updating deliverables…");' not in app_text
     assert 'setStatus("Deliverables updated", "positive");' not in app_text
     assert 'alert("Select a status first.");' not in interactions_text
@@ -848,18 +874,50 @@ def test_deliverables_bulk_actions_use_inline_feedback():
     assert 'alert(`Bulk update failed: ${err.message}`);' not in interactions_text
 
 
-def test_deliverables_inline_field_updates_use_inline_feedback():
+def test_deliverables_inline_field_updates_do_not_depend_on_bulk_feedback():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = MASTER_ROUTE_INTERACTIONS.read_text(encoding="utf-8")
 
     assert "async function updateDeliverableField(ctx, type, id, field, value) {" in interactions_text
-    assert "clearBulkFeedback();" in interactions_text
-    assert 'setBulkFeedback("Saving deliverable change…");' in interactions_text
-    assert 'setBulkFeedback("Deliverable updated.", "success", 2200);' in interactions_text
-    assert 'setBulkFeedback(`Update failed: ${err.message}`, "error");' in interactions_text
+    assert "clearBulkFeedback" not in interactions_text
+    assert "setBulkFeedback" not in interactions_text
+    assert "clearBulkFeedback" not in app_text
+    assert "setBulkFeedback" not in app_text
     assert 'setStatus("Deliverable updated", "positive");' not in app_text
     assert 'setStatus("Deliverable update failed", "danger");' not in app_text
     assert 'alert(`Update failed: ${err.message}`);' not in interactions_text
+
+
+def test_icon_only_controls_have_accessible_tooltips_and_svg_icons():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    master_table_text = MASTER_ROUTE_TABLE.read_text(encoding="utf-8")
+    planning_render_text = PLANNING_RENDER.read_text(encoding="utf-8")
+    spaces_render_text = SPACES_RENDER_JS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
+
+    assert "\u270e" not in master_table_text
+    assert "\uff0b" not in master_table_text
+    assert 'data-action="edit" data-type="solution" data-id="${safeSolutionId}" aria-label="Edit solution" title="Edit" data-tooltip="Edit"' in master_table_text
+    assert 'data-action="add-task" data-type="solution" data-id="${safeSolutionId}" aria-label="Add task" title="Add task" data-tooltip="Add task"' in master_table_text
+    assert 'class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"' in master_table_text
+
+    assert "\u25c0" not in html_text
+    assert "\u25b6" not in html_text
+    assert 'id="calendar-prev" class="secondary icon-btn" aria-label="Previous month" title="Previous month" data-tooltip="Previous month"' in html_text
+    assert 'id="calendar-next" class="secondary icon-btn" aria-label="Next month" title="Next month" data-tooltip="Next month"' in html_text
+
+    assert 'data-wab-action="delete-team"' in planning_render_text
+    assert ">Delete Team</button>" in planning_render_text
+    assert 'title="Delete team">x</button>' not in planning_render_text
+
+    assert 'class="secondary modal-close-x" id="tasks-workbench-close" aria-label="Close task editor" title="Close" data-tooltip="Close"' in html_text
+    assert 'class="secondary modal-close-x" data-space-action="clear-api-token-result" aria-label="Close API token dialog" title="Close" data-tooltip="Close"' in spaces_render_text
+    assert re.search(r'class="[^"]*modal-close-x[^"]*"[^>]*>\s*(?:&times;|x|\u00d7)\s*</button>', html_text) is None
+    assert re.search(r'class="[^"]*modal-close-x[^"]*"[^>]*>\s*x\s*</button>', spaces_render_text) is None
+
+    assert ".icon-btn[data-tooltip]::after" in styles_text
+    assert ".modal-close-x[data-tooltip]::after" in styles_text
+    assert ".icon-btn-svg" in styles_text
 
 
 def test_team_capacity_member_form_uses_inline_feedback():

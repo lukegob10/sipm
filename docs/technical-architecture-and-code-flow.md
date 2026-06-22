@@ -66,18 +66,18 @@ The application uses one backend process as the gateway for app pages, API reque
 
 ## Application Startup
 
-Startup begins in `src/main/backend/main.py`.
+Startup begins in `src/main/backend/main.py`. The canonical ASGI target is the module-level `backend.main:app`.
 
 Call flow:
 
-1. `create_app()` constructs `FastAPI(title="SIPM API", version="0.1.0")`.
-2. The app receives the lifespan handler from `backend.app.lifespan.lifespan`.
+1. `backend.main` loads the repo environment and runtime path constants.
+2. `app = FastAPI(title="SIPM API", version="0.1.0", lifespan=lifespan, ...)` is constructed at module import time.
 3. API routers are included under `API_PREFIX`, which defaults to `/project-manager/api`.
-4. Observability middleware is registered.
-5. Health/readiness routes are registered.
-6. Frontend static and catch-all routes are registered.
+4. Request observability/security middleware is registered in `main.py`.
+5. Health/readiness routes are registered in `main.py`.
+6. Frontend static and SPA catch-all routes are registered in `main.py`.
 
-Lifespan flow in `backend/app/lifespan.py`:
+Lifespan flow in `backend/main.py`:
 
 1. `validate_auth_configuration()` enforces authentication/runtime safety.
 2. `coordination.validate_configuration()` verifies `memory` or `redis` coordination settings.
@@ -107,7 +107,7 @@ Design choice: context path logic is centralized because this app is intended to
 Initial page load:
 
 1. Browser requests `/project-manager/`.
-2. `register_frontend_routes()` serves `src/main/ui/index.html`.
+2. The frontend routes in `backend/main.py` serve `src/main/ui/index.html`.
 3. `index.html` loads `src/main/ui/js/app.js`.
 4. `app.js` queries DOM handles through `queryShellElements()`.
 5. Controllers are created in `initShellControllers()`.
@@ -291,29 +291,12 @@ Design choice: browser auth is cookie-backed to avoid exposing reusable tokens t
 
 `backend/main.py`
 
-- Defines `create_app()`.
-- Registers routers, middleware, health, and frontend routes.
-
-`backend/app/lifespan.py`
-
-- Owns startup/shutdown validation and runtime background tasks.
-
-`backend/app/frontend.py`
-
-- Serves static assets.
-- Serves `index.html` for SPA routes.
-- Returns `503` if required frontend files are missing.
-
-`backend/app/middleware.py`
-
-- Adds request correlation.
-- Emits compact JSON request logs.
-- Adds CSP, referrer policy, permissions policy, and API no-cache headers.
-
-`backend/app/health.py`
-
-- `/health` shallow liveness.
-- `/health/ready` checks auth configuration, coordination, frontend bundle, and DB connectivity.
+- Exposes the module-level `app` used by `uvicorn backend.main:app`.
+- Owns startup/shutdown validation and runtime background tasks through its `lifespan()` handler.
+- Includes API routers under the configured context path.
+- Adds request correlation, compact JSON request logs, CSP/referrer/permissions headers, and API no-cache behavior.
+- Registers `/health` and `/health/ready`; readiness checks auth configuration, coordination, frontend bundle presence, and DB connectivity.
+- Serves static assets and `index.html` for SPA routes, returning `503` if required frontend files are missing.
 
 ### Dependencies And Security
 
@@ -446,8 +429,8 @@ Major route groups:
 
 | Caller | Calls | Purpose |
 | --- | --- | --- |
-| `backend.main:create_app()` | `include_router()`, `register_observability_middleware()`, `register_health_routes()`, `register_frontend_routes()` | Builds the complete FastAPI application. |
-| `lifespan()` | auth validation, coordination validation, realtime startup, DB initialization | Prepares runtime dependencies before serving requests. |
+| `backend.main:app` | `include_router()`, middleware decorators, health routes, frontend routes | Exposes the complete FastAPI application. |
+| `backend.main:lifespan()` | auth validation, coordination validation, realtime startup, DB initialization | Prepares runtime dependencies before serving requests. |
 | `routes/__init__.py` | individual route modules | Creates the protected API surface under `/api`. |
 | Protected routers | `require_user()` | Reject unauthenticated requests before route logic runs. |
 | Route functions | `get_db()`, `current_space()`, `require_space_role()` | Obtain DB session, tenant scope, and authorization. |

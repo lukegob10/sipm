@@ -9,10 +9,10 @@ from sqlalchemy.orm import Session
 from ...models import Project, Solution, Task
 from ...schemas import TaskRead
 from ...services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
+from ...services.mutations import publish_space_mutation
 from ...services.spaces import SpaceContext
 from ...utils import enable_all_phases, normalize_str
 from ...utils.enums import TaskStatus
-from .._mutations import publish_space_mutation
 
 _TASKS_LIST_TTL_SECONDS = 20
 _TASKS_DETAIL_TTL_SECONDS = 30

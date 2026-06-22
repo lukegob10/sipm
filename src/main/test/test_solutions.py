@@ -173,6 +173,38 @@ async def test_solution_github_repo_url_is_normalized_and_can_be_cleared(client)
 
 
 @pytest.mark.anyio
+async def test_solution_escalation_is_short_text_and_can_be_cleared(client):
+    project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Escalation Project"})
+    assert project_resp.status_code == 201, project_resp.text
+    project = project_resp.json()
+    escalation = "Escalated request for steering review"
+
+    create_resp = await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Escalated Solution",
+            "escalation": f"  {escalation}  ",
+        },
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    created = create_resp.json()
+    assert created["escalation"] == escalation
+
+    too_long = await client.patch(
+        f"/project-manager/api/solutions/{created['solution_id']}",
+        json={"escalation": "x" * 256},
+    )
+    assert too_long.status_code == 422, too_long.text
+
+    cleared = await client.patch(
+        f"/project-manager/api/solutions/{created['solution_id']}",
+        json={"escalation": ""},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["escalation"] is None
+
+
+@pytest.mark.anyio
 async def test_solution_rejects_invalid_github_repo_url(client):
     project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Invalid Repo Project"})
     assert project_resp.status_code == 201, project_resp.text

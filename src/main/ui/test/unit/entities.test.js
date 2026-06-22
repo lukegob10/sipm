@@ -202,6 +202,7 @@ describe("entity payload builders", () => {
         owner_user_soeid: " on12345 ",
         assignee: "Assignee Display",
         assignee_user_soeid: "",
+        escalation: " Escalated request ",
         capacity_hours: "0.5",
         rag_status: "amber",
       }),
@@ -215,6 +216,7 @@ describe("entity payload builders", () => {
     expect(payload.owner_user_soeid).toBe("on12345");
     expect(payload.assignee).toBe("Assignee Display");
     expect(payload.assignee_user_soeid).toBeNull();
+    expect(payload.escalation).toBe("Escalated request");
     expect(payload.capacity_hours).toBe(80);
     expect(payload).not.toHaveProperty("capacity_fte_months");
   });

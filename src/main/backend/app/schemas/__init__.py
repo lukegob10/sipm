@@ -86,6 +86,7 @@ __all__ = [
     "AnalyticsWorkflowRead",
     "PerformanceSampleIn",
     "ProgramCreate",
+    "ProgramDashboardReportRequest",
     "ProgramRead",
     "ProgramUpdate",
     "SolutionDocumentRead",
@@ -234,6 +235,7 @@ class SpaceCreate(BaseModel):
 class SpaceUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
+    public_program_dashboard_enabled: Optional[bool] = None
 
 
 class SpaceRead(BaseModel):
@@ -243,6 +245,7 @@ class SpaceRead(BaseModel):
     name: str
     slug: str
     is_active: bool
+    public_program_dashboard_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -330,6 +333,12 @@ class ProgramRead(TextLikeReadModel):
     updated_at: datetime
 
 
+class ProgramDashboardReportRequest(BaseModel):
+    selected_program_ids: list[str] = Field(default_factory=list)
+    collapsed_program_ids: list[str] = Field(default_factory=list)
+    collapsed_project_ids: list[str] = Field(default_factory=list)
+
+
 class ProjectBase(BaseModel):
     program_id: Optional[str] = None
     project_name: Optional[str] = None
@@ -385,6 +394,7 @@ class SolutionBase(BaseModel):
     description: Optional[str] = None
     success_criteria: Optional[str] = None
     problem_statement: Optional[str] = None
+    escalation: Optional[str] = Field(default=None, max_length=255)
     owner: Optional[str] = None
     owner_user_soeid: Optional[str] = None
     assignee: Optional[str] = None
@@ -430,6 +440,7 @@ class SolutionRead(TextLikeReadModel):
     description: Optional[str] = None
     success_criteria: Optional[str] = None
     problem_statement: Optional[str] = None
+    escalation: Optional[str] = None
     owner: Optional[str] = None
     owner_user_soeid: Optional[str] = None
     assignee: Optional[str] = None

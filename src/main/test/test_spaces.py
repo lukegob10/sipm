@@ -196,6 +196,79 @@ async def test_space_create_and_update_reject_blank_names(client):
 
 
 @pytest.mark.anyio
+async def test_space_admin_can_toggle_public_program_dashboard(client, db_sessionmaker):
+    space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        _set_current_space_override(space_id, role="space_admin")
+        enabled = await client.patch(
+            f"/project-manager/api/spaces/{space_id}",
+            json={"public_program_dashboard_enabled": True},
+        )
+        assert enabled.status_code == 200, enabled.text
+        assert enabled.json()["public_program_dashboard_enabled"] is True
+
+        disabled = await client.patch(
+            f"/project-manager/api/spaces/{space_id}",
+            json={"public_program_dashboard_enabled": False},
+        )
+        assert disabled.status_code == 200, disabled.text
+        assert disabled.json()["public_program_dashboard_enabled"] is False
+    finally:
+        _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_space_member_cannot_toggle_public_program_dashboard(client, db_sessionmaker):
+    space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1, include_member=True)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        _set_current_space_override(space_id, role="member")
+        response = await client.patch(
+            f"/project-manager/api/spaces/{space_id}",
+            json={"public_program_dashboard_enabled": True},
+        )
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == "Space admin required"
+    finally:
+        _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
+async def test_global_admin_can_toggle_public_program_dashboard_for_any_space(client):
+    created = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": "Global Toggle Space", "slug": "global-toggle-space"},
+    )
+    assert created.status_code == 201, created.text
+    space_id = created.json()["space_id"]
+
+    response = await client.patch(
+        f"/project-manager/api/spaces/{space_id}",
+        json={"public_program_dashboard_enabled": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["public_program_dashboard_enabled"] is True
+
+
+@pytest.mark.anyio
+async def test_space_admin_cannot_rename_space_through_public_dashboard_toggle(client, db_sessionmaker):
+    space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    try:
+        _set_current_space_override(space_id, role="space_admin")
+        response = await client.patch(
+            f"/project-manager/api/spaces/{space_id}",
+            json={"name": "Renamed By Space Admin", "public_program_dashboard_enabled": True},
+        )
+        assert response.status_code == 403, response.text
+        assert response.json()["detail"] == "Global admin required"
+    finally:
+        _restore_current_space_override(original_current_space)
+
+
+@pytest.mark.anyio
 async def test_can_change_admin_membership_when_another_admin_exists(client, db_sessionmaker):
     space_id, admin_memberships, member_membership_id = _seed_space_with_members(
         db_sessionmaker,

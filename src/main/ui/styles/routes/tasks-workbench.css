@@ -273,15 +273,15 @@
 }
 
 #view-tasks-workbench {
-  --task-workbench-row-font-size: var(--font-size-table);
-  --task-workbench-row-font-weight: 500;
-  --task-workbench-control-font-weight: 700;
+  --task-workbench-row-font-size: var(--route-table-body-font-size);
+  --task-workbench-row-font-weight: var(--route-table-body-font-weight);
+  --task-workbench-control-font-weight: var(--route-control-font-weight);
   height: calc(100dvh - 122px);
   overflow: hidden;
 }
 
 #view-tasks-workbench > .panel {
-  padding: 10px 12px 12px;
+  padding: var(--route-panel-padding);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -291,7 +291,7 @@
 #view-tasks-workbench .panel-header {
   align-items: flex-start;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--route-header-gap);
   margin-bottom: 0;
 }
 
@@ -355,10 +355,13 @@
 
 #view-tasks-workbench .task-workbench-table th,
 #view-tasks-workbench .task-workbench-table td {
-  height: 30px;
+  height: var(--route-table-row-height);
   padding: 4px 10px;
   border-right: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  font-size: var(--route-table-body-font-size);
+  font-weight: var(--route-table-body-font-weight);
+  letter-spacing: var(--route-table-body-letter-spacing);
   line-height: 1.2;
   text-align: center;
   vertical-align: middle;
@@ -372,10 +375,10 @@
   color: var(--product-table-head-text, var(--text-strong));
   border-bottom-color: color-mix(in srgb, var(--border) 74%, transparent);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  height: 26px;
-  font-size: var(--font-size-chip);
-  font-weight: 900;
-  letter-spacing: 0.05em;
+  height: var(--route-table-header-height);
+  font-size: var(--route-table-header-font-size);
+  font-weight: var(--route-table-header-font-weight);
+  letter-spacing: var(--route-table-header-letter-spacing);
   text-transform: uppercase;
 }
 
@@ -437,9 +440,9 @@
   border-radius: 5px;
   line-height: 1;
   font-family: inherit;
-  font-size: var(--font-size-chip);
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: var(--route-chip-font-size);
+  font-weight: var(--route-chip-font-weight);
+  letter-spacing: var(--route-chip-letter-spacing);
 }
 
 @media (max-width: 1024px) {

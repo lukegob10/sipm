@@ -16,7 +16,7 @@ from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus, SolutionStatus, TaskStatus
-from .._mutations import commit_session
+from ...services.mutations import commit_session
 from ..projects.common import _default_program, _resolve_project_sponsor
 from ..solutions.common import _resolve_solution_owner
 from .common import (

@@ -7,6 +7,8 @@ ROUTES_DIR = Path(__file__).resolve().parents[1] / "backend" / "app" / "routes"
 # These endpoints are intentionally global/read-only and do not need active-space context.
 ALLOWED_NO_SPACE_DEP = {
     ("phases.py", "list_phases"),
+    ("public.py", "get_public_program_dashboard"),
+    ("public.py", "download_public_program_dashboard_report_pdf"),
     ("spaces.py", "list_spaces"),
 }
 

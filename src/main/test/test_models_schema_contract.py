@@ -19,6 +19,7 @@ from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, Ta
 SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_ta.sql"
 TASK_REPAIR_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_repair_partial_task_rename.sql"
 SOLUTION_DOCUMENTS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_solution_documents_v1.sql"
+PUBLIC_PROGRAM_DASHBOARD_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260622_public_program_dashboard_v1.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -146,6 +147,11 @@ def test_oracle_solution_repo_url_column_uses_documented_length():
     assert "github_repo_url VARCHAR2(1024 CHAR)" in ddl
 
 
+def test_oracle_solution_escalation_column_uses_short_text_length():
+    ddl = str(CreateTable(Solution.__table__).compile(dialect=oracle.dialect()))
+    assert "escalation VARCHAR2(255 CHAR)" in ddl
+
+
 def test_oracle_task_repo_url_column_uses_documented_length():
     tasks = Base.metadata.tables[physical_table_name("tasks")]
     ddl = str(CreateTable(tasks).compile(dialect=oracle.dialect()))
@@ -223,6 +229,16 @@ def test_solution_documents_migration_creates_blob_table_and_indexes():
     assert "ix_TB_TA_PM_SOLUTION_DOCUMENTS_uploaded_by_user_id" in sql
 
 
+def test_public_program_dashboard_migration_adds_space_publish_flag():
+    sql = PUBLIC_PROGRAM_DASHBOARD_SQL_PATH.read_text(encoding="utf-8")
+
+    assert "TB_TA_PM_SPACES" in sql
+    assert "PUBLIC_PROGRAM_DASHBOARD_ENABLED" in sql
+    assert "public_program_dashboard_enabled SMALLINT DEFAULT 0 NOT NULL" in sql
+    assert "WHERE table_name = 'TB_TA_PM_SPACES'" in sql
+    assert "AND column_name = 'PUBLIC_PROGRAM_DASHBOARD_ENABLED'" in sql
+
+
 def test_models_package_reexports_and_registers_metadata():
     assert models.User is not None
     assert models.Project is not None
@@ -290,6 +306,7 @@ def test_long_text_read_schemas_coerce_lob_values():
             description=FakeLob("solution description"),
             success_criteria=FakeLob("solution success"),
             problem_statement=FakeLob("solution problem"),
+            escalation="Executive review",
             blockers=FakeLob("solution blockers"),
             risks=FakeLob("solution risks"),
             priority=3,

@@ -16,7 +16,7 @@ from ...schemas import SolutionDocumentRead
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_str
-from .._mutations import commit_session
+from ...services.mutations import commit_session
 from .common import _get_solution_or_404, _publish_solution_mutation
 
 router = APIRouter()

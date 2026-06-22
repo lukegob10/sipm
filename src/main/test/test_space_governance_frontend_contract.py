@@ -64,6 +64,57 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'data-space-action="open-directory-space"' in render_text
 
 
+def test_public_program_dashboard_frontend_contract():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    render_text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "program-dashboard" / "render.js").read_text(encoding="utf-8")
+    styles_text = STYLES_CSS.read_text(encoding="utf-8")
+
+    assert 'id="public-login-link"' in html_text
+    assert 'aria-label="Log in to SIPM"' in html_text
+    assert "function publicProgramDashboardSlug" in app_text
+    assert 'match(/^\\/public\\/program-dashboard\\/' in app_text
+    assert 'credentials: "omit"' in app_text
+    assert "bootstrapAuth();" in app_text
+    assert "if (publicProgramDashboardSlug())" in app_text
+    assert "loadPublicProgramDashboard();" in app_text
+    assert "readOnly: true" in app_text
+    assert "publicMode: true" in app_text
+    assert 'document.getElementById("public-login-link")?.setAttribute("href", buildAppUrl("/"));' in app_text
+    assert "const readOnly = !!(ctx.readOnly || ctx.publicMode);" in render_text
+    assert 'data-program-dashboard-action="download-pdf"' in render_text
+    assert "/public/program-dashboard/" in render_text
+    assert 'credentials: isPublicMode ? "omit" : "include"' in render_text
+    assert "publicSlug: slug" in app_text
+    assert "body.public-program-dashboard-page #topbar-create-shell" in styles_text
+    assert "body.public-program-dashboard-page .sidebar" in styles_text
+    assert "body.public-program-dashboard-page #app-shell" in styles_text
+    assert 'content: "SIPM";' in styles_text
+    assert ".public-login-link" in styles_text
+    assert "body.public-program-dashboard-page .public-login-link" in styles_text
+    assert "border-radius: 999px;" in styles_text
+    assert "body.public-program-dashboard-page .program-dashboard-subtitle" in styles_text
+
+
+def test_space_governance_public_dashboard_toggle_contract():
+    interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
+    render_text = SPACES_RENDER.read_text(encoding="utf-8")
+
+    assert 'data-space-action="toggle-public-program-dashboard"' in render_text
+    assert "public_program_dashboard_enabled" in render_text
+    assert "Public program dashboard" in render_text
+    assert 'action === "toggle-public-program-dashboard"' in interactions_text
+    assert "public_program_dashboard_enabled: nextEnabled" in interactions_text
+    assert "/public/program-dashboard/" in interactions_text
+
+
+def test_confirm_modal_layers_above_space_directory_modal():
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert "#confirm-modal {" in styles_text
+    assert "z-index: 1100;" in styles_text
+
+
 def test_spaces_and_access_routes_share_the_same_governance_hub():
     spaces_text = SPACES_ROUTE.read_text(encoding="utf-8")
     access_text = ACCESS_ROUTE.read_text(encoding="utf-8")

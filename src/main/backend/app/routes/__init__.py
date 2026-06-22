@@ -15,6 +15,7 @@ from .spaces import router as spaces_router
 from .teams import router as teams_router
 from .users import router as users_router
 from .planning import router as planning_router
+from .public import router as public_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
@@ -33,5 +34,6 @@ protected_router.include_router(audit_router, tags=["audit"])
 protected_router.include_router(analytics_router, tags=["analytics"])
 
 api_router.include_router(protected_router)
+api_router.include_router(public_router, tags=["public"])
 api_router.include_router(agent_router)
 api_router.include_router(sync_router, tags=["sync"])

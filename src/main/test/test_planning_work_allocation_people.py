@@ -3,8 +3,8 @@ from types import SimpleNamespace
 import pytest
 
 from backend.app import deps as deps_module
-import backend.app.routes._mutations as route_mutations
 from backend.app.models import Space, SpaceMembership, Team, User
+from backend.app.services import mutations as service_mutations
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -135,7 +135,7 @@ async def test_planning_mutations_broadcast_live_refresh(client, db_sessionmaker
     broadcasts: list[tuple[str, str | None]] = []
 
     monkeypatch.setattr(
-        route_mutations,
+        service_mutations,
         "schedule_broadcast",
         lambda entity="all", *, space_id=None: broadcasts.append((entity, space_id)),
     )

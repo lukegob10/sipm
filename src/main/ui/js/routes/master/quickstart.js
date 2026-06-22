@@ -5,7 +5,7 @@ function hasActiveDeliverableFilters(state) {
     if (typeof value === "number") return !Number.isNaN(value);
     return String(value).trim() !== "";
   });
-  return hasFieldFilters || Boolean(state.deliverablesPreset);
+  return hasFieldFilters;
 }
 
 export function renderMasterQuickstart(ctx, rowCount = 0) {

@@ -10,3 +10,90 @@
 @import "./styles/routes/team-capacity.css";
 @import "./styles/routes/space-governance.css";
 @import "./styles/routes/analytics.css";
+
+:root {
+  --master-row-font-size: var(--font-size-table);
+  --task-workbench-row-font-size: var(--font-size-table);
+}
+
+.table th {
+  font-size: var(--font-size-table-header);
+}
+
+body.public-program-dashboard-page #auth-screen,
+body.public-program-dashboard-page #reset-screen,
+body.public-program-dashboard-page #idle-modal,
+body.public-program-dashboard-page #topbar-create-shell,
+body.public-program-dashboard-page #space-switcher-shell,
+body.public-program-dashboard-page #current-user,
+body.public-program-dashboard-page #completed-visibility-toggle,
+body.public-program-dashboard-page #logout-btn,
+body.public-program-dashboard-page #connection-status,
+body.public-program-dashboard-page .topbar-actions,
+body.public-program-dashboard-page .sidebar,
+body.public-program-dashboard-page .view:not(#view-program-dashboard) {
+  display: none !important;
+}
+
+body.public-program-dashboard-page #app-shell {
+  grid-template-columns: 1fr;
+}
+
+body.public-program-dashboard-page main {
+  padding: 16px 20px 20px;
+}
+
+body.public-program-dashboard-page .topbar {
+  justify-content: space-between;
+}
+
+body.public-program-dashboard-page .status {
+  display: flex;
+  align-items: center;
+  min-height: var(--route-control-height);
+}
+
+body.public-program-dashboard-page .status::before {
+  content: "SIPM";
+  color: var(--text-strong);
+  font-size: var(--font-size-route-title);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.public-login-link {
+  display: none;
+}
+
+body.public-program-dashboard-page .public-login-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-decoration: none;
+}
+
+body.public-program-dashboard-page .public-login-link:hover,
+body.public-program-dashboard-page .public-login-link:focus-visible {
+  color: var(--accent-strong);
+  border-color: var(--hover-border);
+  background: var(--hover-strong);
+  text-decoration: none;
+}
+
+body.public-program-dashboard-page .program-dashboard-kicker,
+body.public-program-dashboard-page .program-dashboard-header h2,
+body.public-program-dashboard-page .program-dashboard-subtitle {
+  display: none;
+}
+
+body.public-program-dashboard-page .program-dashboard-header {
+  align-items: center;
+}

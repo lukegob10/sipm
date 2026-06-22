@@ -124,6 +124,7 @@ class Solution(TimestampMixin, SoftDeleteMixin, Base):
     success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     problem_statement: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     github_repo_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
+    escalation: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     owner: Mapped[str] = mapped_column(String, nullable=False, default="")
     owner_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     assignee: Mapped[str] = mapped_column(String, nullable=False, default="", index=True)

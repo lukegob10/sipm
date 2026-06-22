@@ -1,4 +1,4 @@
-import { createDashboardState, renderDashboardView } from "./dashboard/render.js?v=dashboard-snapshot-kpis-v4";
+import { createDashboardState, renderDashboardView } from "./dashboard/render.js";
 
 const dashboardState = createDashboardState();
 

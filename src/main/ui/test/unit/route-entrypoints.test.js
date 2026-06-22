@@ -45,11 +45,6 @@ vi.mock("../../js/routes/dashboard/render.js", () => ({
   renderDashboardView: dashboardMock.renderDashboardView,
 }));
 
-vi.mock("../../js/routes/dashboard/render.js?v=dashboard-snapshot-kpis-v4", () => ({
-  createDashboardState: dashboardMock.createDashboardState,
-  renderDashboardView: dashboardMock.renderDashboardView,
-}));
-
 vi.mock("../../js/routes/pm-dashboard/render.js", () => ({
   createPMDashboardState: pmDashboardMock.createPMDashboardState,
   renderPMDashboardView: pmDashboardMock.renderPMDashboardView,
@@ -60,7 +55,7 @@ vi.mock("../../js/routes/program-dashboard/render.js", () => ({
   renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));
 
-vi.mock("../../js/routes/program-dashboard/render.js?v=program-dashboard-grid-v2", () => ({
+vi.mock("../../js/routes/program-dashboard/render.js?v=program-dashboard-escalation-grid-v1", () => ({
   createProgramDashboardState: programDashboardMock.createProgramDashboardState,
   renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));
@@ -158,14 +153,54 @@ describe("route entrypoints", () => {
     );
   });
 
-  it("clears master filters because filters live in the table header", () => {
+  it("renders compact master filters and outline actions above the table", () => {
     const masterFilters = document.createElement("section");
     masterFilters.innerHTML = "<button>stale</button>";
+    const ctx = {
+      els: { masterFilters },
+      state: { filters: { query: "project:Alpha" }, programs: [], projects: [] },
+      persistMasterViewState: vi.fn(),
+      renderMasterTable: vi.fn(),
+    };
 
-    masterRoute.renderMasterFilters({ els: { masterFilters } });
+    masterRoute.renderMasterFilters(ctx);
     masterRoute.renderMasterFilters({ els: {} });
 
-    expect(masterFilters.innerHTML).toBe("");
+    expect(masterFilters.querySelector("#filter-query")?.value).toBe("project:Alpha");
+    expect(masterFilters.querySelector("#filter-query")?.placeholder).toContain("field:value");
+    expect(masterFilters.querySelector("[data-master-outline-action='expand-all']")).toBeTruthy();
+    expect(masterFilters.querySelector("[data-master-outline-action='collapse-all']")).toBeTruthy();
+  });
+
+  it("waits for Enter before applying deliverables search text", () => {
+    const masterFilters = document.createElement("section");
+    const ctx = {
+      els: { masterFilters },
+      state: { filters: { query: "" }, programs: [], projects: [] },
+      persistMasterViewState: vi.fn(),
+      renderMasterTable: vi.fn(),
+      renderKanban: vi.fn(),
+      renderCalendar: vi.fn(),
+      renderGantt: vi.fn(),
+    };
+
+    masterRoute.renderMasterFilters(ctx);
+
+    const input = masterFilters.querySelector("#filter-query");
+    input.value = "gamma";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(ctx.state.filters.query).toBe("");
+    expect(ctx.renderMasterTable).not.toHaveBeenCalled();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+
+    expect(ctx.state.filters.query).toBe("gamma");
+    expect(ctx.persistMasterViewState).toHaveBeenCalledTimes(1);
+    expect(ctx.renderMasterTable).toHaveBeenCalledTimes(1);
+    expect(ctx.renderKanban).toHaveBeenCalledTimes(1);
+    expect(ctx.renderCalendar).toHaveBeenCalledTimes(1);
+    expect(ctx.renderGantt).toHaveBeenCalledTimes(1);
   });
 
   it("renders the master table and wires table interactions", () => {
@@ -173,7 +208,6 @@ describe("route entrypoints", () => {
     const ctx = {
       els: { masterTable },
       renderMasterQuickstart: vi.fn(),
-      updateBulkSelectionCount: vi.fn(),
     };
 
     masterRoute.renderMasterTable(ctx);
@@ -181,17 +215,13 @@ describe("route entrypoints", () => {
     expect(masterTableMock.buildMasterTable).toHaveBeenCalledWith(ctx);
     expect(ctx.renderMasterQuickstart).toHaveBeenCalledWith(1);
     expect(masterTable.innerHTML).toContain("<table>");
-    expect(masterTableMock.bindMasterTableInteractions).toHaveBeenCalledWith(ctx, {
-      rerenderMasterTable: expect.any(Function),
-    });
-    expect(ctx.updateBulkSelectionCount).toHaveBeenCalledTimes(1);
+    expect(masterTableMock.bindMasterTableInteractions).toHaveBeenCalledWith(ctx);
   });
 
   it("skips master table work when the table root is absent", () => {
     masterRoute.renderMasterTable({
       els: {},
       renderMasterQuickstart: vi.fn(),
-      updateBulkSelectionCount: vi.fn(),
     });
 
     expect(masterTableMock.buildMasterTable).not.toHaveBeenCalled();

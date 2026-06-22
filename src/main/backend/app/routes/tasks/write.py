@@ -14,7 +14,7 @@ from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_str
 from ...utils.enums import TaskStatus
-from .._mutations import commit_refresh_and_publish, commit_session
+from ...services.mutations import commit_refresh_and_publish, commit_session
 from .common import (
     _apply_task_completion_state,
     _ensure_solution,

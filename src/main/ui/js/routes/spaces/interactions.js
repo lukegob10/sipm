@@ -20,6 +20,7 @@ export function createSpaceGovernanceController({
   switchActiveSpace,
   showConfirmModal,
   copyText,
+  buildAppUrl,
   buildResetPageUrl,
   trackWorkflow = null,
 }) {
@@ -405,6 +406,52 @@ export function createSpaceGovernanceController({
         setSpaceGovernanceNotice(action === "copy-temp-password" ? "Temporary password copied." : "Reset page copied.", "success", 3000);
       } catch (err) {
         setSpaceGovernanceNotice(err?.message || "Copy failed.", "error", 5000);
+      }
+      return true;
+    }
+    if (action === "toggle-public-program-dashboard") {
+      if (!spaceId || !canManageSpaceMembership(spaceId)) {
+        setSpaceGovernanceNotice("Space admin access is required to expose this dashboard.", "error", 7000);
+        return true;
+      }
+      const nextEnabled = normalize(button.getAttribute("data-next-enabled")) === "true";
+      const targetName = spaceNameForId(spaceId) || "this space";
+      const confirmed = await showConfirmModal({
+        title: nextEnabled ? "Expose Public Dashboard" : "Disable Public Dashboard",
+        message: nextEnabled
+          ? `Expose the public program dashboard for ${targetName}? Anyone with the URL can view it.`
+          : `Disable the public program dashboard for ${targetName}? Existing links will stop working.`,
+        confirmLabel: nextEnabled ? "Expose Dashboard" : "Disable Dashboard",
+      });
+      if (!confirmed) return true;
+      try {
+        const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ public_program_dashboard_enabled: nextEnabled }),
+        });
+        if (updated?.space_id) {
+          state.spaces = (state.spaces || []).map((space) => space.space_id === updated.space_id ? updated : space);
+          if (state.archivedSpacesById?.[updated.space_id]) state.archivedSpacesById[updated.space_id] = updated;
+        }
+        renderGovernanceHub();
+        const publicUrl = updated?.slug
+          ? new URL(buildAppUrl(`/public/program-dashboard/${encodeURIComponent(updated.slug)}`), window.location.origin).toString()
+          : "";
+        setSpaceGovernanceNotice(
+          nextEnabled && publicUrl
+            ? `Public dashboard exposed: ${publicUrl}`
+            : `Public dashboard disabled for ${updated?.name || targetName}.`,
+          "success",
+          9000
+        );
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "update", "success", { source: "public_program_dashboard" });
+        }
+      } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "update", "failure", { source: "public_program_dashboard" });
+        }
+        setSpaceGovernanceNotice(err?.message || "Public dashboard setting update failed.", "error", 7000);
       }
       return true;
     }

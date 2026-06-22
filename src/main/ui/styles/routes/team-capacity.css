@@ -1,5 +1,5 @@
 #capacity-panel table tr.over td {
-  background: rgba(219, 35, 11, 0.1);
+  background: var(--tone-danger-bg);
 }
 
 .planning-kpis {
@@ -25,19 +25,19 @@
   border: 1px solid transparent;
 }
 .capacity-badge.ok {
-  background: var(--accent-hover);
+  background: var(--tone-positive-bg);
   color: var(--text);
-  border-color: var(--nav-active-border);
+  border-color: var(--tone-positive-border);
 }
 .capacity-badge.warn {
-  background: var(--warning-soft);
-  color: var(--text);
-  border-color: var(--warning-border);
+  background: var(--tone-warn-bg);
+  color: var(--tone-warn-text);
+  border-color: var(--tone-warn-border);
 }
 .capacity-badge.over {
-  background: var(--danger-soft);
-  color: var(--text);
-  border-color: var(--danger-border);
+  background: var(--tone-danger-bg);
+  color: var(--tone-danger-text);
+  border-color: var(--tone-danger-border);
 }
 
 .stacked {
@@ -128,14 +128,14 @@
 }
 
 .theme-light .capacity-badge.ok {
-  background: rgba(0, 58, 114, 0.12);
-  border-color: rgba(0, 58, 114, 0.3);
+  background: var(--tone-positive-bg);
+  border-color: var(--tone-positive-border);
 }
 .theme-light .capacity-badge.warn {
-  background: rgba(130, 154, 177, 0.2);
-  border-color: rgba(130, 154, 177, 0.4);
+  background: var(--tone-warn-bg);
+  border-color: var(--tone-warn-border);
 }
 .theme-light .capacity-badge.over {
-  background: rgba(219, 35, 11, 0.16);
-  border-color: rgba(219, 35, 11, 0.4);
+  background: var(--tone-danger-bg);
+  border-color: var(--tone-danger-border);
 }

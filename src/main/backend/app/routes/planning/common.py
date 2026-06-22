@@ -14,7 +14,7 @@ from ...services.planning_work_allocation import (
     team_display_name,
 )
 from ...services.spaces import SpaceContext
-from .._mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
+from ...services.mutations import commit_refresh_and_publish, commit_session, publish_space_mutation
 from ...schemas.planning import (
     WorkAllocationAssignmentRead,
     WorkAllocationPersonRead,

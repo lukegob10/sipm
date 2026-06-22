@@ -8,34 +8,6 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from ..models import Phase, Project, Solution, Task, User
-from ..routes._mutations import publish_space_mutation
-from ..routes.projects.common import (
-    _active_project_name_conflict_query,
-    _default_program,
-    _ensure_program_exists,
-    _is_project_name_conflict_integrity_error,
-    _project_change_set,
-    _project_create_changes,
-    _project_query,
-    _resolve_project_sponsor,
-)
-from ..routes.solutions.common import (
-    _apply_solution_completion_state,
-    _resolve_solution_assignee,
-    _resolve_solution_owner,
-    _run_enable_all_phases,
-    _solution_query,
-    _validate_current_phase,
-    normalize_github_repo_url as normalize_solution_repo_url,
-)
-from ..routes.tasks.common import (
-    _apply_task_completion_state,
-    _ensure_solution,
-    _resolve_task_assignee,
-    _solution_query as _task_solution_query,
-    _task_query,
-    normalize_github_repo_url as normalize_task_repo_url,
-)
 from ..schemas import ProjectCreate, ProjectUpdate, SolutionCreate, SolutionUpdate
 from ..schemas import TaskCreate, TaskUpdate
 from ..schemas.agent import (
@@ -45,7 +17,31 @@ from ..schemas.agent import (
     AgentPatchResponse,
 )
 from ..services.audit_log import log_changes, safe_log_changes
+from ..services.mutations import publish_space_mutation
 from ..services.spaces import SpaceContext
+from ..services.work_items import (
+    active_project_name_conflict_query as _active_project_name_conflict_query,
+    apply_solution_completion_state as _apply_solution_completion_state,
+    apply_task_completion_state as _apply_task_completion_state,
+    default_program as _default_program,
+    ensure_program_exists as _ensure_program_exists,
+    ensure_solution as _ensure_solution,
+    is_project_name_conflict_integrity_error as _is_project_name_conflict_integrity_error,
+    normalize_github_repo_url as normalize_solution_repo_url,
+    normalize_github_repo_url as normalize_task_repo_url,
+    project_change_set as _project_change_set,
+    project_create_changes as _project_create_changes,
+    project_query as _project_query,
+    resolve_project_sponsor as _resolve_project_sponsor,
+    resolve_solution_assignee as _resolve_solution_assignee,
+    resolve_solution_owner as _resolve_solution_owner,
+    resolve_task_assignee as _resolve_task_assignee,
+    run_enable_all_phases as _run_enable_all_phases,
+    solution_query as _solution_query,
+    task_query as _task_query,
+    task_solution_query as _task_solution_query,
+    validate_current_phase as _validate_current_phase,
+)
 from ..utils import normalize_str, parse_priority
 from ..utils.enums import SolutionStatus, TaskStatus
 
@@ -607,6 +603,7 @@ def _apply_solution(
             description=payload.description,
             success_criteria=payload.success_criteria,
             problem_statement=payload.problem_statement,
+            escalation=normalize_str(payload.escalation) or None,
             github_repo_url=normalize_solution_repo_url(payload.github_repo_url),
             impact_confidence=payload.impact_confidence,
             owner=owner,
@@ -664,6 +661,8 @@ def _apply_solution(
         update_data["priority"] = parse_priority(update_data["priority"], default=3)
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
+    if "escalation" in update_data:
+        update_data["escalation"] = normalize_str(update_data["escalation"]) or None
     if "github_repo_url" in update_data:
         update_data["github_repo_url"] = normalize_solution_repo_url(
             update_data["github_repo_url"]

@@ -6,7 +6,7 @@ import {
   persistCapacityMonth,
 } from "./storage.js";
 
-function handlePMDashboardClick(event, pmDashboardState, rerender) {
+function handlePMDashboardClick(event, pmDashboardState) {
   const target = event.target;
   if (!(target instanceof Element)) return;
   const actionEl = target.closest("[data-pm-dashboard-action]");
@@ -71,7 +71,7 @@ export function bindPMDashboardEvents(pmDashboardState, rerender) {
   pmDashboardState.bound = true;
 
   viewRoot.addEventListener("click", (event) => {
-    handlePMDashboardClick(event, pmDashboardState, rerender);
+    handlePMDashboardClick(event, pmDashboardState);
   }, { capture: true });
 
   viewRoot.addEventListener("change", (event) => {

@@ -12,7 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -358,6 +358,19 @@ def readiness():
 
 
 frontend_static = StaticFiles(directory=FRONTEND_DIR, html=False) if FRONTEND_DIR.exists() else None
+FRONTEND_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, max-age=0, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
+
+def _frontend_index_response() -> HTMLResponse:
+    html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
+    base_href = app_root_path()
+    if "<base " not in html:
+        html = html.replace("<head>", f'<head>\n  <base href="{base_href}" />', 1)
+    return HTMLResponse(html, headers=FRONTEND_CACHE_HEADERS)
 
 def _should_serve_spa(path: str) -> bool:
     normalized = str(path or "").strip("/")
@@ -380,11 +393,12 @@ async def _serve_frontend(request: Request, frontend_path: str = ""):
         if exc.status_code != 404:
             raise
     if response is not None and response.status_code != 404:
+        response.headers.update(FRONTEND_CACHE_HEADERS)
         return response
     if normalized.endswith("/") and _should_serve_spa(normalized.rstrip("/")):
         return RedirectResponse(app_path(f"/{normalized.rstrip('/')}"), status_code=307)
     if _should_serve_spa(normalized):
-        return FileResponse(FRONTEND_DIR / "index.html")
+        return _frontend_index_response()
     if response is not None:
         return response
     raise StarletteHTTPException(status_code=404)

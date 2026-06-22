@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ..models import Project, Solution, SpaceMembership, Task, Team, User
 from ..utils.enums import ProjectStatus, SolutionStatus
 from .spaces import SpaceContext
-from ..routes.programs import ensure_default_program
+from .programs import ensure_default_program
 
 WORK_ALLOCATION_DOMAIN = os.getenv("DOMAIN_NAME", "local.invalid")
 WORK_ALLOCATION_PROJECT_PREFIX = "Work Allocation Board"

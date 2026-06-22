@@ -14,7 +14,7 @@ from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_str, parse_priority
 from ...utils.enums import RagStatus, SolutionStatus
-from .._mutations import commit_refresh_and_publish, commit_session
+from ...services.mutations import commit_refresh_and_publish, commit_session
 from .common import (
     _apply_solution_completion_state,
     _ensure_project_exists,
@@ -51,6 +51,10 @@ def _required_solution_version(value: object) -> str:
             detail="version is required",
         )
     return version
+
+
+def _optional_short_text(value: object) -> str | None:
+    return normalize_str(value) or None
 
 
 @router.post(
@@ -133,6 +137,7 @@ def create_solution(
         description=payload.description,
         success_criteria=payload.success_criteria,
         problem_statement=payload.problem_statement,
+        escalation=_optional_short_text(payload.escalation),
         github_repo_url=github_repo_url,
         impact_confidence=payload.impact_confidence,
         owner=owner,
@@ -171,6 +176,7 @@ def create_solution(
             "description": (None, solution.description),
             "success_criteria": (None, solution.success_criteria),
             "problem_statement": (None, solution.problem_statement),
+            "escalation": (None, solution.escalation),
             "github_repo_url": (None, solution.github_repo_url),
             "impact_confidence": (None, solution.impact_confidence),
             "owner": (None, solution.owner),
@@ -220,6 +226,8 @@ def update_solution(
         update_data["priority"] = parse_priority(update_data["priority"], default=3)
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
+    if "escalation" in update_data:
+        update_data["escalation"] = _optional_short_text(update_data["escalation"])
     if "github_repo_url" in update_data:
         try:
             update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])

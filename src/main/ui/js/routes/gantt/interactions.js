@@ -42,7 +42,7 @@ function normalizeCollapsedKeys(value) {
   return new Set(
     value
       .map((key) => String(key || "").trim())
-      .filter((key) => key.startsWith("project:") || key.startsWith("solution:"))
+      .filter((key) => key.startsWith("program:") || key.startsWith("project:") || key.startsWith("solution:"))
   );
 }
 
@@ -54,6 +54,7 @@ export function createGanttRouteController({
   readStoredJsonState,
   activeSpaceScopedStorageKey,
   renderGantt,
+  openProgramForm,
   openProjectForm,
   openSolutionModal,
   fillTaskForm,
@@ -100,6 +101,9 @@ export function createGanttRouteController({
 
   function collapseAllGanttRows() {
     state.ganttCollapsed = new Set();
+    (state.programs || []).forEach((program) => {
+      if (program?.program_id) state.ganttCollapsed.add(`program:${program.program_id}`);
+    });
     (state.projects || []).forEach((project) => {
       if (project?.project_id) state.ganttCollapsed.add(`project:${project.project_id}`);
     });
@@ -127,6 +131,14 @@ export function createGanttRouteController({
     }
     persistGanttViewState();
     renderGantt();
+  }
+
+  function openGanttProgramDrilldown(programId) {
+    const targetId = String(programId || "").trim();
+    if (!targetId) return;
+    const program = (state.programs || []).find((row) => row.program_id === targetId);
+    if (!program) return;
+    openProgramForm(program);
   }
 
   function openGanttProjectDrilldown(projectId) {
@@ -157,6 +169,10 @@ export function createGanttRouteController({
   }
 
   function openGanttItem(type, id) {
+    if (type === "program") {
+      openGanttProgramDrilldown(id);
+      return;
+    }
     if (type === "project") {
       openGanttProjectDrilldown(id);
       return;
@@ -224,6 +240,7 @@ export function createGanttRouteController({
     bindGanttRouteControls,
     persistGanttViewState,
     restoreGanttViewState,
+    openGanttProgramDrilldown,
     openGanttProjectDrilldown,
     openGanttSolutionDrilldown,
     openGanttTaskDrilldown,

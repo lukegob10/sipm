@@ -54,11 +54,12 @@ def test_space_switch_reload_uses_team_capacity_pipeline_when_needed():
     assert "await loadTeamCapacityData({ force, preserveSelection: preserveCapacitySelection });" in data_store_text
 
 
-def test_route_module_imports_are_asset_versioned():
+def test_route_module_imports_use_standard_paths():
     paths_text = PATHS_JS.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
-    assert "export const APP_ASSET_VERSION" in paths_text
-    assert '?v=${APP_ASSET_VERSION}' in router_text
+    assert "export const APP_ASSET_VERSION" not in paths_text
+    assert 'team-capacity.js?v=' not in router_text
+    assert 'team-capacity": () => import("../routes/team-capacity.js")' in router_text
 
 
 def test_csv_download_upload_are_space_scoped():

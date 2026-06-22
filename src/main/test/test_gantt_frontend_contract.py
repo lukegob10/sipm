@@ -31,7 +31,7 @@ def test_gantt_route_is_registered_and_rendered():
 
     assert '"gantt",' in router_text
     assert 'gantt: ["programs", "projects", "solutions", "tasks"],' in router_text
-    assert 'gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`)' in router_text
+    assert 'gantt: () => import("../routes/gantt.js")' in router_text
     assert 'gantt: () => renderGantt(),' in app_text
     assert 'from "./routes/gantt/interactions.js";' in app_text
     assert 'restoreGanttViewState();' in app_text
@@ -40,6 +40,7 @@ def test_gantt_route_is_registered_and_rendered():
 
 
 def test_gantt_contract_uses_existing_dates_rollups_and_drilldowns():
+    app_text = APP_JS.read_text(encoding="utf-8")
     gantt_text = GANTT_JS.read_text(encoding="utf-8")
     interactions_text = GANTT_INTERACTIONS_JS.read_text(encoding="utf-8")
 
@@ -53,6 +54,7 @@ def test_gantt_contract_uses_existing_dates_rollups_and_drilldowns():
     assert 'type: "task"' in gantt_text
     assert "dateRangesOverlap(startDay, endDay, windowStartDay, windowEndDay)" in gantt_text
     assert "buildGanttHealthContext" in gantt_text
+    assert "buildProgramNode(program, childNodes, todayDay)" in gantt_text
     assert "buildProjectNode(project, childNodes, healthContext, todayDay)" in gantt_text
     assert "buildSolutionNode(solution, childNodes, windowRange, healthContext, todayDay)" in gantt_text
     assert "hasOverdueChild" in gantt_text
@@ -61,6 +63,7 @@ def test_gantt_contract_uses_existing_dates_rollups_and_drilldowns():
     assert "function renderTodayMarker(windowRange, scale)" in gantt_text
     assert "function countRowsByType(rows)" in gantt_text
     assert 'class="gantt-summary-metrics"' in gantt_text
+    assert "<strong>${counts.program}</strong> Programs" in gantt_text
     assert "Deliverable" in gantt_text
     assert "Assignee" in gantt_text
     assert "Priority" in gantt_text
@@ -69,11 +72,17 @@ def test_gantt_contract_uses_existing_dates_rollups_and_drilldowns():
     assert "gantt-assignee-cell" in gantt_text
     assert "gantt-status-cell" in gantt_text
     assert "gantt-priority-cell" in gantt_text
+    assert 'row.type === "program" ? "Program"' in gantt_text
     assert 'data-gantt-action="toggle-collapse"' in gantt_text
+    assert 'state.ganttCollapsed.add(`program:${program.program_id}`);' in interactions_text
     assert 'state.ganttCollapsed.add(`project:${project.project_id}`);' in interactions_text
     assert 'state.ganttCollapsed.add(`solution:${solution.solution_id}`);' in interactions_text
+    assert 'key.startsWith("program:")' in interactions_text
     assert 'state.currentView !== "gantt"' in interactions_text
     assert "requestAnimationFrame" in interactions_text
+    assert "openGanttProgramDrilldown" in interactions_text
+    assert "openProgramForm(program);" in interactions_text
+    assert "openProgramForm," in app_text
     assert 'openSolutionModal(solution, "tasks");' in interactions_text
     assert "fillTaskForm(task);" in interactions_text
 
@@ -96,7 +105,9 @@ def test_gantt_styles_are_route_scoped_and_scrollable():
     assert "z-index: 8;" in gantt_css_text
     assert "-webkit-line-clamp: 2;" in gantt_css_text
     assert "grid-template-columns: var(--gantt-left-width) var(--gantt-track-width);" in gantt_css_text
+    assert ".gantt-bar-program" in gantt_css_text
     assert ".gantt-bar-project" in gantt_css_text
+    assert ".gantt-row-program .gantt-label-cell" in gantt_css_text
     assert ".gantt-bar-solution" in gantt_css_text
     assert ".gantt-milestone-task" in gantt_css_text
     for health_class in (

@@ -10,7 +10,7 @@ from ..models import Phase, Project, Solution, SolutionPhase, User
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
 from ..services.audit_log import log_changes
 from ..services.spaces import SpaceContext
-from ._mutations import publish_space_mutation
+from ..services.mutations import publish_space_mutation
 
 router = APIRouter()
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...models import Program, Project
 from ...schemas import ProjectRead
+from ...services.mutations import publish_space_mutation
 from ...services.realtime import schedule_broadcast
 from ...services.smart_cache import invalidate_space
 from ...services.spaces import SpaceContext
@@ -160,8 +161,7 @@ def _project_change_set(
 
 
 def _publish_project_mutation(space_id: str) -> None:
-    invalidate_space(space_id, ["projects"])
-    schedule_broadcast("projects", space_id=space_id)
+    publish_space_mutation(space_id, ["projects"], broadcast_channel="projects")
 
 
 def _publish_project_deletion(space_id: str) -> None:

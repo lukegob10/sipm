@@ -88,12 +88,19 @@ describe("gantt route helpers", () => {
     ).toMatchObject({ health: "red", healthLabel: "Overdue" });
   });
 
-  it("builds project, solution, and task rows for overlapping work", () => {
+  it("builds program, project, solution, and task rows for overlapping work", () => {
     const { rows } = buildGanttRows({
       ganttWindow: { from: "2026-04-03", to: "2026-04-06" },
+      programs: [
+        {
+          program_id: "pg1",
+          program_name: "Strategic Program",
+        },
+      ],
       projects: [
         {
           project_id: "p1",
+          program_id: "pg1",
           project_name: "Portfolio Project",
           sponsor: "Sponsor",
           status: "active",
@@ -138,8 +145,15 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(),
     });
 
-    expect(rows.map((row) => row.type)).toEqual(["project", "solution", "task"]);
+    expect(rows.map((row) => row.type)).toEqual(["program", "project", "solution", "task"]);
     expect(rows[0]).toMatchObject({
+      type: "program",
+      id: "pg1",
+      label: "Strategic Program",
+      childCount: 1,
+      range: { startIso: "2026-04-01", endIso: "2026-04-10" },
+    });
+    expect(rows[1]).toMatchObject({
       type: "project",
       id: "p1",
       assignee: "Sponsor",
@@ -147,13 +161,13 @@ describe("gantt route helpers", () => {
       childCount: 1,
       range: { startIso: "2026-04-01", endIso: "2026-04-10" },
     });
-    expect(rows[1]).toMatchObject({
+    expect(rows[2]).toMatchObject({
       type: "solution",
       id: "s1",
       assignee: "Engineer",
       priority: 1,
     });
-    expect(rows[2]).toMatchObject({
+    expect(rows[3]).toMatchObject({
       type: "task",
       id: "sc1",
       assignee: "Assignee",
@@ -166,7 +180,8 @@ describe("gantt route helpers", () => {
   it("collapses child rows under owning entities", () => {
     const { rows } = buildGanttRows({
       ganttWindow: { from: "2026-04-01", to: "2026-04-30" },
-      projects: [{ project_id: "p1", project_name: "Project" }],
+      programs: [{ program_id: "pg1", program_name: "Program" }],
+      projects: [{ project_id: "p1", program_id: "pg1", project_name: "Project" }],
       solutions: [
         {
           solution_id: "s1",
@@ -187,17 +202,74 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(["solution:s1"]),
     });
 
-    expect(rows.map((row) => row.key)).toEqual(["project:p1", "solution:s1"]);
-    expect(rows[1].collapsed).toBe(true);
+    expect(rows.map((row) => row.key)).toEqual(["program:pg1", "project:p1", "solution:s1"]);
+    expect(rows[2].collapsed).toBe(true);
+  });
+
+  it("collapses all project descendants under a program", () => {
+    const { rows } = buildGanttRows({
+      ganttWindow: { from: "2026-04-01", to: "2026-04-30" },
+      programs: [{ program_id: "pg1", program_name: "Program" }],
+      projects: [{ project_id: "p1", program_id: "pg1", project_name: "Project" }],
+      solutions: [
+        {
+          solution_id: "s1",
+          project_id: "p1",
+          solution_name: "Solution",
+          due_date: "2026-04-10",
+        },
+      ],
+      tasks: [
+        {
+          task_id: "sc1",
+          project_id: "p1",
+          solution_id: "s1",
+          task_name: "Task",
+          due_date: "2026-04-12",
+        },
+      ],
+      collapsedKeys: new Set(["program:pg1"]),
+    });
+
+    expect(rows.map((row) => row.key)).toEqual(["program:pg1"]);
+    expect(rows[0].collapsed).toBe(true);
+  });
+
+  it("groups projects with missing loaded programs under an unassigned program fallback", () => {
+    const { rows } = buildGanttRows({
+      ganttWindow: { from: "2026-04-01", to: "2026-04-30" },
+      programs: [],
+      projects: [{ project_id: "p1", program_id: "missing-program", project_name: "Project" }],
+      solutions: [
+        {
+          solution_id: "s1",
+          project_id: "p1",
+          solution_name: "Solution",
+          due_date: "2026-04-10",
+        },
+      ],
+      tasks: [],
+      collapsedKeys: new Set(),
+    });
+
+    expect(rows.map((row) => row.key)).toEqual(["program:missing-program", "project:p1", "solution:s1"]);
+    expect(rows[0]).toMatchObject({ type: "program", label: "Unassigned Program" });
   });
 
   it("colors parents from overdue descendants outside the selected Gantt window", () => {
     const { rows } = buildGanttRows({
       ganttWindow: { from: "2026-04-10", to: "2026-04-20" },
       todayDay: dayNumber("2026-04-10"),
+      programs: [
+        {
+          program_id: "pg1",
+          program_name: "Program",
+        },
+      ],
       projects: [
         {
           project_id: "p1",
+          program_id: "pg1",
           project_name: "Project",
           status: "active",
         },
@@ -225,18 +297,26 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(),
     });
 
-    expect(rows.map((row) => row.key)).toEqual(["project:p1", "solution:s1"]);
-    expect(rows[0]).toMatchObject({ type: "project", health: "yellow", healthLabel: "Child overdue" });
-    expect(rows[1]).toMatchObject({ type: "solution", health: "yellow", healthLabel: "Child overdue" });
+    expect(rows.map((row) => row.key)).toEqual(["program:pg1", "project:p1", "solution:s1"]);
+    expect(rows[0]).toMatchObject({ type: "program", health: "yellow", healthLabel: "Child overdue" });
+    expect(rows[1]).toMatchObject({ type: "project", health: "yellow", healthLabel: "Child overdue" });
+    expect(rows[2]).toMatchObject({ type: "solution", health: "yellow", healthLabel: "Child overdue" });
   });
 
   it("uses a solution own due date for health when only child work is visible", () => {
     const { rows } = buildGanttRows({
       ganttWindow: { from: "2026-04-10", to: "2026-04-20" },
       todayDay: dayNumber("2026-04-10"),
+      programs: [
+        {
+          program_id: "pg1",
+          program_name: "Program",
+        },
+      ],
       projects: [
         {
           project_id: "p1",
+          program_id: "pg1",
           project_name: "Project",
           status: "active",
         },
@@ -264,9 +344,10 @@ describe("gantt route helpers", () => {
       collapsedKeys: new Set(),
     });
 
-    expect(rows.map((row) => row.key)).toEqual(["project:p1", "solution:s1", "task:sc-visible"]);
-    expect(rows[0]).toMatchObject({ type: "project", health: "yellow", healthLabel: "Child overdue" });
-    expect(rows[1]).toMatchObject({ type: "solution", health: "red", healthLabel: "Overdue" });
-    expect(rows[2]).toMatchObject({ type: "task", health: "complete", healthLabel: "Complete" });
+    expect(rows.map((row) => row.key)).toEqual(["program:pg1", "project:p1", "solution:s1", "task:sc-visible"]);
+    expect(rows[0]).toMatchObject({ type: "program", health: "yellow", healthLabel: "Child overdue" });
+    expect(rows[1]).toMatchObject({ type: "project", health: "yellow", healthLabel: "Child overdue" });
+    expect(rows[2]).toMatchObject({ type: "solution", health: "red", healthLabel: "Overdue" });
+    expect(rows[3]).toMatchObject({ type: "task", health: "complete", healthLabel: "Complete" });
   });
 });

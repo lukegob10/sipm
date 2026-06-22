@@ -1,147 +1,20 @@
-import { normalizeMasterFilters } from "./filters.js";
-
-function syncSelectAllCheckbox(ctx) {
-  const { els } = ctx;
-  const selectAll = document.getElementById("deliverables-select-all");
-  if (!selectAll) return;
-  const boxes = els.masterTable?.querySelectorAll("input.deliverable-select") || [];
-  const total = boxes.length;
-  if (!total) {
-    selectAll.checked = false;
-    selectAll.indeterminate = false;
-    return;
-  }
-  const checkedCount = Array.from(boxes).filter((box) => box.checked).length;
-  selectAll.checked = checkedCount === total;
-  selectAll.indeterminate = checkedCount > 0 && checkedCount < total;
-}
+import { ragTone, statusTone } from "../../utils/display-tokens.js";
 
 function setRagSelectVisualState(fieldEl, value) {
   if (!fieldEl || !fieldEl.classList?.contains("rag-select")) return;
   const normalized = String(value || "").toLowerCase();
   const rag = normalized === "red" || normalized === "amber" ? normalized : "green";
   fieldEl.dataset.ragState = rag;
-  fieldEl.classList.remove("rag-red", "rag-amber", "rag-green");
-  fieldEl.classList.add(`rag-${rag}`);
+  fieldEl.classList.remove("rag-red", "rag-amber", "rag-green", "positive", "warn", "danger", "muted");
+  fieldEl.classList.add(`rag-${rag}`, ragTone(rag));
 }
 
-export function updatePresetButtons(ctx) {
-  const { els, state } = ctx;
-  const preset = state.deliverablesPreset || "";
-  [els.presetMy, els.presetOverdue, els.presetBlocked].forEach((btn) => {
-    if (!btn) return;
-    const match = btn.id === `preset-${preset}`;
-    btn.classList.toggle("active", match);
-  });
-}
-
-export function clearDeliverablesFilters(ctx) {
-  const {
-    state,
-    persistMasterViewState,
-    renderMasterFilters,
-    renderMasterTable,
-    renderKanban,
-    renderCalendar,
-    renderGantt,
-  } = ctx;
-
-  state.filters = {};
-  state.deliverablesPreset = "";
-  state.deliverableSelection.clear();
-  persistMasterViewState();
-  updatePresetButtons(ctx);
-  renderMasterFilters();
-  renderMasterTable();
-  renderKanban();
-  renderCalendar();
-  if (typeof renderGantt === "function") renderGantt();
-}
-
-export function setDeliverablesPreset(ctx, preset) {
-  const { state, persistMasterViewState, renderMasterTable } = ctx;
-  state.deliverablesPreset = preset || "";
-  const normalized = normalizeMasterFilters(state.filters, state.deliverablesPreset);
-  state.filters = normalized.filters;
-  persistMasterViewState();
-  updatePresetButtons(ctx);
-  renderMasterTable();
-}
-
-export function updateBulkSelectionCount(ctx) {
-  const { els, state } = ctx;
-  if (!els.bulkSelectedCount) return;
-  els.bulkSelectedCount.textContent = `${state.deliverableSelection.size} selected`;
-  if (els.bulkApply) {
-    els.bulkApply.disabled = !state.deliverableSelection.size || !els.bulkAction?.value;
-  }
-  syncSelectAllCheckbox(ctx);
-}
-
-function syncBulkInputs(ctx) {
-  const { els, clearBulkFeedback } = ctx;
-  clearBulkFeedback();
-  const action = els.bulkAction?.value || "";
-  if (els.bulkStatus) els.bulkStatus.classList.toggle("hidden", action !== "status");
-  if (els.bulkOwner) els.bulkOwner.classList.toggle("hidden", action !== "owner");
-  updateBulkSelectionCount(ctx);
-}
-
-async function applyBulkAction(ctx) {
-  const {
-    state,
-    els,
-    api,
-    upsertById,
-    renderMasterTable,
-    renderDashboard,
-    renderKanban,
-    renderCalendar,
-    renderGantt,
-    setBulkFeedback,
-  } = ctx;
-
-  const action = els.bulkAction?.value || "";
-  if (!action || !state.deliverableSelection.size) return;
-  const status = els.bulkStatus?.value || "";
-  const owner = String(els.bulkOwner?.value || "").trim();
-  if (action === "status" && !status) {
-    setBulkFeedback("Select a status first.", "error");
-    return;
-  }
-  if (action === "owner" && !owner) {
-    setBulkFeedback("Enter an owner name.", "error");
-    return;
-  }
-
-  const updates = Array.from(state.deliverableSelection);
-  try {
-    setBulkFeedback("Updating deliverables…");
-    for (const key of updates) {
-      const [type, id] = key.split(":");
-      if (action === "status") {
-        if (type === "project") {
-          const updated = await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-          upsertById(state.projects, updated, "project_id");
-        } else if (type === "solution") {
-          const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
-          upsertById(state.solutions, updated, "solution_id");
-        }
-      } else if (action === "owner" && type === "solution") {
-        const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify({ owner }) });
-        upsertById(state.solutions, updated, "solution_id");
-      }
-    }
-    state.deliverableSelection.clear();
-    renderMasterTable();
-    renderDashboard();
-    renderKanban();
-    renderCalendar();
-    if (typeof renderGantt === "function") renderGantt();
-    setBulkFeedback("Deliverables updated.", "success", 3200);
-  } catch (err) {
-    setBulkFeedback(`Bulk update failed: ${err.message}`, "error");
-  }
+function setStatusSelectVisualState(fieldEl, value) {
+  if (!fieldEl || !fieldEl.classList?.contains("status-select")) return;
+  const status = String(value || "").toLowerCase();
+  fieldEl.dataset.statusState = status;
+  fieldEl.classList.remove("positive", "warn", "danger", "muted");
+  fieldEl.classList.add(statusTone(status));
 }
 
 async function updateDeliverableField(ctx, type, id, field, value) {
@@ -149,8 +22,6 @@ async function updateDeliverableField(ctx, type, id, field, value) {
     state,
     api,
     upsertById,
-    clearBulkFeedback,
-    setBulkFeedback,
     renderMasterTable,
     renderDashboard,
     renderKanban,
@@ -158,29 +29,21 @@ async function updateDeliverableField(ctx, type, id, field, value) {
     renderGantt,
   } = ctx;
 
-  clearBulkFeedback();
-  setBulkFeedback("Saving deliverable change…");
+  if (type !== "solution") return;
   try {
-    if (type === "project") {
-      const payload = { [field]: field === "priority" ? Number(value) : value };
-      const updated = await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.projects, updated, "project_id");
-    } else {
-      const payload = { [field]: field === "priority" ? Number(value) : value };
-      if (field === "rag_status") {
-        payload.rag_reason = "";
-      }
-      const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-      upsertById(state.solutions, updated, "solution_id");
+    const payload = { [field]: field === "priority" ? Number(value) : value };
+    if (field === "rag_status") {
+      payload.rag_reason = "";
     }
+    const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    upsertById(state.solutions, updated, "solution_id");
     renderMasterTable();
     renderDashboard();
     renderKanban();
     renderCalendar();
     if (typeof renderGantt === "function") renderGantt();
-    setBulkFeedback("Deliverable updated.", "success", 2200);
   } catch (err) {
-    setBulkFeedback(`Update failed: ${err.message}`, "error");
+    console.error("Deliverable update failed", err);
   }
 }
 
@@ -188,8 +51,9 @@ export function bindDeliverablesTable(ctx) {
   const {
     state,
     els,
-    deliverableKey,
-    clearBulkFeedback,
+    persistMasterViewState,
+    renderMasterTable,
+    openProgramForm,
     openProjectForm,
     openSolutionModal,
     showTaskForm,
@@ -197,26 +61,15 @@ export function bindDeliverablesTable(ctx) {
 
   if (!els.masterTable || els.masterTable._bound) return;
   els.masterTable.addEventListener("change", (event) => {
-    const select = event.target.closest(".deliverable-select");
-    if (select) {
-      const type = select.getAttribute("data-type");
-      const id = select.getAttribute("data-id");
-      const key = deliverableKey(type, id);
-      if (select.checked) state.deliverableSelection.add(key);
-      else state.deliverableSelection.delete(key);
-      clearBulkFeedback();
-      updateBulkSelectionCount(ctx);
-      return;
-    }
     const fieldEl = event.target.closest("[data-field]");
-    if (fieldEl) {
-      const type = fieldEl.getAttribute("data-type");
-      const id = fieldEl.getAttribute("data-id");
-      const field = fieldEl.getAttribute("data-field");
-      const value = fieldEl.value;
-      if (field === "rag_status") setRagSelectVisualState(fieldEl, value);
-      void updateDeliverableField(ctx, type, id, field, value);
-    }
+    if (!fieldEl) return;
+    const type = fieldEl.getAttribute("data-type");
+    const id = fieldEl.getAttribute("data-id");
+    const field = fieldEl.getAttribute("data-field");
+    const value = fieldEl.value;
+    if (field === "rag_status") setRagSelectVisualState(fieldEl, value);
+    if (field === "status") setStatusSelectVisualState(fieldEl, value);
+    void updateDeliverableField(ctx, type, id, field, value);
   });
   els.masterTable.addEventListener("click", (event) => {
     const actionBtn = event.target.closest("[data-action]");
@@ -224,8 +77,21 @@ export function bindDeliverablesTable(ctx) {
     const action = actionBtn.getAttribute("data-action");
     const type = actionBtn.getAttribute("data-type");
     const id = actionBtn.getAttribute("data-id");
+    if (action === "toggle-master-collapse") {
+      const key = String(actionBtn.getAttribute("data-master-collapse-key") || "").trim();
+      if (!key) return;
+      if (!(state.masterCollapsed instanceof Set)) state.masterCollapsed = new Set();
+      if (state.masterCollapsed.has(key)) state.masterCollapsed.delete(key);
+      else state.masterCollapsed.add(key);
+      if (typeof persistMasterViewState === "function") persistMasterViewState();
+      if (typeof renderMasterTable === "function") renderMasterTable();
+      return;
+    }
     if (action === "edit") {
-      if (type === "project") {
+      if (type === "program") {
+        const program = state.programs.find((row) => row.program_id === id);
+        openProgramForm(program);
+      } else if (type === "project") {
         const project = state.projects.find((row) => row.project_id === id);
         openProjectForm(project);
       } else if (type === "solution") {
@@ -245,7 +111,6 @@ export function bindDeliverablesTable(ctx) {
 export function bindDeliverablesControls(ctx) {
   const {
     els,
-    clearBulkFeedback,
     persistWorkspaceViewPreferences,
     renderCompletedVisibilityToggle,
     renderActiveView,
@@ -253,23 +118,9 @@ export function bindDeliverablesControls(ctx) {
     openSolutionModal,
   } = ctx;
 
-  const sentinel = els.bulkApply || els.bulkAction || els.presetClear || els.masterQuickstart;
-  if (sentinel?._deliverablesControlsBound) {
-    syncBulkInputs(ctx);
-    updatePresetButtons(ctx);
-    return;
-  }
+  const sentinel = els.masterQuickstart || els.masterFilters;
+  if (sentinel?._deliverablesControlsBound) return;
 
-  els.presetMy?.addEventListener("click", () => setDeliverablesPreset(ctx, "my"));
-  els.presetOverdue?.addEventListener("click", () => setDeliverablesPreset(ctx, "overdue"));
-  els.presetBlocked?.addEventListener("click", () => setDeliverablesPreset(ctx, "blocked"));
-  els.presetClear?.addEventListener("click", () => clearDeliverablesFilters(ctx));
-  els.bulkAction?.addEventListener("change", () => syncBulkInputs(ctx));
-  els.bulkApply?.addEventListener("click", () => {
-    void applyBulkAction(ctx);
-  });
-  els.bulkStatus?.addEventListener("change", clearBulkFeedback);
-  els.bulkOwner?.addEventListener("input", clearBulkFeedback);
   if (els.masterQuickstart && !els.masterQuickstart._bound) {
     els.masterQuickstart.addEventListener("click", (event) => {
       const btn = event.target.closest("button[data-quick-action]");
@@ -280,7 +131,10 @@ export function bindDeliverablesControls(ctx) {
       } else if (action === "create-solution") {
         openSolutionModal(null, "details");
       } else if (action === "clear-filters") {
-        clearDeliverablesFilters(ctx);
+        ctx.state.filters = { query: "" };
+        ctx.persistMasterViewState?.();
+        ctx.renderMasterFilters?.();
+        ctx.renderMasterTable?.();
       } else if (action === "show-completed") {
         ctx.state.workspacePrefs.showCompleted = true;
         persistWorkspaceViewPreferences();
@@ -292,6 +146,4 @@ export function bindDeliverablesControls(ctx) {
   }
 
   if (sentinel) sentinel._deliverablesControlsBound = true;
-  syncBulkInputs(ctx);
-  updatePresetButtons(ctx);
 }

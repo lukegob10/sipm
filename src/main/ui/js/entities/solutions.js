@@ -20,6 +20,7 @@ export function buildSolutionPayload(data, { hoursFromFteInput }) {
     description: data.get("description"),
     problem_statement: nullableTextValue(data.get("problem_statement")),
     success_criteria: nullableTextValue(data.get("success_criteria")),
+    escalation: nullableTextValue(data.get("escalation")),
     impact_confidence: data.get("impact_confidence") || null,
     owner: textValue(data.get("owner")),
     owner_user_soeid: nullableTextValue(data.get("owner_user_soeid")),
@@ -88,6 +89,7 @@ export function createSolutionEntityController({
     els.solutionForm.querySelector('[name="description"]').value = solution?.description || "";
     els.solutionForm.querySelector('[name="problem_statement"]').value = solution?.problem_statement || "";
     els.solutionForm.querySelector('[name="success_criteria"]').value = solution?.success_criteria || "";
+    els.solutionForm.querySelector('[name="escalation"]').value = solution?.escalation || "";
     els.solutionForm.querySelector('[name="impact_confidence"]').value = solution?.impact_confidence || "";
     els.solutionForm.querySelector('[name="owner"]').value = solution?.owner || "";
     els.solutionForm.querySelector('[name="owner_user_soeid"]').value = solution?.owner_user_soeid || "";

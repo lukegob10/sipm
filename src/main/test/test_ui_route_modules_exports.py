@@ -26,7 +26,7 @@ EXPECTED_ROUTE_LOADERS = {
     "master": "./routes/master.js",
     "tasks-workbench": "./routes/tasks-workbench.js",
     "dashboard": "./routes/dashboard.js",
-    "program-dashboard": "./routes/program-dashboard.js",
+    "program-dashboard": "./routes/program-dashboard.js?v=program-dashboard-escalation-grid-v1",
     "pm-dashboard": "./routes/pm-dashboard.js",
     "gantt": "./routes/gantt.js",
     "kanban": "./routes/kanban.js",
@@ -52,10 +52,18 @@ def test_route_modules_export_expected_entrypoints():
 def test_app_route_loader_registry_includes_split_views():
     app_text = ROUTER_JS.read_text(encoding="utf-8")
     for view_name, import_path in EXPECTED_ROUTE_LOADERS.items():
+        if view_name == "program-dashboard":
+            candidates = [
+                f'"{view_name}": () => import(`../routes/program-dashboard.js?v=${{PROGRAM_DASHBOARD_ROUTE_VERSION}}`)',
+            ]
+            assert any(candidate in app_text for candidate in candidates), (
+                f"Missing lazy route loader mapping for {view_name}"
+            )
+            continue
         candidates = [
-            f'{view_name}: () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
-            f'"{view_name}": () => import(`../routes/{import_path.split("/")[-1]}?v=${{APP_ASSET_VERSION}}`)',
-            f"'{view_name}': () => import(`../routes/{import_path.split('/')[-1]}?v=${{APP_ASSET_VERSION}}`)",
+            f'{view_name}: () => import("../routes/{import_path.split("/")[-1]}")',
+            f'"{view_name}": () => import("../routes/{import_path.split("/")[-1]}")',
+            f"'{view_name}': () => import(\"../routes/{import_path.split('/')[-1]}\")",
         ]
         assert any(candidate in app_text for candidate in candidates), (
             f"Missing lazy route loader mapping for {view_name}"

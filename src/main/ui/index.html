@@ -95,22 +95,22 @@
       <div class="nav-group nav-section">
         <p class="nav-label">Work</p>
         <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
-        <button type="button" data-view="planning" class="nav-btn">Planning</button>
         <button type="button" data-view="tasks-workbench" class="nav-btn">Tasks</button>
-        <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
-        <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
+        <button type="button" data-view="planning" class="nav-btn">Planning</button>
       </div>
       <div class="nav-group nav-section">
         <p class="nav-label">Insight</p>
+        <button type="button" data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
         <button type="button" data-view="dashboard" class="nav-btn">Dashboard</button>
         <button type="button" data-view="program-dashboard" class="nav-btn">Program Dashboard</button>
-        <button type="button" data-view="pm-dashboard" class="nav-btn">PM Command Center</button>
+        <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
+        <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
         <button type="button" data-view="gantt" class="nav-btn">Gantt</button>
       </div>
       <div id="nav-admin-section" class="nav-group nav-section">
         <p class="nav-label">Admin</p>
-        <button type="button" data-view="team-capacity" class="nav-btn">Team Capacity</button>
         <button type="button" data-view="spaces" class="nav-btn">Spaces</button>
+        <button type="button" data-view="team-capacity" class="nav-btn">Team Capacity</button>
         <button type="button" data-view="analytics" class="nav-btn">Usage Analytics</button>
       </div>
     </aside>
@@ -120,6 +120,7 @@
         <div class="status">
           <span id="connection-status" class="pill">Loading…</span>
         </div>
+        <a id="public-login-link" class="public-login-link" href="/" aria-label="Log in to SIPM">Log in</a>
         <div class="topbar-actions">
           <div id="topbar-create-shell" class="topbar-create-menu">
             <button
@@ -160,7 +161,9 @@
                   <p class="space-switcher-panel-kicker">Workspace Switcher</p>
                   <h3>Change Active Space</h3>
                 </div>
-                <button type="button" id="space-switcher-close" class="secondary modal-close-x" aria-label="Close space switcher" title="Close">×</button>
+                <button type="button" id="space-switcher-close" class="secondary modal-close-x" aria-label="Close space switcher" title="Close" data-tooltip="Close">
+                  <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+                </button>
               </div>
               <label class="space-switcher-search">
                 <span>Search spaces</span>
@@ -214,12 +217,6 @@
           </div>
           <div class="panel-toolbar">
             <div class="toolbar-group">
-              <button id="preset-my" class="secondary" type="button">My Items</button>
-              <button id="preset-overdue" class="secondary" type="button">Overdue</button>
-              <button id="preset-blocked" class="secondary" type="button">Blocked</button>
-              <button id="preset-clear" class="text-link" type="button">Clear Filters</button>
-            </div>
-            <div class="toolbar-group">
               <div class="csv-menu">
                 <button
                   type="button"
@@ -233,41 +230,21 @@
                 </button>
                 <div id="csv-actions-menu" class="csv-menu-panel hidden" role="menu" aria-label="CSV actions">
                   <div class="csv-menu-section-title" role="presentation">Projects</div>
-                  <button type="button" id="projects-download" class="secondary csv-menu-item" role="menuitem">Download</button>
-                  <button type="button" id="projects-upload" class="secondary csv-menu-item" role="menuitem">Upload</button>
+                  <button type="button" id="projects-download" class="secondary csv-menu-item" role="menuitem">Download Projects CSV</button>
+                  <button type="button" id="projects-upload" class="secondary csv-menu-item" role="menuitem">Upload Projects CSV</button>
                   <div class="csv-menu-section-title" role="presentation">Solutions</div>
-                  <button type="button" id="solutions-download" class="secondary csv-menu-item" role="menuitem">Download</button>
-                  <button type="button" id="solutions-upload" class="secondary csv-menu-item" role="menuitem">Upload</button>
+                  <button type="button" id="solutions-download" class="secondary csv-menu-item" role="menuitem">Download Solutions CSV</button>
+                  <button type="button" id="solutions-upload" class="secondary csv-menu-item" role="menuitem">Upload Solutions CSV</button>
+                  <div class="csv-menu-section-title" role="presentation">Tasks</div>
+                  <button type="button" id="tasks-csv-download" class="secondary csv-menu-item" role="menuitem">Download Tasks CSV</button>
+                  <button type="button" id="tasks-csv-upload" class="secondary csv-menu-item" role="menuitem">Upload Tasks CSV</button>
                 </div>
               </div>
               <input type="file" id="projects-file" accept=".csv" hidden />
               <input type="file" id="solutions-file" accept=".csv" hidden />
               <span id="projects-import-result" class="import-result"></span>
               <span id="solutions-import-result" class="import-result"></span>
-            </div>
-          </div>
-          <div class="panel-toolbar compact" id="deliverables-bulk-toolbar">
-            <div class="toolbar-group">
-              <span id="bulk-selected-count" class="muted">0 selected</span>
-            </div>
-            <div class="toolbar-group">
-              <label class="inline-field">Bulk Action
-                <select id="bulk-action">
-                  <option value="">Select</option>
-                  <option value="status">Set Status</option>
-                  <option value="owner">Assign Owner (Solutions)</option>
-                </select>
-              </label>
-              <select id="bulk-status" class="hidden">
-                <option value="not_started">Not started</option>
-                <option value="active">Active</option>
-                <option value="on_hold">On hold</option>
-                <option value="complete">Complete</option>
-                <option value="abandoned">Abandoned</option>
-              </select>
-              <input id="bulk-owner" class="hidden" type="text" placeholder="Owner name" />
-              <button id="bulk-apply" class="secondary" type="button">Apply</button>
-              <span id="bulk-feedback" class="form-notice" role="status" aria-live="polite"></span>
+              <span id="task-csv-import-result" class="import-result"></span>
             </div>
           </div>
           <div id="master-quickstart" class="quickstart-card hidden" role="status" aria-live="polite"></div>
@@ -430,7 +407,9 @@
                   <h3 id="tasks-workbench-editor-title" tabindex="-1">Edit Task</h3>
                   <div class="task-workbench-editor-actions">
                     <button type="button" class="secondary" id="tasks-workbench-reset">Reset</button>
-                    <button type="button" class="secondary modal-close-x" id="tasks-workbench-close" aria-label="Close task editor" title="Close">&times;</button>
+                    <button type="button" class="secondary modal-close-x" id="tasks-workbench-close" aria-label="Close task editor" title="Close" data-tooltip="Close">
+                      <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+                    </button>
                   </div>
                 </div>
                 <div class="modal-body task-workbench-editor-body">
@@ -581,8 +560,9 @@
               class="secondary modal-close-x"
               aria-label="Close program dialog"
               title="Close"
+              data-tooltip="Close"
             >
-              &times;
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
             </button>
           </div>
           <div class="modal-body">
@@ -616,8 +596,9 @@
               class="secondary modal-close-x"
               aria-label="Close project dialog"
               title="Close"
+              data-tooltip="Close"
             >
-              ×
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
             </button>
           </div>
           <div class="modal-body">
@@ -667,8 +648,9 @@
                 class="secondary modal-close-x"
                 aria-label="Close solution dialog"
                 title="Close"
+                data-tooltip="Close"
               >
-                ×
+                <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
               </button>
             </div>
             <div class="modal-tabs">
@@ -738,6 +720,7 @@
                 <label class="full-span">Description <textarea name="description"></textarea></label>
                 <label class="full-span">Problem Statement <textarea name="problem_statement" placeholder="Context / pain point"></textarea></label>
                 <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
+                <label class="full-span">Escalation <textarea name="escalation" maxlength="255" rows="2"></textarea></label>
                 <label class="full-span">RAG Reason <textarea name="rag_reason" placeholder="Reason for current RAG"></textarea></label>
                 <label class="full-span">Blockers <textarea name="blockers"></textarea></label>
                 <label class="full-span">Risks <textarea name="risks"></textarea></label>
@@ -840,7 +823,9 @@
         <div class="modal-content confirm-modal-content">
           <div class="modal-header">
             <h3 id="confirm-modal-title">Confirm Action</h3>
-            <button type="button" id="confirm-modal-close" class="secondary modal-close-x" aria-label="Close confirmation dialog" title="Close">×</button>
+            <button type="button" id="confirm-modal-close" class="secondary modal-close-x" aria-label="Close confirmation dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div class="confirm-modal-body">
             <p id="confirm-modal-message" class="muted">Are you sure you want to continue?</p>
@@ -857,7 +842,9 @@
         <div class="modal-content">
           <div class="modal-header">
             <h3 id="task-create-picker-title">Create Task</h3>
-            <button type="button" id="task-create-picker-close" class="secondary modal-close-x" aria-label="Close task picker" title="Close">×</button>
+            <button type="button" id="task-create-picker-close" class="secondary modal-close-x" aria-label="Close task picker" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div class="modal-body">
             <form id="task-create-picker-form" class="form compact">
@@ -880,7 +867,9 @@
         <div class="modal-content">
           <div class="modal-header">
             <h3 id="planning-modal-title">Allocation Details</h3>
-            <button type="button" id="planning-modal-close" class="secondary modal-close-x" aria-label="Close planning details dialog" title="Close">×</button>
+            <button type="button" id="planning-modal-close" class="secondary modal-close-x" aria-label="Close planning details dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div id="planning-modal-body" class="modal-body"></div>
         </div>
@@ -891,7 +880,9 @@
         <div class="modal-content">
           <div class="modal-header">
             <h3 id="space-create-modal-title">Create Space</h3>
-            <button type="button" id="space-create-modal-close" class="secondary modal-close-x" aria-label="Close create space dialog" title="Close">×</button>
+            <button type="button" id="space-create-modal-close" class="secondary modal-close-x" aria-label="Close create space dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div class="modal-body">
             <form id="space-create-modal-form" class="form compact">
@@ -912,7 +903,9 @@
         <div class="modal-content">
           <div class="modal-header">
             <h3 id="space-member-modal-title">Add Space Member</h3>
-            <button type="button" id="space-member-modal-close" class="secondary modal-close-x" aria-label="Close add member dialog" title="Close">×</button>
+            <button type="button" id="space-member-modal-close" class="secondary modal-close-x" aria-label="Close add member dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div class="modal-body">
             <form id="space-member-modal-form" class="form compact">
@@ -946,7 +939,9 @@
         <div class="modal-content wide space-directory-modal-content">
           <div class="modal-header modal-header-sticky">
             <h3 id="space-directory-modal-title">Space Details</h3>
-            <button type="button" id="space-directory-modal-close" class="secondary modal-close-x" aria-label="Close space details dialog" title="Close">×</button>
+            <button type="button" id="space-directory-modal-close" class="secondary modal-close-x" aria-label="Close space details dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div id="space-directory-modal-body" class="modal-body"></div>
         </div>
@@ -991,9 +986,13 @@
                   <input type="text" id="calendar-filter-owner" placeholder="Owner" />
                 </label>
                 <div class="calendar-controls-buttons">
-                  <button type="button" id="calendar-prev" class="secondary" aria-label="Previous month">◀</button>
+                  <button type="button" id="calendar-prev" class="secondary icon-btn" aria-label="Previous month" title="Previous month" data-tooltip="Previous month">
+                    <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"></path></svg>
+                  </button>
                   <input type="month" id="calendar-month" />
-                  <button type="button" id="calendar-next" class="secondary" aria-label="Next month">▶</button>
+                  <button type="button" id="calendar-next" class="secondary icon-btn" aria-label="Next month" title="Next month" data-tooltip="Next month">
+                    <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"></path></svg>
+                  </button>
                 </div>
               </div>
             </div>

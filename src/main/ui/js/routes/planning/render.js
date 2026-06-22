@@ -273,7 +273,7 @@ export function buildBoardMarkup() {
         : "No people in this team yet. Drag someone in from Unassigned or add a person above.";
       const teamTitleHtml = `<div class="wab-team-title-row">
           <div class="wab-team-name">${esc(column.name)}</div>
-          <button type="button" class="secondary wab-team-delete" data-wab-action="delete-team" data-team-id="${esc(column.id)}" title="Delete team">x</button>
+          <button type="button" class="secondary wab-team-delete" data-wab-action="delete-team" data-team-id="${esc(column.id)}" title="Delete team">Delete Team</button>
         </div>`;
 
       return `<article class="wab-team-column${flashClass("team", column.id)}" data-dropzone="team" data-team-id="${esc(column.id)}">

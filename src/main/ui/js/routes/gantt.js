@@ -197,7 +197,7 @@ export function resolveGanttHealth(row = {}, { todayDay = todayDayNumber(), dueS
   if (isGanttRangeOverdue(range, currentDay)) {
     return healthResult("red", "Overdue", "Past due date");
   }
-  if ((row.type === "project" || row.type === "solution") && row.hasOverdueChild) {
+  if ((row.type === "program" || row.type === "project" || row.type === "solution") && row.hasOverdueChild) {
     return healthResult("yellow", "Child overdue", "Underlying item is overdue");
   }
   if (status === "on_hold") {
@@ -352,19 +352,57 @@ function buildProjectNode(project, childNodes, healthContext, todayDay) {
   }, todayDay);
 }
 
+function buildProgramNode(program, childNodes, todayDay) {
+  if (!childNodes.length) return null;
+  const range = mergeRanges(childNodes.map((child) => child.range));
+  return withGanttHealth({
+    type: "program",
+    id: program.program_id,
+    key: `program:${program.program_id}`,
+    label: program.program_name || "Untitled program",
+    assignee: "",
+    status: "",
+    priority: "",
+    range,
+    scheduleRange: range,
+    milestone: range?.milestone,
+    collapsible: childNodes.length > 0,
+    childCount: childNodes.length,
+    children: childNodes,
+    hasOverdueChild: childNodes.some((child) => child.hasOverdueChild || child.health === "red"),
+  }, todayDay);
+}
+
+function flattenProgram(programNode, collapsedKeys) {
+  const rows = [{ ...programNode, depth: 0, collapsed: collapsedKeys.has(programNode.key) }];
+  if (collapsedKeys.has(programNode.key)) return rows;
+  programNode.children.forEach((projectNode) => {
+    rows.push({ ...projectNode, depth: 1, collapsed: collapsedKeys.has(projectNode.key) });
+    if (collapsedKeys.has(projectNode.key)) return;
+    projectNode.children.forEach((solutionNode) => {
+      rows.push({ ...solutionNode, depth: 2, collapsed: collapsedKeys.has(solutionNode.key) });
+      if (!collapsedKeys.has(solutionNode.key)) {
+        solutionNode.children.forEach((childNode) => rows.push({ ...childNode, depth: 3, collapsed: false }));
+      }
+    });
+  });
+  return rows;
+}
+
 function flattenProject(projectNode, collapsedKeys) {
-  const rows = [{ ...projectNode, depth: 0, collapsed: collapsedKeys.has(projectNode.key) }];
+  const rows = [{ ...projectNode, depth: 1, collapsed: collapsedKeys.has(projectNode.key) }];
   if (collapsedKeys.has(projectNode.key)) return rows;
   projectNode.children.forEach((solutionNode) => {
-    rows.push({ ...solutionNode, depth: 1, collapsed: collapsedKeys.has(solutionNode.key) });
+    rows.push({ ...solutionNode, depth: 2, collapsed: collapsedKeys.has(solutionNode.key) });
     if (!collapsedKeys.has(solutionNode.key)) {
-      solutionNode.children.forEach((childNode) => rows.push({ ...childNode, depth: 2, collapsed: false }));
+      solutionNode.children.forEach((childNode) => rows.push({ ...childNode, depth: 3, collapsed: false }));
     }
   });
   return rows;
 }
 
 export function buildGanttRows({
+  programs = [],
   projects = [],
   solutions = [],
   tasks = [],
@@ -373,7 +411,7 @@ export function buildGanttRows({
   todayDay = todayDayNumber(),
 } = {}) {
   const windowRange = normalizeWindow(ganttWindow);
-  if (!windowRange) return { rows: [], projectNodes: [], windowRange: null };
+  if (!windowRange) return { rows: [], programNodes: [], projectNodes: [], windowRange: null };
   const healthContext = buildGanttHealthContext({ solutions, tasks, todayDay });
 
   const tasksBySolution = new Map();
@@ -423,8 +461,42 @@ export function buildGanttRows({
       if (node) projectNodes.push(node);
     });
 
+  const programsById = new Map((programs || []).map((program) => [String(program?.program_id || ""), program]));
+  const projectsByProgram = new Map();
+  projectNodes.forEach((projectNode) => {
+    const project = (projects || []).find((candidate) => candidate?.project_id === projectNode.id);
+    const programId = String(project?.program_id || "__unassigned__").trim() || "__unassigned__";
+    const bucket = projectsByProgram.get(programId) || [];
+    bucket.push(projectNode);
+    projectsByProgram.set(programId, bucket);
+  });
+
+  const programNodes = [];
+  sortByName(programs, "program_name").forEach((program) => {
+    const programId = String(program?.program_id || "").trim();
+    const childNodes = projectsByProgram.get(programId) || [];
+    const node = buildProgramNode(program, childNodes, todayDay);
+    if (!node) return;
+    projectsByProgram.delete(programId);
+    programNodes.push(node);
+  });
+
+  Array.from(projectsByProgram.entries())
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .forEach(([programId, childNodes]) => {
+      const program = programsById.get(programId) || {
+        program_id: programId,
+        program_name: "Unassigned Program",
+      };
+      const node = buildProgramNode(program, childNodes, todayDay);
+      if (node) programNodes.push(node);
+    });
+
   return {
-    rows: projectNodes.flatMap((projectNode) => flattenProject(projectNode, collapsedKeys)),
+    rows: programNodes.length
+      ? programNodes.flatMap((programNode) => flattenProgram(programNode, collapsedKeys))
+      : projectNodes.flatMap((projectNode) => flattenProject(projectNode, collapsedKeys)),
+    programNodes,
     projectNodes,
     windowRange,
   };
@@ -437,7 +509,7 @@ function renderToggle(row) {
 }
 
 function renderItemLabel(row, formatStatus) {
-  const typeLabel = row.type === "task" ? "Task" : row.type === "solution" ? "Solution" : "Project";
+  const typeLabel = row.type === "task" ? "Task" : row.type === "solution" ? "Solution" : row.type === "program" ? "Program" : "Project";
   const statusText = row.status ? formatStatus(row.status) : "";
   const priorityText = priorityLabel(row.priority);
   return `<div class="gantt-label-content gantt-depth-${row.depth}">
@@ -524,7 +596,7 @@ function countRowsByType(rows) {
       counts[row.type] = (counts[row.type] || 0) + 1;
       return counts;
     },
-    { project: 0, solution: 0, task: 0 }
+    { program: 0, project: 0, solution: 0, task: 0 }
   );
 }
 
@@ -535,6 +607,7 @@ export function renderGantt(ctx) {
   if (els.ganttTo) els.ganttTo.value = state.ganttWindow?.to || "";
 
   const { rows, windowRange } = buildGanttRows({
+    programs: state.programs,
     projects: state.projects,
     solutions: state.solutions,
     tasks: state.tasks,
@@ -572,6 +645,7 @@ export function renderGantt(ctx) {
         <span class="gantt-summary-window">${esc(windowRange.from)} - ${esc(windowRange.to)}</span>
       </div>
       <div class="gantt-summary-metrics" aria-label="Visible Gantt rows">
+        <span><strong>${counts.program}</strong> Programs</span>
         <span><strong>${counts.project}</strong> Projects</span>
         <span><strong>${counts.solution}</strong> Solutions</span>
         <span><strong>${counts.task}</strong> Tasks</span>

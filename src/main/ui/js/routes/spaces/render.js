@@ -19,6 +19,7 @@ export function createSpaceGovernanceRenderer({
   refreshSpaceMembers,
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
+  buildAppUrl,
 }) {
   function memberLabel(member) {
     const row = member || {};
@@ -67,6 +68,12 @@ export function createSpaceGovernanceRenderer({
     if (normalizedLabel.includes("admin")) return "";
     if (normalizedLabel === "accessible") return "muted";
     return "muted";
+  }
+
+  function disabledReasonAttr(disabled, reason) {
+    if (!disabled) return "";
+    const text = escapeAttr(reason);
+    return ` disabled title="${text}" aria-label="${text}"`;
   }
 
   function membershipSummaryForSpace(spaceId) {
@@ -165,7 +172,7 @@ export function createSpaceGovernanceRenderer({
           </div>
           <div class="space-hero-actions">
             <span class="pill">${esc(currentSpaceRoleLabel(active))}</span>
-            <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(currentSpaceId)}" ${state.spaceSwitching ? "disabled" : ""}>Add Member</button>
+            <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(currentSpaceId)}"${disabledReasonAttr(state.spaceSwitching, "Finish switching spaces before adding a member.")}>Add Member</button>
           </div>
         </div>
         <div class="space-summary-grid">
@@ -202,6 +209,10 @@ export function createSpaceGovernanceRenderer({
     const isArchived = selectedSpace.is_active === false;
     const canToggleActive = userIsGlobalAdmin() && (isArchived || !isCurrent);
     const archiveLabel = isArchived ? "Reactivate" : "Archive";
+    const publicDashboardEnabled = selectedSpace.public_program_dashboard_enabled === true;
+    const publicDashboardUrl = selectedSpace.slug && typeof buildAppUrl === "function"
+      ? new URL(buildAppUrl(`/public/program-dashboard/${encodeURIComponent(selectedSpace.slug)}`), window.location.origin).toString()
+      : "";
     const previewMode = isCurrent
       ? "Current workspace"
       : (canManage ? "Ready to manage" : (canSwitchToManage ? "Switch to manage" : "Read-only preview"));
@@ -247,7 +258,22 @@ export function createSpaceGovernanceRenderer({
               <span class="muted">Mode</span>
               <strong>${esc(previewMode)}</strong>
             </div>
+            <div class="space-summary-card panel">
+              <span class="muted">Public Dashboard</span>
+              <strong>${publicDashboardEnabled ? "Exposed" : "Off"}</strong>
+            </div>
           </div>
+          ${(canManage || userIsGlobalAdmin()) ? `
+            <div class="space-inline-callout">
+              <div>
+                <strong>Public program dashboard</strong>
+                <p class="muted">${publicDashboardEnabled && publicDashboardUrl
+                  ? esc(publicDashboardUrl)
+                  : "Expose a read-only program dashboard for anyone with the URL."}</p>
+              </div>
+              <button type="button" class="secondary" data-space-action="toggle-public-program-dashboard" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-enabled="${publicDashboardEnabled ? "false" : "true"}"${disabledReasonAttr(isArchived, "Reactivate this space before exposing its public dashboard.")}>${publicDashboardEnabled ? "Disable Public Dashboard" : "Expose Public Dashboard"}</button>
+            </div>
+          ` : ""}
           ${canSwitchToManage ? `
             <div class="space-inline-callout">
               <div>
@@ -262,9 +288,9 @@ export function createSpaceGovernanceRenderer({
           ` : ""}
           ${(canManage || userIsGlobalAdmin()) ? `
             <div class="space-directory-preview-actions">
-              <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${isCurrent || state.spaceSwitching ? "disabled" : ""}>${isCurrent ? "Already current" : "Switch to this space"}</button>
-              <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}" ${canManage && !isArchived ? "" : "disabled"}>Add Member</button>
-              ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canToggleActive ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-active="${isArchived ? "true" : "false"}" ${canToggleActive ? "" : "disabled"}>${archiveLabel}</button>` : ""}
+              <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}"${disabledReasonAttr(isCurrent || state.spaceSwitching, isCurrent ? "This space is already current." : "Finish switching spaces before choosing another space.")}>${isCurrent ? "Already current" : "Switch to this space"}</button>
+              <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}"${disabledReasonAttr(!(canManage && !isArchived), isArchived ? "Reactivate this space before adding members." : "Switch to this space or ask a space admin to add members.")}>Add Member</button>
+              ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canToggleActive ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-active="${isArchived ? "true" : "false"}"${disabledReasonAttr(!canToggleActive, isCurrent ? "Switch to another active space before archiving this one." : "Only global admins can archive or reactivate spaces.")}>${archiveLabel}</button>` : ""}
             </div>
           ` : ""}
         </div>
@@ -489,8 +515,8 @@ export function createSpaceGovernanceRenderer({
             <p class="muted">Review proposed agent changes before they update work data in this space.</p>
           </div>
           <div class="space-hero-actions">
-            <button type="button" class="primary" data-space-action="approve-agent-change-requests" ${selected.size ? "" : "disabled"}>Approve selected</button>
-            <button type="button" class="secondary danger" data-space-action="reject-agent-change-requests" ${selected.size ? "" : "disabled"}>Reject selected</button>
+            <button type="button" class="primary" data-space-action="approve-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before approving.")}>Approve selected</button>
+            <button type="button" class="secondary danger" data-space-action="reject-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before rejecting.")}>Reject selected</button>
           </div>
         </div>
         <div class="space-summary-grid">
@@ -534,7 +560,9 @@ export function createSpaceGovernanceRenderer({
               <p class="space-card-kicker">API token issued</p>
               <h3 id="api-token-modal-title">Copy this token now</h3>
             </div>
-            <button type="button" class="secondary modal-close-x" data-space-action="clear-api-token-result" aria-label="Close API token dialog" title="Close">x</button>
+            <button type="button" class="secondary modal-close-x" data-space-action="clear-api-token-result" aria-label="Close API token dialog" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
           </div>
           <div class="api-token-modal-body">
             <p class="muted">This token is shown once for ${esc(issued.user_label || "the service account")}.</p>

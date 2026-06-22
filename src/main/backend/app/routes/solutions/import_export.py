@@ -16,7 +16,7 @@ from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
-from .._mutations import commit_session
+from ...services.mutations import commit_session
 from ..projects.common import _default_program, _resolve_project_sponsor
 from .common import (
     _apply_solution_completion_state,
@@ -103,6 +103,10 @@ def import_solutions(
         description = normalize_str(row.get("description")) or None
         success_criteria = normalize_str(row.get("success_criteria")) or None
         problem_statement = normalize_str(row.get("problem_statement")) or None
+        escalation = normalize_str(row.get("escalation")) or None
+        if escalation and len(escalation) > 255:
+            errors.append(f"Row {idx}: escalation must be 255 characters or fewer")
+            continue
         try:
             github_repo_url = normalize_github_repo_url(row.get("github_repo_url"))
         except ValueError as exc:
@@ -231,6 +235,7 @@ def import_solutions(
                     "description": existing.description,
                     "success_criteria": existing.success_criteria,
                     "problem_statement": existing.problem_statement,
+                    "escalation": existing.escalation,
                     "github_repo_url": existing.github_repo_url,
                     "impact_confidence": existing.impact_confidence,
                     "owner": existing.owner,
@@ -256,6 +261,7 @@ def import_solutions(
                 existing.description = description
                 existing.success_criteria = success_criteria
                 existing.problem_statement = problem_statement
+                existing.escalation = escalation
                 existing.github_repo_url = github_repo_url
                 existing.impact_confidence = impact_confidence
                 existing.owner = resolved_owner
@@ -298,6 +304,7 @@ def import_solutions(
                         "description": (before["description"], existing.description),
                         "success_criteria": (before["success_criteria"], existing.success_criteria),
                         "problem_statement": (before["problem_statement"], existing.problem_statement),
+                        "escalation": (before["escalation"], existing.escalation),
                         "github_repo_url": (before["github_repo_url"], existing.github_repo_url),
                         "impact_confidence": (before["impact_confidence"], existing.impact_confidence),
                         "owner": (before["owner"], existing.owner),
@@ -351,6 +358,7 @@ def import_solutions(
                     description=description,
                     success_criteria=success_criteria,
                     problem_statement=problem_statement,
+                    escalation=escalation,
                     github_repo_url=github_repo_url,
                     impact_confidence=impact_confidence,
                     owner=resolved_owner,
@@ -387,6 +395,7 @@ def import_solutions(
                         "description": (None, solution.description),
                         "success_criteria": (None, solution.success_criteria),
                         "problem_statement": (None, solution.problem_statement),
+                        "escalation": (None, solution.escalation),
                         "github_repo_url": (None, solution.github_repo_url),
                         "impact_confidence": (None, solution.impact_confidence),
                         "owner": (None, solution.owner),
@@ -461,6 +470,7 @@ def export_solutions(
         "description",
         "problem_statement",
         "success_criteria",
+        "escalation",
         "github_repo_url",
         "impact_confidence",
         "owner",
@@ -493,6 +503,7 @@ def export_solutions(
                 "description": read_text_value(solution.description) or "",
                 "problem_statement": read_text_value(solution.problem_statement) or "",
                 "success_criteria": read_text_value(solution.success_criteria) or "",
+                "escalation": solution.escalation or "",
                 "github_repo_url": solution.github_repo_url or "",
                 "impact_confidence": solution.impact_confidence.value if hasattr(solution.impact_confidence, "value") else (solution.impact_confidence or ""),
                 "owner": solution.owner or "",

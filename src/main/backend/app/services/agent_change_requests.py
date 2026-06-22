@@ -8,10 +8,6 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..models import AgentChangeRequest, Project, Solution, Task, User
-from ..routes._mutations import publish_space_mutation
-from ..routes.projects.common import _project_query
-from ..routes.solutions.common import _solution_query
-from ..routes.tasks.common import _task_query
 from ..schemas.agent import (
     AgentChangeRequestBulkReviewResult,
     AgentChangeRequestDiffItem,
@@ -22,7 +18,13 @@ from ..schemas.agent import (
     AgentPatchResponse,
 )
 from ..services.agent_patch_plan import apply_patch_plan, validate_patch_plan
+from ..services.mutations import publish_space_mutation
 from ..services.spaces import SpaceContext
+from ..services.work_items import (
+    project_query as _project_query,
+    solution_query as _solution_query,
+    task_query as _task_query,
+)
 from ..utils import normalize_str
 
 VALID_CHANGE_REQUEST_STATUSES = {"pending", "approved", "rejected", "failed"}

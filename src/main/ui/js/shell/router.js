@@ -1,4 +1,4 @@
-import { APP_ASSET_VERSION, APP_CONTEXT_PATH, buildAppUrl } from "./paths.js";
+import { APP_CONTEXT_PATH, buildAppUrl } from "./paths.js";
 
 
 export function createRouterController({
@@ -33,11 +33,11 @@ export function createRouterController({
   const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
   const VIEW_DATA_REQUIREMENTS = {
-    master: ["phases", "programs", "projects", "solutions"],
+    master: ["phases", "programs", "projects", "solutions", "tasks"],
     gantt: ["programs", "projects", "solutions", "tasks"],
     "tasks-workbench": ["programs", "projects", "solutions", "tasks", "users"],
     dashboard: ["programs", "projects", "solutions", "users"],
-    "program-dashboard": ["phases", "programs", "projects", "solutions", "tasks"],
+    "program-dashboard": ["phases", "programs", "projects", "solutions"],
     "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users", "allocations", "windows"],
     kanban: ["phases", "programs", "projects", "solutions"],
     calendar: ["programs", "projects", "solutions"],
@@ -62,20 +62,21 @@ export function createRouterController({
     access: "analytics",
     analytics: "planning",
   };
+  const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-escalation-grid-v1";
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
-    master: () => import(`../routes/master.js?v=${APP_ASSET_VERSION}`),
-    gantt: () => import(`../routes/gantt.js?v=${APP_ASSET_VERSION}`),
-    "tasks-workbench": () => import(`../routes/tasks-workbench.js?v=${APP_ASSET_VERSION}`),
-    dashboard: () => import(`../routes/dashboard.js?v=${APP_ASSET_VERSION}`),
-    "program-dashboard": () => import(`../routes/program-dashboard.js?v=${APP_ASSET_VERSION}`),
-    "pm-dashboard": () => import(`../routes/pm-dashboard.js?v=${APP_ASSET_VERSION}`),
-    kanban: () => import(`../routes/kanban.js?v=${APP_ASSET_VERSION}`),
-    calendar: () => import(`../routes/calendar.js?v=${APP_ASSET_VERSION}`),
-    planning: () => import(`../routes/planning.js?v=${APP_ASSET_VERSION}`),
-    "team-capacity": () => import(`../routes/team-capacity.js?v=${APP_ASSET_VERSION}`),
-    spaces: () => import(`../routes/spaces.js?v=${APP_ASSET_VERSION}`),
-    access: () => import(`../routes/access.js?v=${APP_ASSET_VERSION}`),
-    analytics: () => import(`../routes/analytics.js?v=${APP_ASSET_VERSION}`),
+    master: () => import("../routes/master.js"),
+    gantt: () => import("../routes/gantt.js"),
+    "tasks-workbench": () => import("../routes/tasks-workbench.js"),
+    dashboard: () => import("../routes/dashboard.js"),
+    "program-dashboard": () => import(`../routes/program-dashboard.js?v=${PROGRAM_DASHBOARD_ROUTE_VERSION}`),
+    "pm-dashboard": () => import("../routes/pm-dashboard.js"),
+    kanban: () => import("../routes/kanban.js"),
+    calendar: () => import("../routes/calendar.js"),
+    planning: () => import("../routes/planning.js"),
+    "team-capacity": () => import("../routes/team-capacity.js"),
+    spaces: () => import("../routes/spaces.js"),
+    access: () => import("../routes/access.js"),
+    analytics: () => import("../routes/analytics.js"),
   };
   const routeModuleCache = {};
   const routeModuleInFlight = {};

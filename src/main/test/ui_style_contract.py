@@ -13,6 +13,7 @@ def read_ui_styles(entrypoint: Path) -> str:
     if not match:
       resolved.append(line)
       continue
-    target = (entrypoint.parent / match.group(1)).resolve()
+    import_path = match.group(1).split("?", 1)[0].split("#", 1)[0]
+    target = (entrypoint.parent / import_path).resolve()
     resolved.append(read_ui_styles(target))
   return "\n".join(resolved)

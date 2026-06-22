@@ -12,22 +12,6 @@ export const APP_CONTEXT_PATH = (() => {
 
 export const API_BASE = `${APP_CONTEXT_PATH}/api` || "/api";
 
-export const APP_ASSET_VERSION = (() => {
-  try {
-    return new URL(import.meta.url).searchParams.get("v") || Date.now().toString();
-  } catch {
-    return Date.now().toString();
-  }
-})();
-
-export function refreshStylesheetVersion(doc = document) {
-  const sheet = doc.querySelector('link[rel="stylesheet"][href*="styles.css"]');
-  if (!sheet) return;
-  const url = new URL(sheet.href, window.location.origin);
-  url.searchParams.set("v", Date.now().toString());
-  sheet.href = url.toString();
-}
-
 export function buildAppUrl(path = "/") {
   let normalized = String(path || "/").trim() || "/";
   if (!normalized.startsWith("/")) normalized = `/${normalized}`;

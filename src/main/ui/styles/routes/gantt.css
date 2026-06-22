@@ -1,11 +1,11 @@
 #view-gantt .panel {
-  padding: 10px 12px 12px;
+  padding: var(--route-panel-padding);
   overflow: hidden;
 }
 
 #view-gantt .panel-header {
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--route-header-gap);
   margin-bottom: 8px;
 }
 
@@ -30,8 +30,8 @@
   gap: 3px;
   color: var(--muted);
   font-size: var(--font-size-label);
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  font-weight: var(--route-control-font-weight);
+  letter-spacing: var(--route-label-letter-spacing);
   text-transform: uppercase;
 }
 
@@ -43,7 +43,7 @@
   min-height: 32px;
   padding: 6px 8px;
   box-sizing: border-box;
-  font-size: var(--font-size-table);
+  font-size: var(--route-control-font-size);
   font-variant-numeric: tabular-nums;
 }
 
@@ -91,7 +91,7 @@
 .gantt-summary-title {
   color: var(--text);
   font-size: var(--font-size-body);
-  font-weight: 800;
+  font-weight: var(--route-control-font-weight);
 }
 
 .gantt-summary-window {
@@ -179,8 +179,8 @@
   z-index: 12;
   color: var(--muted);
   font-size: var(--font-size-label);
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: var(--route-table-header-font-weight);
+  letter-spacing: var(--route-table-header-letter-spacing);
   text-transform: uppercase;
   background: var(--product-table-head, var(--panel-soft));
   color: var(--product-table-head-text, var(--text-strong));
@@ -253,8 +253,8 @@
   height: 17px;
   border-left: 1px solid var(--border-strong);
   padding-left: 6px;
-  font-size: var(--font-size-table);
-  font-weight: 800;
+  font-size: var(--route-table-body-font-size);
+  font-weight: var(--route-control-font-weight);
   white-space: nowrap;
 }
 
@@ -285,6 +285,10 @@
 
 .gantt-depth-2 {
   --gantt-indent: 52px;
+}
+
+.gantt-depth-3 {
+  --gantt-indent: 78px;
 }
 
 .gantt-item-cell {
@@ -319,7 +323,7 @@
   color: var(--text);
   cursor: pointer;
   font-size: var(--font-size-label);
-  font-weight: 800;
+  font-weight: var(--route-control-font-weight);
   line-height: 1;
   padding: 0;
 }
@@ -368,8 +372,8 @@
 
 .gantt-title {
   display: -webkit-box;
-  font-size: var(--font-size-table);
-  font-weight: 740;
+  font-size: var(--route-table-body-font-size);
+  font-weight: var(--route-control-font-weight);
   line-height: 1.18;
   white-space: normal;
   -webkit-box-orient: vertical;
@@ -407,7 +411,7 @@
   background: var(--panel-soft);
   color: var(--text);
   font-size: var(--font-size-label);
-  font-weight: 700;
+  font-weight: var(--route-chip-font-weight);
 }
 
 .gantt-status-active,
@@ -453,7 +457,7 @@
   padding: 0 6px;
   color: var(--text);
   font-size: var(--font-size-label);
-  font-weight: 700;
+  font-weight: var(--route-chip-font-weight);
   line-height: 16px;
   text-align: left;
   overflow: hidden;
@@ -475,46 +479,53 @@
   z-index: 2;
 }
 
+.gantt-bar-program,
+.gantt-milestone-program {
+  border-color: var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-strong);
+}
+
 .gantt-bar-project,
 .gantt-milestone-project {
   border-color: var(--project-pill-border);
-  background: var(--project-pill-bg);
+  background: color-mix(in srgb, var(--project-pill-border) 68%, var(--project-pill-bg));
 }
 
 .gantt-bar-solution,
 .gantt-milestone-solution {
   border-color: var(--solution-pill-border);
-  background: var(--solution-pill-bg);
+  background: color-mix(in srgb, var(--solution-pill-border) 68%, var(--solution-pill-bg));
 }
 
 .gantt-bar-task,
 .gantt-milestone-task {
   border-color: var(--calendar-task-border);
-  background: var(--accent-hover-strong);
+  background: color-mix(in srgb, var(--calendar-task-border) 74%, var(--accent-hover-strong));
 }
 
 .gantt-bar.gantt-health-green,
 .gantt-milestone.gantt-health-green {
   border-color: var(--success-border);
-  background: var(--success-soft);
+  background: color-mix(in srgb, var(--success-border) 70%, var(--success-soft));
 }
 
 .gantt-bar.gantt-health-yellow,
 .gantt-milestone.gantt-health-yellow {
   border-color: var(--warning-border);
-  background: var(--warning-soft);
+  background: color-mix(in srgb, var(--warning-border) 70%, var(--warning-soft));
 }
 
 .gantt-bar.gantt-health-red,
 .gantt-milestone.gantt-health-red {
   border-color: var(--danger-border);
-  background: var(--danger-soft);
+  background: color-mix(in srgb, var(--danger-border) 70%, var(--danger-soft));
 }
 
 .gantt-bar.gantt-health-complete,
 .gantt-milestone.gantt-health-complete {
   border-color: var(--info-border);
-  background: var(--info-soft);
+  background: color-mix(in srgb, var(--info-border) 66%, var(--info-soft));
 }
 
 .gantt-bar.gantt-health-future,
@@ -522,8 +533,22 @@
 .gantt-milestone.gantt-health-future,
 .gantt-milestone.gantt-health-abandoned {
   border-color: var(--border-strong);
-  background: rgba(157, 171, 191, 0.16);
+  background: color-mix(in srgb, var(--border-strong) 36%, var(--panel-soft));
   color: var(--muted);
+}
+
+.gantt-row-program .gantt-label-cell {
+  background: var(--product-table-head, var(--panel-soft));
+  box-shadow: inset 3px 0 0 var(--surface-3);
+}
+
+.gantt-row-program .gantt-level-marker {
+  background: var(--surface-3);
+}
+
+.gantt-row-program .gantt-title {
+  font-size: var(--font-size-section-title);
+  font-weight: 860;
 }
 
 .gantt-row-project .gantt-label-cell {
@@ -594,5 +619,9 @@
 
   .gantt-depth-2 {
     --gantt-indent: 36px;
+  }
+
+  .gantt-depth-3 {
+    --gantt-indent: 54px;
   }
 }

@@ -1,11 +1,11 @@
 import {
   API_BASE,
+  APP_CONTEXT_PATH,
   buildAppUrl,
   buildApiUrl,
   buildResetPageUrl,
   buildWsUrl,
   formatDateTime,
-  refreshStylesheetVersion,
 } from "./shell/paths.js";
 import { createShellContext } from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
@@ -26,15 +26,11 @@ import { createSolutionEntityController } from "./entities/solutions.js";
 import {
   filteredDeliverables as filteredMasterDeliverables,
   normalizeMasterFilters,
-  VALID_DELIVERABLE_PRESETS,
 } from "./routes/master/filters.js";
 import { renderMasterQuickstart as renderMasterQuickstartView } from "./routes/master/quickstart.js";
 import {
   bindDeliverablesControls as bindMasterDeliverablesControls,
   bindDeliverablesTable as bindMasterDeliverablesTable,
-  clearDeliverablesFilters as clearMasterDeliverablesFilters,
-  setDeliverablesPreset as setMasterDeliverablesPreset,
-  updateBulkSelectionCount as updateMasterBulkSelectionCount,
 } from "./routes/master/interactions.js";
 import {
   clearTasksWorkbenchFilters as clearWorkbenchFilters,
@@ -73,7 +69,6 @@ import { safeExternalUrl } from "./utils/external-url.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
-refreshStylesheetVersion();
 
 async function copyText(value) {
   const text = String(value || "");
@@ -263,8 +258,7 @@ const state = {
   planningWindows: [],
   planningWindowSelectedId: "",
   filters: {},
-  deliverableSelection: new Set(),
-  deliverablesPreset: "",
+  masterCollapsed: new Set(),
   taskView: "table",
   tasksWorkbench: {
     preset: "all",
@@ -465,6 +459,7 @@ const ganttRouteController = createGanttRouteController({
   readStoredJsonState,
   activeSpaceScopedStorageKey,
   renderGantt,
+  openProgramForm,
   openProjectForm,
   openSolutionModal,
   fillTaskForm,
@@ -528,6 +523,7 @@ const spaceGovernanceController = createSpaceGovernanceController({
   switchActiveSpace,
   showConfirmModal,
   copyText,
+  buildAppUrl,
   buildResetPageUrl,
   trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
@@ -552,6 +548,7 @@ const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
   refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
+  buildAppUrl,
 });
 
 const topbarCreateController = createTopbarCreateController({
@@ -987,7 +984,7 @@ async function refreshSpaceContext(options = {}) {
     state.tasksWorkbench.savedViews = [];
     state.tasksWorkbench.selectedSavedViewId = "";
     state.filters = {};
-    state.deliverablesPreset = "";
+    state.masterCollapsed = new Set();
     state.ganttWindow = { from: "", to: "" };
     state.ganttCollapsed = new Set();
     closeSpaceCreateModal();
@@ -1093,6 +1090,7 @@ function setAuthed(user) {
     state.tasksWorkbench.savedViews = [];
     state.tasksWorkbench.selectedSavedViewId = "";
     state.ganttWindow = { from: "", to: "" };
+    state.masterCollapsed = new Set();
     state.ganttCollapsed = new Set();
     closeSpaceCreateModal();
     closeSpaceMemberModal();
@@ -1408,19 +1406,12 @@ function restoreSelections(projectId, solutionId, taskId) {
   }
 }
 
-function deliverableKey(type, id) {
-  return `${type}:${id}`;
-}
-
 function createMasterRouteContext(overrides = {}) {
   const base = createShellContext({
     state,
     els,
     api,
     upsertById,
-    clearBulkFeedback,
-    setBulkFeedback,
-    deliverableKey,
     phaseDisplayName,
     solutionProgress,
     formatStatus,
@@ -1439,6 +1430,7 @@ function createMasterRouteContext(overrides = {}) {
     renderCalendar,
     renderGantt,
     renderActiveView,
+    openProgramForm,
     openProjectForm,
     openSolutionModal,
     showTaskForm,
@@ -1447,9 +1439,6 @@ function createMasterRouteContext(overrides = {}) {
   return createShellContext(base, {
     filteredDeliverables: () => filteredMasterDeliverables(base),
     renderMasterQuickstart: (rowCount = 0) => renderMasterQuickstartView(base, rowCount),
-    updateBulkSelectionCount: () => updateMasterBulkSelectionCount(base),
-    clearDeliverablesFilters: () => clearMasterDeliverablesFilters(base),
-    setDeliverablesPreset: (preset) => setMasterDeliverablesPreset(base, preset),
     ...overrides,
   });
 }
@@ -1831,14 +1820,6 @@ function bindDebouncedInput(element, onChange, delayMs = 180) {
   });
 }
 
-function clearBulkFeedback() {
-  clearDeliverableFormNotice(els.bulkFeedback);
-}
-
-function setBulkFeedback(message, tone = "info", autoClearMs = 0) {
-  setDeliverableFormNotice(els.bulkFeedback, message, tone, autoClearMs);
-}
-
 function clearCapacityUserFormStatus() {
   clearDeliverableFormNotice(els.capacityUserFormStatus);
 }
@@ -1884,6 +1865,8 @@ function renderProgramDashboard() {
   mod.renderProgramDashboard({
     state,
     els,
+    apiBase: API_BASE,
+    setStatus,
     formatStatus,
     phaseDisplayName,
     solutionProgress,
@@ -1891,7 +1874,78 @@ function renderProgramDashboard() {
     openProgramDashboardProjectDrilldown,
     openProgramDashboardSolutionDrilldown,
     openProgramDashboardTaskDrilldown,
+    trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
   });
+}
+
+function publicProgramDashboardSlug(pathname = window.location.pathname) {
+  const raw = String(pathname || "/");
+  const relative = APP_CONTEXT_PATH && raw.startsWith(APP_CONTEXT_PATH)
+    ? raw.slice(APP_CONTEXT_PATH.length) || "/"
+    : raw;
+  const match = relative.match(/^\/public\/program-dashboard\/([^/?#]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function loadPublicProgramDashboard() {
+  const slug = publicProgramDashboardSlug();
+  if (!slug) return false;
+  document.body.classList.add("public-program-dashboard-page");
+  setAuthed(null);
+  setAuthVisible(false);
+  setResetVisible(false);
+  if (els.appShell) els.appShell.classList.remove("hidden");
+  document.getElementById("public-login-link")?.setAttribute("href", buildAppUrl("/"));
+  els.views.forEach((viewEl) => viewEl.classList.toggle("active", viewEl.id === "view-program-dashboard"));
+  state.currentView = "program-dashboard";
+  state.activeSpace = {
+    space_id: `public:${slug}`,
+    space_name: slug,
+    space_role: "public",
+  };
+  if (els.programDashboardRoot) {
+    els.programDashboardRoot.innerHTML = "<p class='muted'>Loading dashboard...</p>";
+  }
+  try {
+    const response = await fetch(`${API_BASE}/public/program-dashboard/${encodeURIComponent(slug)}`, {
+      credentials: "omit",
+      headers: { "Accept": "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(response.status === 404 ? "Dashboard not found." : `Dashboard failed to load (${response.status}).`);
+    }
+    const payload = await response.json();
+    state.activeSpace = {
+      space_id: payload?.space?.space_id || `public:${slug}`,
+      space_name: payload?.space?.space_name || payload?.space?.slug || slug,
+      space_role: "public",
+    };
+    state.phases = Array.isArray(payload?.phases) ? payload.phases : [];
+    state.programs = Array.isArray(payload?.programs) ? payload.programs : [];
+    state.projects = Array.isArray(payload?.projects) ? payload.projects : [];
+    state.solutions = Array.isArray(payload?.solutions) ? payload.solutions : [];
+    const mod = await ensureRouteModule("program-dashboard");
+    if (!mod || typeof mod.renderProgramDashboard !== "function") throw new Error("Dashboard module failed to load.");
+    mod.renderProgramDashboard({
+      state,
+      els,
+      apiBase: API_BASE,
+      setStatus,
+      formatStatus,
+      phaseDisplayName,
+      solutionProgress,
+      showCompletedOperationalWork,
+      readOnly: true,
+      publicMode: true,
+      publicSlug: slug,
+    });
+  } catch (err) {
+    console.warn("Public program dashboard load failed", err);
+    if (els.programDashboardRoot) {
+      els.programDashboardRoot.innerHTML = `<p class='program-dashboard-empty muted'>${escapeHtml(err?.message || "Dashboard not found.")}</p>`;
+    }
+  }
+  return true;
 }
 
 function openDashboardSolutionDrilldown(solutionId) {
@@ -2907,30 +2961,47 @@ async function downloadCsv(kind, filename, resultEl) {
 function csvImportResultElement(kind) {
   if (kind === "projects") return els.projectsImportResult;
   if (kind === "solutions") return els.solutionsImportResult;
+  if (kind === "tasks") return els.taskCsvImportResult;
   if (kind === "users") return els.rosterImportResult;
   return null;
 }
 
-function csvTemplateConfig(kind) {
-  if (kind === "projects") {
-    return {
+function csvKindConfig(kind) {
+  const configs = {
+    projects: {
+      label: "Projects",
       filename: "projects-template.csv",
-      content: [
+      templateContent: [
         "program_id,program_name,project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
         ",Default Program,Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
       ].join("\n"),
-    };
-  }
-  if (kind === "solutions") {
-    return {
+    },
+    solutions: {
+      label: "Solutions",
       filename: "solutions-template.csv",
-      content: [
+      templateContent: [
         "project_name,solution_name,version,status,owner,assignee,priority,due_date,current_phase,github_repo_url",
         "Example Project,Example Solution,0.1.0,not_started,Example Owner,Example Owner,3,,,https://github.com/example-org/example-repo",
       ].join("\n"),
-    };
-  }
-  return null;
+    },
+    tasks: {
+      label: "Tasks",
+      filename: "tasks-template.csv",
+      templateContent: [
+        "project_name,solution_name,version,task_name,status,priority,due_date,assignee,assignee_user_soeid,github_repo_url,estimate_hours,blocked,blocker_note,done_criteria,completed_at",
+        "Example Project,Example Solution,0.1.0,Example Task,not_started,3,2026-07-31,Example Owner,,https://github.com/example-org/example-repo,8,false,Waiting on vendor,Acceptance criteria met,",
+      ].join("\n"),
+    },
+  };
+  return configs[kind] || configs.projects;
+}
+
+function csvTemplateConfig(kind) {
+  const config = csvKindConfig(kind);
+  return {
+    filename: config.filename,
+    content: config.templateContent,
+  };
 }
 
 function downloadCsvTemplate(kind, resultEl) {
@@ -2985,16 +3056,21 @@ function setCsvUploadFile(file) {
 
 function openCsvUploadModal(kind) {
   if (!els.csvUploadModal) return;
-  const normalizedKind = kind === "solutions" ? "solutions" : "projects";
+  const normalizedKind = ["projects", "solutions", "tasks"].includes(kind) ? kind : "projects";
+  const config = csvKindConfig(normalizedKind);
   csvUploadState.kind = normalizedKind;
   csvUploadState.file = null;
   if (els.csvUploadTitle) {
-    els.csvUploadTitle.textContent = normalizedKind === "projects" ? "Upload Projects CSV" : "Upload Solutions CSV";
+    els.csvUploadTitle.textContent = `Upload ${config.label} CSV`;
   }
   if (els.csvUploadDescription) {
-    els.csvUploadDescription.textContent = normalizedKind === "projects"
-      ? "Upload a Projects CSV. Use the template if you need the expected columns."
-      : "Upload a Solutions CSV. Use the template if you need the expected columns.";
+    els.csvUploadDescription.textContent = `Upload a ${config.label} CSV. Use the template if you need the expected columns.`;
+  }
+  if (els.csvDownloadTemplate) {
+    els.csvDownloadTemplate.textContent = `Download ${config.label} Template`;
+  }
+  if (els.csvSubmitUpload) {
+    els.csvSubmitUpload.textContent = `Upload ${config.label} CSV`;
   }
   if (els.csvDropzone) {
     els.csvDropzone.classList.remove("drag-over");
@@ -3016,6 +3092,8 @@ function closeCsvUploadModal() {
   if (els.csvUploadFile) els.csvUploadFile.value = "";
   if (els.csvUploadFileName) els.csvUploadFileName.textContent = "No file selected";
   if (els.csvDropzone) els.csvDropzone.classList.remove("drag-over");
+  if (els.csvDownloadTemplate) els.csvDownloadTemplate.textContent = "Download Template";
+  if (els.csvSubmitUpload) els.csvSubmitUpload.textContent = "Upload CSV";
   setCsvUploadStatus("");
 }
 
@@ -3207,6 +3285,20 @@ function bindCsvControls() {
     });
     els.solutionsUpload._bound = true;
   }
+  if (els.tasksCsvDownload && !els.tasksCsvDownload._bound) {
+    els.tasksCsvDownload.addEventListener("click", () => {
+      closeCsvMenu();
+      downloadCsv("tasks", "tasks.csv", els.taskCsvImportResult);
+    });
+    els.tasksCsvDownload._bound = true;
+  }
+  if (els.tasksCsvUpload && !els.tasksCsvUpload._bound) {
+    els.tasksCsvUpload.addEventListener("click", () => {
+      closeCsvMenu();
+      openCsvUploadModal("tasks");
+    });
+    els.tasksCsvUpload._bound = true;
+  }
 
   if (els.csvUploadClose && !els.csvUploadClose._bound) {
     els.csvUploadClose.addEventListener("click", closeCsvUploadModal);
@@ -3255,8 +3347,9 @@ function bindCsvControls() {
   if (els.csvDownloadTemplate && !els.csvDownloadTemplate._bound) {
     els.csvDownloadTemplate.addEventListener("click", () => {
       const kind = csvUploadState.kind || "projects";
+      const config = csvKindConfig(kind);
       downloadCsvTemplate(kind, csvImportResultElement(kind));
-      setCsvUploadStatus("Template downloaded.", "success");
+      setCsvUploadStatus(`${config.label} CSV template downloaded.`, "success");
     });
     els.csvDownloadTemplate._bound = true;
   }
@@ -3682,12 +3775,21 @@ function recordRecentSpace(spaceId) {
   persistRecentSpaceIds();
 }
 
+function normalizeMasterCollapsedKeys(value) {
+  if (!Array.isArray(value)) return new Set();
+  return new Set(
+    value
+      .map((key) => String(key || "").trim())
+      .filter((key) => key.startsWith("program:") || key.startsWith("project:"))
+  );
+}
+
 function persistMasterViewState() {
   writeStoredJson(
     activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX),
     {
       filters: { ...(state.filters || {}) },
-      deliverablesPreset: state.deliverablesPreset || "",
+      collapsed: Array.from(state.masterCollapsed || []),
     }
   );
 }
@@ -3716,15 +3818,12 @@ function restoreWorkspaceViewPreferences() {
 function restoreMasterViewState() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(MASTER_VIEW_STATE_KEY_PREFIX), {});
   const rawFilters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
-  state.deliverablesPreset = String(stored.deliverablesPreset || "");
+  state.masterCollapsed = normalizeMasterCollapsedKeys(stored.collapsed);
   let changed = recovered;
-  if (!VALID_DELIVERABLE_PRESETS.has(state.deliverablesPreset)) {
-    state.deliverablesPreset = "";
-    changed = true;
-  }
-  const normalized = normalizeMasterFilters(rawFilters, state.deliverablesPreset);
+  const normalized = normalizeMasterFilters(rawFilters);
   state.filters = normalized.filters;
   if (normalized.changed) changed = true;
+  if (!Array.isArray(stored.collapsed)) changed = true;
   if (changed) persistMasterViewState();
 }
 
@@ -4157,6 +4256,10 @@ function renderPlanningRoster() {
 
 function init() {
   initTheme();
+  if (publicProgramDashboardSlug()) {
+    loadPublicProgramDashboard();
+    return;
+  }
   bindWorkspaceViewPreferences();
   bindAuthUI();
   bindTopbarCreateMenu();

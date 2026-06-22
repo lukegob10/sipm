@@ -83,6 +83,7 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    public_program_dashboard_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
 

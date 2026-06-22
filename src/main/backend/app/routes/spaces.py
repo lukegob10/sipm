@@ -311,9 +311,14 @@ def update_space(
     space_id: str,
     payload: SpaceUpdate,
     session: Session = Depends(get_db),
-    _admin: User = Depends(require_global_admin),
+    _current_user: User = Depends(require_user),
+    ctx=Depends(current_space),
 ) -> SpaceRead:
     space = _space_or_404(session, space_id)
+    wants_admin_only_change = payload.name is not None or payload.is_active is not None
+    if wants_admin_only_change and not ctx.is_global_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
+    _ensure_space_admin_access(ctx, space_id)
     if payload.name is not None:
         space.name = _validate_space_name(payload.name)
     if payload.is_active is not None:
@@ -322,6 +327,13 @@ def update_space(
             space.archived_at = datetime.now(timezone.utc)
         else:
             space.archived_at = None
+    if payload.public_program_dashboard_enabled is not None:
+        if not space.is_active and bool(payload.public_program_dashboard_enabled):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Reactivate the space before exposing the public dashboard",
+            )
+        space.public_program_dashboard_enabled = bool(payload.public_program_dashboard_enabled)
     space.updated_at = datetime.now(timezone.utc)
     try:
         session.add(space)

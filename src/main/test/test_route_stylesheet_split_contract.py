@@ -60,6 +60,21 @@ def test_planning_work_allocation_styles_move_into_route_partial_and_drop_stale_
         assert stale_snippet not in all_styles
 
 
+def test_planning_backlog_rail_contains_chips_and_helper_copy():
+    route_text = PLANNING_STYLES.read_text(encoding="utf-8")
+
+    for snippet in [
+        ".wab-side-rail {box-sizing:border-box;min-width:0;max-width:100%;",
+        ".wab-side-rail {box-sizing:border-box;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:10px;padding:8px;display:grid;gap:8px;align-self:start;overflow:hidden;}",
+        ".wab-task-list {box-sizing:border-box;min-width:0;max-width:100%;",
+        ".wab-task-chip {box-sizing:border-box;min-width:0;max-width:100%;width:100%;",
+        ".wab-task-chip-title {min-width:0;",
+        ".wab-task-chip-meta {min-width:0;",
+        "overflow-wrap:anywhere;",
+    ]:
+        assert snippet in route_text
+
+
 def test_team_capacity_styles_move_into_route_partial():
     route_text = TEAM_CAPACITY_STYLES.read_text(encoding="utf-8")
     shared_text = SHARED_STYLES.read_text(encoding="utf-8")

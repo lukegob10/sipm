@@ -12,6 +12,7 @@ export function createLiveSyncController({
   refreshSpaceContext,
   reloadCurrentViewData,
   refreshFromServer,
+  refreshAgentChangeRequests = null,
   handleAuthError,
   handleSessionExpired,
   renderTopbarStatus,
@@ -270,7 +271,16 @@ export function createLiveSyncController({
       if (socket !== liveSyncSocket) return;
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === "refresh") refreshFromServer(msg.entity || "all");
+        if (msg.type === "refresh") {
+          const entity = msg.entity || "all";
+          if (entity === "agent_change_requests" && typeof refreshAgentChangeRequests === "function") {
+            refreshAgentChangeRequests({ force: true }).catch((err) => {
+              console.warn("Agent approvals live refresh failed", err);
+            });
+            return;
+          }
+          refreshFromServer(entity);
+        }
       } catch (err) {
         console.warn("Live message parse failed", err);
       }

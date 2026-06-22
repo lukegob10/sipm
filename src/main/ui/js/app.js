@@ -736,6 +736,7 @@ function initShellControllers() {
     refreshSpaceContext,
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     refreshFromServer: (...args) => dataStoreController.refreshFromServer(...args),
+    refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
     handleAuthError: (...args) => sessionController.handleAuthError(...args),
     handleSessionExpired: (...args) => sessionController.handleSessionExpired(...args),
     renderTopbarStatus,

@@ -68,6 +68,8 @@ describe("live sync controller", () => {
     };
     const refreshSessionTokens = vi.fn().mockResolvedValue({ user_id: "user-1" });
     const reloadCurrentViewData = vi.fn().mockResolvedValue(undefined);
+    const refreshFromServer = vi.fn();
+    const refreshAgentChangeRequests = vi.fn().mockResolvedValue([]);
     const controller = createLiveSyncController({
       state,
       buildWsUrl: (path) => `ws://127.0.0.1:8000${path}`,
@@ -75,7 +77,8 @@ describe("live sync controller", () => {
       refreshSessionTokens,
       refreshSpaceContext: vi.fn().mockResolvedValue(undefined),
       reloadCurrentViewData,
-      refreshFromServer: vi.fn(),
+      refreshFromServer,
+      refreshAgentChangeRequests,
       handleAuthError: vi.fn(() => false),
       handleSessionExpired: vi.fn(),
       renderTopbarStatus: vi.fn(),
@@ -83,7 +86,7 @@ describe("live sync controller", () => {
       spaceNameForId: (spaceId) => spaceId,
       clearDataState: vi.fn(),
     });
-    return { controller, refreshSessionTokens };
+    return { controller, refreshAgentChangeRequests, refreshFromServer, refreshSessionTokens };
   }
 
   it("retries websocket auth failures by refreshing the session", async () => {
@@ -113,5 +116,21 @@ describe("live sync controller", () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
     vi.runOnlyPendingTimers();
     expect(FakeWebSocket.instances.length).toBeGreaterThan(1);
+  });
+
+  it("refreshes agent approvals directly from websocket messages", async () => {
+    const { controller, refreshAgentChangeRequests, refreshFromServer } = createHarness();
+
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("message", {
+      data: JSON.stringify({ type: "refresh", entity: "agent_change_requests" }),
+    });
+
+    await vi.waitFor(() => {
+      expect(refreshAgentChangeRequests).toHaveBeenCalledWith({ force: true });
+    });
+    expect(refreshFromServer).not.toHaveBeenCalled();
   });
 });

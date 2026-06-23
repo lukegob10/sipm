@@ -205,21 +205,21 @@ def test_dashboard_theme_converges_toward_product_object_language():
     assert "#view-dashboard #dashboard-backlog {" in text
     assert "border: 1px solid var(--product-border, var(--border));" in text
     assert "border-radius: 8px;" in text
-    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
-    assert "box-shadow:" in text
-    assert "inset 0 0 0 1px rgba(255, 255, 255, 0.03)" in text
+    assert "background: var(--surface-sunken);" in text
+    assert "box-shadow: none;" in text
     assert ".dashboard-table-shell {" in text
+    assert "background: var(--data-canvas);" in text
     assert ".dashboard-main-table tbody tr:nth-child(even)," in text
-    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in text
+    assert "background: var(--table-row-alt-bg);" in text
     assert "#view-dashboard .dashboard-condensed-table tbody tr:hover td {" in text
     assert "background: var(--hover);" in text
-    assert "background: var(--product-table-head" in text
+    assert "background: var(--table-header-bg);" in text
     assert "#view-dashboard .dashboard-main-head," in text
     assert "#view-dashboard .dashboard-card-head {" in text
     dashboard_head_block = text[text.index("#view-dashboard .dashboard-main-head,"):text.index("#view-dashboard .dashboard-title-block,")]
-    assert "background: var(--product-table-head" in dashboard_head_block
-    assert "color: var(--product-table-head-text" in dashboard_head_block
-    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in dashboard_head_block
+    assert "background: var(--section-header-bg);" in dashboard_head_block
+    assert "color: var(--text-strong);" in dashboard_head_block
+    assert "box-shadow: none;" in dashboard_head_block
 
 def test_dashboard_chips_and_capacity_bars_use_compact_tokenized_styling():
     text = read_ui_styles(STYLES_CSS)
@@ -306,8 +306,8 @@ def test_program_dashboard_theme_converges_toward_gantt_object_language():
     assert ".program-dashboard-table-shell {" in text
     assert ".program-dashboard-table-actions {" in text
     assert "justify-content: flex-start;" in text
-    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in text
-    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in text
+    assert "background: var(--data-canvas);" in text
+    assert "box-shadow: none;" in text
     assert ".program-dashboard-row-program .program-dashboard-level-marker {" in text
     assert "background: var(--text-strong);" in text
     assert ".program-dashboard-row-project .program-dashboard-level-marker {" in text
@@ -323,9 +323,9 @@ def test_program_dashboard_theme_converges_toward_gantt_object_language():
     assert ".program-dashboard-project-grid .program-dashboard-project-row .program-dashboard-grid-cell {" in text
     assert "background: color-mix(in srgb, var(--panel) 86%, transparent);" in text
     grid_header_block = text[text.index(".program-dashboard-grid-header .program-dashboard-grid-cell {"):text.index(".program-dashboard-deliverable-cell {")]
-    assert "background: var(--product-table-head" in grid_header_block
-    assert "color: var(--product-table-head-text" in grid_header_block
-    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in grid_header_block
+    assert "background: var(--table-header-bg);" in grid_header_block
+    assert "color: var(--text-strong);" in grid_header_block
+    assert "box-shadow: none;" in grid_header_block
     assert "box-shadow: 0 0 9px" not in text[text.index(".program-dashboard-progress span {"):text.index(".program-dashboard-progress strong {")]
 
 

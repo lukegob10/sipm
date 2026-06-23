@@ -8,19 +8,18 @@
   padding: 10px;
   border: 1px solid var(--product-border, var(--border));
   border-radius: var(--route-surface-radius);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  background: var(--data-canvas);
+  box-shadow: none;
   overflow: auto;
 }
 .kanban-column {
-  background: color-mix(in srgb, var(--panel-soft) 86%, transparent);
+  background: var(--surface-sunken);
   border: 1px solid var(--border);
   border-radius: var(--route-surface-radius);
   padding: 10px;
 }
 .kanban-card {
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--route-card-radius);
   padding: 10px;
@@ -74,7 +73,7 @@
   border: 1px solid var(--product-border, var(--border));
   border-radius: var(--route-surface-radius);
   padding: 12px;
-  background: color-mix(in srgb, var(--panel) 90%, transparent);
+  background: var(--surface-raised);
   box-shadow: none;
 }
 .kanban-project-title {
@@ -144,9 +143,8 @@
   padding: 10px;
   border: 1px solid var(--product-border, var(--border));
   border-radius: var(--route-surface-radius);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  background: var(--data-canvas);
+  box-shadow: none;
   overflow: auto;
 }
 .calendar-weekdays,
@@ -169,7 +167,7 @@
   align-items: stretch;
 }
 .calendar-cell {
-  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
+  background: var(--surface-sunken);
   border: 1px solid var(--border);
   border-radius: var(--route-surface-radius);
   padding: 10px;
@@ -181,7 +179,7 @@
   cursor: pointer;
 }
 .calendar-cell.empty {
-  background: color-mix(in srgb, var(--panel) 44%, transparent);
+  background: var(--surface-sunken);
   border-style: dashed;
 }
 .calendar-cell.today {
@@ -206,7 +204,7 @@
   font-weight: var(--route-control-font-weight);
 }
 .calendar-item {
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--route-card-radius);
   padding: 6px;
@@ -327,7 +325,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--panel);
+  background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: var(--modal-shell-padding);
@@ -382,7 +380,7 @@ button.primary.danger:hover {
   border-radius: 12px;
   padding: 20px 16px;
   text-align: center;
-  background: var(--panel-soft);
+  background: var(--surface-sunken);
   cursor: pointer;
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
@@ -445,7 +443,7 @@ button.primary.danger:hover {
   z-index: 4;
   margin: calc(var(--modal-shell-padding) * -1) calc(var(--modal-shell-padding) * -1) 12px;
   padding: 12px var(--modal-shell-padding) 10px;
-  background: var(--panel);
+  background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
 }
 .modal-sticky-chrome {
@@ -453,7 +451,7 @@ button.primary.danger:hover {
   top: calc(var(--modal-shell-padding) * -1);
   z-index: 4;
   margin: calc(var(--modal-shell-padding) * -1) calc(var(--modal-shell-padding) * -1) 12px;
-  background: var(--panel);
+  background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
 }
 .modal-sticky-chrome .modal-header-sticky {

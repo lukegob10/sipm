@@ -8,6 +8,7 @@ async function loadLocalAuthedApp(page) {
   const soeid = `theme${suffix}`.replace(/[^a-z0-9]/g, "").slice(0, 20);
   const programName = `Theme Program ${suffix}`;
   const projectName = `Theme Project ${suffix}`;
+  const solutionName = `Theme Solution ${suffix}`;
 
   const register = await page.request.post("/project-manager/api/auth/register", {
     data: {
@@ -36,6 +37,28 @@ async function loadLocalAuthedApp(page) {
     },
   });
   expect(project.ok()).toBeTruthy();
+  const projectBody = await project.json();
+
+  const solution = await page.request.post(`/project-manager/api/projects/${projectBody.project_id}/solutions`, {
+    data: {
+      solution_name: solutionName,
+      owner: "Theme Owner",
+      status: "active",
+      rag_status: "amber",
+    },
+  });
+  expect(solution.ok()).toBeTruthy();
+  const solutionBody = await solution.json();
+
+  const task = await page.request.post(`/project-manager/api/solutions/${solutionBody.solution_id}/tasks`, {
+    data: {
+      task_name: `Theme Task ${suffix}`,
+      status: "in_progress",
+      priority: 2,
+      blocked: false,
+    },
+  });
+  expect(task.ok()).toBeTruthy();
 
   await page.goto("/");
   await expect(page.locator("#app-shell")).toBeVisible();
@@ -55,7 +78,7 @@ async function openRoute(page, view, waitForSelector) {
   const domView = view === "access" ? "spaces" : view;
   await expect(page.locator(`#view-${domView}`)).toHaveClass(/active/);
   if (waitForSelector) {
-    await expect(page.locator(waitForSelector)).toBeVisible();
+    await expect(page.locator(waitForSelector).first()).toBeVisible();
   }
   await page.waitForTimeout(250);
 }
@@ -176,6 +199,16 @@ test("shared controls keep readable contrast in light and dark themes", async ({
       ],
     },
     {
+      view: "pm-dashboard",
+      waitFor: "#view-pm-dashboard.active",
+      selectors: [
+        { selector: "#view-pm-dashboard .pm-kpi-card", label: "pm kpi card" },
+        { selector: "#view-pm-dashboard .pm-focus-nav-button.active", label: "pm active focus tab" },
+        { selector: "#view-pm-dashboard .pm-dashboard-card.active", label: "pm dashboard card" },
+        { selector: "#view-pm-dashboard .pm-action-row", label: "pm action row" },
+      ],
+    },
+    {
       view: "dashboard",
       waitFor: "#dashboard-space-capacity",
       selectors: [
@@ -193,6 +226,26 @@ test("shared controls keep readable contrast in light and dark themes", async ({
         { selector: "#program-dashboard-root .program-dashboard-table-action", label: "program table action" },
         { selector: "#program-dashboard-root .program-dashboard-status", label: "program status pill" },
         { selector: "#program-dashboard-root .program-dashboard-grid-header .program-dashboard-grid-cell", label: "program table header" },
+      ],
+    },
+    {
+      view: "tasks-workbench",
+      waitFor: "#tasks-workbench-table",
+      selectors: [
+        { selector: "#view-tasks-workbench .kpi-card", label: "tasks kpi card" },
+        { selector: "#view-tasks-workbench .task-workbench-main", label: "tasks workbench shell" },
+        { selector: "#view-tasks-workbench .task-workbench-filters-table th", label: "tasks filter header" },
+        { selector: "#view-tasks-workbench .task-workbench-table th", label: "tasks table header" },
+      ],
+    },
+    {
+      view: "kanban",
+      waitFor: "#kanban-board",
+      selectors: [
+        { selector: "#kanban-board", label: "kanban board" },
+        { selector: "#kanban-board .kanban-project", label: "kanban project" },
+        { selector: "#kanban-board .kanban-column", label: "kanban column" },
+        { selector: "#kanban-board .kanban-card", label: "kanban card" },
       ],
     },
     {

@@ -9,11 +9,8 @@
   border: 1px solid var(--product-border, var(--border));
   border-radius: 8px;
   padding: 8px 10px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
-    0 10px 24px rgba(0, 0, 0, 0.12);
+  background: var(--surface-sunken);
+  box-shadow: none;
 }
 
 .task-workbench-layout {
@@ -34,9 +31,8 @@
   padding: 8px;
   border: 1px solid var(--product-border, var(--border));
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  background: var(--surface-sunken);
+  box-shadow: none;
   overflow: hidden;
   position: relative;
   z-index: 1;
@@ -52,8 +48,7 @@
   overflow-y: visible;
   border-color: var(--product-border, var(--border));
   border-radius: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
+  background: var(--data-canvas);
 }
 
 .task-workbench-filters-table {
@@ -228,7 +223,7 @@
   overflow: hidden;
   border-color: var(--product-border, var(--border));
   border-radius: 12px;
-  background: var(--panel);
+  background: var(--surface-raised);
 }
 
 .task-workbench-editor-actions {
@@ -254,8 +249,7 @@
   border: 1px solid var(--product-border, var(--border));
   border-radius: 8px;
   padding: 8px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));
+  background: var(--surface-sunken);
 }
 
 .task-workbench-editor-activity h4 {
@@ -371,10 +365,10 @@
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--product-table-head, linear-gradient(180deg, rgba(102, 118, 138, 0.86), rgba(82, 97, 116, 0.86)));
-  color: var(--product-table-head-text, var(--text-strong));
+  background: var(--table-header-bg, var(--product-table-head, linear-gradient(180deg, rgba(102, 118, 138, 0.86), rgba(82, 97, 116, 0.86))));
+  color: var(--text-strong);
   border-bottom-color: color-mix(in srgb, var(--border) 74%, transparent);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+  box-shadow: none;
   height: var(--route-table-header-height);
   font-size: var(--route-table-header-font-size);
   font-weight: var(--route-table-header-font-weight);
@@ -383,11 +377,11 @@
 }
 
 #view-tasks-workbench .task-workbench-table tbody tr {
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  background: var(--table-row-bg);
 }
 
 #view-tasks-workbench .task-workbench-table tbody tr:nth-child(even) {
-  background: color-mix(in srgb, var(--panel-soft) 84%, transparent);
+  background: var(--table-row-alt-bg);
 }
 
 #view-tasks-workbench .task-workbench-table tbody tr:hover td {

@@ -125,6 +125,21 @@ def test_master_deliverables_uses_program_project_solution_outline():
     assert 'data-master-outline-action="collapse-all"' in master_text
     assert "#view-master #master-table .deliverables-table tr.deliverable-row-program-header td" in styles_text
     assert "#view-master #master-table .deliverables-table tr.deliverable-row-project-header td" in styles_text
+    assert "--deliverable-program-row-bg:" in styles_text
+    assert "--deliverable-program-accent:" in styles_text
+    assert "--deliverable-project-row-bg:" in styles_text
+    assert "--deliverable-project-accent:" in styles_text
+    assert "--deliverable-program-kicker-text:" in styles_text
+    assert "--deliverable-project-kicker-text:" in styles_text
+    assert "--deliverable-solution-row-bg:" in styles_text
+    assert "--deliverable-solution-accent: var(--solution-pill-dot);" in styles_text
+    assert "--deliverable-program-accent: var(--calendar-task-border);" in styles_text
+    assert "var(--product-surface-soft" in styles_text
+    assert "--deliverable-project-row-border: var(--project-pill-border);" in styles_text
+    assert "--deliverable-project-accent: var(--project-pill-dot);" in styles_text
+    assert "border-left-color: var(--deliverable-program-accent);" in styles_text
+    assert "border-left-color: var(--deliverable-project-accent);" in styles_text
+    assert "border-left: 4px solid var(--deliverable-solution-accent);" in styles_text
 
 
 def test_master_deliverables_uses_shared_product_route_shell():
@@ -186,8 +201,8 @@ def test_master_deliverables_table_uses_product_object_shell_texture():
     assert "#view-master #master-table {" in styles_text
     assert "border: 1px solid var(--product-border, var(--border));" in styles_text
     assert "border-radius: 8px;" in styles_text
-    assert "linear-gradient(180deg, color-mix(in srgb, var(--panel-soft) 78%, transparent), color-mix(in srgb, var(--panel) 86%, transparent));" in styles_text
-    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in styles_text
+    assert "background: var(--data-canvas);" in styles_text
+    assert "box-shadow: none;" in styles_text
     assert "#view-master .panel-toolbar.compact {" in styles_text
     assert "#view-master .quickstart-card {" in styles_text
 
@@ -196,21 +211,60 @@ def test_master_deliverables_rows_and_headers_match_modern_object_language():
     styles_text = read_ui_styles(STYLES_CSS)
 
     assert "#view-master #master-table .deliverables-table tbody tr:nth-child(even) {" in styles_text
-    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in styles_text
+    assert "background: var(--table-row-alt-bg);" in styles_text
     assert "#view-master #master-table .deliverables-table tbody tr:hover," in styles_text
     assert "background: var(--hover);" in styles_text
     assert "#view-master #master-table .deliverables-table tr.deliverable-row-program-header td" in styles_text
     assert "#view-master #master-table .deliverables-table tr.deliverable-row-project-header td" in styles_text
+    assert "#view-master #master-table .deliverables-table tr.deliverable-row-program-header:hover td" in styles_text
+    assert "#view-master #master-table .deliverables-table tr.deliverable-row-project-header:hover td" in styles_text
+    assert "background:\n    linear-gradient(90deg, var(--deliverable-program-row-bg)" in styles_text
+    assert "background:\n    linear-gradient(90deg, var(--deliverable-project-row-bg)" in styles_text
+    program_header_block = styles_text.split(
+        "#view-master #master-table .deliverables-table tr.deliverable-row-program-header td {",
+        1,
+    )[1].split("}", 1)[0]
+    assert "padding-left: 0;" in program_header_block
+    assert "padding-right: 0;" in program_header_block
     assert ".deliverable-program-band" in styles_text
     assert ".deliverable-project-band" in styles_text
     assert ".deliverable-outline-title" in styles_text
+    outline_title_block = styles_text.split(
+        "#view-master #master-table .deliverables-table .deliverable-outline-title {",
+        1,
+    )[1].split("}", 1)[0]
+    assert "display: inline-flex;" in outline_title_block
+    assert "align-items: center;" in outline_title_block
+    assert "gap: 8px;" in outline_title_block
     assert ".deliverable-outline-kicker" in styles_text
     assert ".deliverable-outline-summary" in styles_text
+    outline_main_block = styles_text.split(
+        "#view-master #master-table .deliverables-table .deliverable-outline-main {",
+        1,
+    )[1].split("}", 1)[0]
+    assert "flex: 0 1 auto;" in outline_main_block
+    outline_summary_block = styles_text.split(
+        "#view-master #master-table .deliverables-table .deliverable-outline-summary {",
+        1,
+    )[1].split("}", 1)[0]
+    assert "margin-left: auto;" in outline_summary_block
+    assert "text-align: right;" in outline_summary_block
     assert ".master-outline-toggle" in styles_text
     assert ".master-tree-toggle-icon" in styles_text
+    assert ".deliverable-program-band .deliverable-outline-kicker" in styles_text
+    assert ".deliverable-project-band .deliverable-outline-kicker" in styles_text
+    assert "background: var(--deliverable-program-kicker-bg);" in styles_text
+    assert "color: var(--deliverable-program-kicker-text);" in styles_text
+    assert "background: var(--deliverable-project-kicker-bg);" in styles_text
+    assert "color: var(--deliverable-project-kicker-text);" in styles_text
+    assert "\n  color: var(--deliverable-program-accent);" not in styles_text
     assert ".deliverable-tree-cell::before" in styles_text
     assert ".deliverable-tree-depth-project" in styles_text
     assert ".deliverable-tree-depth-solution" in styles_text
+    assert "--deliverable-tree-indent: 34px;" in styles_text
+    assert "--deliverable-tree-control-offset: 34px;" in styles_text
+    assert "padding-left: var(--deliverable-tree-indent);" in styles_text
+    assert "padding-left: calc((var(--deliverable-tree-indent) * 2) + var(--deliverable-tree-control-offset));" in styles_text
     assert "font-weight: 700;" in styles_text
     assert "#view-master #master-table .deliverables-table .pill {" in styles_text
     assert "border-radius: 5px;" in styles_text

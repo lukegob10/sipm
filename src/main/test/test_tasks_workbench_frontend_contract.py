@@ -103,15 +103,15 @@ def test_workbench_status_cells_use_shared_status_pills_and_compact_table_langua
     assert "statusPillMarkup(row.status, statusLabel)" in route_text
     assert 'class="task-workbench-status-cell"' in route_text
     assert ".task-workbench-table thead th {" in styles_text
-    assert "background: var(--product-table-head" in styles_text
+    assert "background: var(--table-header-bg);" in styles_text
     task_header_block = styles_text[
         styles_text.index("#view-tasks-workbench .task-workbench-table thead th {"):
         styles_text.index("#view-tasks-workbench .task-workbench-table tbody tr {")
     ]
-    assert "color: var(--product-table-head-text" in task_header_block
-    assert "box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);" in task_header_block
+    assert "color: var(--text-strong);" in task_header_block
+    assert "box-shadow: none;" in task_header_block
     assert "#view-tasks-workbench .task-workbench-table tbody tr:nth-child(even) {" in styles_text
-    assert "background: color-mix(in srgb, var(--panel-soft) 84%, transparent);" in styles_text
+    assert "background: var(--table-row-alt-bg);" in styles_text
     assert ".task-workbench-table tbody tr:hover td {" in styles_text
     assert ".task-workbench-table .pill {" in styles_text
     assert "border-radius: 5px;" in styles_text

@@ -60,7 +60,8 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'event.composedPath()' in interactions_text
     assert 'classList.contains("space-member-actions")' in interactions_text
     assert "Workspace atlas" in render_text
-    assert "space-directory-card-fact" in render_text
+    assert "space-directory-table" in render_text
+    assert "space-directory-space-cell" in render_text
     assert 'data-space-action="open-directory-space"' in render_text
 
 
@@ -166,8 +167,9 @@ def test_space_governance_styles_cover_compact_switcher_and_hub():
         ".space-directory-stat",
         ".space-action-menu",
         ".space-member-actions",
-        ".space-directory-card-fact",
-        ".space-directory-card-note",
+        ".space-directory-table",
+        ".space-directory-space-cell",
+        ".space-directory-actions",
         ".space-directory-modal-shell",
         ".space-directory-preview-hero",
         ".platform-reset-grid",

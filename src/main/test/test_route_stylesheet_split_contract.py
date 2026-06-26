@@ -100,7 +100,7 @@ def test_space_governance_styles_move_into_route_partial():
         ".space-governance-shell {",
         ".space-directory-overview {",
         ".platform-reset-grid {",
-        ".theme-light .space-directory-card.is-selected {",
+        ".theme-light .space-directory-row.is-selected td {",
     ]:
         assert snippet in route_text
         assert snippet not in shared_text

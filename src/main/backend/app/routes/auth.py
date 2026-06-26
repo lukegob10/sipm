@@ -315,6 +315,8 @@ def get_active_space(
         space_name=ctx.space_name,
         space_role=ctx.space_role,
         is_global_admin=ctx.is_global_admin,
+        space_kind=ctx.space_kind,
+        owner_user_id=ctx.owner_user_id,
         usage_analytics_enabled=usage_analytics_enabled(),
     )
 
@@ -339,5 +341,7 @@ def switch_active_space(
         space_name=ctx.space_name,
         space_role=ctx.space_role,
         is_global_admin=ctx.is_global_admin,
+        space_kind=ctx.space_kind,
+        owner_user_id=ctx.owner_user_id,
         usage_analytics_enabled=usage_analytics_enabled(),
     )

@@ -7,6 +7,8 @@ import {
   splitProgramName,
 } from "../../js/routes/program-dashboard/render.js";
 import { renderAccess } from "../../js/routes/access.js";
+import { calculateTableMinWidth, renderSectionTable } from "../../js/routes/dashboard/common.js";
+import { createDashboardState, renderDashboardView } from "../../js/routes/dashboard/render.js";
 import { renderSpaces } from "../../js/routes/spaces.js";
 import { renderTasksWorkbench } from "../../js/routes/tasks-workbench.js";
 import { renderTeamCapacity } from "../../js/routes/team-capacity.js";
@@ -43,6 +45,95 @@ describe("simple route rendering", () => {
     expect(renderGovernanceHub).toHaveBeenNthCalledWith(1, "platform-access");
     expect(renderGovernanceHub).toHaveBeenNthCalledWith(2, "current-space");
     expect(renderGovernanceHub).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps dashboard tables wide enough for long solution names when extra columns are selected", () => {
+    const compactColumns = ["solution", "completed"];
+    const expandedColumns = ["solution", "project", "status", "rag", "timing", "completed", "fte", "owner"];
+    const columnDefs = {
+      solution: { label: "Solution", render: (row) => row.solutionName },
+      project: { label: "Project", render: (row) => row.projectName },
+      status: { label: "Status", render: (row) => row.status },
+      rag: { label: "RAG", render: (row) => row.rag },
+      timing: { label: "Timing", render: (row) => row.timing },
+      completed: { label: "Completed", render: (row) => row.completed },
+      fte: { label: "FTE-mo", render: (row) => row.fte },
+      owner: { label: "Owner", render: (row) => row.owner },
+    };
+
+    const html = renderSectionTable({
+      columns: expandedColumns,
+      rows: [{
+        solutionName: "A very long solution name that should not force the card into a compressed table",
+        projectName: "Project",
+        status: "Complete",
+        rag: "Green",
+        timing: "Due in 2d",
+        completed: "2026-06-25",
+        fte: "1.00",
+        owner: "Owner",
+      }],
+      columnDefs,
+      tableClass: "dashboard-mini-table",
+      emptyText: "No rows",
+    });
+
+    expect(calculateTableMinWidth(expandedColumns)).toBeGreaterThan(calculateTableMinWidth(compactColumns));
+    expect(html).toContain(`min-width:${calculateTableMinWidth(expandedColumns)}px;`);
+  });
+
+  it("paginates current dashboard deliverables with centered caret controls", () => {
+    document.body.innerHTML = `
+      <section id="view-dashboard">
+        <div id="dashboard-space-capacity"></div>
+        <div id="dashboard-top-projects"></div>
+        <div id="dashboard-completed-quarter"></div>
+        <div id="dashboard-upcoming-quarter"></div>
+        <div id="dashboard-backlog"></div>
+      </section>
+    `;
+    vi.stubGlobal("innerHeight", 760);
+    const dashboardState = createDashboardState();
+    const solutions = Array.from({ length: 7 }, (_, index) => ({
+      solution_id: `solution-${index + 1}`,
+      project_id: "project-1",
+      solution_name: `Solution ${String(index + 1).padStart(2, "0")}`,
+      status: "active",
+      due_date: "2026-07-15",
+    }));
+
+    renderDashboardView(dashboardState, {
+      state: {
+        activeSpace: { space_id: "space-1" },
+        projects: [{ project_id: "project-1", project_name: "Project One" }],
+        solutions,
+        tasks: [],
+        users: [],
+      },
+      els: {
+        dashboardSpaceCapacity: document.getElementById("dashboard-space-capacity"),
+        dashboardTopProjects: document.getElementById("dashboard-top-projects"),
+        dashboardCompletedQuarter: document.getElementById("dashboard-completed-quarter"),
+        dashboardUpcomingQuarter: document.getElementById("dashboard-upcoming-quarter"),
+        dashboardBacklog: document.getElementById("dashboard-backlog"),
+      },
+      formatStatus: (value) => value,
+    });
+
+    const root = document.getElementById("dashboard-top-projects");
+    expect(root.textContent).toContain("Solution 01");
+    expect(root.textContent).not.toContain("Solution 07");
+    expect(root.querySelector(".dashboard-pagination")?.textContent).toContain("Page 1 of 2");
+    expect(root.querySelector(".dashboard-page-range")?.textContent).toBe("1-5 of 7");
+    expect(root.querySelector("[data-dashboard-page-direction='prev']")?.disabled).toBe(true);
+
+    root.querySelector("[data-dashboard-page-direction='next']")?.click();
+
+    expect(root.textContent).not.toContain("Solution 01");
+    expect(root.textContent).toContain("Solution 07");
+    expect(root.querySelector(".dashboard-pagination")?.textContent).toContain("Page 2 of 2");
+    expect(root.querySelector(".dashboard-page-range")?.textContent).toBe("6-7 of 7");
+    expect(root.querySelector("[data-dashboard-page-direction='next']")?.disabled).toBe(true);
   });
 
   it("renders team capacity summaries with filters, allocation load, and escaped labels", () => {
@@ -751,6 +842,52 @@ describe("simple route rendering", () => {
     expect(selectedCheckbox?.checked).toBe(true);
     expect(unselectedCheckbox?.checked).toBe(false);
     expect(root.textContent).toContain("Selected Project");
+  });
+
+  it("keeps the program picker open while selecting multiple programs", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramIds: ["program-1"],
+    }));
+    const programDashboardState = createProgramDashboardState();
+
+    renderProgramDashboardView(programDashboardState, {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [
+          { program_id: "program-1", program_name: "Program One" },
+          { program_id: "program-2", program_name: "Program Two" },
+        ],
+        projects: [
+          { project_id: "project-1", program_id: "program-1", project_name: "Project One", status: "active" },
+          { project_id: "project-2", program_id: "program-2", project_name: "Project Two", status: "active" },
+        ],
+        solutions: [],
+      },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+    });
+
+    const firstPicker = document.querySelector(".program-dashboard-picker-menu");
+    firstPicker.open = true;
+    document.querySelector("[data-program-dashboard-control='program'][value='program-2']")?.click();
+
+    const rerenderedPicker = document.querySelector(".program-dashboard-picker-menu");
+    expect(rerenderedPicker.open).toBe(true);
+    expect(document.querySelector(".program-dashboard-picker summary")?.textContent).toBe("Multiple selected");
+    expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.selectedProgramIds).toEqual([
+      "program-1",
+      "program-2",
+    ]);
+
+    document.body.click();
+
+    expect(document.querySelector(".program-dashboard-picker-menu")?.open).toBe(false);
   });
 
   it("renders program dashboard empty states for missing programs and empty project lists", () => {

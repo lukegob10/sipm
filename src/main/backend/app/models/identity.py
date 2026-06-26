@@ -83,6 +83,13 @@ class Space(TimestampMixin, SoftDeleteMixin, Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    space_kind: Mapped[str] = mapped_column(String, nullable=False, default="collaboration", index=True)
+    owner_user_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=True,
+        index=True,
+    )
     public_program_dashboard_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
 
@@ -108,6 +115,37 @@ class SpaceMembership(TimestampMixin, SoftDeleteMixin, Base):
     )
     role: Mapped[str] = mapped_column(String, nullable=False, default="member", index=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active", index=True)
+
+
+class SpaceAccessRequest(TimestampMixin, Base):
+    __tablename__ = physical_table_name("space_access_requests")
+    __table_args__ = (
+        Index("idx_space_access_request_space_status", "space_id", "status", "created_at"),
+        Index("idx_space_access_request_requester_status", "requester_user_id", "status", "created_at"),
+    )
+
+    request_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    space_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("spaces", "space_id")),
+        nullable=False,
+        index=True,
+    )
+    requester_user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=False,
+        index=True,
+    )
+    requested_role: Mapped[str] = mapped_column(String, nullable=False, default="member")
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending", index=True)
+    decided_by_user_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=True,
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decision_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class ChangeLog(Base):
@@ -188,6 +226,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 __all__ = [
     "ChangeLog",
     "Space",
+    "SpaceAccessRequest",
     "SpaceMembership",
     "Team",
     "TeamMember",

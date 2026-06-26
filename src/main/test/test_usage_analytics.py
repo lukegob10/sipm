@@ -522,6 +522,100 @@ async def test_usage_analytics_aggregates_scope_and_math(analytics_client, db_se
 
 
 @pytest.mark.anyio
+async def test_usage_analytics_all_spaces_excludes_personal_spaces_by_default(analytics_client, db_sessionmaker):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    today = now.date()
+
+    with db_sessionmaker() as session:
+        session.add(
+            Space(
+                space_id="personal-analytics-space",
+                name="Personal Analytics Space",
+                slug="personal-analytics-space",
+                is_active=True,
+                space_kind="personal",
+            )
+        )
+        session.add_all(
+            [
+                UsageDailyRollup(
+                    rollup_date=today,
+                    space_id="space-1",
+                    view_key="master",
+                    category="navigation",
+                    feature_key="navigation",
+                    action_key="route_view",
+                    outcome="success",
+                    event_count=1,
+                    route_view_count=1,
+                    workflow_action_count=0,
+                    success_count=1,
+                    failure_count=0,
+                    last_occurred_at=now,
+                ),
+                UsageDailyRollup(
+                    rollup_date=today,
+                    space_id="personal-analytics-space",
+                    view_key="personal",
+                    category="navigation",
+                    feature_key="navigation",
+                    action_key="route_view",
+                    outcome="success",
+                    event_count=50,
+                    route_view_count=50,
+                    workflow_action_count=0,
+                    success_count=50,
+                    failure_count=0,
+                    last_occurred_at=now,
+                ),
+                PerformanceSample(
+                    sample_id="perf-collab-default-analytics",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id="session-collab",
+                    user_id="user-collab",
+                    space_id="space-1",
+                    view_key="master",
+                    sample_kind="navigation",
+                    navigation_type="navigate",
+                    load_event_ms=100,
+                ),
+                PerformanceSample(
+                    sample_id="perf-personal-default-analytics",
+                    occurred_at=now,
+                    received_at=now,
+                    session_id="session-personal",
+                    user_id="user-personal",
+                    space_id="personal-analytics-space",
+                    view_key="personal",
+                    sample_kind="navigation",
+                    navigation_type="navigate",
+                    load_event_ms=900,
+                ),
+            ]
+        )
+        session.commit()
+
+    routes = await analytics_client.get("/project-manager/api/analytics/routes?days=30&all_spaces=true")
+    assert routes.status_code == 200, routes.text
+    route_keys = [row["view_key"] for row in routes.json()["top_routes"]]
+    assert route_keys == ["master"]
+
+    performance = await analytics_client.get("/project-manager/api/analytics/performance?days=30&all_spaces=true")
+    assert performance.status_code == 200, performance.text
+    performance_payload = performance.json()
+    assert performance_payload["summary"]["navigation_samples"] == 1
+    assert performance_payload["summary"]["median_load_ms"] == 100
+    assert [row["view_key"] for row in performance_payload["routes"]] == ["master"]
+
+    explicit_personal = await analytics_client.get(
+        "/project-manager/api/analytics/performance?days=30&space_id=personal-analytics-space"
+    )
+    assert explicit_personal.status_code == 200, explicit_personal.text
+    assert explicit_personal.json()["summary"]["median_load_ms"] == 900
+
+
+@pytest.mark.anyio
 async def test_usage_analytics_rejects_unknown_requested_space(analytics_client):
     response = await analytics_client.get("/project-manager/api/analytics/summary?days=30&space_id=missing-space")
 

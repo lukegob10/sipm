@@ -11,6 +11,7 @@ export function createRouterController({
   loadData,
   loadTeamCapacityData,
   onBeforeViewChange = null,
+  onAccessRedirect = null,
   onModuleLoadFailure = null,
   routeModuleLoaders = null,
 }) {
@@ -127,8 +128,15 @@ export function createRouterController({
     return isSpaceAdminRole(state.activeSpace?.space_role);
   }
 
+  function isLobbyActive() {
+    return state.authed && state.activeSpace?.space_kind === "lobby";
+  }
+
   function canAccessView(view) {
     const normalized = normalizeView(view);
+    if (isLobbyActive() && !["spaces", "access"].includes(normalized)) {
+      return false;
+    }
     if (normalized === "analytics") {
       return state.authed && userIsGlobalAdmin() && usageAnalyticsEnabled();
     }
@@ -140,7 +148,7 @@ export function createRouterController({
 
   function resolveAccessibleView(view) {
     const normalized = normalizeView(view);
-    if (!canAccessView(normalized)) return "master";
+    if (!canAccessView(normalized)) return isLobbyActive() ? "spaces" : "master";
     return normalized;
   }
 
@@ -210,6 +218,7 @@ export function createRouterController({
   }
 
   function entitiesForView(view) {
+    if (isLobbyActive() && normalizeView(view) === "spaces" && !userIsGlobalAdmin()) return [];
     return VIEW_DATA_REQUIREMENTS[normalizeView(view)] || VIEW_DATA_REQUIREMENTS.master;
   }
 
@@ -230,6 +239,13 @@ export function createRouterController({
     const redirected = requestedView !== nextView;
     const nextDomView = viewDomIdForRoute(nextView);
     const nextNavView = navViewForRoute(nextView);
+    if (redirected && isLobbyActive() && typeof onAccessRedirect === "function") {
+      onAccessRedirect({
+        requestedView,
+        nextView,
+        reason: "lobby",
+      });
+    }
     if (typeof onBeforeViewChange === "function") {
       onBeforeViewChange({
         previousView,

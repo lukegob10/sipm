@@ -28,6 +28,9 @@ export function createSpaceGovernanceController({
   const spaceMembersInFlight = {};
   const apiTokensInFlight = {};
   let agentChangeRequestsInFlight = null;
+  let requestableSpacesInFlight = null;
+  let accessRequestsInFlight = null;
+  let reviewableAccessRequestsInFlight = null;
 
   function openSpaceCreateModal() {
     if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
@@ -46,7 +49,12 @@ export function createSpaceGovernanceController({
   function openSpaceMemberModal(spaceId = activeSpaceId()) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId || !canManageSpaceMembership(targetSpaceId) || !els.spaceMemberModalForm) return;
-    const targetSpace = effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId) || null;
+    const targetSpace = effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId)
+      || (state.activeSpace?.space_id === targetSpaceId ? state.activeSpace : null);
+    if (targetSpace?.space_kind === "personal") {
+      setSpaceGovernanceNotice("Private spaces cannot add members.", "error", 5000);
+      return;
+    }
     els.spaceMemberModalForm.reset();
     els.spaceMemberModalForm.querySelector('[name="space_id"]').value = targetSpaceId;
     if (els.spaceMemberModalContext) {
@@ -172,6 +180,57 @@ export function createSpaceGovernanceController({
     return agentChangeRequestsInFlight;
   }
 
+  async function refreshRequestableSpaces(options = {}) {
+    const force = !!options.force;
+    if (!force && state.requestableSpacesLoaded) return state.requestableSpaces || [];
+    if (requestableSpacesInFlight) return requestableSpacesInFlight;
+    requestableSpacesInFlight = api("/spaces/requestable")
+      .then((rows) => {
+        state.requestableSpaces = Array.isArray(rows) ? rows : [];
+        state.requestableSpacesLoaded = true;
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.requestableSpaces;
+      })
+      .finally(() => {
+        requestableSpacesInFlight = null;
+      });
+    return requestableSpacesInFlight;
+  }
+
+  async function refreshAccessRequests(options = {}) {
+    const force = !!options.force;
+    if (!force && state.spaceAccessRequestsLoaded) return state.spaceAccessRequests || [];
+    if (accessRequestsInFlight) return accessRequestsInFlight;
+    accessRequestsInFlight = api("/spaces/access-requests")
+      .then((rows) => {
+        state.spaceAccessRequests = Array.isArray(rows) ? rows : [];
+        state.spaceAccessRequestsLoaded = true;
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.spaceAccessRequests;
+      })
+      .finally(() => {
+        accessRequestsInFlight = null;
+      });
+    return accessRequestsInFlight;
+  }
+
+  async function refreshReviewableAccessRequests(options = {}) {
+    const force = !!options.force;
+    if (!force && state.reviewableAccessRequestsLoaded) return state.reviewableAccessRequests || [];
+    if (reviewableAccessRequestsInFlight) return reviewableAccessRequestsInFlight;
+    reviewableAccessRequestsInFlight = api("/spaces/access-requests/reviewable")
+      .then((rows) => {
+        state.reviewableAccessRequests = Array.isArray(rows) ? rows : [];
+        state.reviewableAccessRequestsLoaded = true;
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return state.reviewableAccessRequests;
+      })
+      .finally(() => {
+        reviewableAccessRequestsInFlight = null;
+      });
+    return reviewableAccessRequestsInFlight;
+  }
+
   async function refreshSpaceMembers(spaceId, options = {}) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId) return [];
@@ -276,6 +335,74 @@ export function createSpaceGovernanceController({
     }
     if (action === "open-create-space-modal") {
       openSpaceCreateModal();
+      return true;
+    }
+    if (action === "request-space-access") {
+      if (!spaceId) return true;
+      state.accessRequestSubmittingSpaceId = spaceId;
+      renderGovernanceHub();
+      try {
+        await api(`/spaces/${encodeURIComponent(spaceId)}/access-requests`, {
+          method: "POST",
+          body: JSON.stringify({ requested_role: "member" }),
+        });
+        state.requestableSpacesLoaded = false;
+        state.spaceAccessRequestsLoaded = false;
+        await Promise.all([
+          refreshRequestableSpaces({ force: true }),
+          refreshAccessRequests({ force: true }),
+        ]);
+        setSpaceGovernanceNotice(`Requested access to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "access_request", "success", { source: "lobby" });
+        }
+      } catch (err) {
+        if (typeof trackWorkflow === "function") {
+          trackWorkflow("spaces", "access_request", "failure", { source: "lobby" });
+        }
+        setSpaceGovernanceNotice(err?.message || "Access request failed.", "error", 7000);
+      } finally {
+        state.accessRequestSubmittingSpaceId = "";
+        renderGovernanceHub();
+      }
+      return true;
+    }
+    if (action === "cancel-access-request") {
+      const requestId = button.getAttribute("data-request-id") || "";
+      if (!requestId) return true;
+      try {
+        await api(`/spaces/access-requests/${encodeURIComponent(requestId)}`, { method: "DELETE" });
+        state.spaceAccessRequestsLoaded = false;
+        state.requestableSpacesLoaded = false;
+        await Promise.all([
+          refreshAccessRequests({ force: true }),
+          refreshRequestableSpaces({ force: true }),
+        ]);
+        setSpaceGovernanceNotice("Access request canceled.", "success", 3500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Cancel request failed.", "error", 7000);
+      }
+      return true;
+    }
+    if (action === "approve-access-request" || action === "reject-access-request") {
+      const requestId = button.getAttribute("data-request-id") || "";
+      if (!requestId) return true;
+      const approving = action === "approve-access-request";
+      try {
+        await api(`/spaces/access-requests/${encodeURIComponent(requestId)}/${approving ? "approve" : "reject"}`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        state.reviewableAccessRequestsLoaded = false;
+        await refreshReviewableAccessRequests({ force: true });
+        if (approving && spaceId) {
+          state.spaceMembersLoadedBySpace[spaceId] = false;
+          await refreshSpaceMembers(spaceId, { force: true });
+        }
+        setSpaceGovernanceNotice(`Access request ${approving ? "approved" : "rejected"}.`, "success", 4500);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Access request review failed.", "error", 7000);
+      }
       return true;
     }
     if (action === "open-member-modal") {
@@ -661,9 +788,62 @@ export function createSpaceGovernanceController({
         if (!button) return;
         await handleSpaceGovernanceAction(button);
       });
+      els.spaceGovernanceShell.addEventListener("input", (event) => {
+        const input = event.target.closest("#lobby-request-space-search");
+        if (!input) return;
+        state.lobbyRequestSearch = input.value || "";
+        const query = normalize(state.lobbyRequestSearch);
+        let visibleCount = 0;
+        els.spaceGovernanceShell.querySelectorAll("[data-lobby-request-row]").forEach((row) => {
+          const matches = !query || normalize(row.getAttribute("data-search-text") || "").includes(query);
+          row.hidden = !matches;
+          if (matches) visibleCount += 1;
+        });
+        const empty = els.spaceGovernanceShell.querySelector("[data-lobby-request-empty]");
+        if (empty) empty.hidden = !query || visibleCount > 0;
+      });
       els.spaceGovernanceShell.addEventListener("submit", async (event) => {
         const form = event.target.closest("form");
         if (!form) return;
+        if (form.id === "space-personal-create-form") {
+          event.preventDefault();
+          state.lobbyPersonalSpaceCreating = true;
+          renderGovernanceHub();
+          try {
+            const created = await api("/spaces/personal", {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            if (created?.space_id && !state.spaces.some((space) => space.space_id === created.space_id)) {
+              state.spaces = [...state.spaces, created];
+            }
+            let switched = false;
+            if (created?.space_id) {
+              switched = await switchActiveSpace(created.space_id);
+            }
+            if (!switched) {
+              await refreshSpaceContext();
+            }
+            form.reset();
+            state.requestableSpacesLoaded = false;
+            state.spaceAccessRequestsLoaded = false;
+            setSpaceGovernanceNotice(`Created ${created?.name || "your private space"}.`, "success", 4500);
+            if (typeof trackWorkflow === "function") {
+              trackWorkflow("spaces", "create_personal", "success", { source: "lobby" });
+            }
+          } catch (err) {
+            if (typeof trackWorkflow === "function") {
+              trackWorkflow("spaces", "create_personal", "failure", { source: "lobby" });
+            }
+            setSpaceGovernanceNotice(err?.message || "Private space create failed.", "error", 7000);
+          } finally {
+            state.lobbyPersonalSpaceCreating = false;
+            if (isSpaceGovernanceView(state.currentView)) {
+              renderGovernanceHub();
+            }
+          }
+          return;
+        }
         if (form.id === "space-platform-access-form") {
           event.preventDefault();
           if (!userIsGlobalAdmin()) return;
@@ -870,8 +1050,11 @@ export function createSpaceGovernanceController({
     openSpaceDirectoryModal,
     openSpaceMemberModal,
     refreshApiTokens,
+    refreshAccessRequests,
     refreshAgentChangeRequests,
     refreshGlobalAdmins,
+    refreshRequestableSpaces,
+    refreshReviewableAccessRequests,
     refreshSpaceMembers,
   };
 }

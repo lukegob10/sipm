@@ -1,6 +1,8 @@
 export function queryShellElements() {
   return {
     navButtons: document.querySelectorAll(".nav-btn[data-view]"),
+    navWorkSection: document.getElementById("nav-work-section"),
+    navInsightSection: document.getElementById("nav-insight-section"),
     navAdminSection: document.getElementById("nav-admin-section"),
     views: document.querySelectorAll(".view"),
     status: document.getElementById("connection-status"),

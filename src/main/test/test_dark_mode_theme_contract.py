@@ -106,7 +106,7 @@ def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved
         ".theme-light .capacity-badge.ok {",
         ".theme-light .capacity-badge.warn {",
         ".theme-light .capacity-badge.over {",
-        ".theme-light .space-directory-card.is-selected {",
+        ".theme-light .space-directory-row.is-selected td {",
         ".theme-light .space-directory-overview {",
         ".theme-light .space-directory-preview {",
         ".theme-light .auth-tab.active {",

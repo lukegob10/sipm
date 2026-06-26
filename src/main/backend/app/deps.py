@@ -22,6 +22,19 @@ from .services.api_tokens import authenticate_api_token
 from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
 
 
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_LOBBY_WORK_WRITE_PATH_PREFIXES = (
+    "/project-manager/api/agent/change-requests",
+    "/project-manager/api/phases",
+    "/project-manager/api/planning",
+    "/project-manager/api/programs",
+    "/project-manager/api/projects",
+    "/project-manager/api/solutions",
+    "/project-manager/api/tasks",
+    "/project-manager/api/teams",
+)
+
+
 def get_db() -> Iterator[Session]:
     # Keep indirection so tests can monkeypatch `get_session` on this module.
     yield from get_session()
@@ -258,6 +271,34 @@ def _normalize_space_role(value: str | None) -> str:
     return normalized
 
 
+def _is_lobby_work_write(request: Request | None, ctx: SpaceContext) -> bool:
+    if request is None:
+        return False
+    if getattr(request, "method", "").upper() not in _MUTATING_METHODS:
+        return False
+    if getattr(ctx, "space_kind", "collaboration") != "lobby":
+        return False
+    path = getattr(getattr(request, "url", None), "path", "").lower()
+    return path.startswith(_LOBBY_WORK_WRITE_PATH_PREFIXES)
+
+
+def _raise_lobby_work_write_forbidden(request: Request | None, session: Session, ctx: SpaceContext) -> None:
+    user = getattr(getattr(request, "state", None), "user", None)
+    if user and getattr(user, "user_id", None) and hasattr(session, "commit"):
+        _audit_permission_denied(
+            session,
+            user_id=user.user_id,
+            space_id=ctx.space_id,
+            action="forbidden_lobby_write",
+            reason="Lobby spaces are read-only for work data",
+        )
+    raise security_http_exception(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        code="LOBBY_SPACE_READ_ONLY",
+        message="Home is for onboarding only. Create or join a working space first.",
+    )
+
+
 def require_space_role(min_role: str):
     min_norm = _normalize_space_role(min_role)
     threshold = _SPACE_ROLE_ORDER.get(min_norm)
@@ -274,6 +315,8 @@ def require_space_role(min_role: str):
             request = None  # type: ignore[assignment]
         if not isinstance(ctx, SpaceContext):
             raise RuntimeError("Space context dependency was not resolved")
+        if _is_lobby_work_write(request, ctx):
+            _raise_lobby_work_write_forbidden(request, session, ctx)
         if ctx.is_global_admin:
             return ctx
         current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
@@ -313,6 +356,8 @@ def require_agent_space_role(min_role: str):
             request = None  # type: ignore[assignment]
         if not isinstance(ctx, SpaceContext):
             raise RuntimeError("Space context dependency was not resolved")
+        if _is_lobby_work_write(request, ctx):
+            _raise_lobby_work_write_forbidden(request, session, ctx)
         if ctx.is_global_admin:
             return ctx
         current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)

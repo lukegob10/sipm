@@ -702,6 +702,54 @@ export function createSpaceGovernanceRenderer({
     }).join("");
   }
 
+  function agentProposalSummary(row) {
+    const diff = Array.isArray(row?.diff) ? row.diff : [];
+    if (!diff.length) {
+      return `${row?.operation_count || 0} proposed operation${row?.operation_count === 1 ? "" : "s"}`;
+    }
+    const labels = diff
+      .map((item) => item.entity_label || item.entity || "")
+      .filter(Boolean);
+    const uniqueLabels = [...new Set(labels)];
+    const visibleLabels = uniqueLabels.slice(0, 3).join(", ");
+    const remaining = uniqueLabels.length > 3 ? ` +${uniqueLabels.length - 3} more` : "";
+    return `${diff.length} change${diff.length === 1 ? "" : "s"} across ${visibleLabels || "work items"}${remaining}`;
+  }
+
+  function renderAgentProposalModal(request) {
+    if (!request) return "";
+    const operationCount = Number(request.operation_count || 0);
+    return `
+      <div class="modal agent-proposal-modal" role="dialog" aria-modal="true" aria-labelledby="agent-proposal-modal-title">
+        <button type="button" class="modal-backdrop" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review"></button>
+        <div class="modal-content wide agent-proposal-modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="space-card-kicker">Agent proposal</p>
+              <h3 id="agent-proposal-modal-title">${esc(request.reason || "Agent proposal")}</h3>
+              <p class="muted">${esc(request.proposed_by_label || request.proposed_by_user_id || "Service account")} - ${esc(formatDateTime(request.created_at) || "No date")} - ${esc(operationCount)} proposed operation${operationCount === 1 ? "" : "s"}</p>
+            </div>
+            <button type="button" class="secondary modal-close-x" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
+          </div>
+          <div class="agent-proposal-modal-meta">
+            <span class="pill">${esc(request.status || "pending")}</span>
+            <span class="pill muted">${esc(agentProposalSummary(request))}</span>
+          </div>
+          <div class="agent-proposal-modal-body">
+            ${renderAgentDiff(request)}
+          </div>
+          <div class="form-actions agent-proposal-modal-actions">
+            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Approve proposal</button>
+            <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject proposal</button>
+            <button type="button" class="secondary" data-space-action="close-agent-change-request-modal">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderAgentApprovalsSection() {
     if (!state.agentChangeRequestsLoaded) {
       refreshAgentChangeRequests({ force: true }).catch((err) => {
@@ -711,17 +759,17 @@ export function createSpaceGovernanceRenderer({
     }
     const rows = state.agentChangeRequests || [];
     const selected = state.agentChangeRequestSelectedIds || new Set();
-    const active = rows.find((row) => row.change_request_id === state.agentChangeRequestActiveId) || rows[0] || null;
+    const modalProposal = rows.find((row) => row.change_request_id === state.agentChangeRequestModalId) || null;
     const newest = rows[0]?.created_at ? formatDateTime(rows[0].created_at) : "None";
     const tableRows = rows.length
       ? rows.map((row) => {
         const checked = selected.has(row.change_request_id);
-        const isActive = active?.change_request_id === row.change_request_id;
-        return `<tr class="${isActive ? "is-selected" : ""}">
+        const isOpen = modalProposal?.change_request_id === row.change_request_id;
+        return `<tr class="${isOpen ? "is-selected" : ""}">
           <td><input type="checkbox" data-agent-change-request-checkbox data-change-request-id="${escapeAttr(row.change_request_id)}" ${checked ? "checked" : ""} /></td>
           <td>
-            <button type="button" class="text-link" data-space-action="select-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
-            <div class="muted">${esc(row.operation_count || 0)} proposed operation${row.operation_count === 1 ? "" : "s"}</div>
+            <button type="button" class="text-link agent-proposal-link" data-space-action="open-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
+            <div class="muted">${esc(agentProposalSummary(row))}</div>
           </td>
           <td>${esc(row.proposed_by_label || row.proposed_by_user_id || "Service account")}</td>
           <td>${esc(formatDateTime(row.created_at) || "")}</td>
@@ -749,25 +797,15 @@ export function createSpaceGovernanceRenderer({
           <div class="panel soft space-summary-card"><span class="muted">Selected</span><strong>${selected.size}</strong></div>
           <div class="panel soft space-summary-card"><span class="muted">Newest</span><strong>${esc(newest)}</strong></div>
         </div>
-        <div class="agent-approval-layout">
-          <div class="panel soft">
-            <div class="table">
-              <table>
+        <div class="panel soft agent-approval-table-panel">
+          <div class="table">
+            <table class="agent-approval-table">
                 <thead><tr><th></th><th>Proposal</th><th>Proposed By</th><th>Created</th><th>Ops</th><th>Status</th></tr></thead>
                 <tbody>${tableRows}</tbody>
-              </table>
-            </div>
-          </div>
-          <div class="panel soft agent-diff-panel">
-            <div class="panel-header">
-              <div>
-                <h3>${esc(active?.reason || "Select a proposal")}</h3>
-                <p class="muted">${active ? `${esc(active.operation_count || 0)} proposed operation${active.operation_count === 1 ? "" : "s"}` : "Choose a row to inspect the diff."}</p>
-              </div>
-            </div>
-            ${active ? renderAgentDiff(active) : "<p class='muted'>No proposal selected.</p>"}
+            </table>
           </div>
         </div>
+        ${renderAgentProposalModal(modalProposal)}
       </div>
     `;
   }

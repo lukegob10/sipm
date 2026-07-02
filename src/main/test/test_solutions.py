@@ -28,6 +28,15 @@ async def create_project(client):
     return resp.json()
 
 
+async def create_working_space_headers(client, slug: str) -> dict[str, str]:
+    resp = await client.post(
+        "/project-manager/api/spaces",
+        json={"name": slug.replace("-", " ").title(), "slug": slug},
+    )
+    assert resp.status_code == 201, resp.text
+    return {"X-Space-Id": resp.json()["space_id"]}
+
+
 @pytest.mark.anyio
 async def test_create_solution_defaults_owner_and_version(client):
     project_resp = await client.post("/project-manager/api/projects/", json={"project_name": "Minimal Project"})
@@ -84,6 +93,92 @@ async def test_solution_crud_normalizes_required_identifiers(client):
     )
     assert blank_version.status_code == 400, blank_version.text
     assert blank_version.json()["detail"] == "version is required"
+
+
+@pytest.mark.anyio
+async def test_update_solution_can_move_to_another_project(client):
+    headers = await create_working_space_headers(client, "solution-move-space")
+    first_project_resp = await client.post(
+        "/project-manager/api/projects/",
+        headers=headers,
+        json={"project_name": "Original Project"},
+    )
+    assert first_project_resp.status_code == 201, first_project_resp.text
+    first_project = first_project_resp.json()
+    second_project_resp = await client.post(
+        "/project-manager/api/projects/",
+        headers=headers,
+        json={"project_name": "Target Project"},
+    )
+    assert second_project_resp.status_code == 201, second_project_resp.text
+    second_project = second_project_resp.json()
+
+    create_resp = await client.post(
+        f"/project-manager/api/projects/{first_project['project_id']}/solutions",
+        headers=headers,
+        json={"solution_name": "Movable Solution", "version": "1.0.0"},
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    solution = create_resp.json()
+
+    update_resp = await client.patch(
+        f"/project-manager/api/solutions/{solution['solution_id']}",
+        headers=headers,
+        json={"project_id": second_project["project_id"]},
+    )
+    assert update_resp.status_code == 200, update_resp.text
+    moved = update_resp.json()
+    assert moved["project_id"] == second_project["project_id"]
+
+    original_project_solutions = (
+        await client.get(f"/project-manager/api/projects/{first_project['project_id']}/solutions", headers=headers)
+    ).json()
+    target_project_solutions = (
+        await client.get(f"/project-manager/api/projects/{second_project['project_id']}/solutions", headers=headers)
+    ).json()
+    assert all(row["solution_id"] != solution["solution_id"] for row in original_project_solutions)
+    assert any(row["solution_id"] == solution["solution_id"] for row in target_project_solutions)
+
+
+@pytest.mark.anyio
+async def test_update_solution_move_rejects_name_version_conflict_in_target_project(client):
+    headers = await create_working_space_headers(client, "solution-move-conflict-space")
+    first_project_resp = await client.post(
+        "/project-manager/api/projects/",
+        headers=headers,
+        json={"project_name": "Source Project"},
+    )
+    assert first_project_resp.status_code == 201, first_project_resp.text
+    first_project = first_project_resp.json()
+    second_project_resp = await client.post(
+        "/project-manager/api/projects/",
+        headers=headers,
+        json={"project_name": "Conflict Target Project"},
+    )
+    assert second_project_resp.status_code == 201, second_project_resp.text
+    second_project = second_project_resp.json()
+
+    source_solution_resp = await client.post(
+        f"/project-manager/api/projects/{first_project['project_id']}/solutions",
+        headers=headers,
+        json={"solution_name": "Duplicate Solution", "version": "1.0.0"},
+    )
+    assert source_solution_resp.status_code == 201, source_solution_resp.text
+    source_solution = source_solution_resp.json()
+    target_solution_resp = await client.post(
+        f"/project-manager/api/projects/{second_project['project_id']}/solutions",
+        headers=headers,
+        json={"solution_name": "Duplicate Solution", "version": "1.0.0"},
+    )
+    assert target_solution_resp.status_code == 201, target_solution_resp.text
+
+    update_resp = await client.patch(
+        f"/project-manager/api/solutions/{source_solution['solution_id']}",
+        headers=headers,
+        json={"project_id": second_project["project_id"]},
+    )
+    assert update_resp.status_code == 400, update_resp.text
+    assert update_resp.json()["detail"] == "Solution name and version already exist for this project"
 
 
 @pytest.mark.anyio

@@ -244,6 +244,7 @@ const state = {
   agentChangeRequestFailedCount: 0,
   agentChangeRequestSelectedIds: new Set(),
   agentChangeRequestActiveId: "",
+  agentChangeRequestModalId: "",
   requestableSpaces: [],
   requestableSpacesLoaded: false,
   spaceAccessRequests: [],
@@ -329,6 +330,7 @@ const GANTT_VIEW_STATE_KEY_PREFIX = "sipm-gantt-view-state-v1";
 const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
 const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
 const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
+const SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX = "sipm-space-governance-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";
 const TASKS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-tasks-workbench-views";
@@ -1022,6 +1024,7 @@ async function refreshSpaceContext(options = {}) {
     state.spaceAccessRequestsLoaded = false;
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
+    state.agentChangeRequestModalId = "";
     state.lobbyPersonalSpaceCreating = false;
     state.accessRequestSubmittingSpaceId = "";
     state.lobbyRequestSearch = "";
@@ -1079,6 +1082,7 @@ async function refreshSpaceContext(options = {}) {
   restoreKanbanViewState();
   restoreTeamCapacityViewState();
   restorePlanningWindowViewState();
+  restoreSpaceGovernanceViewState();
   restoreTasksWorkbenchUiState();
   renderSpaceSwitcher();
   loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
@@ -1144,6 +1148,7 @@ function setAuthed(user) {
     state.spaceAccessRequestsLoaded = false;
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
+    state.agentChangeRequestModalId = "";
     state.lobbyPersonalSpaceCreating = false;
     state.accessRequestSubmittingSpaceId = "";
     state.lobbyRequestSearch = "";
@@ -1833,7 +1838,7 @@ function solutionProgress(solution) {
   const phases = [...state.phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
   const idx = phases.findIndex((p) => p.phase_id === solution.current_phase);
   if (idx === -1) return 0;
-  return Math.round(((idx + 1) / phases.length) * 100);
+  return Math.round((idx / phases.length) * 100);
 }
 
 function formatStatus(status) {
@@ -3926,6 +3931,27 @@ function restorePlanningWindowViewState() {
   if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();
 }
 
+function persistSpaceGovernanceViewState() {
+  if (!state.authed || !activeSpaceId() || state.activeSpace?.space_kind === "lobby") return;
+  writeStoredJson(
+    activeSpaceScopedStorageKey(SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX),
+    {
+      section: normalizeGovernanceSection(state.spaceAdminSection),
+    }
+  );
+}
+
+function restoreSpaceGovernanceViewState() {
+  if (!state.authed || !activeSpaceId()) return;
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX), {});
+  const allowed = governanceSections().map((section) => section.id);
+  const storedSection = normalizeGovernanceSection(stored.section);
+  state.spaceAdminSection = allowed.includes(storedSection) ? storedSection : "current-space";
+  if (recovered || !Object.keys(stored || {}).length || stored.section !== state.spaceAdminSection) {
+    persistSpaceGovernanceViewState();
+  }
+}
+
 function persistTasksWorkbenchUiState() {
   const wb = state.tasksWorkbench;
   writeStoredJson(
@@ -4038,7 +4064,9 @@ function renderSpaceDirectoryModal() {
 }
 
 function renderGovernanceHub(preferredSection = "") {
-  return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
+  const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
+  persistSpaceGovernanceViewState();
+  return result;
 }
 
 async function refreshGlobalAdmins() {

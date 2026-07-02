@@ -224,6 +224,14 @@ def update_solution(
         update_data["version"] = _required_solution_version(update_data["version"])
     if "priority" in update_data:
         update_data["priority"] = parse_priority(update_data["priority"], default=3)
+    if "project_id" in update_data:
+        update_data["project_id"] = normalize_str(update_data["project_id"])
+        if not update_data["project_id"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="project_id is required",
+            )
+        _ensure_project_exists(session, update_data["project_id"], space_ctx)
     if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
         update_data["capacity_hours"] = 0
     if "escalation" in update_data:
@@ -237,6 +245,24 @@ def update_solution(
         update_data["current_phase"] = normalize_str(update_data["current_phase"]) or None
         if update_data["current_phase"]:
             _validate_current_phase(session, solution.solution_id, update_data["current_phase"])
+
+    if any(k in update_data for k in ("project_id", "solution_name", "version")):
+        next_project_id = update_data.get("project_id", solution.project_id)
+        next_solution_name = update_data.get("solution_name", solution.solution_name)
+        next_version = update_data.get("version", solution.version)
+        conflict = (
+            _solution_query(session, space_ctx)
+            .filter(Solution.project_id == next_project_id)
+            .filter(Solution.solution_name == next_solution_name)
+            .filter(Solution.version == next_version)
+            .filter(Solution.solution_id != solution.solution_id)
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Solution name and version already exist for this project",
+            )
 
     fields_to_compare = set(update_data.keys()) | {"rag_status", "rag_reason"}
     if "status" in update_data:
@@ -257,21 +283,6 @@ def update_solution(
         solution.rag_status = rag_updates["rag_status"]
     if "rag_reason" in rag_updates:
         solution.rag_reason = normalize_str(rag_updates["rag_reason"]) or None
-
-    if any(k in update_data for k in ("solution_name", "version")):
-        conflict = (
-            _solution_query(session, space_ctx)
-            .filter(Solution.project_id == solution.project_id)
-            .filter(Solution.solution_name == solution.solution_name)
-            .filter(Solution.version == solution.version)
-            .filter(Solution.solution_id != solution.solution_id)
-            .first()
-        )
-        if conflict:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Solution name and version already exist for this project",
-            )
 
     session.add(solution)
     changes = {field: (before.get(field), getattr(solution, field)) for field in fields_to_compare}

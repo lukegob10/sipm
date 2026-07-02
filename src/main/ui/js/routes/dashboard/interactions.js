@@ -11,6 +11,13 @@ import {
   setAllModalSolutionChecks,
 } from "./modal.js";
 
+function resetDashboardPages(dashboardState, sectionIds = DASHBOARD_SECTIONS) {
+  dashboardState.pages = dashboardState.pages || {};
+  sectionIds.forEach((sectionId) => {
+    dashboardState.pages[sectionId] = 1;
+  });
+}
+
 export function bindDashboardEvents(dashboardState, rerender) {
   const viewRoot = typeof document !== "undefined" ? document.getElementById("view-dashboard") : null;
   if (!viewRoot || dashboardState.bound) return;
@@ -22,24 +29,28 @@ export function bindDashboardEvents(dashboardState, rerender) {
 
     if (target.id === "dashboard-main-scope") {
       updatePrefs(dashboardState, { scope: target.value || DEFAULT_PREFS.scope });
+      resetDashboardPages(dashboardState);
       rerender();
       return;
     }
 
     if (target.id === "dashboard-main-sort") {
       updatePrefs(dashboardState, { sort: target.value || DEFAULT_PREFS.sort });
+      resetDashboardPages(dashboardState, ["main"]);
       rerender();
       return;
     }
 
     if (target.id === "dashboard-main-rows") {
       updatePrefs(dashboardState, { rows: num(target.value, DEFAULT_PREFS.rows) });
+      resetDashboardPages(dashboardState, ["main"]);
       rerender();
       return;
     }
 
     if (target.id === "dashboard-main-horizon") {
       updatePrefs(dashboardState, { horizon_days: num(target.value, DEFAULT_PREFS.horizon_days) });
+      resetDashboardPages(dashboardState, ["completed"]);
       rerender();
     }
   });
@@ -57,6 +68,19 @@ export function bindDashboardEvents(dashboardState, rerender) {
         rows: DEFAULT_PREFS.rows,
         horizon_days: DEFAULT_PREFS.horizon_days,
       });
+      resetDashboardPages(dashboardState);
+      rerender();
+      return;
+    }
+
+    if (action === "page") {
+      event.preventDefault();
+      const sectionId = String(actionEl.getAttribute("data-dashboard-section") || "");
+      const direction = String(actionEl.getAttribute("data-dashboard-page-direction") || "");
+      if (!DASHBOARD_SECTIONS.includes(sectionId)) return;
+      dashboardState.pages = dashboardState.pages || {};
+      const currentPage = Math.max(1, num(dashboardState.pages[sectionId], 1));
+      dashboardState.pages[sectionId] = Math.max(1, currentPage + (direction === "next" ? 1 : -1));
       rerender();
       return;
     }

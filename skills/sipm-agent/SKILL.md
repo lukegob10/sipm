@@ -7,7 +7,7 @@ description: Work with SIPM's approval-gated agent API for project manager data 
 
 ## Overview
 
-Use this skill to interact with SIPM through the controlled Agent API. Agent writes must be submitted as change requests; do not bypass the approval gate with normal project, solution, or task write endpoints.
+Use this skill to interact with SIPM through the controlled Agent API. Agent writes must be submitted as change requests; do not bypass the approval gate with normal program, project, solution, or task write endpoints.
 
 The bundled command wrapper is `scripts/sipm_agent.py`. It uses Python stdlib only and reads credentials/config from environment variables or CLI flags.
 
@@ -45,6 +45,23 @@ Read scoped work context:
 python skills/sipm-agent/scripts/sipm_agent.py work-graph --space main --project-name "HomeLab Server"
 ```
 
+List or inspect programs:
+
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py list-programs --space main
+python skills/sipm-agent/scripts/sipm_agent.py get-program --space main --program-id <program-id>
+```
+
+Submit a new program for approval:
+
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py propose-program-create \
+  --space main \
+  --program-name "Test Program" \
+  --description "Program created by the agent API" \
+  --reason "Create test program"
+```
+
 Resolve a solution by names:
 
 ```bash
@@ -74,7 +91,7 @@ python skills/sipm-agent/scripts/sipm_agent.py submit-change-request --space mai
 Read `references/api-contract.md` before building raw patch files or adding new commands.
 
 V1 supports only:
-- entities: `project`, `solution`, `task`
+- entities: `program`, `project`, `solution`, `task`
 - operations: `create`, `update`
 - max operations: `25`
 
@@ -84,6 +101,7 @@ Update operations require:
 - allowed mutable fields only
 
 Create operations require:
+- `program_name` for programs
 - `project_id` for solutions
 - `solution_id` for tasks
 
@@ -94,7 +112,7 @@ Submission requires:
 
 ## Operating Rules
 
-- Use `/api/agent/work-graph` to fetch stable IDs and `updated_at` before proposing updates.
+- Use `/api/agent/programs` and `/api/agent/work-graph` to fetch stable IDs and `updated_at` before proposing updates.
 - Use `/api/agent/patches/validate` when assembling a complex patch.
 - Use `/api/agent/change-requests` to submit proposals.
 - Expect submitted changes to remain pending until a real user approves them in SIPM.

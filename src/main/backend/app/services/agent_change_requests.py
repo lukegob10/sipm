@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from ..models import AgentChangeRequest, Project, Solution, Task, User
+from ..models import AgentChangeRequest, Program, Project, Solution, Task, User
 from ..schemas.agent import (
     AgentChangeRequestBulkReviewResult,
     AgentChangeRequestDiffItem,
@@ -25,6 +25,7 @@ from ..services.work_items import (
     solution_query as _solution_query,
     task_query as _task_query,
 )
+from ..services.programs import program_query as _program_query
 from ..utils import normalize_str
 
 VALID_CHANGE_REQUEST_STATUSES = {"pending", "approved", "rejected", "failed"}
@@ -66,6 +67,15 @@ def _operation_payloads(payload: AgentPatchRequest) -> list[dict[str, Any]]:
     ]
 
 
+def _same_idempotent_request(
+    row: AgentChangeRequest,
+    *,
+    reason: str,
+    operations_json: str,
+) -> bool:
+    return row.reason == reason and row.operations_json == operations_json
+
+
 def _stored_payload(row: AgentChangeRequest) -> AgentPatchRequest:
     return AgentPatchRequest(
         dry_run=False,
@@ -81,6 +91,8 @@ def _stored_payload(row: AgentChangeRequest) -> AgentPatchRequest:
 def _entity_label(row: Any, entity: str) -> str | None:
     if not row:
         return None
+    if entity == "program":
+        return getattr(row, "program_name", None)
     if entity == "project":
         return getattr(row, "project_name", None)
     if entity == "solution":
@@ -95,6 +107,12 @@ def _entity_row(
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
 ) -> Any:
+    if operation.entity == "program" and operation.id:
+        return (
+            _program_query(session, space_ctx)
+            .filter(Program.program_id == operation.id)
+            .first()
+        )
     if operation.entity == "project" and operation.id:
         return (
             _project_query(session, space_ctx)
@@ -229,6 +247,27 @@ def create_change_request(
         idempotency_key=idempotency_key,
         operations=payload.operations,
     )
+    operations_json = _dumps(_operation_payloads(effective_payload))
+    existing = (
+        session.query(AgentChangeRequest)
+        .filter(AgentChangeRequest.space_id == space_ctx.space_id)
+        .filter(AgentChangeRequest.proposed_by_user_id == current_user.user_id)
+        .filter(AgentChangeRequest.idempotency_key == idempotency_key)
+        .order_by(AgentChangeRequest.created_at.desc())
+        .first()
+    )
+    if existing:
+        if _same_idempotent_request(
+            existing,
+            reason=reason,
+            operations_json=operations_json,
+        ):
+            return _row_to_read(existing, users_by_id={current_user.user_id: current_user})
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="idempotency_key has already been used with a different request",
+        )
+
     validation = validate_patch_plan(session, space_ctx, effective_payload)
     if not validation.valid:
         raise HTTPException(
@@ -242,7 +281,7 @@ def create_change_request(
         status="pending",
         reason=reason,
         idempotency_key=idempotency_key,
-        operations_json=_dumps(_operation_payloads(effective_payload)),
+        operations_json=operations_json,
         validation_json=validation.model_dump_json(),
         diff_json=_dumps(diff),
     )

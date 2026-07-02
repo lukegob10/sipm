@@ -46,7 +46,7 @@ def _progress_for_solution(solution: dict[str, object], phases: list[dict[str, o
         index = phase_ids.index(current_phase)
     except ValueError:
         return 0
-    return round(((index + 1) / len(phases)) * 100)
+    return round((index / len(phases)) * 100)
 
 
 def _phase_name(phase_id: object, phase_by_id: dict[str, dict[str, object]]) -> str:
@@ -79,6 +79,29 @@ def _status_color(status: object) -> tuple[int, int, int]:
     if normalized in {"blocked", "abandoned"}:
         return (190, 46, 77)
     return (107, 114, 128)
+
+
+def _status_is_closed(status: object) -> bool:
+    return str(getattr(status, "value", status) or "").lower() in {"complete", "abandoned"}
+
+
+def _phase_summary(solutions: list[dict[str, object]], phase_by_id: dict[str, dict[str, object]]) -> str:
+    if not solutions:
+        return "-"
+    active_solutions = [row for row in solutions if not _status_is_closed(row.get("status"))]
+    if not active_solutions:
+        return "Complete"
+    labels = []
+    for solution in active_solutions:
+        label = _phase_name(solution.get("current_phase"), phase_by_id)
+        if label == "-" or label in labels:
+            continue
+        labels.append(label)
+    if not labels:
+        return "Unassigned"
+    if len(labels) == 1:
+        return labels[0]
+    return f"{len(labels)} phases"
 
 
 def _draw_card(
@@ -395,7 +418,7 @@ def build_program_dashboard_report_pdf(
             start="-",
             end="-",
             status="-",
-            phase="-",
+            phase=_phase_summary(program_solutions, phase_by_id),
             escalation="",
             progress=progress,
             fill=(236, 241, 250),
@@ -413,7 +436,9 @@ def build_program_dashboard_report_pdf(
                 start="-",
                 end="-",
                 status=_status_label(project.get("status")),
-                phase="-",
+                phase=_phase_summary(project_solutions, phase_by_id) if project_solutions else (
+                    "Complete" if _status_is_closed(project.get("status")) else "-"
+                ),
                 escalation="",
                 progress=project_progress(project_solutions, project),
                 fill=(249, 251, 255),

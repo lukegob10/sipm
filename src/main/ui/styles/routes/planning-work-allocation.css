@@ -71,10 +71,22 @@
 .wab-task-list {box-sizing:border-box;min-width:0;max-width:100%;margin-top:8px;display:grid;gap:6px;overflow:hidden;}
 .wab-unassigned-list {margin-top:8px;display:grid;gap:6px;}
 .wab-task-chip {box-sizing:border-box;min-width:0;max-width:100%;width:100%;text-align:left;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);padding:8px;display:grid;gap:2px;cursor:grab;overflow:hidden;}
-.wab-task-chip.is-assigned {border-color:var(--focus-border);}
-.wab-task-chip.is-selected {border-color:var(--accent-strong);box-shadow:var(--selected-ring);}
+.wab-work-chip {box-sizing:border-box;min-width:0;max-width:100%;width:100%;text-align:left;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);padding:8px;display:grid;gap:2px;cursor:grab;overflow:hidden;}
+.wab-task-chip.is-assigned,.wab-work-chip.is-assigned {border-color:var(--focus-border);}
+.wab-task-chip.is-selected,.wab-work-chip.is-selected {border-color:var(--accent-strong);box-shadow:var(--selected-ring);}
 .wab-task-chip-title {min-width:0;font-size:var(--font-size-body);font-weight:700;line-height:1.25;overflow-wrap:anywhere;}
 .wab-task-chip-meta {min-width:0;font-size:var(--font-size-label);color:var(--muted);overflow-wrap:anywhere;}
+.wab-project-card {gap:8px;background:linear-gradient(180deg,var(--panel),color-mix(in srgb,var(--panel-soft) 72%,var(--panel)));padding:10px;}
+.wab-project-card-head {display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0;}
+.wab-project-card-head h4 {margin:0;font-size:var(--font-size-card-title);line-height:1.25;overflow-wrap:anywhere;}
+.wab-project-card-kicker {margin-bottom:2px;font-size:var(--font-size-label);font-weight:var(--route-control-font-weight);letter-spacing:var(--route-label-letter-spacing);text-transform:uppercase;color:var(--muted);}
+.wab-project-card-meta {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;font-size:var(--font-size-label);color:var(--muted);}
+.wab-project-card-meta span {min-width:0;overflow-wrap:anywhere;}
+.wab-solution-nest {display:grid;gap:5px;padding-top:7px;border-top:1px solid var(--border-soft);}
+.wab-solution-chip {padding:7px 8px;background:var(--panel-soft);}
+.wab-solution-chip-nested {border-style:dashed;background:color-mix(in srgb,var(--panel-soft) 78%,var(--accent-soft));}
+.wab-solution-chip.is-broken-out {border-color:var(--warning-border);}
+.wab-chip-note {min-width:0;font-size:var(--font-size-label);color:var(--muted);overflow-wrap:anywhere;}
 .wab-board-columns {min-width:0;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(280px,1fr);gap:10px;overflow-x:auto;padding-bottom:2px;}
 .wab-team-column {border:1px solid var(--border);border-radius:10px;background:var(--panel-soft);padding:8px;min-height:220px;display:grid;gap:8px;align-content:start;}
 .wab-team-column.is-drop-target {border-color:var(--accent-strong);box-shadow:var(--selected-ring);}
@@ -126,10 +138,11 @@
 .wab-layout {display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start;}
 .wab-board-empty {min-width:240px;padding:14px;border:1px dashed var(--border);border-radius:12px;background:var(--panel-soft);}
 .wab-board-empty h3 {margin:0 0 6px;}
-.wab-task-chip:focus-visible,.wab-person-card:focus-visible,.wab-team-assignment-zone:focus-visible,.wab-backlog:focus-visible,.wab-detail-panel button:focus-visible,.wab-detail-panel input:focus-visible,.wab-detail-panel select:focus-visible {outline:2px solid var(--focus-ring);outline-offset:2px;}
+.wab-task-chip:focus-visible,.wab-work-chip:focus-visible,.wab-person-card:focus-visible,.wab-team-assignment-zone:focus-visible,.wab-backlog:focus-visible,.wab-detail-panel button:focus-visible,.wab-detail-panel input:focus-visible,.wab-detail-panel select:focus-visible {outline:2px solid var(--focus-ring);outline-offset:2px;}
 .wab-task-chip.is-selected {background:var(--backlog-bg-strong);}
+.wab-work-chip.is-selected {background:var(--backlog-bg-strong);}
 .wab-unassigned-person-card,.wab-person-card,.wab-unassigned-dropzone,.wab-team-assignment-zone,.wab-side-rail {transition:border-color 0.15s ease,box-shadow 0.15s ease,background 0.15s ease;}
-.wab-team-assignment-zone:hover,.wab-unassigned-person-card:hover,.wab-person-card:hover,.wab-task-chip:hover {border-color:var(--hover-border);}
+.wab-team-assignment-zone:hover,.wab-unassigned-person-card:hover,.wab-person-card:hover,.wab-task-chip:hover,.wab-work-chip:hover {border-color:var(--hover-border);}
 .wab-flash {animation:wabPulse 1.7s ease;}
 .wab-flash-success {box-shadow:0 0 0 1px var(--success-border),0 0 0 6px var(--success-soft);}
 .wab-flash-error {box-shadow:0 0 0 1px var(--danger-border),0 0 0 6px var(--danger-soft);}

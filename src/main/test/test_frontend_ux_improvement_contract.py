@@ -238,10 +238,13 @@ def test_frontend_ux_state_is_persisted_per_space():
 
     assert 'const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";' in app_text
     assert 'const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";' in app_text
+    assert 'const SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX = "sipm-space-governance-state-v1";' in app_text
     assert 'const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";' in planning_state_text
     assert "persistMasterViewState" in app_text
     assert "collapsed: Array.from(state.masterCollapsed || [])," in app_text
     assert "state.masterCollapsed = normalizeMasterCollapsedKeys(stored.collapsed);" in app_text
+    assert "persistSpaceGovernanceViewState" in app_text
+    assert "restoreSpaceGovernanceViewState();" in app_text
     assert "persistTasksWorkbenchUiState" in app_text
     assert "persistViewState()" in planning_storage_text
     assert "persistMasterViewState" in master_text
@@ -1060,7 +1063,8 @@ def test_space_governance_modal_and_action_bindings_move_into_route_local_module
     assert "function bindSpaceAdminControls() {" in app_text
     assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
     assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
-    assert "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "persistSpaceGovernanceViewState();" in app_text
     assert "export function createSpaceGovernanceController({" in interactions_text
     assert "function openSpaceCreateModal() {" in interactions_text
     assert "async function handleSpaceGovernanceAction(button) {" in interactions_text

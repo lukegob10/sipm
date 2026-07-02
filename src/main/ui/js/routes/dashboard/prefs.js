@@ -21,6 +21,7 @@ export function createDashboardState() {
     prefs: normalizePrefs(DEFAULT_PREFS),
     prefsSpaceId: "",
     sectionOptions: emptySectionOptions(),
+    pages: { main: 1, completed: 1, upcoming: 1, backlog: 1 },
     modalSection: null,
     lastConfigSection: "main",
     columnDefsBySection: null,

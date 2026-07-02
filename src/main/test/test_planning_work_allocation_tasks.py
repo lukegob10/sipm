@@ -1,5 +1,40 @@
 import pytest
 
+from backend.app import deps as deps_module
+from backend.app.models import Space
+from backend.app.services.spaces import SpaceContext
+from backend.main import app as fastapi_app
+
+
+@pytest.fixture(autouse=True)
+def planning_space(db_sessionmaker):
+    space_id = "space-planning-work-allocation"
+    with db_sessionmaker() as session:
+        if not session.query(Space).filter(Space.space_id == space_id).first():
+            session.add(
+                Space(
+                    space_id=space_id,
+                    name="Planning Work Allocation Space",
+                    slug="planning-work-allocation-space",
+                    is_active=True,
+                )
+            )
+            session.commit()
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+        space_id=space_id,
+        space_name="Planning Work Allocation Space",
+        is_global_admin=False,
+        space_role="space_admin",
+    )
+    try:
+        yield
+    finally:
+        if original_current_space is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+
 
 async def create_regular_task(client, name: str, capacity_hours: int = 80):
     project_resp = await client.post(
@@ -25,7 +60,10 @@ async def create_regular_task(client, name: str, capacity_hours: int = 80):
         },
     )
     assert task_resp.status_code == 201, task_resp.text
-    return task_resp.json()
+    payload = task_resp.json()
+    payload["project_id"] = project_id
+    payload["solution_id"] = solution_id
+    return payload
 
 
 @pytest.mark.anyio
@@ -70,6 +108,20 @@ async def test_planning_allocation_can_target_regular_tasks(client):
     assert allocation["assignee_type"] == "team"
     assert allocation["assignee_id"] == team_id
 
+    duplicate_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "task_id": task["task_id"],
+            "assignee_type": "team",
+            "assignee_id": team_id,
+            "month": "2026-03",
+            "fte_months_allocated": 0.5,
+        },
+    )
+    assert duplicate_resp.status_code == 201, duplicate_resp.text
+    duplicate = duplicate_resp.json()
+    assert duplicate["id"] == allocation["id"]
+
     tasks_resp = await client.get("/project-manager/api/planning/work-allocation/tasks?month=2026-03")
     assert tasks_resp.status_code == 200, tasks_resp.text
     rows = tasks_resp.json()
@@ -84,7 +136,7 @@ async def test_planning_allocation_can_target_regular_tasks(client):
 
 
 @pytest.mark.anyio
-async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocations(client):
+async def test_planning_board_snapshot_returns_projects_solutions_teams_people_and_allocations(client):
     created_task = await create_regular_task(client, "Planning Snapshot Task", capacity_hours=120)
 
     team_resp = await client.post(
@@ -97,11 +149,11 @@ async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocation
     allocation_resp = await client.post(
         "/project-manager/api/planning/work-allocation/allocations",
         json={
-            "task_id": created_task["task_id"],
+            "work_item_type": "project",
+            "work_item_id": created_task["project_id"],
             "assignee_type": "team",
             "assignee_id": team["id"],
             "month": "2026-03",
-            "fte_months_allocated": 0.75,
         },
     )
     assert allocation_resp.status_code == 201, allocation_resp.text
@@ -111,15 +163,191 @@ async def test_planning_board_snapshot_returns_tasks_teams_people_and_allocation
     assert response.status_code == 200, response.text
 
     payload = response.json()
-    assert set(payload) == {"tasks", "teams", "people", "allocations"}
-    task = next((row for row in payload["tasks"] if row["id"] == created_task["task_id"]), None)
-    assert task is not None
-    assert task["title"] == "Planning Snapshot Task"
-    assert task["fte_months"] == pytest.approx(0.75, abs=1e-6)
-    assert task["status"] == "assigned"
+    assert set(payload) == {"projects", "solutions", "teams", "people", "allocations"}
+    project = next((row for row in payload["projects"] if row["id"] == created_task["project_id"]), None)
+    assert project is not None
+    assert project["title"] == "Planning Snapshot Task Project"
+    assert project["fte_months"] == pytest.approx(0.75, abs=1e-6)
+    assert project["residual_fte_months"] == pytest.approx(0.75, abs=1e-6)
+    assert project["solution_count"] == 1
+    solution = next((row for row in payload["solutions"] if row["id"] == created_task["solution_id"]), None)
+    assert solution is not None
+    assert solution["title"] == "Planning Snapshot Task Solution"
+    assert solution["fte_months"] == pytest.approx(0.75, abs=1e-6)
+    assert solution["remaining_fte_months"] == pytest.approx(0.75, abs=1e-6)
     assert any(row["id"] == team["id"] and row["name"] == "Snapshot Team" for row in payload["teams"])
-    assert any(row["id"] == allocation["id"] and row["task_id"] == created_task["task_id"] for row in payload["allocations"])
+    assert any(
+        row["id"] == allocation["id"]
+        and row["work_item_type"] == "project"
+        and row["work_item_id"] == created_task["project_id"]
+        and row["task_id"] is None
+        for row in payload["allocations"]
+    )
     assert isinstance(payload["people"], list)
+
+
+@pytest.mark.anyio
+async def test_project_solution_planning_residual_rollup_and_parent_uniqueness(client):
+    created_task = await create_regular_task(client, "Planning Residual Task", capacity_hours=160)
+
+    owner_team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Owner Team"},
+    )
+    assert owner_team_resp.status_code == 201, owner_team_resp.text
+    owner_team = owner_team_resp.json()
+
+    split_team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Split Team"},
+    )
+    assert split_team_resp.status_code == 201, split_team_resp.text
+    split_team = split_team_resp.json()
+
+    second_split_team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Second Split Team"},
+    )
+    assert second_split_team_resp.status_code == 201, second_split_team_resp.text
+    second_split_team = second_split_team_resp.json()
+
+    project_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "work_item_type": "project",
+            "work_item_id": created_task["project_id"],
+            "assignee_type": "team",
+            "assignee_id": owner_team["id"],
+            "month": "2026-03",
+        },
+    )
+    assert project_resp.status_code == 201, project_resp.text
+    project_allocation = project_resp.json()
+    assert project_allocation["work_item_type"] == "project"
+    assert project_allocation["work_item_id"] == created_task["project_id"]
+    assert project_allocation["fte_months_allocated"] == pytest.approx(1.0, abs=1e-6)
+
+    duplicate_project_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "work_item_type": "project",
+            "work_item_id": created_task["project_id"],
+            "assignee_type": "team",
+            "assignee_id": split_team["id"],
+            "month": "2026-03",
+        },
+    )
+    assert duplicate_project_resp.status_code == 409, duplicate_project_resp.text
+    assert duplicate_project_resp.json()["detail"] == "Project already has a parent allocation for this month"
+
+    solution_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "work_item_type": "solution",
+            "work_item_id": created_task["solution_id"],
+            "assignee_type": "team",
+            "assignee_id": split_team["id"],
+            "month": "2026-03",
+            "fte_months_allocated": 0.4,
+        },
+    )
+    assert solution_resp.status_code == 201, solution_resp.text
+    first_solution_allocation = solution_resp.json()
+
+    over_solution_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "work_item_type": "solution",
+            "work_item_id": created_task["solution_id"],
+            "assignee_type": "team",
+            "assignee_id": second_split_team["id"],
+            "month": "2026-03",
+            "fte_months_allocated": 0.8,
+        },
+    )
+    assert over_solution_resp.status_code == 201, over_solution_resp.text
+
+    board_resp = await client.get("/project-manager/api/planning/work-allocation/board?month=2026-03")
+    assert board_resp.status_code == 200, board_resp.text
+    board = board_resp.json()
+    project = next(row for row in board["projects"] if row["id"] == created_task["project_id"])
+    solution = next(row for row in board["solutions"] if row["id"] == created_task["solution_id"])
+    parent_row = next(row for row in board["allocations"] if row["id"] == project_allocation["id"])
+    assert project["fte_months"] == pytest.approx(1.0, abs=1e-6)
+    assert project["allocated_solution_fte_months"] == pytest.approx(1.2, abs=1e-6)
+    assert project["residual_fte_months"] == pytest.approx(0.0, abs=1e-6)
+    assert solution["allocated_fte_months"] == pytest.approx(1.2, abs=1e-6)
+    assert solution["remaining_fte_months"] == pytest.approx(0.0, abs=1e-6)
+    assert parent_row["fte_months_allocated"] == pytest.approx(0.0, abs=1e-6)
+
+    delete_resp = await client.delete(
+        f"/project-manager/api/planning/work-allocation/allocations/{first_solution_allocation['id']}"
+    )
+    assert delete_resp.status_code == 204, delete_resp.text
+
+    refreshed_resp = await client.get("/project-manager/api/planning/work-allocation/board?month=2026-03")
+    assert refreshed_resp.status_code == 200, refreshed_resp.text
+    refreshed = refreshed_resp.json()
+    refreshed_project = next(row for row in refreshed["projects"] if row["id"] == created_task["project_id"])
+    refreshed_parent = next(row for row in refreshed["allocations"] if row["id"] == project_allocation["id"])
+    assert refreshed_project["allocated_solution_fte_months"] == pytest.approx(0.8, abs=1e-6)
+    assert refreshed_project["residual_fte_months"] == pytest.approx(0.2, abs=1e-6)
+    assert refreshed_parent["fte_months_allocated"] == pytest.approx(0.2, abs=1e-6)
+
+
+@pytest.mark.anyio
+async def test_project_allocation_can_move_between_teams_without_returning_to_backlog(client):
+    created_task = await create_regular_task(client, "Planning Project Move Task", capacity_hours=80)
+
+    first_team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Project Move Source Team"},
+    )
+    assert first_team_resp.status_code == 201, first_team_resp.text
+    first_team = first_team_resp.json()
+
+    second_team_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/teams",
+        json={"name": "Project Move Target Team"},
+    )
+    assert second_team_resp.status_code == 201, second_team_resp.text
+    second_team = second_team_resp.json()
+
+    allocation_resp = await client.post(
+        "/project-manager/api/planning/work-allocation/allocations",
+        json={
+            "work_item_type": "project",
+            "work_item_id": created_task["project_id"],
+            "assignee_type": "team",
+            "assignee_id": first_team["id"],
+            "month": "2026-03",
+        },
+    )
+    assert allocation_resp.status_code == 201, allocation_resp.text
+    allocation = allocation_resp.json()
+
+    moved_resp = await client.patch(
+        f"/project-manager/api/planning/work-allocation/allocations/{allocation['id']}",
+        json={"assignee_type": "team", "assignee_id": second_team["id"]},
+    )
+    assert moved_resp.status_code == 200, moved_resp.text
+    moved = moved_resp.json()
+    assert moved["id"] == allocation["id"]
+    assert moved["work_item_type"] == "project"
+    assert moved["work_item_id"] == created_task["project_id"]
+    assert moved["assignee_type"] == "team"
+    assert moved["assignee_id"] == second_team["id"]
+
+    board_resp = await client.get("/project-manager/api/planning/work-allocation/board?month=2026-03")
+    assert board_resp.status_code == 200, board_resp.text
+    board = board_resp.json()
+    project_allocations = [
+        row for row in board["allocations"]
+        if row["work_item_type"] == "project" and row["work_item_id"] == created_task["project_id"]
+    ]
+    assert len(project_allocations) == 1
+    assert project_allocations[0]["id"] == allocation["id"]
+    assert project_allocations[0]["assignee_id"] == second_team["id"]
 
 
 @pytest.mark.anyio

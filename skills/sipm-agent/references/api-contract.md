@@ -36,6 +36,14 @@ Returns spaces accessible to the authenticated token. Use this to resolve `main`
 
 Returns V1 capabilities.
 
+`GET /agent/programs`
+
+Returns non-deleted programs in the requested space, ordered by `program_name`.
+
+`GET /agent/programs/{program_id}`
+
+Returns one non-deleted program in the requested space. Cross-space or missing IDs return 404.
+
 `GET /agent/work-graph`
 
 Query params:
@@ -50,9 +58,21 @@ updated_since
 limit
 ```
 
-Returns a nested project -> solution -> task graph with stable IDs and `updated_at`.
+Returns scoped program metadata plus a nested project -> solution -> task graph with stable IDs and `updated_at`.
 
 ## Patch Shape
+
+Supported entities:
+
+- `program`
+- `project`
+- `solution`
+- `task`
+
+Supported operations:
+
+- `create`
+- `update`
 
 ```json
 {
@@ -68,6 +88,27 @@ Returns a nested project -> solution -> task graph with stable IDs and `updated_
       "if_updated_at": "2026-05-29T04:02:50",
       "fields": {
         "description": "New description"
+      }
+    }
+  ]
+}
+```
+
+Program create operations use the same patch envelope:
+
+```json
+{
+  "dry_run": false,
+  "reason": "Create test program",
+  "idempotency_key": "caller-generated-key",
+  "operations": [
+    {
+      "client_operation_id": "create-program",
+      "op": "create",
+      "entity": "program",
+      "fields": {
+        "program_name": "Test Program",
+        "description": "Optional description"
       }
     }
   ]

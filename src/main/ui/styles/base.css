@@ -385,6 +385,7 @@ body {
   letter-spacing: 0.02em;
   font-size: var(--font-size-route-title);
   margin-bottom: 14px;
+  text-align: center;
 }
 
 .nav-group {

@@ -17,6 +17,7 @@ from .agent import (
     AgentPatchOperationResult,
     AgentPatchRequest,
     AgentPatchResponse,
+    AgentProgramNode,
     AgentProjectNode,
     AgentSolutionNode,
     AgentTaskNode,
@@ -48,6 +49,8 @@ from .planning import (
     WorkAllocationPersonCreate,
     WorkAllocationPersonRead,
     WorkAllocationPersonUpdate,
+    WorkAllocationProjectRead,
+    WorkAllocationSolutionRead,
     WorkAllocationTaskCreate,
     WorkAllocationTaskRead,
     WorkAllocationTaskUpdate,
@@ -70,6 +73,7 @@ __all__ = [
     "AgentPatchOperationResult",
     "AgentPatchRequest",
     "AgentPatchResponse",
+    "AgentProgramNode",
     "AgentProjectNode",
     "AgentSolutionNode",
     "AgentTaskNode",
@@ -100,6 +104,8 @@ __all__ = [
     "WorkAllocationPersonCreate",
     "WorkAllocationPersonRead",
     "WorkAllocationPersonUpdate",
+    "WorkAllocationProjectRead",
+    "WorkAllocationSolutionRead",
     "WorkAllocationTaskCreate",
     "WorkAllocationTaskRead",
     "WorkAllocationTaskUpdate",
@@ -455,7 +461,7 @@ class SolutionCreate(SolutionBase):
 
 
 class SolutionUpdate(SolutionBase):
-    pass
+    project_id: Optional[str] = None
 
 
 class SolutionRead(TextLikeReadModel):

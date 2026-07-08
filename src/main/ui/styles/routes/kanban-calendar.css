@@ -179,8 +179,9 @@
   cursor: pointer;
 }
 .calendar-cell.empty {
-  background: var(--surface-sunken);
-  border-style: dashed;
+  visibility: hidden;
+  pointer-events: none;
+  cursor: default;
 }
 .calendar-cell.today {
   border-color: var(--accent-strong);

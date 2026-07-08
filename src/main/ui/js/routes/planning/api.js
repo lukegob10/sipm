@@ -78,6 +78,36 @@ async function confirmAction(options = {}) {
   return false;
 }
 
+function openPlanningProjectDrilldown(projectId) {
+  const ctx = boardState.ctx;
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = (ctx?.state?.projects || []).find((row) => row.project_id === targetId);
+  if (!project) {
+    setNotice("Project details are not available yet. Refresh and try again.", "warn");
+    rerenderPlanning();
+    return;
+  }
+  if (typeof ctx?.openProjectForm === "function") {
+    ctx.openProjectForm(project);
+  }
+}
+
+function openPlanningSolutionDrilldown(solutionId) {
+  const ctx = boardState.ctx;
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = (ctx?.state?.solutions || []).find((row) => row.solution_id === targetId);
+  if (!solution) {
+    setNotice("Solution details are not available yet. Refresh and try again.", "warn");
+    rerenderPlanning();
+    return;
+  }
+  if (typeof ctx?.openSolutionModal === "function") {
+    ctx.openSolutionModal(solution, "details");
+  }
+}
+
 async function refreshGlobal(ctx, entity) {
   if (typeof ctx.refreshFromServer !== "function") return;
   try {
@@ -546,6 +576,14 @@ export async function onPlanningAction(action, actionEl = null) {
       boardState.personSearch = "";
       persistViewState();
       rerenderPlanning();
+      return;
+    }
+    if (action === "open-project") {
+      openPlanningProjectDrilldown(actionEl?.getAttribute("data-project-id"));
+      return;
+    }
+    if (action === "open-solution") {
+      openPlanningSolutionDrilldown(actionEl?.getAttribute("data-solution-id"));
       return;
     }
     if (action === "refresh") {

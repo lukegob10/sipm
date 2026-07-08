@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import threading
 from datetime import timedelta
 
 import pytest
@@ -17,12 +18,14 @@ def clear_realtime_connections():
     realtime.connections.clear()
     realtime._connection_meta.clear()
     realtime._user_connections.clear()
+    realtime._runtime_loop = None
     try:
         yield
     finally:
         realtime.connections.clear()
         realtime._connection_meta.clear()
         realtime._user_connections.clear()
+        realtime._runtime_loop = None
 
 
 class StubWebSocket:
@@ -135,6 +138,29 @@ async def test_schedule_broadcast_creates_task_when_loop_running():
     realtime.schedule_broadcast("solutions")
     await asyncio.sleep(0)  # allow the fire-and-forget task to run
     assert {"type": "refresh", "entity": "solutions"} in ws.sent
+
+
+@pytest.mark.anyio
+async def test_schedule_broadcast_from_worker_thread_uses_runtime_loop():
+    ws = StubWebSocket()
+    await realtime.register(ws, space_id="space-1")
+    await realtime.start_runtime()
+
+    thread = threading.Thread(
+        target=lambda: realtime.schedule_broadcast(
+            "agent_change_requests",
+            space_id="space-1",
+        )
+    )
+    thread.start()
+    thread.join(timeout=2)
+
+    assert not thread.is_alive()
+    for _ in range(10):
+        if ws.sent:
+            break
+        await asyncio.sleep(0.01)
+    assert ws.sent == [{"type": "refresh", "entity": "agent_change_requests"}]
 
 
 def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):

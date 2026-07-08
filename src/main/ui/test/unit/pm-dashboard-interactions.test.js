@@ -9,6 +9,10 @@ function click(selector) {
   el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
 }
 
+function flushPromises() {
+  return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
 describe("PM dashboard interactions", () => {
   let state;
   let rerender;
@@ -24,6 +28,7 @@ describe("PM dashboard interactions", () => {
         <button type="button" data-pm-dashboard-action="open-solution" data-solution-id="solution-1">Solution</button>
         <button type="button" data-pm-dashboard-action="open-task" data-task-id="task-1">Task</button>
         <button type="button" data-pm-dashboard-action="open-capacity-allocations" data-assignee-key="soeid-1">Capacity</button>
+        <button type="button" data-pm-dashboard-action="download-report">Download Report</button>
         <input type="month" data-pm-dashboard-action="set-capacity-month" value="2026-07" />
       </section>
     `;
@@ -44,6 +49,9 @@ describe("PM dashboard interactions", () => {
         }],
       ]),
       ctx: {
+        state: { activeSpace: { space_id: "space-1" } },
+        apiBase: "/project-manager/api",
+        setStatus: vi.fn(),
         openPMDashboardProjectDrilldown: vi.fn(),
         openPMDashboardSolutionDrilldown: vi.fn(),
         openPMDashboardTaskDrilldown: vi.fn(),
@@ -98,6 +106,49 @@ describe("PM dashboard interactions", () => {
     expect(state.capacityMonth).toBe("2026-08");
     expect(window.localStorage.getItem("sipm-pm-dashboard-ui-v1:space-1")).toBe("2026-08");
     expect(rerender).toHaveBeenCalledTimes(1);
+  });
+
+  it("downloads the PM report as a PDF blob with active-space context", async () => {
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const createObjectURL = vi.fn().mockReturnValue("blob:pm-report");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(window.URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    Object.defineProperty(window.URL, "revokeObjectURL", { configurable: true, value: revokeObjectURL });
+    const pdfBlob = new Blob(["%PDF-"], { type: "application/pdf" });
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/pdf" }),
+      blob: () => Promise.resolve(pdfBlob),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    click('[data-pm-dashboard-action="download-report"]');
+    await flushPromises();
+
+    expect(fetchSpy).toHaveBeenCalledWith("/project-manager/api/pm-dashboard/report.pdf", {
+      method: "GET",
+      headers: { "X-Space-Id": "space-1" },
+      credentials: "include",
+    });
+    expect(createObjectURL).toHaveBeenCalledWith(pdfBlob);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(state.ctx.setStatus).toHaveBeenCalledWith("PM Command Center report downloaded.", "success");
+  });
+
+  it("reports PM report download failures instead of saving JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      blob: () => Promise.resolve(new Blob(["{}"], { type: "application/json" })),
+    }));
+
+    click('[data-pm-dashboard-action="download-report"]');
+    await flushPromises();
+
+    expect(state.ctx.setStatus).toHaveBeenCalledWith(
+      "Download failed: server did not return a PDF.",
+      "danger",
+    );
   });
 
   it("keeps only one focused section active when switching focus tabs", () => {

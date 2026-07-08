@@ -262,26 +262,3 @@ export function parseAssignmentTarget(value) {
   if (kind === "team" || kind === "person") return { type: kind, id };
   return null;
 }
-
-export function assignmentOptionsHtml(teams, people, selectedValue = "") {
-  const assignablePeople = people.filter((person) => normalizeTeamId(person.team_id));
-  const teamOptions = teams
-    .map((team) => {
-      const value = `team:${team.id}`;
-      return `<option value="team:${esc(team.id)}" ${selectedValue === value ? "selected" : ""}>${esc(team.name)}</option>`;
-    })
-    .join("");
-  const personOptions = assignablePeople
-    .map((person) => {
-      const team = teams.find((teamRow) => teamRow.id === person.team_id);
-      const suffix = team?.name ? ` (${team.name})` : "";
-      const value = `person:${person.id}`;
-      return `<option value="person:${esc(person.id)}" ${selectedValue === value ? "selected" : ""}>${esc(person.name)}${esc(suffix)}</option>`;
-    })
-    .join("");
-  return [
-    `<option value="" ${selectedValue ? "" : "selected"}>Choose assignee</option>`,
-    teamOptions ? `<optgroup label="Teams">${teamOptions}</optgroup>` : "",
-    personOptions ? `<optgroup label="People">${personOptions}</optgroup>` : "",
-  ].join("");
-}

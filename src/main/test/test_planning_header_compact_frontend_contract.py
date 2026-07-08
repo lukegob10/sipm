@@ -100,14 +100,15 @@ def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_per
     assert 'class="secondary" data-wab-action="add-person"' in text
 
 
-def test_planning_task_detail_uses_modal_shell_instead_of_side_column():
+def test_planning_project_and_solution_titles_open_entity_modals_without_detail_shell():
     text = PLANNING_RENDER.read_text(encoding="utf-8")
 
-    assert 'class="wab-modal-shell wab-task-modal-shell"' in text
-    assert 'class="wab-modal-backdrop wab-task-modal-backdrop"' in text
-    assert 'class="wab-modal-card wab-detail-panel wab-detail-panel-open"' in text
-    assert 'data-wab-action="close-task-modal"' in text
-    assert 'id="wab-task-modal-title"' in text
+    assert 'class="wab-work-title-link" data-wab-action="open-project"' in text
+    assert 'class="wab-work-title-link" data-wab-action="open-solution"' in text
+    assert 'class="wab-modal-shell wab-task-modal-shell"' not in text
+    assert 'class="wab-modal-backdrop wab-task-modal-backdrop"' not in text
+    assert 'class="wab-modal-card wab-detail-panel wab-detail-panel-open"' not in text
+    assert 'id="wab-task-modal-title"' not in text
     assert 'class="wab-layout${selected ? " has-detail" : ""}"' not in text
 
 

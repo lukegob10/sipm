@@ -91,7 +91,23 @@
 
   <div id="app-shell" class="hidden">
     <aside class="sidebar">
-      <div class="brand">SIPM</div>
+      <div class="brand" aria-label="SIPM">
+        <span class="brand-mark" aria-hidden="true">
+          <svg class="brand-mark-svg" viewBox="0 0 32 32" focusable="false">
+            <path class="brand-mark-frame" d="M8 7h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"></path>
+            <path class="brand-mark-line" d="M11 13h10"></path>
+            <path class="brand-mark-line" d="M11 18h7"></path>
+            <path class="brand-mark-accent" d="M22 13v9"></path>
+            <path class="brand-mark-accent" d="M18 22h8"></path>
+            <circle class="brand-mark-dot" cx="11" cy="13" r="1.6"></circle>
+            <circle class="brand-mark-dot" cx="11" cy="18" r="1.6"></circle>
+            <circle class="brand-mark-dot accent" cx="22" cy="22" r="1.8"></circle>
+          </svg>
+        </span>
+        <span class="brand-text">
+          <span class="brand-name">SIPM</span>
+        </span>
+      </div>
       <div id="nav-work-section" class="nav-group nav-section">
         <p class="nav-label">Work</p>
         <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
@@ -494,6 +510,10 @@
               <p class="view-breadcrumb">Insight / PM Command Center</p>
               <h2>PM Command Center</h2>
             </div>
+            <button id="pm-dashboard-report-download" class="pm-report-download" type="button" data-pm-dashboard-action="download-report">
+              <span aria-hidden="true">PDF</span>
+              Download Report
+            </button>
           </div>
           <div class="pm-dashboard-stack">
             <div id="pm-dashboard-summary" class="pm-summary-grid"></div>

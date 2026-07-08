@@ -75,6 +75,8 @@
 .wab-task-chip.is-assigned,.wab-work-chip.is-assigned {border-color:var(--focus-border);}
 .wab-task-chip.is-selected,.wab-work-chip.is-selected {border-color:var(--accent-strong);box-shadow:var(--selected-ring);}
 .wab-task-chip-title {min-width:0;font-size:var(--font-size-body);font-weight:700;line-height:1.25;overflow-wrap:anywhere;}
+.wab-work-title-link {appearance:none;border:0;background:transparent;color:inherit;padding:0;margin:0;font:inherit;font-weight:inherit;line-height:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer;}
+.wab-work-title-link:hover {color:var(--accent-strong);text-decoration:underline;}
 .wab-task-chip-meta {min-width:0;font-size:var(--font-size-label);color:var(--muted);overflow-wrap:anywhere;}
 .wab-project-card {gap:8px;background:linear-gradient(180deg,var(--panel),color-mix(in srgb,var(--panel-soft) 72%,var(--panel)));padding:10px;}
 .wab-project-card-head {display:flex;align-items:flex-start;justify-content:space-between;gap:8px;min-width:0;}
@@ -138,7 +140,7 @@
 .wab-layout {display:grid;grid-template-columns:minmax(0,1fr);gap:12px;align-items:start;}
 .wab-board-empty {min-width:240px;padding:14px;border:1px dashed var(--border);border-radius:12px;background:var(--panel-soft);}
 .wab-board-empty h3 {margin:0 0 6px;}
-.wab-task-chip:focus-visible,.wab-work-chip:focus-visible,.wab-person-card:focus-visible,.wab-team-assignment-zone:focus-visible,.wab-backlog:focus-visible,.wab-detail-panel button:focus-visible,.wab-detail-panel input:focus-visible,.wab-detail-panel select:focus-visible {outline:2px solid var(--focus-ring);outline-offset:2px;}
+.wab-task-chip:focus-visible,.wab-work-chip:focus-visible,.wab-work-title-link:focus-visible,.wab-person-card:focus-visible,.wab-team-assignment-zone:focus-visible,.wab-backlog:focus-visible {outline:2px solid var(--focus-ring);outline-offset:2px;}
 .wab-task-chip.is-selected {background:var(--backlog-bg-strong);}
 .wab-work-chip.is-selected {background:var(--backlog-bg-strong);}
 .wab-unassigned-person-card,.wab-person-card,.wab-unassigned-dropzone,.wab-team-assignment-zone,.wab-side-rail {transition:border-color 0.15s ease,box-shadow 0.15s ease,background 0.15s ease;}
@@ -150,26 +152,11 @@
 35% {transform:translateY(-1px);}
 100% {transform:translateY(0);}
 }
-.wab-detail-panel {border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:12px;display:grid;gap:12px;position:relative;}
-.wab-detail-head {display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
-.wab-detail-summary {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;background:var(--panel-soft);}
-.wab-detail-summary strong {display:block;margin-top:3px;}
-.wab-detail-label {font-size:var(--font-size-label);font-weight:var(--route-control-font-weight);letter-spacing:var(--route-label-letter-spacing);text-transform:uppercase;color:var(--muted);}
-.wab-detail-section {display:grid;gap:10px;}
-.wab-detail-section-head {display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;}
-.wab-detail-assign-row {display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:end;}
-.wab-detail-assign-row select {min-height:34px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--panel-soft);color:var(--text);}
-.wab-assignee-list {display:grid;gap:8px;}
-.wab-assignee-row {display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel-soft);}
-.wab-assignee-copy {display:grid;gap:2px;min-width:0;}
-.wab-detail-actions {justify-content:flex-start;}
 @media (max-width:1360px) {.wab-shell {grid-template-columns:minmax(220px,252px) minmax(0,1fr) minmax(200px,228px);}
 }
 @media (max-width:1024px) {#view-planning .view-breadcrumb {display:none;}
 .wab-shell {grid-template-columns:1fr;}
 .wab-board-columns {grid-auto-columns:minmax(240px,1fr);}
-.wab-task-modal-shell {padding:12px;}
-.wab-detail-summary,.wab-detail-assign-row {grid-template-columns:1fr;}
 }
 @media (max-width:900px) {.wab-toolbar-sticky {top:8px;}
 .wab-toolbar-main,.wab-toolbar-primary,.wab-toolbar-actions {width:100%;}

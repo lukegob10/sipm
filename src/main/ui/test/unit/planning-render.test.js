@@ -13,7 +13,7 @@ describe("planning board render", () => {
     boardState.month = "2026-03";
   });
 
-  it("renders project backlog cards, assigned residual projects, solution splits, and split detail controls", () => {
+  it("renders project backlog cards, assigned residual projects, solution splits, and title drilldown controls", () => {
     boardState.data = {
       teams: [{ id: "team-1", name: "Delivery" }],
       people: [{ id: "person-1", name: "Taylor", team_id: "team-1", team_name: "Delivery", capacity_fte_months: 1 }],
@@ -102,8 +102,12 @@ describe("planning board render", () => {
     expect(html).toContain("Assigned Platform");
     expect(html).toContain("Assigned Data Feed");
     expect(html).toContain("Residual 0.75");
-    expect(html).toContain("Solution Planning");
-    expect(html).toContain('<option value="person:person-1" selected>');
+    expect(html).toContain('data-wab-action="open-project" data-project-id="project-1"');
+    expect(html).toContain('data-wab-action="open-solution" data-solution-id="solution-1"');
+    expect(html.match(/data-work-item-id="solution-1"/g)).toHaveLength(1);
+    expect(html).not.toContain("Solution Planning");
+    expect(html).not.toContain('<option value="person:person-1" selected>');
     expect(html).not.toContain("Task Detail");
+    expect(html).not.toContain("wab-modal-shell");
   });
 });

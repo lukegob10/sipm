@@ -81,6 +81,29 @@ def test_authenticated_shell_left_nav_matches_information_architecture():
     ]
 
 
+def test_authenticated_shell_brand_uses_compact_logo_lockup():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(REPO_ROOT / "src" / "main" / "ui" / "styles.css")
+
+    assert '<div class="brand" aria-label="SIPM">' in html_text
+    assert 'class="brand-mark" aria-hidden="true">' in html_text
+    assert 'class="brand-mark-svg" viewBox="0 0 32 32" focusable="false"' in html_text
+    assert 'class="brand-mark-frame"' in html_text
+    assert 'class="brand-mark-accent"' in html_text
+    assert 'class="brand-name">SIPM</span>' in html_text
+    assert 'class="brand-subtitle">Portfolio Manager</span>' not in html_text
+    assert ".brand {" in styles_text
+    assert "display: flex;" in styles_text
+    assert ".brand::before {" in styles_text
+    assert ".brand-mark {" in styles_text
+    assert ".brand-mark-svg {" in styles_text
+    assert ".brand-mark-accent {" in styles_text
+    assert ".brand-mark-dot.accent {" in styles_text
+    assert ".brand-subtitle {" in styles_text
+    assert ".theme-light .brand {" in styles_text
+    assert ".brand {\n    display: none;" in styles_text
+
+
 def test_route_hint_copy_removed_from_main_html_views():
     text = INDEX_HTML.read_text(encoding="utf-8")
     assert "view-route-hint" not in text
@@ -693,7 +716,7 @@ def test_frontend_derives_project_manager_context_path_for_api_and_reset_routes(
     assert "#/" not in pm_dashboard_text
 
 
-def test_planning_route_uses_inline_forms_confirm_modal_and_keyboard_detail_controls():
+def test_planning_route_uses_inline_forms_confirm_modal_and_title_drilldown_controls():
     render_text = PLANNING_RENDER.read_text(encoding="utf-8")
     api_text = PLANNING_API.read_text(encoding="utf-8")
     interactions_text = PLANNING_INTERACTIONS.read_text(encoding="utf-8")
@@ -702,7 +725,11 @@ def test_planning_route_uses_inline_forms_confirm_modal_and_keyboard_detail_cont
     assert "wab-create-form" in render_text
     assert "ctx?.showConfirmModal" in api_text
     assert "data-assign-target" in render_text
-    assert "wab-modal-shell" in render_text
+    assert "wab-modal-shell" not in render_text
+    assert 'data-wab-action="open-project"' in render_text
+    assert 'data-wab-action="open-solution"' in render_text
+    assert "openPlanningProjectDrilldown" in api_text
+    assert "openPlanningSolutionDrilldown" in api_text
     assert 'action === "close-task-detail" || action === "close-task-modal"' in api_text
     assert 'if (key === "Escape" && boardState.selectedTaskId)' in interactions_text
     assert 'closest(".wab-task-chip")' in interactions_text

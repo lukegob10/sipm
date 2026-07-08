@@ -7,7 +7,6 @@ import {
   allocationWorkItemType,
   allocationsByWorkItem,
   applyProjectBacklogFilters,
-  assignmentOptionsHtml,
   clampPercent,
   esc,
   flashClass,
@@ -64,26 +63,35 @@ function workChipLabel(type) {
   return "Task";
 }
 
+function projectTitleButton(project) {
+  return `<button type="button" class="wab-work-title-link" data-wab-action="open-project" data-project-id="${esc(project.id)}">${esc(project.title)}</button>`;
+}
+
+function solutionTitleButton(solution) {
+  return `<button type="button" class="wab-work-title-link" data-wab-action="open-solution" data-solution-id="${esc(solution.id)}">${esc(solution.title)}</button>`;
+}
+
 function solutionChip(solution, allocation = null, { nested = false } = {}) {
   const selected = boardState.selectedWorkItemType === "solution" && boardState.selectedWorkItemId === solution.id;
   const allocated = numberOr(solution.allocated_fte_months, 0);
   const remaining = solutionRemainingFte(solution);
   const fte = allocation ? numberOr(allocation.fte_months_allocated, 0) : remaining || numberOr(solution.fte_months, 0.25);
   const assignee = allocation?.assignee_name || allocation?.assignee_id || "";
-  return `<button
-    type="button"
+  return `<article
     class="wab-work-chip wab-solution-chip${nested ? " wab-solution-chip-nested" : ""}${allocation ? " is-assigned" : ""}${selected ? " is-selected" : ""}${allocated > 0 && !allocation ? " is-broken-out" : ""}${flashClass("solution", solution.id)}"
     draggable="true"
     data-work-item-type="solution"
     data-work-item-id="${esc(solution.id)}"
     data-allocation-id="${esc(allocation?.id || "")}"
     data-assigned="${allocation ? "1" : "0"}"
+    tabindex="0"
+    role="button"
     aria-pressed="${selected ? "true" : "false"}"
   >
-    <span class="wab-task-chip-title">${esc(solution.title)}</span>
+    <span class="wab-task-chip-title">${solutionTitleButton(solution)}</span>
     <span class="wab-task-chip-meta">${formatFte(fte)} FTE-mo${assignee ? ` | ${esc(assignee)}` : ""}</span>
     ${nested && allocated > 0 ? `<span class="wab-chip-note">${formatFte(allocated)} broken out</span>` : ""}
-  </button>`;
+  </article>`;
 }
 
 function projectCard(project, childSolutions, allocation = null) {
@@ -110,7 +118,7 @@ function projectCard(project, childSolutions, allocation = null) {
     <div class="wab-project-card-head">
       <div>
         <div class="wab-project-card-kicker">${workChipLabel("project")}</div>
-        <h4>${esc(project.title)}</h4>
+        <h4>${projectTitleButton(project)}</h4>
       </div>
       <span class="pill muted">${childSolutions.length}</span>
     </div>
@@ -140,81 +148,6 @@ function allocationChip(allocation, projectsById, solutionsById, solutionsByProj
   return "";
 }
 
-function buildDetailPanelHtml(workItem, allocations, teams, people) {
-  if (!workItem) return "";
-  const type = boardState.selectedWorkItemType || "";
-  const totalFte = numberOr(workItem.fte_months, 0.25);
-  const allocatedFte = allocations.reduce((sum, allocation) => sum + numberOr(allocation.fte_months_allocated, 0), 0);
-  const remainingFte = type === "project" ? projectResidualFte(workItem) : solutionRemainingFte(workItem);
-  const assignmentOptions = assignmentOptionsHtml(teams, people, boardState.detailDraft.assignmentTarget || "");
-  const assigneeSummary = allocations.length
-    ? allocations.map((allocation) => allocation.assignee_name || allocation.assignee_id || "").filter(Boolean).join(", ")
-    : "Backlog";
-  const kindLabel = type === "project" ? "Project" : "Solution";
-  const canEditFte = type === "solution";
-  const allocationRows = allocations.length
-    ? allocations.map((allocation) => {
-      const toneClassName = flashClass(allocation.assignee_type, allocation.assignee_id);
-      const label = allocation.assignee_name || allocation.assignee_id || "Unknown";
-      const allocationKindLabel = allocation.assignee_type === "team" ? "Team Queue" : "Person";
-      return `<div class="wab-assignee-row${toneClassName}">
-        <div class="wab-assignee-copy">
-          <strong>${esc(label)}</strong>
-          <span class="muted">${allocationKindLabel} | ${formatFte(allocation.fte_months_allocated)} FTE-mo</span>
-        </div>
-        <button type="button" class="secondary" data-wab-action="remove-assignment" data-allocation-id="${esc(allocation.id)}">Remove</button>
-      </div>`;
-    }).join("")
-    : `<p class="muted wab-empty-note">No assignees yet. Assign this ${kindLabel.toLowerCase()} from here or drag it onto a team or person.</p>`;
-
-  return `<div class="wab-modal-shell wab-task-modal-shell">
-    <button type="button" class="wab-modal-backdrop wab-task-modal-backdrop" data-wab-action="close-task-modal" aria-label="Close planning detail"></button>
-    <aside class="wab-modal-card wab-detail-panel wab-detail-panel-open" role="dialog" aria-modal="true" aria-labelledby="wab-task-modal-title">
-      <div class="wab-detail-head">
-        <div>
-          <h3 id="wab-task-modal-title">${kindLabel} Planning</h3>
-          <p class="muted wab-detail-sub">Month ${esc(boardState.month)} | ${formatFte(totalFte)} FTE-mo total</p>
-        </div>
-        <button type="button" class="secondary" data-wab-action="close-task-modal">Close</button>
-      </div>
-      <label class="wide">${kindLabel}
-        <input type="text" id="wab-detail-title" value="${esc(workItem.title)}" disabled />
-      </label>
-      <label>Split FTE-Months
-        <input type="number" id="wab-detail-fte" min="${canEditFte ? "0.05" : "0"}" step="0.05" value="${esc(boardState.detailDraft.fte || formatFte(remainingFte))}" ${canEditFte ? "" : "disabled"} />
-      </label>
-      <div class="wab-detail-summary">
-        <div>
-          <span class="wab-detail-label">Current Assignees</span>
-          <strong>${esc(assigneeSummary)}</strong>
-        </div>
-        <div>
-          <span class="wab-detail-label">${type === "project" ? "Residual" : "Remaining"}</span>
-          <strong>${formatFte(remainingFte)} FTE-mo</strong>
-        </div>
-        <div>
-          <span class="wab-detail-label">Broken Out</span>
-          <strong>${formatFte(allocatedFte)} FTE-mo</strong>
-        </div>
-      </div>
-      <div class="wab-detail-section">
-        <div class="wab-detail-section-head">
-          <h4>Assign / Unassign</h4>
-          <span class="muted">${type === "project" ? "Project FTE is residual after solution splits." : "Drag solution chips directly to a team or person to split them out."}</span>
-        </div>
-        <div class="wab-detail-assign-row">
-          <label class="wide">Assign To
-            <select id="wab-detail-assignee-target">${assignmentOptions}</select>
-          </label>
-          <button type="button" data-wab-action="assign-task">Assign</button>
-          <button type="button" class="secondary" data-wab-action="unassign-task"${allocations.length ? "" : " disabled"}>Backlog</button>
-        </div>
-        <div class="wab-assignee-list">${allocationRows}</div>
-      </div>
-    </aside>
-  </div>`;
-}
-
 export function buildBoardMarkup() {
   const showCompleted = showCompletedOperationalWork();
   const teams = sortedTeams();
@@ -227,7 +160,14 @@ export function buildBoardMarkup() {
   const visibleAllocations = visibleBoardAllocations(boardState.ctx);
   const projectsById = projectById(projects);
   const solutionsById = solutionById(solutions);
-  const solutionsByProject = buildSolutionsByProject(solutions);
+  const assignedSolutionIds = new Set(
+    visibleAllocations
+      .filter((allocation) => allocationWorkItemType(allocation) === "solution")
+      .map((allocation) => allocationWorkItemId(allocation))
+  );
+  const solutionsByProject = buildSolutionsByProject(
+    solutions.filter((solution) => !assignedSolutionIds.has(solution.id))
+  );
   const { personAllocationMap, teamAllocationMap } = allocationMapByAssignee(visibleAllocations);
 
   const assignedProjectIds = new Set(
@@ -651,7 +591,7 @@ export function buildBoardMarkup() {
         </aside>
       </div>
     </div>
-    ${buildDetailPanelHtml(selected, selectedAllocations, teams, people)}`;
+    `;
 }
 
 export function renderPlanningView(root) {

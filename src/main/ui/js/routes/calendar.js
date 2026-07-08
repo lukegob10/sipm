@@ -125,7 +125,7 @@ export function renderCalendar(ctx) {
     weeks.push(
       `<div class="calendar-week">${weekCells
         .map((day) => {
-          if (!day) return `<div class="calendar-cell empty"></div>`;
+          if (!day) return `<div class="calendar-cell empty" aria-hidden="true"></div>`;
           const dayItems = itemsByDay[day] || { solutions: [], tasks: [] };
           const total = dayItems.solutions.length + dayItems.tasks.length;
           const count = total ? `<span class="calendar-count">${total}</span>` : "";

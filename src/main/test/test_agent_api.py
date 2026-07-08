@@ -176,9 +176,24 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
 
 @pytest.mark.anyio
 async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_write(
-    agent_client, db_sessionmaker
+    agent_client, db_sessionmaker, monkeypatch
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
+    publish_calls = []
+
+    def capture_publish(space_id_arg, cache_keys, *, broadcast_channel=None):
+        publish_calls.append(
+            {
+                "space_id": space_id_arg,
+                "cache_keys": list(cache_keys),
+                "broadcast_channel": broadcast_channel,
+            }
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.agent_change_requests.publish_space_mutation",
+        capture_publish,
+    )
     with db_sessionmaker() as session:
         program = Program(space_id=space_id, program_name="Default Program")
         session.add(program)
@@ -235,6 +250,13 @@ async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_w
     )
     assert queued.status_code == 201, queued.text
     assert queued.json()["status"] == "pending"
+    assert publish_calls == [
+        {
+            "space_id": space_id,
+            "cache_keys": ["agent_change_requests"],
+            "broadcast_channel": "agent_change_requests",
+        }
+    ]
     with db_sessionmaker() as session:
         assert (
             session.query(Solution)

@@ -138,6 +138,17 @@ function allocationIdFromDataTransfer(dataTransfer) {
   return String(dataTransfer?.getData("application/x-wab-allocation-id") || "").trim();
 }
 
+function currentAllocationIdForWorkItem(workItemType, workItemId) {
+  const type = String(workItemType || "").trim();
+  const id = String(workItemId || "").trim();
+  if (!type || !id) return "";
+  const matches = (boardState.data.allocations || []).filter((allocation) => (
+    String(allocation?.work_item_type || (allocation?.task_id ? "task" : "")).trim() === type
+    && String(allocation?.work_item_id || allocation?.task_id || "").trim() === id
+  ));
+  return matches.length === 1 ? String(matches[0]?.id || "") : "";
+}
+
 function canDropOnZone(zone, dragKind) {
   if (!zone) return false;
   if (dragKind === DRAG_KIND_PERSON) {
@@ -282,6 +293,9 @@ export function bindPlanningBoardEvents() {
       event.preventDefault();
       boardState.topPanel = "";
       rerenderPlanning();
+      return;
+    }
+    if (event.target.closest("[data-wab-action]")) {
       return;
     }
     const chip = event.target.closest(".wab-work-chip, .wab-task-chip");
@@ -429,7 +443,7 @@ export function bindPlanningBoardEvents() {
         return;
       }
       if (zone.type === "person" && zone.personId) {
-        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer) || currentAllocationIdForWorkItem(workItem.type, workItem.id);
         if (allocationId) {
           await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });
         } else if (workItem.type === "project" || workItem.type === "solution") {
@@ -444,7 +458,7 @@ export function bindPlanningBoardEvents() {
           await unassignWorkItem(workItem.type, workItem.id, { pushUndo: true });
           return;
         }
-        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer) || currentAllocationIdForWorkItem(workItem.type, workItem.id);
         if (allocationId) {
           await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });
         } else if (workItem.type === "project" || workItem.type === "solution") {

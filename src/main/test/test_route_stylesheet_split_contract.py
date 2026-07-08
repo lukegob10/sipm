@@ -47,7 +47,7 @@ def test_planning_work_allocation_styles_move_into_route_partial_and_drop_stale_
         "#view-planning .panel {",
         ".wab-toolbar-main {",
         ".wab-shell {",
-        ".wab-detail-panel {",
+        ".wab-work-title-link {",
     ]:
         assert snippet in route_text
         assert snippet not in shared_text

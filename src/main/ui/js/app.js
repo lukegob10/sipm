@@ -2067,6 +2067,8 @@ function renderPMDashboard() {
   mod.renderPMDashboard({
     state,
     els,
+    apiBase: API_BASE,
+    setStatus,
     formatStatus,
     viewHref,
     openPMDashboardCapacityDrilldown,
@@ -4119,6 +4121,8 @@ function renderPlanning() {
     refreshFromServer,
     setStatus,
     showConfirmModal,
+    openProjectForm,
+    openSolutionModal,
     canDeleteAllocations: userCanAccessAdminViews(),
     assigneeKeyFromAlloc,
     findUserBySoeid,

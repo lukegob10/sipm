@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -19,7 +20,9 @@ os.environ.setdefault("ENV", "test")
 os.environ.setdefault("SIPM_BCRYPT_ROUNDS", "4")
 os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
 
-from backend.app.deps import current_user, get_db, require_user
+from backend.app.deps import current_space, current_user, get_db, require_user
+from backend.app.services.smart_cache import clear_cache
+from backend.app.services.spaces import SpaceContext
 from backend.app.services import coordination
 from backend.main import app as fastapi_app
 from backend.app.models import Base
@@ -46,6 +49,7 @@ def db_sessionmaker(tmp_path):
     if db_url.startswith("sqlite"):
         engine_kwargs["connect_args"] = {"check_same_thread": False}
     engine = create_engine(db_url, **engine_kwargs)
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -65,16 +69,29 @@ def test_user():
 
 @pytest.fixture
 def override_dependencies(db_sessionmaker, test_user):
+    clear_cache()
+
     def get_test_db():
         with db_sessionmaker() as session:
             yield session
 
+    def get_test_current_space(request: Request):
+        space_id = request.headers.get("X-Space-Id") or "test-space"
+        return SpaceContext(
+            space_id=space_id,
+            space_name="Test Space",
+            space_role="space_admin",
+            is_global_admin=True,
+        )
+
     fastapi_app.dependency_overrides[get_db] = get_test_db
     fastapi_app.dependency_overrides[require_user] = lambda: test_user
     fastapi_app.dependency_overrides[current_user] = lambda: test_user
+    fastapi_app.dependency_overrides[current_space] = get_test_current_space
     try:
         yield
     finally:
+        clear_cache()
         fastapi_app.dependency_overrides.clear()
 
 

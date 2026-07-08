@@ -20,6 +20,8 @@ CREATE TABLE "TB_TA_PM_SPACES" (
 	name VARCHAR2(255 CHAR) NOT NULL,
 	slug VARCHAR2(255 CHAR) NOT NULL,
 	is_active SMALLINT NOT NULL,
+	space_kind VARCHAR2(255 CHAR) NOT NULL,
+	owner_user_id VARCHAR2(255 CHAR),
 	public_program_dashboard_enabled SMALLINT NOT NULL,
 	archived_at DATE,
 	created_at DATE NOT NULL,
@@ -58,6 +60,8 @@ CREATE TABLE "TB_TA_PM_USERS" (
 	CONSTRAINT uix_user_email UNIQUE (email),
 	CONSTRAINT uix_user_soeid UNIQUE (soeid)
 );
+
+ALTER TABLE "TB_TA_PM_SPACES" ADD CONSTRAINT fk_spaces_owner_user FOREIGN KEY(owner_user_id) REFERENCES "TB_TA_PM_USERS" (user_id);
 
 -- Table: TB_TA_PM_API_TOKENS
 
@@ -304,6 +308,25 @@ CREATE TABLE "TB_TA_PM_SPACE_MEMBERSHIPS" (
 	CONSTRAINT uix_space_membership UNIQUE (space_id, user_id),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
 	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
+);
+
+-- Table: TB_TA_PM_SPACE_ACCESS_REQUESTS
+
+CREATE TABLE "TB_TA_PM_SPACE_ACCESS_REQUESTS" (
+	request_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	requester_user_id VARCHAR2(255 CHAR) NOT NULL,
+	requested_role VARCHAR2(255 CHAR) NOT NULL,
+	status VARCHAR2(255 CHAR) NOT NULL,
+	decided_by_user_id VARCHAR2(255 CHAR),
+	decided_at DATE,
+	decision_note CLOB,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (request_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(requester_user_id) REFERENCES "TB_TA_PM_USERS" (user_id),
+	FOREIGN KEY(decided_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
 );
 
 -- Table: TB_TA_PM_TEAMS
@@ -679,6 +702,32 @@ CREATE INDEX "ix_TB_TA_PM_SPACES_deleted_at" ON "TB_TA_PM_SPACES" (deleted_at);
 
 -- Index: ix_TB_TA_PM_SPACES_is_active
 CREATE INDEX "ix_TB_TA_PM_SPACES_is_active" ON "TB_TA_PM_SPACES" (is_active);
+
+-- Index: ix_TB_TA_PM_SPACES_owner_user_id
+CREATE INDEX "ix_TB_TA_PM_SPACES_owner_user_id" ON "TB_TA_PM_SPACES" (owner_user_id);
+
+-- Index: ix_TB_TA_PM_SPACES_space_kind
+CREATE INDEX "ix_TB_TA_PM_SPACES_space_kind" ON "TB_TA_PM_SPACES" (space_kind);
+
+-- Index: uix_space_owner_personal
+CREATE UNIQUE INDEX uix_space_owner_personal ON "TB_TA_PM_SPACES" (
+	CASE WHEN space_kind = 'personal' THEN owner_user_id ELSE NULL END
+);
+
+-- Index: idx_space_access_request_requester_status
+CREATE INDEX idx_space_access_request_requester_status ON "TB_TA_PM_SPACE_ACCESS_REQUESTS" (requester_user_id, status, created_at);
+
+-- Index: idx_space_access_request_space_status
+CREATE INDEX idx_space_access_request_space_status ON "TB_TA_PM_SPACE_ACCESS_REQUESTS" (space_id, status, created_at);
+
+-- Index: ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_requester_user_id
+CREATE INDEX "ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_requester_user_id" ON "TB_TA_PM_SPACE_ACCESS_REQUESTS" (requester_user_id);
+
+-- Index: ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_space_id
+CREATE INDEX "ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_space_id" ON "TB_TA_PM_SPACE_ACCESS_REQUESTS" (space_id);
+
+-- Index: ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_status
+CREATE INDEX "ix_TB_TA_PM_SPACE_ACCESS_REQUESTS_status" ON "TB_TA_PM_SPACE_ACCESS_REQUESTS" (status);
 
 -- Index: ix_TB_TA_PM_SPACE_MEMBERSHIPS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_SPACE_MEMBERSHIPS_deleted_at" ON "TB_TA_PM_SPACE_MEMBERSHIPS" (deleted_at);

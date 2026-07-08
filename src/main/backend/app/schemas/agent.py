@@ -18,6 +18,13 @@ class AgentManifestRead(BaseModel):
     max_patch_operations: int
 
 
+class AgentProgramNode(BaseModel):
+    program_id: str
+    program_name: str
+    description: str | None = None
+    updated_at: datetime
+
+
 class AgentTaskNode(BaseModel):
     task_id: str
     project_id: str
@@ -61,6 +68,7 @@ class AgentProjectNode(BaseModel):
 
 class AgentWorkGraphRead(BaseModel):
     space_id: str
+    programs: list[AgentProgramNode] = Field(default_factory=list)
     records: list[AgentProjectNode]
 
 

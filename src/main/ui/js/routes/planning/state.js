@@ -1,4 +1,6 @@
 export const DRAG_KIND_TASK = "task";
+export const DRAG_KIND_PROJECT = "project";
+export const DRAG_KIND_SOLUTION = "solution";
 export const DRAG_KIND_PERSON = "person";
 export const UNASSIGNED_TEAM_ID = "__unassigned__";
 export const STORAGE_KEY_PREFIX = "sipm-planning-ui-v1";
@@ -22,6 +24,8 @@ export function defaultBoardData() {
   return {
     teams: [],
     people: [],
+    projects: [],
+    solutions: [],
     tasks: [],
     allocations: [],
   };
@@ -40,6 +44,8 @@ export function defaultDrafts() {
 
 export function defaultDetailDraft() {
   return {
+    workItemType: "",
+    workItemId: "",
     taskId: "",
     title: "",
     fte: "0.25",
@@ -60,6 +66,8 @@ export const boardState = {
   personSearch: "",
   effortFilter: "all",
   teamFilter: "all",
+  selectedWorkItemType: "",
+  selectedWorkItemId: "",
   selectedTaskId: "",
   notice: { message: "", tone: "info" },
   undoStack: [],

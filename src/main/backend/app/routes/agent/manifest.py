@@ -27,7 +27,7 @@ def get_agent_manifest(
         context_path=APP_CONTEXT_PATH or "",
         requires_space_id=True,
         auth={"type": "bearer", "service_account_required": True},
-        capabilities=["read_work_graph", "validate_patch", "apply_patch"],
+        capabilities=["read_programs", "read_work_graph", "validate_patch", "apply_patch"],
         writable_entities=sorted(VALID_ENTITIES),
         writable_actions=sorted(VALID_OPS),
         max_patch_operations=25,

@@ -17,7 +17,10 @@ This document defines the main persisted data entities, API-facing shapes, and a
 ```mermaid
 erDiagram
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_SPACE_MEMBERSHIPS : contains
+  TB_TA_PM_SPACES ||--o{ TB_TA_PM_SPACE_ACCESS_REQUESTS : receives
   TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACE_MEMBERSHIPS : has
+  TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACE_ACCESS_REQUESTS : requests
+  TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACES : owns
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_PROJECTS : scopes
   TB_TA_PM_PROJECTS ||--o{ TB_TA_PM_SOLUTIONS : owns
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_TASKS : owns
@@ -121,6 +124,8 @@ Key fields:
 | `name` | string unique | Display name. |
 | `slug` | string unique | URL/API-friendly identifier. |
 | `is_active` | boolean | Whether space can be used. |
+| `space_kind` | string | `lobby`, `collaboration`, or `personal`. |
+| `owner_user_id` | FK users nullable | Owner for a self-service personal space. |
 | `archived_at` | datetime nullable | Archive marker. |
 | `deleted_at` | datetime nullable | Soft-delete marker. |
 
@@ -129,6 +134,12 @@ Used by:
 - Active space cookie/header.
 - Space governance.
 - All scoped business tables.
+
+Important constraints:
+
+- Unique `(owner_user_id, space_kind)` keeps each user to one personal space.
+- The `home` slug is the shared lobby/Home space; existing `main` spaces remain collaboration spaces.
+- `personal` spaces do not accept non-owner memberships in this version.
 
 #### `TB_TA_PM_SPACE_MEMBERSHIPS`
 
@@ -157,6 +168,32 @@ Data flow:
 2. `current_space()` resolves requested space from header/cookie.
 3. `services.spaces.resolve_active_space_context()` verifies membership or global admin.
 4. Route logic filters data by `space_id`.
+
+#### `TB_TA_PM_SPACE_ACCESS_REQUESTS`
+
+SQLAlchemy model: `SpaceAccessRequest`
+
+Purpose: tracks self-service requests from lobby users into collaboration spaces.
+
+Key fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `request_id` | string PK | Request identifier. |
+| `space_id` | FK spaces | Collaboration space being requested. |
+| `requester_user_id` | FK users | User requesting access. |
+| `requested_role` | string | Requested per-space role, normally `member`. |
+| `status` | string | `pending`, `approved`, `rejected`, or `canceled`. |
+| `decided_by_user_id` | FK users nullable | Admin who approved/rejected/canceled. |
+| `decided_at` | datetime nullable | Decision timestamp. |
+| `decision_note` | text nullable | Optional admin note. |
+
+Data flow:
+
+1. Lobby user requests an active `collaboration` space.
+2. Duplicate pending requests return the existing request.
+3. Space admin or global admin approves/rejects.
+4. Approval creates or restores an active `SpaceMembership`.
 
 ### Portfolio Work
 

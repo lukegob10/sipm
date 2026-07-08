@@ -413,17 +413,19 @@
   margin-inline: auto;
   line-height: 1.2;
   font-size: var(--task-workbench-row-font-size);
-  font-weight: var(--task-workbench-control-font-weight);
+  font-weight: 650;
   letter-spacing: 0;
   text-align: center;
 }
 
 #view-tasks-workbench .task-workbench-table tbody td:nth-child(2) strong {
-  font-size: var(--font-size-section-title);
+  font-size: var(--task-workbench-row-font-size);
 }
 
 #view-tasks-workbench .task-workbench-table tbody td:nth-child(2) .task-workbench-context {
   margin-inline: auto;
+  font-size: var(--font-size-label);
+  font-weight: var(--task-workbench-row-font-weight);
   text-align: center;
 }
 

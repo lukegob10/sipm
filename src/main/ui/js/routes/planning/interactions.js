@@ -1,5 +1,7 @@
 import {
   DRAG_KIND_PERSON,
+  DRAG_KIND_PROJECT,
+  DRAG_KIND_SOLUTION,
   DRAG_KIND_TASK,
   UNASSIGNED_TEAM_ID,
   boardState,
@@ -12,11 +14,11 @@ import {
   moveAssignment,
   movePersonToTeam,
   onPlanningAction,
-  unassignAllocation,
-  unassignTask,
+  replaceWorkItemAssignment,
+  unassignWorkItem,
 } from "./api.js";
 import { persistViewState } from "./storage.js";
-import { closeTaskDetail, selectTask } from "./selection.js";
+import { closeTaskDetail, selectTask, selectWorkItem } from "./selection.js";
 
 function getDropzone(eventTarget) {
   if (!eventTarget?.closest) return null;
@@ -46,16 +48,30 @@ function activeDragItem() {
 
 function dragKindFromDataTransfer(dataTransfer) {
   const dragItem = activeDragItem();
-  if (dragItem?.kind === DRAG_KIND_PERSON || dragItem?.kind === DRAG_KIND_TASK) {
+  if (
+    dragItem?.kind === DRAG_KIND_PERSON
+    || dragItem?.kind === DRAG_KIND_TASK
+    || dragItem?.kind === DRAG_KIND_PROJECT
+    || dragItem?.kind === DRAG_KIND_SOLUTION
+  ) {
     return dragItem.kind;
   }
   const kind = String(dataTransfer?.getData("application/x-wab-kind") || "").trim();
   if (kind === DRAG_KIND_PERSON) return DRAG_KIND_PERSON;
+  if (kind === DRAG_KIND_PROJECT) return DRAG_KIND_PROJECT;
+  if (kind === DRAG_KIND_SOLUTION) return DRAG_KIND_SOLUTION;
   if (kind === DRAG_KIND_TASK) return DRAG_KIND_TASK;
   if (String(dataTransfer?.getData("application/x-wab-person-id") || "").trim()) return DRAG_KIND_PERSON;
+  if (String(dataTransfer?.getData("application/x-wab-work-item-id") || "").trim()) {
+    const type = String(dataTransfer?.getData("application/x-wab-work-item-type") || "").trim();
+    if (type === DRAG_KIND_PROJECT) return DRAG_KIND_PROJECT;
+    if (type === DRAG_KIND_SOLUTION) return DRAG_KIND_SOLUTION;
+  }
   if (String(dataTransfer?.getData("application/x-wab-task-id") || "").trim()) return DRAG_KIND_TASK;
   const plain = plainDragData(dataTransfer);
   if (plain.startsWith("person:")) return DRAG_KIND_PERSON;
+  if (plain.startsWith("project:")) return DRAG_KIND_PROJECT;
+  if (plain.startsWith("solution:")) return DRAG_KIND_SOLUTION;
   if (plain.startsWith("task:")) return DRAG_KIND_TASK;
   if (plain) return DRAG_KIND_TASK;
   return DRAG_KIND_TASK;
@@ -87,18 +103,61 @@ function taskIdFromDataTransfer(dataTransfer) {
   return plain;
 }
 
+function workItemFromDataTransfer(dataTransfer) {
+  const dragItem = activeDragItem();
+  if (
+    (dragItem?.kind === DRAG_KIND_PROJECT || dragItem?.kind === DRAG_KIND_SOLUTION || dragItem?.kind === DRAG_KIND_TASK)
+    && dragItem.workItemId
+  ) {
+    return { type: dragItem.workItemType || dragItem.kind, id: String(dragItem.workItemId) };
+  }
+  const explicitId = String(dataTransfer?.getData("application/x-wab-work-item-id") || "").trim();
+  const explicitType = String(dataTransfer?.getData("application/x-wab-work-item-type") || "").trim();
+  if (explicitId && explicitType) return { type: explicitType, id: explicitId };
+  const taskId = taskIdFromDataTransfer(dataTransfer);
+  if (taskId) return { type: "task", id: taskId };
+  const plain = plainDragData(dataTransfer);
+  if (plain.startsWith("project:")) return { type: "project", id: plain.slice("project:".length).trim() };
+  if (plain.startsWith("solution:")) return { type: "solution", id: plain.slice("solution:".length).trim() };
+  if (plain.startsWith("task:")) return { type: "task", id: plain.slice("task:".length).trim() };
+  return { type: "", id: "" };
+}
+
 function allocationIdFromDataTransfer(dataTransfer) {
   const dragItem = activeDragItem();
-  if (dragItem?.kind === DRAG_KIND_TASK && dragItem.allocationId) {
+  if (
+    (
+      dragItem?.kind === DRAG_KIND_TASK
+      || dragItem?.kind === DRAG_KIND_PROJECT
+      || dragItem?.kind === DRAG_KIND_SOLUTION
+    )
+    && dragItem.allocationId
+  ) {
     return String(dragItem.allocationId);
   }
   return String(dataTransfer?.getData("application/x-wab-allocation-id") || "").trim();
+}
+
+function currentAllocationIdForWorkItem(workItemType, workItemId) {
+  const type = String(workItemType || "").trim();
+  const id = String(workItemId || "").trim();
+  if (!type || !id) return "";
+  const matches = (boardState.data.allocations || []).filter((allocation) => (
+    String(allocation?.work_item_type || (allocation?.task_id ? "task" : "")).trim() === type
+    && String(allocation?.work_item_id || allocation?.task_id || "").trim() === id
+  ));
+  return matches.length === 1 ? String(matches[0]?.id || "") : "";
 }
 
 function canDropOnZone(zone, dragKind) {
   if (!zone) return false;
   if (dragKind === DRAG_KIND_PERSON) {
     return zone.type === "team" || zone.type === "person" || zone.type === "unassigned";
+  }
+  if (dragKind === DRAG_KIND_PROJECT || dragKind === DRAG_KIND_SOLUTION) {
+    if (zone.type === "backlog" || zone.type === "person") return true;
+    if (zone.type === "team") return !!zone.teamId;
+    return false;
   }
   if (zone.type === "backlog" || zone.type === "person") return true;
   if (zone.type === "team") return !!zone.teamId;
@@ -123,6 +182,13 @@ export function bindPlanningBoardEvents() {
       event.preventDefault();
       const action = actionEl.getAttribute("data-wab-action") || "";
       await onPlanningAction(action, actionEl);
+      return;
+    }
+    const workChip = event.target.closest(".wab-work-chip");
+    if (workChip) {
+      selectWorkItem(workChip.getAttribute("data-work-item-type") || "", workChip.getAttribute("data-work-item-id") || "", {
+        focusReturnTaskId: workChip.getAttribute("data-work-item-id") || "",
+      });
       return;
     }
     const chip = event.target.closest(".wab-task-chip");
@@ -218,18 +284,32 @@ export function bindPlanningBoardEvents() {
       closeTaskDetail({ restoreFocus: true });
       return;
     }
+    if (key === "Escape" && boardState.selectedWorkItemId) {
+      event.preventDefault();
+      closeTaskDetail({ restoreFocus: true });
+      return;
+    }
     if (key === "Escape" && boardState.topPanel) {
       event.preventDefault();
       boardState.topPanel = "";
       rerenderPlanning();
       return;
     }
-    const chip = event.target.closest(".wab-task-chip");
+    if (event.target.closest("[data-wab-action]")) {
+      return;
+    }
+    const chip = event.target.closest(".wab-work-chip, .wab-task-chip");
     if (chip && (key === "Enter" || key === " ")) {
       event.preventDefault();
-      selectTask(chip.getAttribute("data-task-id") || "", {
-        focusReturnTaskId: chip.getAttribute("data-task-id") || "",
-      });
+      if (chip.classList.contains("wab-work-chip")) {
+        selectWorkItem(chip.getAttribute("data-work-item-type") || "", chip.getAttribute("data-work-item-id") || "", {
+          focusReturnTaskId: chip.getAttribute("data-work-item-id") || "",
+        });
+      } else {
+        selectTask(chip.getAttribute("data-task-id") || "", {
+          focusReturnTaskId: chip.getAttribute("data-task-id") || "",
+        });
+      }
       return;
     }
     const assignTarget = event.target.closest("[data-assign-target]");
@@ -242,6 +322,26 @@ export function bindPlanningBoardEvents() {
   root.addEventListener("dragstart", (event) => {
     const target = eventElement(event.target);
     if (!target) return;
+    const workChip = target.closest(".wab-work-chip");
+    if (workChip && event.dataTransfer) {
+      const workItemType = workChip.getAttribute("data-work-item-type") || "";
+      const workItemId = workChip.getAttribute("data-work-item-id") || "";
+      const allocationId = workChip.getAttribute("data-allocation-id") || "";
+      if (!workItemType || !workItemId) return;
+      event.dataTransfer.setData("application/x-wab-kind", workItemType);
+      event.dataTransfer.setData("application/x-wab-work-item-type", workItemType);
+      event.dataTransfer.setData("application/x-wab-work-item-id", workItemId);
+      event.dataTransfer.setData("application/x-wab-allocation-id", allocationId);
+      event.dataTransfer.setData("text/plain", `${workItemType}:${workItemId}`);
+      event.dataTransfer.effectAllowed = "move";
+      boardState.dragItem = {
+        kind: workItemType,
+        workItemType,
+        workItemId,
+        allocationId,
+      };
+      return;
+    }
     const chip = target.closest(".wab-task-chip");
     if (chip && event.dataTransfer) {
       const taskId = chip.getAttribute("data-task-id") || "";
@@ -254,6 +354,8 @@ export function bindPlanningBoardEvents() {
       event.dataTransfer.effectAllowed = "move";
       boardState.dragItem = {
         kind: DRAG_KIND_TASK,
+        workItemType: "task",
+        workItemId: taskId,
         taskId,
         allocationId,
       };
@@ -334,41 +436,35 @@ export function bindPlanningBoardEvents() {
         await movePersonToTeam(personId, zone.teamId, { pushUndo: true });
         return;
       }
-      const taskId = taskIdFromDataTransfer(event.dataTransfer);
-      if (!taskId) return;
+      const workItem = workItemFromDataTransfer(event.dataTransfer);
+      if (!workItem.id || !workItem.type) return;
       if (zone.type === "backlog") {
-        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
-        if (allocationId) {
-          await unassignAllocation(allocationId, { pushUndo: true, noticeMessage: "Assignee removed from task" });
-        } else {
-          await unassignTask(taskId, { pushUndo: true });
-        }
+        await unassignWorkItem(workItem.type, workItem.id, { pushUndo: true });
         return;
       }
       if (zone.type === "person" && zone.personId) {
-        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer) || currentAllocationIdForWorkItem(workItem.type, workItem.id);
         if (allocationId) {
           await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });
+        } else if (workItem.type === "project" || workItem.type === "solution") {
+          await replaceWorkItemAssignment(workItem.type, workItem.id, "person", zone.personId, { pushUndo: true });
         } else {
-          await createAssignment(taskId, "person", zone.personId, { pushUndo: true });
+          await createAssignment(workItem.type, workItem.id, "person", zone.personId, { pushUndo: true });
         }
         return;
       }
       if (zone.type === "team" && zone.teamId) {
         if (zone.teamId === UNASSIGNED_TEAM_ID) {
-          const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
-          if (allocationId) {
-            await unassignAllocation(allocationId, { pushUndo: true, noticeMessage: "Assignee removed from task" });
-          } else {
-            await unassignTask(taskId, { pushUndo: true });
-          }
+          await unassignWorkItem(workItem.type, workItem.id, { pushUndo: true });
           return;
         }
-        const allocationId = allocationIdFromDataTransfer(event.dataTransfer);
+        const allocationId = allocationIdFromDataTransfer(event.dataTransfer) || currentAllocationIdForWorkItem(workItem.type, workItem.id);
         if (allocationId) {
           await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });
+        } else if (workItem.type === "project" || workItem.type === "solution") {
+          await replaceWorkItemAssignment(workItem.type, workItem.id, "team", zone.teamId, { pushUndo: true });
         } else {
-          await createAssignment(taskId, "team", zone.teamId, { pushUndo: true });
+          await createAssignment(workItem.type, workItem.id, "team", zone.teamId, { pushUndo: true });
         }
       }
     } catch (err) {

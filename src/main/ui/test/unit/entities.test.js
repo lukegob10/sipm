@@ -193,6 +193,7 @@ describe("entity payload builders", () => {
   it("builds solution payloads without unsupported FTE aliases or display-name SOEID fallback", () => {
     const payload = buildSolutionPayload(
       formData({
+        project_id: " project-2 ",
         solution_name: "  Solution One  ",
         github_repo_url: " https://github.com/org/repo ",
         version: " 1.0.0 ",
@@ -209,6 +210,7 @@ describe("entity payload builders", () => {
       { hoursFromFteInput: (value) => Number(value) * 160 }
     );
 
+    expect(payload.project_id).toBe("project-2");
     expect(payload.solution_name).toBe("Solution One");
     expect(payload.github_repo_url).toBe("https://github.com/org/repo");
     expect(payload.version).toBe("1.0.0");

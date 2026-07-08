@@ -96,6 +96,7 @@ export function createProgramDashboardState() {
     selectedProgramIds: [],
     collapsedProgramIds: new Set(),
     collapsedProjectIds: new Set(),
+    programPickerOpen: false,
   };
 }
 
@@ -124,6 +125,117 @@ function persistState(programDashboardState) {
   });
 }
 
+function firstElementWithAttribute(root, attr, value) {
+  if (!root) return null;
+  return Array.from(root.querySelectorAll(`[${attr}]`)).find((el) => el.getAttribute(attr) === value) || null;
+}
+
+function windowScrollPosition() {
+  if (typeof window === "undefined") return { left: 0, top: 0 };
+  return {
+    left: Number(window.scrollX || window.pageXOffset || 0),
+    top: Number(window.scrollY || window.pageYOffset || 0),
+  };
+}
+
+function scrollWindowTo(left, top) {
+  if (typeof window === "undefined" || typeof window.scrollTo !== "function") return;
+  const targetLeft = Number(left || 0);
+  const targetTop = Number(top || 0);
+  const current = windowScrollPosition();
+  if (current.left === targetLeft && current.top === targetTop) return;
+  try {
+    window.scrollTo(targetLeft, targetTop);
+  } catch {
+    // jsdom and older embedded browsers may not implement scrollTo.
+  }
+}
+
+function programDashboardTableShell(root) {
+  return root?.querySelector(".program-dashboard-table-shell") || null;
+}
+
+function focusWithoutScroll(target, shell) {
+  if (!target || typeof target.focus !== "function") return;
+  const shellScrollTop = Number(shell?.scrollTop || 0);
+  const shellScrollLeft = Number(shell?.scrollLeft || 0);
+  const windowScroll = windowScrollPosition();
+  try {
+    target.focus({ preventScroll: true });
+    return;
+  } catch {
+    target.focus();
+  }
+  if (shell) {
+    shell.scrollTop = shellScrollTop;
+    shell.scrollLeft = shellScrollLeft;
+  }
+  scrollWindowTo(windowScroll.left, windowScroll.top);
+}
+
+function captureProgramDashboardViewport(viewRoot, anchor = {}) {
+  const shell = programDashboardTableShell(viewRoot);
+  const windowScroll = windowScrollPosition();
+  const row = anchor.rowAttr && anchor.rowValue
+    ? firstElementWithAttribute(viewRoot, anchor.rowAttr, anchor.rowValue)
+    : null;
+  const rowTop = typeof row?.getBoundingClientRect === "function"
+    ? row.getBoundingClientRect().top
+    : null;
+  return {
+    ...anchor,
+    rowTop,
+    shellScrollLeft: Number(shell?.scrollLeft || 0),
+    shellScrollTop: Number(shell?.scrollTop || 0),
+    windowLeft: windowScroll.left,
+    windowTop: windowScroll.top,
+  };
+}
+
+function findReplacementAction(viewRoot, snapshot) {
+  if (!viewRoot || !snapshot?.action) return null;
+  if (snapshot.action === "toggle-program" && snapshot.rowValue) {
+    return Array.from(viewRoot.querySelectorAll('[data-program-dashboard-action="toggle-program"]'))
+      .find((el) => el.getAttribute("data-program-id") === snapshot.rowValue) || null;
+  }
+  if (snapshot.action === "toggle-project" && snapshot.rowValue) {
+    return Array.from(viewRoot.querySelectorAll('[data-program-dashboard-action="toggle-project"]'))
+      .find((el) => el.getAttribute("data-project-id") === snapshot.rowValue) || null;
+  }
+  return firstElementWithAttribute(viewRoot, "data-program-dashboard-action", snapshot.action);
+}
+
+function restoreProgramDashboardViewport(viewRoot, snapshot) {
+  if (!viewRoot || !snapshot) return;
+  const shell = programDashboardTableShell(viewRoot);
+  if (shell) {
+    shell.scrollTop = snapshot.shellScrollTop;
+    shell.scrollLeft = snapshot.shellScrollLeft;
+  }
+  scrollWindowTo(snapshot.windowLeft, snapshot.windowTop);
+
+  const row = snapshot.rowAttr && snapshot.rowValue
+    ? firstElementWithAttribute(viewRoot, snapshot.rowAttr, snapshot.rowValue)
+    : null;
+  if (row && Number.isFinite(snapshot.rowTop) && typeof row.getBoundingClientRect === "function") {
+    const nextTop = row.getBoundingClientRect().top;
+    if (Number.isFinite(nextTop)) {
+      const delta = nextTop - snapshot.rowTop;
+      if (Math.abs(delta) > 0.5) {
+        if (shell && shell.scrollHeight > shell.clientHeight + 1) {
+          shell.scrollTop += delta;
+        } else {
+          scrollWindowTo(snapshot.windowLeft, snapshot.windowTop + delta);
+        }
+      }
+    }
+  }
+
+  if (shell) shell.scrollLeft = snapshot.shellScrollLeft;
+  const replacementAction = findReplacementAction(viewRoot, snapshot);
+  focusWithoutScroll(replacementAction, shell);
+}
+
 function bindProgramDashboardEvents(programDashboardState, rerender) {
   const viewRoot = typeof document !== "undefined" ? document.getElementById("view-program-dashboard") : null;
   if (!viewRoot || programDashboardState.bound) return;
@@ -138,6 +250,7 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       .filter((input) => input instanceof HTMLInputElement && input.checked)
       .map((input) => String(input.value || ""))
       .filter(Boolean);
+    programDashboardState.programPickerOpen = !!event.target.closest(".program-dashboard-picker-menu");
     programDashboardState.selectedProgramIds = checked;
     persistState(programDashboardState);
     rerender();
@@ -145,6 +258,12 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
 
   viewRoot.addEventListener("click", async (event) => {
     if (!(event.target instanceof Element)) return;
+    if (event.target.closest(".program-dashboard-picker-menu summary")) {
+      window.setTimeout(() => {
+        const picker = viewRoot.querySelector(".program-dashboard-picker-menu");
+        programDashboardState.programPickerOpen = picker instanceof HTMLDetailsElement && picker.open;
+      }, 0);
+    }
     const actionEl = event.target.closest("[data-program-dashboard-action]");
     if (!actionEl) return;
     const action = actionEl.getAttribute("data-program-dashboard-action") || "";
@@ -153,6 +272,11 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       event.preventDefault();
       const programId = String(actionEl.getAttribute("data-program-id") || "");
       if (!programId) return;
+      const viewportSnapshot = captureProgramDashboardViewport(viewRoot, {
+        action,
+        rowAttr: "data-program-dashboard-program-id",
+        rowValue: programId,
+      });
       if (!(programDashboardState.collapsedProgramIds instanceof Set)) {
         programDashboardState.collapsedProgramIds = new Set();
       }
@@ -163,6 +287,7 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       }
       persistState(programDashboardState);
       rerender();
+      restoreProgramDashboardViewport(viewRoot, viewportSnapshot);
       return;
     }
 
@@ -170,6 +295,11 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       event.preventDefault();
       const projectId = String(actionEl.getAttribute("data-project-id") || "");
       if (!projectId) return;
+      const viewportSnapshot = captureProgramDashboardViewport(viewRoot, {
+        action,
+        rowAttr: "data-program-dashboard-project-id",
+        rowValue: projectId,
+      });
       if (!(programDashboardState.collapsedProjectIds instanceof Set)) {
         programDashboardState.collapsedProjectIds = new Set();
       }
@@ -180,11 +310,13 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       }
       persistState(programDashboardState);
       rerender();
+      restoreProgramDashboardViewport(viewRoot, viewportSnapshot);
       return;
     }
 
     if (action === "collapse-projects" || action === "expand-projects") {
       event.preventDefault();
+      const viewportSnapshot = captureProgramDashboardViewport(viewRoot, { action });
       const projectIds = String(actionEl.getAttribute("data-project-ids") || "")
         .split(",")
         .map((id) => id.trim())
@@ -197,6 +329,7 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       programDashboardState.collapsedProjectIds = action === "collapse-projects" ? new Set(projectIds) : new Set();
       persistState(programDashboardState);
       rerender();
+      restoreProgramDashboardViewport(viewRoot, viewportSnapshot);
       return;
     }
 
@@ -235,6 +368,16 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       return;
     }
 
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const picker = viewRoot.querySelector(".program-dashboard-picker-menu");
+    if (!(picker instanceof HTMLDetailsElement)) return;
+    if (event.target.closest("#view-program-dashboard .program-dashboard-picker-menu")) return;
+    if (!picker.open && !programDashboardState.programPickerOpen) return;
+    picker.open = false;
+    programDashboardState.programPickerOpen = false;
   });
 }
 
@@ -382,6 +525,24 @@ function averageProgress(rows, solutionProgress) {
   return Math.round(total / rows.length);
 }
 
+function solutionPhaseLabel(solution, phaseDisplayName) {
+  return displayValue(phaseDisplayName(solution?.current_phase));
+}
+
+function phaseSummary(rows, phaseDisplayName) {
+  if (!rows.length) return "-";
+  const activeRows = rows.filter((row) => !statusIsClosed(row?.status));
+  if (!activeRows.length) return "Complete";
+  const labels = Array.from(new Set(
+    activeRows
+      .map((row) => solutionPhaseLabel(row, phaseDisplayName))
+      .filter((label) => label && label !== "-")
+  ));
+  if (!labels.length) return "Unassigned";
+  if (labels.length === 1) return labels[0];
+  return `${labels.length} phases`;
+}
+
 function sortedDates(rows, key) {
   return rows.map((row) => dateValue(row?.[key])).filter(Boolean).sort();
 }
@@ -442,7 +603,7 @@ function renderProjectsTable({
           start: esc(programStartDates[0] || "-"),
           end: esc(programEndDates[programEndDates.length - 1] || "-"),
           status: "-",
-          phase: "-",
+          phase: esc(phaseSummary(programSolutions, phaseDisplayName)),
           escalation: "",
           progress: progressMarkup(averageProgress(programSolutions, solutionProgress)),
         },
@@ -474,7 +635,7 @@ function renderProjectsTable({
               start: esc(projectStart),
               end: esc(projectEnd),
               status: statusMarkup(project.status, formatStatus),
-              phase: "-",
+              phase: esc(projectSolutions.length ? phaseSummary(projectSolutions, phaseDisplayName) : (normalize(project.status) === "complete" ? "Complete" : "-")),
               escalation: "",
               progress: progressMarkup(progress),
             },
@@ -496,7 +657,7 @@ function renderProjectsTable({
                     start: esc(displayValue(dateValue(solution.planned_start_date))),
                     end: esc(displayValue(dateValue(solution.due_date))),
                     status: statusMarkup(solution.status, formatStatus),
-                    phase: esc(displayValue(phaseDisplayName(solution.current_phase))),
+                    phase: esc(solutionPhaseLabel(solution, phaseDisplayName)),
                     escalation: esc(displayValue(solution.escalation, "")),
                     progress: progressMarkup(solutionProgress(solution)),
                   },
@@ -636,7 +797,7 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
           </div>
           <div class="program-dashboard-picker">
             <span>Program</span>
-            <details class="program-dashboard-picker-menu">
+            <details class="program-dashboard-picker-menu"${programDashboardState.programPickerOpen ? " open" : ""}>
               <summary>${esc(programPickerLabel(selectedPrograms))}</summary>
               <div class="program-dashboard-picker-options">
                 ${programOptionMarkup(programs, validSelectedProgramIds)}

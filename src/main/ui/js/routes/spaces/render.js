@@ -14,8 +14,11 @@ export function createSpaceGovernanceRenderer({
   governanceSections,
   resolveGovernanceSection,
   refreshGlobalAdmins,
+  refreshAccessRequests,
   refreshAgentChangeRequests,
   refreshApiTokens,
+  refreshRequestableSpaces,
+  refreshReviewableAccessRequests,
   refreshSpaceMembers,
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
@@ -148,48 +151,263 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
+  function statusPillClass(status) {
+    const normalizedStatus = normalize(status);
+    if (normalizedStatus === "approved") return "positive";
+    if (normalizedStatus === "rejected" || normalizedStatus === "canceled") return "muted";
+    return "warn";
+  }
+
+  function renderAccessRequestReviewPanel() {
+    if (!userIsGlobalAdmin() && !canManageSpaceMembership(activeSpaceId())) return "";
+    if (!state.reviewableAccessRequestsLoaded) {
+      refreshReviewableAccessRequests().catch((err) => {
+        console.warn("Failed to load access requests", err);
+        setSpaceGovernanceNotice(err?.message || "Failed to load access requests.", "error", 7000);
+      });
+    }
+    const rows = state.reviewableAccessRequests || [];
+    const body = state.reviewableAccessRequestsLoaded
+      ? (rows.length ? rows.map((row) => `
+        <tr>
+          <td>
+            <strong>${esc(row.requester_display_name || row.requester_soeid || row.requester_user_id)}</strong>
+            <div class="muted">${esc(row.requester_soeid || "")}</div>
+          </td>
+          <td>${esc(row.space_name || row.space_id)}</td>
+          <td>${esc(formatDateTime(row.created_at) || "")}</td>
+          <td class="space-request-actions-cell">
+            <div class="platform-access-actions">
+              <button type="button" class="primary" data-space-action="approve-access-request" data-request-id="${escapeAttr(row.request_id)}" data-space-id="${escapeAttr(row.space_id)}">Approve</button>
+              <button type="button" class="secondary" data-space-action="reject-access-request" data-request-id="${escapeAttr(row.request_id)}" data-space-id="${escapeAttr(row.space_id)}">Reject</button>
+            </div>
+          </td>
+        </tr>
+      `).join("") : "<tr><td colspan='4' class='muted'>No pending access requests.</td></tr>")
+      : "<tr><td colspan='4' class='muted'>Loading access requests...</td></tr>";
+    return `
+      <div class="panel soft">
+        <div class="panel-header">
+          <div>
+            <h3>Access Requests</h3>
+            <p class="muted">Approve pending users into collaboration spaces.</p>
+          </div>
+        </div>
+        <div class="table">
+          <table>
+            <thead><tr><th>User</th><th>Space</th><th>Requested</th><th class="space-request-actions-heading">Actions</th></tr></thead>
+            <tbody>${body}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function isOwnPersonalSpace(space) {
+    return space?.space_kind === "personal" && space.owner_user_id === state.user?.user_id;
+  }
+
+  function displaySpaceName(space) {
+    if (isOwnPersonalSpace(space)) return "Personal";
+    if (space?.space_kind === "lobby") return "Space Access";
+    return space?.name || space?.space_id || "";
+  }
+
+  function displaySpaceMeta(space) {
+    if (isOwnPersonalSpace(space)) return `${state.user?.soeid || "Your"} personal space`;
+    if (space?.space_kind === "lobby") return "Join or manage spaces";
+    return space?.slug || space?.space_id || "workspace";
+  }
+
+  function renderLobbySection() {
+    if (!state.requestableSpacesLoaded) {
+      refreshRequestableSpaces().catch((err) => {
+        console.warn("Failed to load requestable spaces", err);
+        setSpaceGovernanceNotice(err?.message || "Failed to load available spaces.", "error", 7000);
+      });
+    }
+    if (!state.spaceAccessRequestsLoaded) {
+      refreshAccessRequests().catch((err) => {
+        console.warn("Failed to load user access requests", err);
+        setSpaceGovernanceNotice(err?.message || "Failed to load access requests.", "error", 7000);
+      });
+    }
+    const currentUserId = state.user?.user_id || "";
+    const personalSpace = (state.spaces || []).find((space) => (
+      space.space_kind === "personal" && space.owner_user_id === currentUserId
+    ));
+    const pendingBySpaceId = new Map(
+      (state.spaceAccessRequests || [])
+        .filter((row) => normalize(row.status) === "pending")
+        .map((row) => [row.space_id, row])
+    );
+    const requestSearch = normalize(state.lobbyRequestSearch);
+    const requestableSpaces = state.requestableSpaces || [];
+    const requestableVisibleCount = requestableSpaces.filter((space) => {
+      if (!requestSearch) return true;
+      return normalize(`${space.name || ""} ${space.slug || ""} ${space.space_id || ""}`).includes(requestSearch);
+    }).length;
+    const requestRows = state.spaceAccessRequestsLoaded
+      ? ((state.spaceAccessRequests || []).length
+        ? (state.spaceAccessRequests || []).map((row) => `
+          <tr>
+            <td>${esc(row.space_name || row.space_id)}</td>
+            <td><span class="pill ${statusPillClass(row.status)}">${esc(row.status)}</span></td>
+            <td>${esc(formatDateTime(row.created_at) || "")}</td>
+            <td>
+              ${normalize(row.status) === "pending"
+                ? `<button type="button" class="secondary" data-space-action="cancel-access-request" data-request-id="${escapeAttr(row.request_id)}">Cancel</button>`
+                : "<span class='muted'>Closed</span>"}
+            </td>
+          </tr>
+        `).join("")
+        : "<tr><td colspan='4' class='muted'>No access requests yet.</td></tr>")
+      : "<tr><td colspan='4' class='muted'>Loading requests...</td></tr>";
+    const requestableRows = state.requestableSpacesLoaded
+      ? ((state.requestableSpaces || []).length
+        ? `${requestableSpaces.map((space) => {
+          const pending = pendingBySpaceId.get(space.space_id);
+          const submitting = state.accessRequestSubmittingSpaceId === space.space_id;
+          const searchText = normalize(`${space.name || ""} ${space.slug || ""} ${space.space_id || ""}`);
+          const hiddenAttr = requestSearch && !searchText.includes(requestSearch) ? " hidden" : "";
+          return `<tr data-lobby-request-row data-search-text="${escapeAttr(searchText)}"${hiddenAttr}>
+            <td>
+              <div class="space-directory-space-cell">
+                <strong class="space-directory-space-name">${esc(space.name || space.space_id)}</strong>
+                <span class="space-directory-space-meta">${esc(space.slug || "workspace")}</span>
+              </div>
+            </td>
+            <td><span class="pill muted">${esc(space.space_kind || "collaboration")}</span></td>
+            <td>
+              <button type="button" class="primary" data-space-action="request-space-access" data-space-id="${escapeAttr(space.space_id)}"${disabledReasonAttr(!!pending || submitting, pending ? "Access request already pending." : "Request in progress.")}>${pending ? "Pending" : (submitting ? "Requesting..." : "Request Access")}</button>
+            </td>
+          </tr>`;
+        }).join("")}<tr data-lobby-request-empty${requestSearch && !requestableVisibleCount ? "" : " hidden"}><td colspan='3' class='muted'>No matching collaboration spaces.</td></tr>`
+        : "<tr><td colspan='3' class='muted'>No collaboration spaces are available to request.</td></tr>")
+      : "<tr><td colspan='3' class='muted'>Loading spaces...</td></tr>";
+    return `
+      <div class="space-section-stack">
+        <div class="space-hero-card">
+          <div>
+            <p class="space-card-kicker">Space Access</p>
+            <h3>Join or create a working space</h3>
+            <p class="muted">This area is for access management. You do not have access to a working space yet, so create Personal or request access to a collaboration space.</p>
+          </div>
+          <div class="space-hero-actions">
+            <span class="pill muted">Lobby</span>
+          </div>
+        </div>
+        <div class="space-summary-grid">
+          <div class="panel soft space-summary-card"><span class="muted">Private Space</span><strong>${personalSpace ? "Created" : "Available"}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Requests</span><strong>${(state.spaceAccessRequests || []).length}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Available Spaces</span><strong>${(state.requestableSpaces || []).length}</strong></div>
+        </div>
+        <div class="panel soft">
+          <div class="panel-header">
+            <div>
+              <h3>Private Space</h3>
+              <p class="muted">A private working area owned by your account.</p>
+            </div>
+          </div>
+          ${personalSpace ? `
+            <div class="space-inline-callout">
+              <div>
+                <strong>${esc(displaySpaceName(personalSpace))}</strong>
+                <p class="muted">${esc(displaySpaceMeta(personalSpace))}</p>
+              </div>
+              <button type="button" class="primary" data-space-action="switch-space" data-space-id="${escapeAttr(personalSpace.space_id)}"${disabledReasonAttr(state.spaceSwitching, "Finish switching spaces before choosing another space.")}>Open Private Space</button>
+            </div>
+          ` : `
+            <form id="space-personal-create-form" class="form compact">
+              <div class="form-actions full-span platform-command-actions">
+                <button type="submit"${disabledReasonAttr(state.lobbyPersonalSpaceCreating, "Private space creation is in progress.")}>${state.lobbyPersonalSpaceCreating ? "Creating..." : "Create Private Space"}</button>
+              </div>
+            </form>
+          `}
+        </div>
+        <div class="panel soft">
+          <div class="panel-header">
+            <div>
+              <h3>Request Collaboration Access</h3>
+              <p class="muted">Ask space admins to add you to an existing collaboration space.</p>
+            </div>
+          </div>
+          <div class="space-directory-toolbar">
+            <label class="space-directory-search-field">Search <input id="lobby-request-space-search" value="${escapeAttr(state.lobbyRequestSearch || "")}" placeholder="Space name or slug" /></label>
+          </div>
+          <div class="table space-directory-table-shell">
+            <table class="space-directory-table">
+              <thead><tr><th>Space</th><th>Kind</th><th>Action</th></tr></thead>
+              <tbody>${requestableRows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel soft">
+          <div class="panel-header">
+            <div>
+              <h3>Your Requests</h3>
+              <p class="muted">Track pending and completed access requests.</p>
+            </div>
+          </div>
+          <div class="table">
+            <table>
+              <thead><tr><th>Space</th><th>Status</th><th>Requested</th><th>Actions</th></tr></thead>
+              <tbody>${requestRows}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderCurrentSpaceSection() {
     const active = state.activeSpace;
     const currentSpaceId = activeSpaceId();
     if (!active || !currentSpaceId) {
       return "<p class='muted'>Select a space to manage memberships and scoped administration.</p>";
     }
-    if (!state.spaceMembersLoadedBySpace[currentSpaceId]) {
+    const canManageCurrentSpace = canManageSpaceMembership(currentSpaceId) || userIsGlobalAdmin();
+    if (canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId]) {
       refreshSpaceMembers(currentSpaceId).catch((err) => {
         console.warn("Failed to load active space memberships", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load space memberships.", "error", 7000);
       });
     }
-    const loading = !state.spaceMembersLoadedBySpace[currentSpaceId];
+    const loading = canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId];
     const summary = loading ? { total: 0, active: 0, admins: 0, inactive: 0 } : membershipSummaryForSpace(currentSpaceId);
+    const isPersonalSpace = active.space_kind === "personal";
     return `
       <div class="space-section-stack">
         <div class="space-hero-card">
           <div>
             <p class="space-card-kicker">Active workspace</p>
-            <h3>${esc(active.space_name || currentSpaceId)}</h3>
+            <h3>${esc(active.space_kind === "personal" ? "Personal" : (active.space_name || currentSpaceId))}</h3>
             <p class="muted">This is the space that powers the data, assignments, and membership edits in the rest of the app.</p>
           </div>
           <div class="space-hero-actions">
             <span class="pill">${esc(currentSpaceRoleLabel(active))}</span>
-            <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(currentSpaceId)}"${disabledReasonAttr(state.spaceSwitching, "Finish switching spaces before adding a member.")}>Add Member</button>
+            ${isPersonalSpace ? "<span class='pill muted'>Private</span>" : ""}
+            ${canManageCurrentSpace && !isPersonalSpace ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(currentSpaceId)}"${disabledReasonAttr(state.spaceSwitching, "Finish switching spaces before adding a member.")}>Add Member</button>` : ""}
           </div>
         </div>
-        <div class="space-summary-grid">
+        ${canManageCurrentSpace ? `<div class="space-summary-grid">
           <div class="panel soft space-summary-card"><span class="muted">Members</span><strong>${loading ? "..." : summary.total}</strong></div>
           <div class="panel soft space-summary-card"><span class="muted">Active</span><strong>${loading ? "..." : summary.active}</strong></div>
           <div class="panel soft space-summary-card"><span class="muted">Active Admins</span><strong>${loading ? "..." : summary.admins}</strong></div>
           <div class="panel soft space-summary-card"><span class="muted">Inactive</span><strong>${loading ? "..." : summary.inactive}</strong></div>
-        </div>
+        </div>` : ""}
         <div class="panel soft space-membership-card">
           <div class="panel-header">
             <div>
               <h3>Space Memberships</h3>
-              <p class="muted">Manage the people who can work inside ${esc(active.space_name || currentSpaceId)}.</p>
+              <p class="muted">${canManageCurrentSpace ? `Manage the people who can work inside ${esc(active.space_name || currentSpaceId)}.` : "Space admin access is required to view or change memberships."}</p>
             </div>
           </div>
-          ${loading ? "<p class='muted'>Loading memberships...</p>" : renderMembershipTable(currentSpaceId)}
+          ${canManageCurrentSpace
+            ? (loading ? "<p class='muted'>Loading memberships...</p>" : renderMembershipTable(currentSpaceId))
+            : "<p class='muted'>You can work in this space, but membership management is limited to space admins.</p>"}
         </div>
+        ${canManageCurrentSpace && !isPersonalSpace ? renderAccessRequestReviewPanel() : ""}
       </div>
     `;
   }
@@ -207,6 +425,7 @@ export function createSpaceGovernanceRenderer({
     const canManage = canManageSpaceMembership(selectedSpace.space_id);
     const canSwitchToManage = !userIsGlobalAdmin() && normalizeSpaceRole(state.activeSpace?.space_role) === "space_admin" && !isCurrent;
     const isArchived = selectedSpace.is_active === false;
+    const isPersonalSpace = selectedSpace.space_kind === "personal";
     const canToggleActive = userIsGlobalAdmin() && (isArchived || !isCurrent);
     const archiveLabel = isArchived ? "Reactivate" : "Archive";
     const publicDashboardEnabled = selectedSpace.public_program_dashboard_enabled === true;
@@ -289,7 +508,7 @@ export function createSpaceGovernanceRenderer({
           ${(canManage || userIsGlobalAdmin()) ? `
             <div class="space-directory-preview-actions">
               <button type="button" class="secondary" data-space-action="switch-space" data-space-id="${escapeAttr(selectedSpace.space_id)}"${disabledReasonAttr(isCurrent || state.spaceSwitching, isCurrent ? "This space is already current." : "Finish switching spaces before choosing another space.")}>${isCurrent ? "Already current" : "Switch to this space"}</button>
-              <button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}"${disabledReasonAttr(!(canManage && !isArchived), isArchived ? "Reactivate this space before adding members." : "Switch to this space or ask a space admin to add members.")}>Add Member</button>
+              ${isPersonalSpace ? "" : `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(selectedSpace.space_id)}"${disabledReasonAttr(!(canManage && !isArchived), isArchived ? "Reactivate this space before adding members." : "Switch to this space or ask a space admin to add members.")}>Add Member</button>`}
               ${userIsGlobalAdmin() ? `<button type="button" class="secondary${!canToggleActive ? " muted-action" : ""}" data-space-action="toggle-space-active" data-space-id="${escapeAttr(selectedSpace.space_id)}" data-next-active="${isArchived ? "true" : "false"}"${disabledReasonAttr(!canToggleActive, isCurrent ? "Switch to another active space before archiving this one." : "Only global admins can archive or reactivate spaces.")}>${archiveLabel}</button>` : ""}
             </div>
           ` : ""}
@@ -335,42 +554,31 @@ export function createSpaceGovernanceRenderer({
     if (selectedSpace?.space_id && selectedSpace.space_id !== state.spaceMembershipSpaceId) {
       state.spaceMembershipSpaceId = selectedSpace.space_id;
     }
-    const cards = spaces.length
+    const directoryRows = spaces.length
       ? spaces.map((space) => {
         const isCurrent = space.space_id === activeSpaceId();
         const isSelected = space.space_id === state.spaceMembershipSpaceId;
         const isArchived = space.is_active === false;
         const workspaceState = isArchived ? "Archived" : (isCurrent ? "Current" : "Active");
-        return `<article class="space-directory-card${isSelected ? " is-selected" : ""}${isCurrent ? " is-current" : ""}${isArchived ? " is-archived" : ""}">
-          <div class="space-directory-card-head">
-            <div>
-              <p class="space-card-kicker">${esc(space.slug || "workspace")}</p>
-              <h3>${esc(space.name || space.space_id)}</h3>
+        return `<tr class="space-directory-row${isSelected ? " is-selected" : ""}${isCurrent ? " is-current" : ""}${isArchived ? " is-archived" : ""}">
+          <td>
+            <div class="space-directory-space-cell">
+              <strong class="space-directory-space-name">${esc(displaySpaceName(space))}</strong>
+              <span class="space-directory-space-meta">${esc(displaySpaceMeta(space))} &middot; ${esc(space.space_id)}</span>
             </div>
-            <div class="space-card-badges">
-              <span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(space))}">${esc(roleBadgeLabelForSpace(space))}</span>
-              ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
-              ${isArchived ? "<span class='pill danger'>Archived</span>" : "<span class='pill muted'>Active</span>"}
+          </td>
+          <td><span class="pill ${roleBadgeClass(roleBadgeLabelForSpace(space))}">${esc(roleBadgeLabelForSpace(space))}</span></td>
+          <td>
+            ${isCurrent ? "<span class='pill positive'>Current</span>" : ""}
+            ${isArchived ? "<span class='pill danger'>Archived</span>" : (!isCurrent ? "<span class='pill muted'>Active</span>" : "")}
+          </td>
+          <td>${esc(isCurrent ? "Current workspace" : workspaceState)}</td>
+          <td>
+            <div class="space-directory-actions">
+              <button type="button" class="primary" data-space-action="open-directory-space" data-space-id="${escapeAttr(space.space_id)}">${isSelected ? "Reopen details" : (isCurrent ? "Open current space" : "View details")}</button>
             </div>
-          </div>
-          <div class="space-directory-card-body">
-            <p class="space-directory-card-id">${esc(space.space_id)}</p>
-            <p class="space-directory-card-note muted">Open the space sheet to review status, switch workspaces, and handle space-level actions in one layer.</p>
-            <div class="space-directory-card-facts">
-              <div class="space-directory-card-fact">
-                <span>Mode</span>
-                <strong>${esc(workspaceState)}</strong>
-              </div>
-              <div class="space-directory-card-fact">
-                <span>Access</span>
-                <strong>${esc(isCurrent ? "Current workspace" : roleBadgeLabelForSpace(space))}</strong>
-              </div>
-            </div>
-          </div>
-          <div class="space-directory-card-actions space-directory-card-actions-single">
-            <button type="button" class="primary" data-space-action="open-directory-space" data-space-id="${escapeAttr(space.space_id)}">${isSelected ? "Reopen details" : (isCurrent ? "Open current space" : "View details")}</button>
-          </div>
-        </article>`;
+          </td>
+        </tr>`;
       }).join("")
       : `
         <div class="space-empty-card">
@@ -378,6 +586,22 @@ export function createSpaceGovernanceRenderer({
           <p class="muted">${userIsGlobalAdmin() ? "Try a different search or switch off archived filtering to widen the directory." : "Try a different search to widen the directory."}</p>
         </div>
       `;
+    const directorySurface = spaces.length
+      ? `<div class="table space-directory-table-shell">
+          <table class="space-directory-table">
+            <thead>
+              <tr>
+                <th>Space</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Mode</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>${directoryRows}</tbody>
+          </table>
+        </div>`
+      : directoryRows;
     return `
       <div class="space-section-stack">
         <div class="panel soft space-directory-overview">
@@ -413,7 +637,7 @@ export function createSpaceGovernanceRenderer({
           </div>
         </div>
         <div class="space-directory-layout">
-          <div class="space-directory-grid">${cards}</div>
+          ${directorySurface}
         </div>
       </div>
     `;
@@ -478,6 +702,54 @@ export function createSpaceGovernanceRenderer({
     }).join("");
   }
 
+  function agentProposalSummary(row) {
+    const diff = Array.isArray(row?.diff) ? row.diff : [];
+    if (!diff.length) {
+      return `${row?.operation_count || 0} proposed operation${row?.operation_count === 1 ? "" : "s"}`;
+    }
+    const labels = diff
+      .map((item) => item.entity_label || item.entity || "")
+      .filter(Boolean);
+    const uniqueLabels = [...new Set(labels)];
+    const visibleLabels = uniqueLabels.slice(0, 3).join(", ");
+    const remaining = uniqueLabels.length > 3 ? ` +${uniqueLabels.length - 3} more` : "";
+    return `${diff.length} change${diff.length === 1 ? "" : "s"} across ${visibleLabels || "work items"}${remaining}`;
+  }
+
+  function renderAgentProposalModal(request) {
+    if (!request) return "";
+    const operationCount = Number(request.operation_count || 0);
+    return `
+      <div class="modal agent-proposal-modal" role="dialog" aria-modal="true" aria-labelledby="agent-proposal-modal-title">
+        <button type="button" class="modal-backdrop" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review"></button>
+        <div class="modal-content wide agent-proposal-modal-content">
+          <div class="modal-header">
+            <div>
+              <p class="space-card-kicker">Agent proposal</p>
+              <h3 id="agent-proposal-modal-title">${esc(request.reason || "Agent proposal")}</h3>
+              <p class="muted">${esc(request.proposed_by_label || request.proposed_by_user_id || "Service account")} - ${esc(formatDateTime(request.created_at) || "No date")} - ${esc(operationCount)} proposed operation${operationCount === 1 ? "" : "s"}</p>
+            </div>
+            <button type="button" class="secondary modal-close-x" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review" title="Close" data-tooltip="Close">
+              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
+            </button>
+          </div>
+          <div class="agent-proposal-modal-meta">
+            <span class="pill">${esc(request.status || "pending")}</span>
+            <span class="pill muted">${esc(agentProposalSummary(request))}</span>
+          </div>
+          <div class="agent-proposal-modal-body">
+            ${renderAgentDiff(request)}
+          </div>
+          <div class="form-actions agent-proposal-modal-actions">
+            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Approve proposal</button>
+            <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject proposal</button>
+            <button type="button" class="secondary" data-space-action="close-agent-change-request-modal">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderAgentApprovalsSection() {
     if (!state.agentChangeRequestsLoaded) {
       refreshAgentChangeRequests({ force: true }).catch((err) => {
@@ -487,17 +759,17 @@ export function createSpaceGovernanceRenderer({
     }
     const rows = state.agentChangeRequests || [];
     const selected = state.agentChangeRequestSelectedIds || new Set();
-    const active = rows.find((row) => row.change_request_id === state.agentChangeRequestActiveId) || rows[0] || null;
+    const modalProposal = rows.find((row) => row.change_request_id === state.agentChangeRequestModalId) || null;
     const newest = rows[0]?.created_at ? formatDateTime(rows[0].created_at) : "None";
     const tableRows = rows.length
       ? rows.map((row) => {
         const checked = selected.has(row.change_request_id);
-        const isActive = active?.change_request_id === row.change_request_id;
-        return `<tr class="${isActive ? "is-selected" : ""}">
+        const isOpen = modalProposal?.change_request_id === row.change_request_id;
+        return `<tr class="${isOpen ? "is-selected" : ""}">
           <td><input type="checkbox" data-agent-change-request-checkbox data-change-request-id="${escapeAttr(row.change_request_id)}" ${checked ? "checked" : ""} /></td>
           <td>
-            <button type="button" class="text-link" data-space-action="select-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
-            <div class="muted">${esc(row.operation_count || 0)} proposed operation${row.operation_count === 1 ? "" : "s"}</div>
+            <button type="button" class="text-link agent-proposal-link" data-space-action="open-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
+            <div class="muted">${esc(agentProposalSummary(row))}</div>
           </td>
           <td>${esc(row.proposed_by_label || row.proposed_by_user_id || "Service account")}</td>
           <td>${esc(formatDateTime(row.created_at) || "")}</td>
@@ -525,25 +797,15 @@ export function createSpaceGovernanceRenderer({
           <div class="panel soft space-summary-card"><span class="muted">Selected</span><strong>${selected.size}</strong></div>
           <div class="panel soft space-summary-card"><span class="muted">Newest</span><strong>${esc(newest)}</strong></div>
         </div>
-        <div class="agent-approval-layout">
-          <div class="panel soft">
-            <div class="table">
-              <table>
+        <div class="panel soft agent-approval-table-panel">
+          <div class="table">
+            <table class="agent-approval-table">
                 <thead><tr><th></th><th>Proposal</th><th>Proposed By</th><th>Created</th><th>Ops</th><th>Status</th></tr></thead>
                 <tbody>${tableRows}</tbody>
-              </table>
-            </div>
-          </div>
-          <div class="panel soft agent-diff-panel">
-            <div class="panel-header">
-              <div>
-                <h3>${esc(active?.reason || "Select a proposal")}</h3>
-                <p class="muted">${active ? `${esc(active.operation_count || 0)} proposed operation${active.operation_count === 1 ? "" : "s"}` : "Choose a row to inspect the diff."}</p>
-              </div>
-            </div>
-            ${active ? renderAgentDiff(active) : "<p class='muted'>No proposal selected.</p>"}
+            </table>
           </div>
         </div>
+        ${renderAgentProposalModal(modalProposal)}
       </div>
     `;
   }
@@ -781,6 +1043,21 @@ export function createSpaceGovernanceRenderer({
 
   function renderGovernanceHub(preferredSection = "") {
     if (!els.spaceGovernanceShell) return;
+    if (state.activeSpace?.space_kind === "lobby") {
+      els.spaceGovernanceShell.innerHTML = `
+        <div class="space-governance-header">
+          <div>
+            <p class="space-card-kicker">Shared landing space</p>
+            <h3>Space Access</h3>
+            <p class="muted">Choose where your work should live.</p>
+          </div>
+        </div>
+        ${renderGovernanceNotice()}
+        <div class="space-governance-body">${renderLobbySection()}</div>
+      `;
+      closeSpaceDirectoryModal();
+      return;
+    }
     const activeSection = resolveGovernanceSection(
       preferredSection || (state.currentView === "access" ? "platform-access" : state.spaceAdminSection || "current-space")
     );
@@ -810,7 +1087,7 @@ export function createSpaceGovernanceRenderer({
           <p class="muted">${esc(introCopy)}</p>
         </div>
         <div class="space-governance-header-actions">
-          ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
+          ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) && state.activeSpace?.space_kind !== "personal" ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
           ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
         </div>
       </div>

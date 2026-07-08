@@ -18,6 +18,22 @@ export function createSpaceSwitcherController({
     return role || "Member";
   }
 
+  function isOwnPersonalSpace(space) {
+    return space?.space_kind === "personal" && space.owner_user_id === state.user?.user_id;
+  }
+
+  function displaySpaceName(space) {
+    if (isOwnPersonalSpace(space)) return "Personal";
+    if (space?.space_kind === "lobby") return "Space Access";
+    return space?.space_name || space?.name || space?.space_id || "";
+  }
+
+  function displaySpaceMeta(space) {
+    if (isOwnPersonalSpace(space)) return `${state.user?.soeid || "Your"} personal space`;
+    if (space?.space_kind === "lobby") return "Join or manage spaces";
+    return space?.slug || "Workspace";
+  }
+
   function clearSpaceFeedback() {
     if (state.spaceFeedback?.timeoutId) {
       clearTimeout(state.spaceFeedback.timeoutId);
@@ -34,7 +50,7 @@ export function createSpaceSwitcherController({
     }
     if (els.spaceSwitcherCurrent) {
       els.spaceSwitcherCurrent.textContent = state.authed
-        ? (active?.space_name || active?.space_id || "No active space")
+        ? (displaySpaceName(active) || "No active space")
         : "Sign in";
     }
     if (els.spaceSwitcherMeta) {
@@ -75,8 +91,8 @@ export function createSpaceSwitcherController({
           ${isCurrent || state.spaceSwitching ? "disabled" : ""}
         >
           <span class="space-switcher-option-main">
-            <strong>${esc(space.name || space.space_id)}</strong>
-            <span class="space-switcher-option-meta">${esc(space.slug || "Workspace")}</span>
+            <strong>${esc(displaySpaceName(space))}</strong>
+            <span class="space-switcher-option-meta">${esc(displaySpaceMeta(space))}</span>
           </span>
           <span class="space-switcher-option-side">
             <span class="pill ${isCurrent ? "" : "muted"}">${esc(roleLabel)}</span>
@@ -100,6 +116,9 @@ export function createSpaceSwitcherController({
     renderList(els.spaceSwitcherCurrentList, active ? [{
       space_id: active.space_id,
       name: active.space_name || active.space_id,
+      space_name: active.space_name || active.space_id,
+      space_kind: active.space_kind || "collaboration",
+      owner_user_id: active.owner_user_id || null,
       slug: "",
     }] : [], { emptyText: "No active space", currentId: activeId });
     renderList(els.spaceSwitcherRecentList, recentSpaces, { emptyText: "No recent spaces yet", currentId: activeId });
@@ -129,8 +148,8 @@ export function createSpaceSwitcherController({
     const id = String(spaceId || "").trim();
     if (!id) return "";
     const match = (state.spaces || []).find((space) => space.space_id === id);
-    if (match?.name) return match.name;
-    if ((state.activeSpace?.space_id || "") === id) return state.activeSpace?.space_name || id;
+    if (match) return displaySpaceName(match) || id;
+    if ((state.activeSpace?.space_id || "") === id) return displaySpaceName(state.activeSpace) || id;
     return id;
   }
 

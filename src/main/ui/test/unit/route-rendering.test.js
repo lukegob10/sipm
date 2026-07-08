@@ -7,10 +7,13 @@ import {
   splitProgramName,
 } from "../../js/routes/program-dashboard/render.js";
 import { renderAccess } from "../../js/routes/access.js";
+import { calculateTableMinWidth, renderSectionTable } from "../../js/routes/dashboard/common.js";
+import { createDashboardState, renderDashboardView } from "../../js/routes/dashboard/render.js";
 import { renderSpaces } from "../../js/routes/spaces.js";
 import { renderTasksWorkbench } from "../../js/routes/tasks-workbench.js";
 import { renderTeamCapacity } from "../../js/routes/team-capacity.js";
 import { filteredDeliverables } from "../../js/routes/master/filters.js";
+import { bindDeliverablesTable } from "../../js/routes/master/interactions.js";
 import { buildMasterTable } from "../../js/routes/master/table.js";
 
 describe("simple route rendering", () => {
@@ -41,8 +44,97 @@ describe("simple route rendering", () => {
     renderSpaces({});
 
     expect(renderGovernanceHub).toHaveBeenNthCalledWith(1, "platform-access");
-    expect(renderGovernanceHub).toHaveBeenNthCalledWith(2, "current-space");
+    expect(renderGovernanceHub.mock.calls[1]).toEqual([]);
     expect(renderGovernanceHub).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps dashboard tables wide enough for long solution names when extra columns are selected", () => {
+    const compactColumns = ["solution", "completed"];
+    const expandedColumns = ["solution", "project", "status", "rag", "timing", "completed", "fte", "owner"];
+    const columnDefs = {
+      solution: { label: "Solution", render: (row) => row.solutionName },
+      project: { label: "Project", render: (row) => row.projectName },
+      status: { label: "Status", render: (row) => row.status },
+      rag: { label: "RAG", render: (row) => row.rag },
+      timing: { label: "Timing", render: (row) => row.timing },
+      completed: { label: "Completed", render: (row) => row.completed },
+      fte: { label: "FTE-mo", render: (row) => row.fte },
+      owner: { label: "Owner", render: (row) => row.owner },
+    };
+
+    const html = renderSectionTable({
+      columns: expandedColumns,
+      rows: [{
+        solutionName: "A very long solution name that should not force the card into a compressed table",
+        projectName: "Project",
+        status: "Complete",
+        rag: "Green",
+        timing: "Due in 2d",
+        completed: "2026-06-25",
+        fte: "1.00",
+        owner: "Owner",
+      }],
+      columnDefs,
+      tableClass: "dashboard-mini-table",
+      emptyText: "No rows",
+    });
+
+    expect(calculateTableMinWidth(expandedColumns)).toBeGreaterThan(calculateTableMinWidth(compactColumns));
+    expect(html).toContain(`min-width:${calculateTableMinWidth(expandedColumns)}px;`);
+  });
+
+  it("paginates current dashboard deliverables with centered caret controls", () => {
+    document.body.innerHTML = `
+      <section id="view-dashboard">
+        <div id="dashboard-space-capacity"></div>
+        <div id="dashboard-top-projects"></div>
+        <div id="dashboard-completed-quarter"></div>
+        <div id="dashboard-upcoming-quarter"></div>
+        <div id="dashboard-backlog"></div>
+      </section>
+    `;
+    vi.stubGlobal("innerHeight", 760);
+    const dashboardState = createDashboardState();
+    const solutions = Array.from({ length: 7 }, (_, index) => ({
+      solution_id: `solution-${index + 1}`,
+      project_id: "project-1",
+      solution_name: `Solution ${String(index + 1).padStart(2, "0")}`,
+      status: "active",
+      due_date: "2026-07-15",
+    }));
+
+    renderDashboardView(dashboardState, {
+      state: {
+        activeSpace: { space_id: "space-1" },
+        projects: [{ project_id: "project-1", project_name: "Project One" }],
+        solutions,
+        tasks: [],
+        users: [],
+      },
+      els: {
+        dashboardSpaceCapacity: document.getElementById("dashboard-space-capacity"),
+        dashboardTopProjects: document.getElementById("dashboard-top-projects"),
+        dashboardCompletedQuarter: document.getElementById("dashboard-completed-quarter"),
+        dashboardUpcomingQuarter: document.getElementById("dashboard-upcoming-quarter"),
+        dashboardBacklog: document.getElementById("dashboard-backlog"),
+      },
+      formatStatus: (value) => value,
+    });
+
+    const root = document.getElementById("dashboard-top-projects");
+    expect(root.textContent).toContain("Solution 01");
+    expect(root.textContent).not.toContain("Solution 07");
+    expect(root.querySelector(".dashboard-pagination")?.textContent).toContain("Page 1 of 2");
+    expect(root.querySelector(".dashboard-page-range")?.textContent).toBe("1-5 of 7");
+    expect(root.querySelector("[data-dashboard-page-direction='prev']")?.disabled).toBe(true);
+
+    root.querySelector("[data-dashboard-page-direction='next']")?.click();
+
+    expect(root.textContent).not.toContain("Solution 01");
+    expect(root.textContent).toContain("Solution 07");
+    expect(root.querySelector(".dashboard-pagination")?.textContent).toContain("Page 2 of 2");
+    expect(root.querySelector(".dashboard-page-range")?.textContent).toBe("6-7 of 7");
+    expect(root.querySelector("[data-dashboard-page-direction='next']")?.disabled).toBe(true);
   });
 
   it("renders team capacity summaries with filters, allocation load, and escaped labels", () => {
@@ -403,6 +495,62 @@ describe("simple route rendering", () => {
     expect(html).toContain('aria-expanded="false"');
   });
 
+  it("keeps the deliverables table viewport stable when expanding outline groups", () => {
+    const masterTable = document.createElement("section");
+    Object.defineProperty(masterTable, "clientHeight", { configurable: true, value: 120 });
+    Object.defineProperty(masterTable, "scrollHeight", { configurable: true, value: 1200 });
+    masterTable.innerHTML = `
+      <table>
+        <tbody>
+          <tr data-master-row-key="project:project-1">
+            <td>
+              <button type="button" data-action="toggle-master-collapse" data-master-collapse-key="project:project-1" aria-expanded="false">Expand</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    `;
+    document.body.appendChild(masterTable);
+    masterTable.scrollTop = 420;
+    masterTable.scrollLeft = 18;
+    const renderMasterTable = vi.fn(() => {
+      masterTable.innerHTML = `
+        <table>
+          <tbody>
+            <tr data-master-row-key="project:project-1">
+              <td>
+                <button type="button" data-action="toggle-master-collapse" data-master-collapse-key="project:project-1" aria-expanded="true">Collapse</button>
+              </td>
+            </tr>
+            <tr><td>Expanded child row</td></tr>
+          </tbody>
+        </table>
+      `;
+      masterTable.scrollTop = 0;
+      masterTable.scrollLeft = 0;
+    });
+    const ctx = {
+      els: { masterTable },
+      state: { masterCollapsed: new Set(["project:project-1"]) },
+      persistMasterViewState: vi.fn(),
+      renderMasterTable,
+      openProgramForm: vi.fn(),
+      openProjectForm: vi.fn(),
+      openSolutionModal: vi.fn(),
+      showTaskForm: vi.fn(),
+    };
+
+    bindDeliverablesTable(ctx);
+    masterTable.querySelector("[data-action='toggle-master-collapse']").click();
+
+    expect(ctx.state.masterCollapsed.has("project:project-1")).toBe(false);
+    expect(ctx.persistMasterViewState).toHaveBeenCalledTimes(1);
+    expect(renderMasterTable).toHaveBeenCalledTimes(1);
+    expect(masterTable.scrollTop).toBe(420);
+    expect(masterTable.scrollLeft).toBe(18);
+    expect(document.activeElement).toBe(masterTable.querySelector("[data-master-collapse-key='project:project-1']"));
+  });
+
   it("expands collapsed deliverables groups while search is active", () => {
     const rows = [
       {
@@ -614,6 +762,116 @@ describe("simple route rendering", () => {
     expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual([]);
   });
 
+  it("keeps the program dashboard viewport stable when expanding outline groups", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramIds: ["program-1"],
+    }));
+    const programDashboardState = createProgramDashboardState();
+    const ctx = {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "Program One" }],
+        projects: [
+          { project_id: "project-1", program_id: "program-1", project_name: "Project One", status: "active" },
+        ],
+        solutions: [
+          { solution_id: "solution-1", project_id: "project-1", solution_name: "Solution One", status: "active" },
+        ],
+      },
+      formatStatus: (value) => value,
+      phaseDisplayName: (value) => value,
+      solutionProgress: () => 25,
+    };
+
+    renderProgramDashboardView(programDashboardState, ctx);
+    const shell = document.querySelector(".program-dashboard-table-shell");
+    Object.defineProperty(shell, "clientHeight", { configurable: true, value: 160 });
+    Object.defineProperty(shell, "scrollHeight", { configurable: true, value: 1200 });
+    shell.scrollTop = 360;
+    shell.scrollLeft = 22;
+
+    document.querySelector('[data-program-dashboard-action="toggle-project"][data-project-id="project-1"]')?.click();
+
+    const rerenderedShell = document.querySelector(".program-dashboard-table-shell");
+    expect(rerenderedShell.scrollTop).toBe(360);
+    expect(rerenderedShell.scrollLeft).toBe(22);
+    expect(document.activeElement).toBe(
+      document.querySelector('[data-program-dashboard-action="toggle-project"][data-project-id="project-1"]')
+    );
+    expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual(["project-1"]);
+  });
+
+  it("rolls up program dashboard phase and percent complete from active deliverables", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramIds: ["program-1"],
+    }));
+
+    renderProgramDashboardView(createProgramDashboardState(), {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "Program One" }],
+        projects: [{ project_id: "project-1", program_id: "program-1", project_name: "Project One", status: "active" }],
+        solutions: [
+          {
+            solution_id: "solution-1",
+            project_id: "project-1",
+            solution_name: "Planning Work",
+            status: "active",
+            current_phase: "plan",
+          },
+          {
+            solution_id: "solution-2",
+            project_id: "project-1",
+            solution_name: "Build Work",
+            status: "active",
+            current_phase: "build",
+          },
+          {
+            solution_id: "solution-3",
+            project_id: "project-1",
+            solution_name: "Done Work",
+            status: "complete",
+            current_phase: "deploy",
+          },
+        ],
+      },
+      formatStatus: (value) => value,
+      phaseDisplayName: (phaseId) => ({ plan: "Plan", build: "Build", deploy: "Deploy" })[phaseId] || phaseId,
+      solutionProgress: (solution) => ({
+        "solution-1": 0,
+        "solution-2": 33,
+        "solution-3": 100,
+      })[solution.solution_id] ?? 0,
+    });
+
+    const root = document.getElementById("program-dashboard-root");
+    const programCells = root.querySelector(".program-dashboard-program-row")?.querySelectorAll(".program-dashboard-grid-cell");
+    const projectCells = root.querySelector(".program-dashboard-project-row")?.querySelectorAll(".program-dashboard-grid-cell");
+    const childRows = root.querySelectorAll(".program-dashboard-child-row");
+
+    expect(programCells?.[5]?.textContent).toBe("2 phases");
+    expect(projectCells?.[5]?.textContent).toBe("2 phases");
+    expect(programCells?.[7]?.textContent).toContain("44%");
+    expect(projectCells?.[7]?.textContent).toContain("44%");
+    expect([...childRows].map((row) => row.querySelector(".program-dashboard-phase-cell")?.textContent).sort()).toEqual([
+      "Build",
+      "Deploy",
+      "Plan",
+    ]);
+  });
+
   it("downloads the program dashboard PDF with selected and collapsed state", async () => {
     document.body.innerHTML = `
       <section id="view-program-dashboard">
@@ -751,6 +1009,52 @@ describe("simple route rendering", () => {
     expect(selectedCheckbox?.checked).toBe(true);
     expect(unselectedCheckbox?.checked).toBe(false);
     expect(root.textContent).toContain("Selected Project");
+  });
+
+  it("keeps the program picker open while selecting multiple programs", () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramIds: ["program-1"],
+    }));
+    const programDashboardState = createProgramDashboardState();
+
+    renderProgramDashboardView(programDashboardState, {
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [
+          { program_id: "program-1", program_name: "Program One" },
+          { program_id: "program-2", program_name: "Program Two" },
+        ],
+        projects: [
+          { project_id: "project-1", program_id: "program-1", project_name: "Project One", status: "active" },
+          { project_id: "project-2", program_id: "program-2", project_name: "Project Two", status: "active" },
+        ],
+        solutions: [],
+      },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+    });
+
+    const firstPicker = document.querySelector(".program-dashboard-picker-menu");
+    firstPicker.open = true;
+    document.querySelector("[data-program-dashboard-control='program'][value='program-2']")?.click();
+
+    const rerenderedPicker = document.querySelector(".program-dashboard-picker-menu");
+    expect(rerenderedPicker.open).toBe(true);
+    expect(document.querySelector(".program-dashboard-picker summary")?.textContent).toBe("Multiple selected");
+    expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.selectedProgramIds).toEqual([
+      "program-1",
+      "program-2",
+    ]);
+
+    document.body.click();
+
+    expect(document.querySelector(".program-dashboard-picker-menu")?.open).toBe(false);
   });
 
   it("renders program dashboard empty states for missing programs and empty project lists", () => {

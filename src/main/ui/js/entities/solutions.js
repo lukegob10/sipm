@@ -10,6 +10,7 @@ function nullableTextValue(value) {
 export function buildSolutionPayload(data, { hoursFromFteInput }) {
   return {
     solution_name: textValue(data.get("solution_name")),
+    project_id: textValue(data.get("project_id")),
     github_repo_url: nullableTextValue(data.get("github_repo_url")),
     version: textValue(data.get("version")),
     status: data.get("status"),

@@ -38,6 +38,8 @@ export function persistViewState() {
         effortFilter: boardState.effortFilter || "all",
         search: boardState.search || "",
         personSearch: boardState.personSearch || "",
+        selectedWorkItemType: boardState.selectedWorkItemType || "",
+        selectedWorkItemId: boardState.selectedWorkItemId || "",
         selectedTaskId: boardState.selectedTaskId || "",
         topPanel: boardState.topPanel || "",
       })
@@ -54,6 +56,8 @@ export function restoreViewState(spaceId) {
   boardState.effortFilter = String(stored.effortFilter || "all");
   boardState.search = String(stored.search || "");
   boardState.personSearch = String(stored.personSearch || "");
+  boardState.selectedWorkItemType = String(stored.selectedWorkItemType || "");
+  boardState.selectedWorkItemId = String(stored.selectedWorkItemId || "");
   boardState.selectedTaskId = String(stored.selectedTaskId || "");
   boardState.topPanel = String(stored.topPanel || "");
   if (recovered || !Object.keys(stored || {}).length) persistViewState();
@@ -95,6 +99,9 @@ export function resetBoardState(spaceId) {
   boardState.notice = { message: "", tone: "info" };
   boardState.undoStack = [];
   boardState.focusReturnTaskId = "";
+  boardState.selectedWorkItemType = "";
+  boardState.selectedWorkItemId = "";
+  boardState.selectedTaskId = "";
   boardState.dragItem = null;
   boardState.drafts = defaultDrafts();
   boardState.detailDraft = defaultDetailDraft();

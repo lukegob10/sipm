@@ -413,6 +413,7 @@ export function createColumnDefinitions(formatStatusLabel) {
 
 export function renderSectionTable({ columns, rows, columnDefs, tableClass, emptyText }) {
   const widths = calculateColumnWidths(columns);
+  const minWidth = calculateTableMinWidth(columns);
   const colgroupHtml = columns
     .map((columnId, index) => {
       const width = widths[index];
@@ -434,7 +435,7 @@ export function renderSectionTable({ columns, rows, columnDefs, tableClass, empt
 
   return `
     <div class="table dashboard-table-shell">
-      <table class="${tableClass} dashboard-condensed-table">
+      <table class="${tableClass} dashboard-condensed-table" style="min-width:${minWidth}px;">
         <colgroup>${colgroupHtml}</colgroup>
         <thead>
           <tr>${headerHtml}</tr>
@@ -451,6 +452,21 @@ function columnWidthUnit(columnId) {
 
 function columnMinWidthPct(columnId) {
   return Number(DASHBOARD_COLUMN_MIN_WIDTH_PCT[columnId]) || 8;
+}
+
+function columnMinWidthPx(columnId) {
+  if (["solution", "project", "stakeholder", "owner", "gap"].includes(columnId)) return 180;
+  if (["solution_id", "project_id", "due_date", "completed", "status"].includes(columnId)) return 118;
+  if (["timing", "stage", "fte", "open_tasks", "blocked_tasks", "unassigned_tasks", "is_mine"].includes(columnId)) return 96;
+  if (["rag", "risk"].includes(columnId)) return 72;
+  return 100;
+}
+
+export function calculateTableMinWidth(columns) {
+  if (!Array.isArray(columns) || !columns.length) return 320;
+  const contentWidth = columns.reduce((sum, columnId) => sum + columnMinWidthPx(columnId), 0);
+  const cellPadding = columns.length * 14;
+  return Math.max(320, contentWidth + cellPadding);
 }
 
 export function calculateColumnWidths(columns) {

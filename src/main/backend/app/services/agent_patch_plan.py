@@ -5,10 +5,12 @@ from typing import Any
 
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Phase, Project, Solution, Task, User
-from ..schemas import ProjectCreate, ProjectUpdate, SolutionCreate, SolutionUpdate
+from ..models import Phase, Program, Project, Solution, Task, User
+from ..schemas import ProgramCreate, ProgramUpdate, ProjectCreate, ProjectUpdate
+from ..schemas import SolutionCreate, SolutionUpdate
 from ..schemas import TaskCreate, TaskUpdate
 from ..schemas.agent import (
     AgentPatchOperation,
@@ -18,6 +20,7 @@ from ..schemas.agent import (
 )
 from ..services.audit_log import log_changes, safe_log_changes
 from ..services.mutations import publish_space_mutation
+from ..services.programs import program_query as _program_query
 from ..services.spaces import SpaceContext
 from ..services.work_items import (
     active_project_name_conflict_query as _active_project_name_conflict_query,
@@ -46,16 +49,19 @@ from ..utils import normalize_str, parse_priority
 from ..utils.enums import SolutionStatus, TaskStatus
 
 VALID_OPS = {"create", "update"}
-VALID_ENTITIES = {"project", "solution", "task"}
+VALID_ENTITIES = {"program", "project", "solution", "task"}
+PROGRAM_FIELDS = set(ProgramCreate.model_fields)
 PROJECT_FIELDS = set(ProjectCreate.model_fields)
 SOLUTION_FIELDS = set(SolutionCreate.model_fields)
 TASK_FIELDS = set(TaskCreate.model_fields)
 ENTITY_FIELDS = {
+    "program": PROGRAM_FIELDS,
     "project": PROJECT_FIELDS,
     "solution": SOLUTION_FIELDS,
     "task": TASK_FIELDS,
 }
 PUBLISH_KEYS = {
+    "program": ("programs",),
     "project": ("projects",),
     "solution": ("solutions",),
     "task": ("tasks",),
@@ -117,6 +123,32 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _is_program_name_conflict_integrity_error(exc: Exception) -> bool:
+    if not isinstance(exc, IntegrityError):
+        return False
+    text = " ".join(
+        [
+            str(exc),
+            str(getattr(exc, "orig", "")),
+            str(getattr(exc, "statement", "")),
+        ]
+    ).lower()
+    if "uix_program_space_name" in text:
+        return True
+    has_unique_marker = any(
+        marker in text
+        for marker in (
+            "ora-03301",
+            "ora-00001",
+            "unique constraint",
+            "unique constraint failed",
+        )
+    )
+    return has_unique_marker and (
+        "program_name" in text or "tb_ta_pm_programs" in text
+    )
+
+
 def _unknown_fields(entity: str, fields: dict[str, Any]) -> list[str]:
     allowed = ENTITY_FIELDS.get(entity, set())
     return sorted(set(fields) - allowed)
@@ -131,7 +163,7 @@ def _validate_operation_shape(
         return _invalid(
             operation,
             "ENTITY_NOT_ALLOWED",
-            "Only project, solution, and task are allowed",
+            "Only program, project, solution, and task are allowed",
         )
     if not operation.fields:
         return _invalid(operation, "FIELDS_REQUIRED", "fields must not be empty")
@@ -168,6 +200,70 @@ def _validate_operation_shape(
             "create task requires solution_id",
         )
     return None
+
+
+def _validate_program(
+    session: Session,
+    space_ctx: SpaceContext,
+    operation: AgentPatchOperation,
+) -> AgentPatchOperationResult:
+    try:
+        if operation.op == "create":
+            payload = ProgramCreate(**operation.fields)
+            program_name = normalize_str(payload.program_name)
+            if not program_name:
+                return _invalid(
+                    operation, "PROGRAM_NAME_REQUIRED", "program_name is required"
+                )
+            conflict = (
+                _program_query(session, space_ctx)
+                .filter(Program.program_name == program_name)
+                .first()
+            )
+            if conflict:
+                return _invalid(
+                    operation,
+                    "PROGRAM_NAME_CONFLICT",
+                    "Program name already exists",
+                )
+            return _result(operation, valid=True)
+
+        payload = ProgramUpdate(**operation.fields)
+        program = (
+            _program_query(session, space_ctx)
+            .filter(Program.program_id == operation.id)
+            .first()
+        )
+        if not program:
+            return _invalid(operation, "PROGRAM_NOT_FOUND", "Program not found")
+        if not _timestamp_matches(program.updated_at, operation.if_updated_at):
+            return _invalid(
+                operation,
+                "STALE_ENTITY",
+                "Program has changed since if_updated_at",
+            )
+        update_data = payload.model_dump(exclude_unset=True)
+        if "program_name" in update_data:
+            program_name = normalize_str(update_data["program_name"])
+            if not program_name:
+                return _invalid(
+                    operation, "PROGRAM_NAME_REQUIRED", "program_name is required"
+                )
+            conflict = (
+                _program_query(session, space_ctx)
+                .filter(Program.program_name == program_name)
+                .filter(Program.program_id != program.program_id)
+                .first()
+            )
+            if conflict:
+                return _invalid(
+                    operation,
+                    "PROGRAM_NAME_CONFLICT",
+                    "Program name already exists",
+                )
+        return _result(operation, valid=True, entity_id=program.program_id)
+    except ValidationError as exc:
+        return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
 
 
 def _validate_project(
@@ -476,7 +572,9 @@ def validate_patch_plan(
         if shape_error:
             results.append(shape_error)
             continue
-        if operation.entity == "project":
+        if operation.entity == "program":
+            results.append(_validate_program(session, space_ctx, operation))
+        elif operation.entity == "project":
             results.append(_validate_project(session, space_ctx, operation))
         elif operation.entity == "solution":
             results.append(_validate_solution(session, space_ctx, operation))
@@ -491,6 +589,68 @@ def validate_patch_plan(
         operation_count=len(payload.operations),
         results=results,
     )
+
+
+def _apply_program(
+    session: Session,
+    space_ctx: SpaceContext,
+    current_user: User,
+    operation: AgentPatchOperation,
+) -> tuple[str, datetime]:
+    if operation.op == "create":
+        payload = ProgramCreate(**operation.fields)
+        now = _now()
+        program = Program(
+            space_id=space_ctx.space_id,
+            program_name=normalize_str(payload.program_name),
+            description=payload.description,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(program)
+        session.flush()
+        safe_log_changes(
+            session,
+            entity_type="program",
+            entity_id=program.program_id,
+            user_id=current_user.user_id,
+            action="create",
+            space_id=space_ctx.space_id,
+            changes={
+                "program_name": (None, program.program_name),
+                "description": (None, program.description),
+            },
+        )
+        return program.program_id, program.updated_at
+
+    payload = ProgramUpdate(**operation.fields)
+    program = (
+        _program_query(session, space_ctx)
+        .filter(Program.program_id == operation.id)
+        .first()
+    )
+    update_data = payload.model_dump(exclude_unset=True)
+    if "program_name" in update_data:
+        update_data["program_name"] = normalize_str(update_data["program_name"])
+    before = {field: getattr(program, field) for field in update_data}
+    for field, value in update_data.items():
+        setattr(program, field, value)
+    program.updated_at = _now()
+    session.add(program)
+    if update_data:
+        safe_log_changes(
+            session,
+            entity_type="program",
+            entity_id=program.program_id,
+            user_id=current_user.user_id,
+            action="update",
+            space_id=space_ctx.space_id,
+            changes={
+                field: (before.get(field), getattr(program, field))
+                for field in update_data
+            },
+        )
+    return program.program_id, program.updated_at
 
 
 def _apply_project(
@@ -817,10 +977,14 @@ def apply_patch_plan(
         return validation
 
     results: list[AgentPatchOperationResult] = []
-    publish_entities: set[str] = set()
+    publish_keys: set[str] = set()
     try:
         for operation in payload.operations:
-            if operation.entity == "project":
+            if operation.entity == "program":
+                entity_id, updated_at = _apply_program(
+                    session, space_ctx, current_user, operation
+                )
+            elif operation.entity == "project":
                 entity_id, updated_at = _apply_project(
                     session, space_ctx, current_user, operation
                 )
@@ -832,7 +996,13 @@ def apply_patch_plan(
                 entity_id, updated_at = _apply_task(
                     session, space_ctx, current_user, operation
                 )
-            publish_entities.add(operation.entity)
+            publish_keys.update(PUBLISH_KEYS[operation.entity])
+            if (
+                operation.entity == "program"
+                and operation.op == "update"
+                and "program_name" in operation.fields
+            ):
+                publish_keys.add("projects")
             results.append(
                 _result(
                     operation,
@@ -857,16 +1027,17 @@ def apply_patch_plan(
                     "APPLY_FAILED",
                     "Patch application failed due to a data conflict"
                     if _is_project_name_conflict_integrity_error(exc)
+                    or _is_program_name_conflict_integrity_error(exc)
                     else str(exc),
                 )
             ],
         )
 
-    for entity in publish_entities:
+    for key in sorted(publish_keys):
         publish_space_mutation(
             space_ctx.space_id,
-            PUBLISH_KEYS[entity],
-            broadcast_channel=PUBLISH_KEYS[entity][0],
+            [key],
+            broadcast_channel=key,
         )
 
     return AgentPatchResponse(

@@ -167,6 +167,7 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["writable_entities"] == [
+        "program",
         "project",
         "solution",
         "task",
@@ -175,9 +176,24 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
 
 @pytest.mark.anyio
 async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_write(
-    agent_client, db_sessionmaker
+    agent_client, db_sessionmaker, monkeypatch
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
+    publish_calls = []
+
+    def capture_publish(space_id_arg, cache_keys, *, broadcast_channel=None):
+        publish_calls.append(
+            {
+                "space_id": space_id_arg,
+                "cache_keys": list(cache_keys),
+                "broadcast_channel": broadcast_channel,
+            }
+        )
+
+    monkeypatch.setattr(
+        "backend.app.services.agent_change_requests.publish_space_mutation",
+        capture_publish,
+    )
     with db_sessionmaker() as session:
         program = Program(space_id=space_id, program_name="Default Program")
         session.add(program)
@@ -234,6 +250,13 @@ async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_w
     )
     assert queued.status_code == 201, queued.text
     assert queued.json()["status"] == "pending"
+    assert publish_calls == [
+        {
+            "space_id": space_id,
+            "cache_keys": ["agent_change_requests"],
+            "broadcast_channel": "agent_change_requests",
+        }
+    ]
     with db_sessionmaker() as session:
         assert (
             session.query(Solution)
@@ -331,6 +354,7 @@ async def test_agent_work_graph_is_scoped_nested_and_filterable(
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["space_id"] == space_id
+    assert [row["program_name"] for row in data["programs"]] == ["Default Program"]
     assert [row["project_name"] for row in data["records"]] == ["Agent Project"]
     solution = data["records"][0]["solutions"][0]
     assert solution["solution_id"] == solution_id
@@ -416,10 +440,30 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
     ) = _seed_work_graph(db_sessionmaker)
     with db_sessionmaker() as session:
         other_project = session.query(Project).filter(Project.space_id == other_space_id).one()
+        program = session.query(Program).filter(Program.space_id == space_id).one()
+        program_id = program.program_id
+        program_updated_at = program.updated_at.isoformat()
 
     valid_payload = {
         "dry_run": True,
         "operations": [
+            {
+                "client_operation_id": "program-update",
+                "op": "update",
+                "entity": "program",
+                "id": program_id,
+                "if_updated_at": program_updated_at,
+                "fields": {"description": "Validated program only"},
+            },
+            {
+                "client_operation_id": "program-create",
+                "op": "create",
+                "entity": "program",
+                "fields": {
+                    "program_name": "New Agent Program",
+                    "description": "Validated only",
+                },
+            },
             {
                 "client_operation_id": "project-update",
                 "op": "update",
@@ -507,6 +551,117 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
         "ENTITY_NOT_ALLOWED",
         "STALE_ENTITY",
         "PROJECT_NOT_FOUND",
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_program_read_endpoints_are_service_account_scoped(
+    agent_client, db_sessionmaker
+):
+    token, space_id, other_token, other_space_id, *_ = _seed_work_graph(db_sessionmaker)
+    with db_sessionmaker() as session:
+        program = session.query(Program).filter(Program.space_id == space_id).one()
+        other_program = session.query(Program).filter(Program.space_id == other_space_id).one()
+
+    no_bearer = await agent_client.get(
+        "/project-manager/api/agent/programs",
+        headers={"X-Space-Id": space_id},
+    )
+    assert no_bearer.status_code == 401
+
+    listing = await agent_client.get(
+        "/project-manager/api/agent/programs",
+        headers=_auth_headers(token, space_id),
+    )
+    assert listing.status_code == 200, listing.text
+    assert [row["program_name"] for row in listing.json()] == ["Default Program"]
+
+    detail = await agent_client.get(
+        f"/project-manager/api/agent/programs/{program.program_id}",
+        headers=_auth_headers(token, space_id),
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["program_id"] == program.program_id
+
+    cross_space_detail = await agent_client.get(
+        f"/project-manager/api/agent/programs/{other_program.program_id}",
+        headers=_auth_headers(token, space_id),
+    )
+    assert cross_space_detail.status_code == 404
+
+    other_space_listing = await agent_client.get(
+        "/project-manager/api/agent/programs",
+        headers=_auth_headers(other_token, other_space_id),
+    )
+    assert other_space_listing.status_code == 200, other_space_listing.text
+    assert [row["program_id"] for row in other_space_listing.json()] == [
+        other_program.program_id
+    ]
+
+
+@pytest.mark.anyio
+async def test_agent_program_patch_validation_rejects_bad_names_stale_and_cross_space(
+    agent_client, db_sessionmaker
+):
+    token, space_id, _other_token, other_space_id, *_ = _seed_work_graph(db_sessionmaker)
+    with db_sessionmaker() as session:
+        program = session.query(Program).filter(Program.space_id == space_id).one()
+        other_program = session.query(Program).filter(Program.space_id == other_space_id).one()
+
+    payload = {
+        "dry_run": True,
+        "operations": [
+            {
+                "client_operation_id": "bad-field",
+                "op": "create",
+                "entity": "program",
+                "fields": {"program_name": "Bad Field", "space_id": "wrong"},
+            },
+            {
+                "client_operation_id": "empty-name",
+                "op": "create",
+                "entity": "program",
+                "fields": {"program_name": "   "},
+            },
+            {
+                "client_operation_id": "duplicate-name",
+                "op": "create",
+                "entity": "program",
+                "fields": {"program_name": program.program_name},
+            },
+            {
+                "client_operation_id": "stale-program",
+                "op": "update",
+                "entity": "program",
+                "id": program.program_id,
+                "if_updated_at": "2000-01-01T00:00:00",
+                "fields": {"description": "Stale"},
+            },
+            {
+                "client_operation_id": "cross-space-program",
+                "op": "update",
+                "entity": "program",
+                "id": other_program.program_id,
+                "if_updated_at": other_program.updated_at.isoformat(),
+                "fields": {"description": "Wrong space"},
+            },
+        ],
+    }
+
+    response = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers=_auth_headers(token, space_id),
+        json=payload,
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["valid"] is False
+    assert [result["code"] for result in body["results"]] == [
+        "FIELD_NOT_ALLOWED",
+        "PROGRAM_NAME_REQUIRED",
+        "PROGRAM_NAME_CONFLICT",
+        "STALE_ENTITY",
+        "PROGRAM_NOT_FOUND",
     ]
 
 
@@ -604,6 +759,180 @@ async def test_agent_change_request_approval_applies_and_audits(
             .count()
             > 0
         )
+
+
+@pytest.mark.anyio
+async def test_agent_program_change_request_approval_applies_and_audits(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="member3",
+        user_id="member-user-3",
+    )
+    create_payload = {
+        "dry_run": False,
+        "reason": "create controlled program",
+        "idempotency_key": "program-create-approval-1",
+        "operations": [
+            {
+                "client_operation_id": "create-program",
+                "op": "create",
+                "entity": "program",
+                "fields": {
+                    "program_name": "Agent Program",
+                    "description": "Created through approval",
+                },
+            }
+        ],
+    }
+
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=create_payload,
+    )
+    assert submitted.status_code == 201, submitted.text
+    retry = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=create_payload,
+    )
+    assert retry.status_code == 201, retry.text
+    assert retry.json()["change_request_id"] == submitted.json()["change_request_id"]
+    assert submitted.json()["status"] == "pending"
+    assert submitted.json()["diff"][0]["fields"]["program_name"]["new"] == "Agent Program"
+    with db_sessionmaker() as session:
+        assert session.query(Program).filter(Program.program_name == "Agent Program").first() is None
+
+    login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": soeid, "password": "Password123"},
+    )
+    assert login.status_code == 200, login.text
+    approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{submitted.json()['change_request_id']}/approve",
+        headers={"X-Space-Id": space_id},
+        json={"review_note": "Create program"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+
+    with db_sessionmaker() as session:
+        program = session.query(Program).filter(Program.program_name == "Agent Program").one()
+        program_id = program.program_id
+        program_updated_at = program.updated_at.isoformat()
+        assert (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "program")
+            .filter(ChangeLog.entity_id == program_id)
+            .filter(ChangeLog.action == "create")
+            .count()
+            > 0
+        )
+
+    update_payload = {
+        "dry_run": False,
+        "reason": "rename controlled program",
+        "idempotency_key": "program-update-approval-1",
+        "operations": [
+            {
+                "client_operation_id": "update-program",
+                "op": "update",
+                "entity": "program",
+                "id": program_id,
+                "if_updated_at": program_updated_at,
+                "fields": {
+                    "program_name": "Agent Program Renamed",
+                    "description": "Updated through approval",
+                },
+            }
+        ],
+    }
+    update_submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=update_payload,
+    )
+    assert update_submitted.status_code == 201, update_submitted.text
+    assert update_submitted.json()["diff"][0]["entity_label"] == "Agent Program"
+
+    update_approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{update_submitted.json()['change_request_id']}/approve",
+        headers={"X-Space-Id": space_id},
+        json={"review_note": "Rename program"},
+    )
+    assert update_approved.status_code == 200, update_approved.text
+    assert update_approved.json()["status"] == "approved"
+    with db_sessionmaker() as session:
+        program = session.query(Program).filter(Program.program_id == program_id).one()
+        assert program.program_name == "Agent Program Renamed"
+        assert program.description == "Updated through approval"
+        assert (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "program")
+            .filter(ChangeLog.entity_id == program_id)
+            .filter(ChangeLog.action == "update")
+            .count()
+            > 0
+        )
+
+
+@pytest.mark.anyio
+async def test_agent_change_request_idempotency_key_deduplicates_retry(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    payload = {
+        "dry_run": False,
+        "reason": "create once",
+        "idempotency_key": "same-key",
+        "operations": [
+            {
+                "client_operation_id": "create-project",
+                "op": "create",
+                "entity": "project",
+                "fields": {"project_name": "Created Once", "status": "active"},
+            }
+        ],
+    }
+
+    first = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=payload,
+    )
+    assert first.status_code == 201, first.text
+    retry = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=payload,
+    )
+    assert retry.status_code == 201, retry.text
+    assert retry.json()["change_request_id"] == first.json()["change_request_id"]
+
+    changed_payload = {
+        **payload,
+        "operations": [
+            {
+                "client_operation_id": "create-project",
+                "op": "create",
+                "entity": "project",
+                "fields": {"project_name": "Different Project", "status": "active"},
+            }
+        ],
+    }
+    conflict = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=changed_payload,
+    )
+    assert conflict.status_code == 409
+
+    with db_sessionmaker() as session:
+        assert session.query(AgentChangeRequest).count() == 1
 
 
 @pytest.mark.anyio

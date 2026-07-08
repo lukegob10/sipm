@@ -3,6 +3,41 @@ from io import StringIO
 
 import pytest
 
+from backend.app import deps as deps_module
+from backend.app.models import Space
+from backend.app.services.spaces import SpaceContext
+from backend.main import app as fastapi_app
+
+
+@pytest.fixture(autouse=True)
+def planning_space(db_sessionmaker):
+    space_id = "space-planning-fte-month"
+    with db_sessionmaker() as session:
+        if not session.query(Space).filter(Space.space_id == space_id).first():
+            session.add(
+                Space(
+                    space_id=space_id,
+                    name="Planning FTE Month Space",
+                    slug="planning-fte-month-space",
+                    is_active=True,
+                )
+            )
+            session.commit()
+    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
+        space_id=space_id,
+        space_name="Planning FTE Month Space",
+        is_global_admin=False,
+        space_role="space_admin",
+    )
+    try:
+        yield
+    finally:
+        if original_current_space is None:
+            fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
+        else:
+            fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+
 
 @pytest.mark.anyio
 async def test_create_allocation_with_fte_months_sets_legacy_fields(client):
@@ -229,6 +264,28 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
     writer.writeheader()
     writer.writerow(
         {
+            "work_item_type": "project",
+            "project_name": "Allocation Project",
+            "team_name": "Allocation Team",
+            "month_start": "2026-05-01",
+            "fte_months": "0.25",
+            "window_name": "Allocation Window",
+        }
+    )
+    writer.writerow(
+        {
+            "work_item_type": "solution",
+            "project_name": "Allocation Project",
+            "solution_name": "Allocation Solution",
+            "version": "1.0.0",
+            "team_name": "Allocation Team",
+            "month_start": "2026-05-01",
+            "fte_months": "0.75",
+            "window_name": "Allocation Window",
+        }
+    )
+    writer.writerow(
+        {
             "work_item_type": "task",
             "project_name": "Allocation Project",
             "solution_name": "Allocation Solution",
@@ -247,11 +304,21 @@ async def test_resource_allocations_csv_import_resolves_natural_work_item_keys(c
         headers={"Content-Type": "text/csv"},
     )
     assert imported.status_code == 200, imported.text
-    assert imported.json()["created"] == 1
+    assert imported.json()["created"] == 3
 
     exported = await client.get("/project-manager/api/resource-allocations/export")
     assert exported.status_code == 200, exported.text
     rows = list(csv.DictReader(StringIO(exported.text)))
+    project_row = next(row for row in rows if row["work_item_type"] == "project" and row["project_name"] == "Allocation Project")
+    assert project_row["solution_name"] == ""
+    assert project_row["team_name"] == "Allocation Team"
+    assert project_row["window_name"] == "Allocation Window"
+    assert project_row["fte_months"] == "0.25"
+    solution_row = next(row for row in rows if row["work_item_type"] == "solution" and row["solution_name"] == "Allocation Solution")
+    assert solution_row["project_name"] == "Allocation Project"
+    assert solution_row["team_name"] == "Allocation Team"
+    assert solution_row["window_name"] == "Allocation Window"
+    assert solution_row["fte_months"] == "0.75"
     row = next(row for row in rows if row["task_name"] == "Allocation Task")
     assert row["project_name"] == "Allocation Project"
     assert row["solution_name"] == "Allocation Solution"

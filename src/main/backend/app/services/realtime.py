@@ -56,6 +56,7 @@ class ConnectionMeta:
 connections: Set[WebSocket] = set()
 _connection_meta: Dict[WebSocket, ConnectionMeta] = {}
 _user_connections: Dict[str, Set[WebSocket]] = {}
+_runtime_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _utc_now() -> datetime:
@@ -158,23 +159,31 @@ def schedule_broadcast(entity: str = "all", *, space_id: str | None = None) -> N
     """Fire-and-forget broadcast; safe to call from sync contexts."""
     if coordination.uses_redis() and coordination.publish_refresh(entity, space_id=space_id):
         return
+    broadcast = _broadcast_local_refresh(entity, space_id=space_id)
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(_broadcast_local_refresh(entity, space_id=space_id))
-        else:
-            asyncio.run(_broadcast_local_refresh(entity, space_id=space_id))
+        loop = asyncio.get_running_loop()
     except RuntimeError:
-        asyncio.run(_broadcast_local_refresh(entity, space_id=space_id))
+        loop = None
+    if loop is not None and loop.is_running():
+        loop.create_task(broadcast)
+        return
+    if _runtime_loop is not None and _runtime_loop.is_running() and not _runtime_loop.is_closed():
+        asyncio.run_coroutine_threadsafe(broadcast, _runtime_loop)
+        return
+    asyncio.run(broadcast)
 
 
 async def start_runtime() -> None:
+    global _runtime_loop
+    _runtime_loop = asyncio.get_running_loop()
     if coordination.uses_redis():
         await coordination.start_refresh_listener(_broadcast_local_refresh)
 
 
 async def stop_runtime() -> None:
+    global _runtime_loop
     await coordination.stop_refresh_listener()
+    _runtime_loop = None
 
 
 def connection_snapshot() -> Dict[str, object]:

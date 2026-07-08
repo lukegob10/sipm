@@ -1,5 +1,5 @@
 const analyticsState = {
-  days: 30,
+  days: 7,
   scope: "current",
   selectedSpaceId: "",
   loading: false,
@@ -112,7 +112,7 @@ function bindAnalyticsControls(root, ctx) {
     const target = event.target;
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.name === "analytics-days") {
-      analyticsState.days = Number(target.value) || 30;
+      analyticsState.days = Number(target.value) || 7;
       void loadAnalytics(ctx, { force: true });
       return;
     }

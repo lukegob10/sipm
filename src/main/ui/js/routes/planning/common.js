@@ -32,8 +32,34 @@ export function isClosedTaskStatus(statusValue) {
   return status === "complete" || status === "abandoned";
 }
 
+export function isClosedProjectStatus(statusValue) {
+  const status = String(statusValue || "").trim().toLowerCase();
+  return status === "complete" || status === "abandoned";
+}
+
+export function isClosedSolutionStatus(statusValue) {
+  const status = String(statusValue || "").trim().toLowerCase();
+  return status === "complete" || status === "abandoned";
+}
+
 export function showCompletedOperationalWork(ctx = boardState.ctx) {
   return !!ctx?.state?.workspacePrefs?.showCompleted;
+}
+
+export function visibleBoardProjects(ctx = boardState.ctx) {
+  const projects = Array.isArray(boardState.data.projects) ? boardState.data.projects : [];
+  if (showCompletedOperationalWork(ctx)) return projects;
+  return projects.filter((project) => !isClosedProjectStatus(project?.status));
+}
+
+export function visibleBoardSolutions(ctx = boardState.ctx, projects = visibleBoardProjects(ctx)) {
+  const projectIds = new Set(projects.map((project) => String(project?.id || "")).filter(Boolean));
+  const solutions = Array.isArray(boardState.data.solutions) ? boardState.data.solutions : [];
+  return solutions.filter((solution) => {
+    if (!projectIds.has(String(solution?.project_id || ""))) return false;
+    if (showCompletedOperationalWork(ctx)) return true;
+    return !isClosedSolutionStatus(solution?.status);
+  });
 }
 
 export function visibleBoardTasks(ctx = boardState.ctx) {
@@ -53,8 +79,16 @@ export function visibleBoardTasks(ctx = boardState.ctx) {
 }
 
 export function visibleBoardAllocations(ctx = boardState.ctx, tasks = visibleBoardTasks(ctx)) {
-  const visibleTaskIds = new Set(tasks.map((task) => String(task?.id || "")).filter(Boolean));
-  return (boardState.data.allocations || []).filter((allocation) => visibleTaskIds.has(String(allocation?.task_id || "")));
+  const projects = visibleBoardProjects(ctx);
+  const solutions = visibleBoardSolutions(ctx, projects);
+  const visibleKeys = new Set([
+    ...projects.map((project) => workItemKey("project", project?.id)),
+    ...solutions.map((solution) => workItemKey("solution", solution?.id)),
+    ...tasks.map((task) => workItemKey("task", task?.id)),
+  ].filter(Boolean));
+  return (boardState.data.allocations || []).filter((allocation) => (
+    visibleKeys.has(workItemKey(allocationWorkItemType(allocation), allocationWorkItemId(allocation)))
+  ));
 }
 
 export function toneClass(value, hasCapacity = true) {
@@ -109,10 +143,37 @@ export function toggleTopPanel(panelName) {
 export function allocationsByTask() {
   const map = new Map();
   visibleBoardAllocations().forEach((allocation) => {
-    if (!allocation?.task_id) return;
-    const list = map.get(allocation.task_id) || [];
+    const taskId = String(allocation?.task_id || "");
+    if (!taskId) return;
+    const list = map.get(taskId) || [];
     list.push(allocation);
-    map.set(allocation.task_id, list);
+    map.set(taskId, list);
+  });
+  return map;
+}
+
+export function allocationWorkItemType(allocation) {
+  return String(allocation?.work_item_type || (allocation?.task_id ? "task" : "")).trim() || "task";
+}
+
+export function allocationWorkItemId(allocation) {
+  return String(allocation?.work_item_id || allocation?.task_id || "").trim();
+}
+
+export function workItemKey(type, id) {
+  const normalizedType = String(type || "").trim();
+  const normalizedId = String(id || "").trim();
+  return normalizedType && normalizedId ? `${normalizedType}:${normalizedId}` : "";
+}
+
+export function allocationsByWorkItem() {
+  const map = new Map();
+  visibleBoardAllocations().forEach((allocation) => {
+    const key = workItemKey(allocationWorkItemType(allocation), allocationWorkItemId(allocation));
+    if (!key) return;
+    const list = map.get(key) || [];
+    list.push(allocation);
+    map.set(key, list);
   });
   return map;
 }
@@ -127,6 +188,18 @@ export function sortedPeople() {
 
 export function sortedTasks() {
   return [...visibleBoardTasks()].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+}
+
+export function sortedProjects() {
+  return [...visibleBoardProjects()].sort((a, b) => {
+    const priority = numberOr(a?.priority, 3) - numberOr(b?.priority, 3);
+    if (priority) return priority;
+    return (a.title || "").localeCompare(b.title || "");
+  });
+}
+
+export function sortedSolutions() {
+  return [...visibleBoardSolutions()].sort((a, b) => (a.title || "").localeCompare(b.title || ""));
 }
 
 export function matchesPersonSearch(person) {
@@ -149,6 +222,30 @@ export function applyBacklogFilters(tasks) {
   });
 }
 
+export function applyProjectBacklogFilters(projects, solutionsByProject = new Map()) {
+  const search = String(boardState.search || "").trim().toLowerCase();
+  const effortFilter = boardState.effortFilter || "all";
+  return projects.filter((project) => {
+    const title = String(project?.title || "").toLowerCase();
+    const childSolutions = solutionsByProject.get(project?.id) || [];
+    const childMatch = childSolutions.some((solution) => String(solution?.title || "").toLowerCase().includes(search));
+    if (search && !title.includes(search) && !childMatch) return false;
+    const effort = numberOr(project?.residual_fte_months ?? project?.fte_months, 0);
+    if (effortFilter === "small" && effort > 0.25) return false;
+    if (effortFilter === "medium" && (effort <= 0.25 || effort > 0.5)) return false;
+    if (effortFilter === "large" && effort <= 0.5) return false;
+    return true;
+  });
+}
+
+export function solutionRemainingFte(solution) {
+  return Math.max(numberOr(solution?.remaining_fte_months, numberOr(solution?.fte_months, 0)), 0);
+}
+
+export function projectResidualFte(project) {
+  return Math.max(numberOr(project?.residual_fte_months, numberOr(project?.fte_months, 0)), 0);
+}
+
 export function normalizeTeamId(value) {
   const token = String(value || "").trim();
   if (!token || token === UNASSIGNED_TEAM_ID) return null;
@@ -164,27 +261,4 @@ export function parseAssignmentTarget(value) {
   if (!id) return null;
   if (kind === "team" || kind === "person") return { type: kind, id };
   return null;
-}
-
-export function assignmentOptionsHtml(teams, people, selectedValue = "") {
-  const assignablePeople = people.filter((person) => normalizeTeamId(person.team_id));
-  const teamOptions = teams
-    .map((team) => {
-      const value = `team:${team.id}`;
-      return `<option value="team:${esc(team.id)}" ${selectedValue === value ? "selected" : ""}>${esc(team.name)}</option>`;
-    })
-    .join("");
-  const personOptions = assignablePeople
-    .map((person) => {
-      const team = teams.find((teamRow) => teamRow.id === person.team_id);
-      const suffix = team?.name ? ` (${team.name})` : "";
-      const value = `person:${person.id}`;
-      return `<option value="person:${esc(person.id)}" ${selectedValue === value ? "selected" : ""}>${esc(person.name)}${esc(suffix)}</option>`;
-    })
-    .join("");
-  return [
-    `<option value="" ${selectedValue ? "" : "selected"}>Choose assignee</option>`,
-    teamOptions ? `<optgroup label="Teams">${teamOptions}</optgroup>` : "",
-    personOptions ? `<optgroup label="People">${personOptions}</optgroup>` : "",
-  ].join("");
 }

@@ -614,6 +614,10 @@
   box-shadow: none;
 }
 
+#view-master #master-table .deliverables-table .deliverable-row-program-header .master-outline-toggle {
+  margin-left: 4px;
+}
+
 #view-master #master-table .deliverables-table .master-outline-toggle:hover,
 #view-master #master-table .deliverables-table .master-outline-toggle:focus-visible {
   border-color: var(--hover-border);

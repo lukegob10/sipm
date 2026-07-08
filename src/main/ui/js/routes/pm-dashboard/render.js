@@ -380,7 +380,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
           itemKind: "solution",
-          kind: "Workstream",
+          kind: "Solution",
           solutionId: solution.solution_id,
           taskId: "",
           name: solution.solution_name || "Unnamed Workstream",
@@ -399,7 +399,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
         const days = dueDate ? daysUntil(today, dueDate) : Number.NaN;
         return {
           itemKind: "task",
-          kind: "Deliverable",
+          kind: "Task",
           solutionId: task.solution_id,
           taskId: task.task_id,
           name: task.task_name || "Unnamed Deliverable",

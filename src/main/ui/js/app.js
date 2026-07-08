@@ -244,6 +244,16 @@ const state = {
   agentChangeRequestFailedCount: 0,
   agentChangeRequestSelectedIds: new Set(),
   agentChangeRequestActiveId: "",
+  agentChangeRequestModalId: "",
+  requestableSpaces: [],
+  requestableSpacesLoaded: false,
+  spaceAccessRequests: [],
+  spaceAccessRequestsLoaded: false,
+  reviewableAccessRequests: [],
+  reviewableAccessRequestsLoaded: false,
+  lobbyPersonalSpaceCreating: false,
+  accessRequestSubmittingSpaceId: "",
+  lobbyRequestSearch: "",
   authMode: "login",
   phases: [],
   programs: [],
@@ -320,6 +330,7 @@ const GANTT_VIEW_STATE_KEY_PREFIX = "sipm-gantt-view-state-v1";
 const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
 const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
 const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
+const SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX = "sipm-space-governance-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";
 const TASKS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-tasks-workbench-views";
@@ -543,9 +554,12 @@ const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
   governanceSections,
   resolveGovernanceSection,
   refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
+  refreshAccessRequests: (...args) => refreshAccessRequests(...args),
   refreshApiTokens: (...args) => refreshApiTokens(...args),
   refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
   refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
+  refreshRequestableSpaces: (...args) => refreshRequestableSpaces(...args),
+  refreshReviewableAccessRequests: (...args) => refreshReviewableAccessRequests(...args),
   closeSpaceDirectoryModal,
   setSpaceGovernanceNotice,
   buildAppUrl,
@@ -682,6 +696,14 @@ function initShellControllers() {
       telemetryController?.syncRuntimeContext?.();
       telemetryController?.beginRouteTransition?.(nextView, previousView, { expectsData });
       telemetryController?.trackRouteView?.(nextView, previousView);
+    },
+    onAccessRedirect: ({ reason }) => {
+      if (reason !== "lobby") return;
+      setSpaceGovernanceNotice(
+        "You do not have access to a working space yet. Create Personal or request access to a collaboration space.",
+        "warn",
+        8000,
+      );
     },
     onModuleLoadFailure: ({ view }) => telemetryController?.trackModuleLoadFailure?.(view),
   });
@@ -861,7 +883,11 @@ function setSpaceGovernanceNotice(message, tone = "info", autoClearMs = 5000) {
 }
 
 function syncRoleAwareActions() {
-  const canUseWorkEditActions = !!state.authed;
+  const canUseWorkEditActions = !!state.authed && state.activeSpace?.space_kind !== "lobby";
+  els.topbarCreateShell?.classList.toggle("hidden", !canUseWorkEditActions);
+  if (!canUseWorkEditActions) {
+    closeTopbarCreateMenu({ restoreFocus: false });
+  }
   [
     els.deleteProjectBtn,
     els.deleteSolutionBtn,
@@ -876,10 +902,17 @@ function syncRoleAwareActions() {
 }
 
 function syncRoleAwareNavigation() {
+  const lobbyActive = state.authed && state.activeSpace?.space_kind === "lobby";
+  els.navWorkSection?.classList.toggle("hidden", lobbyActive);
+  els.navInsightSection?.classList.toggle("hidden", lobbyActive);
+  Array.from(els.navButtons || [])
+    .filter((btn) => btn.dataset.view === "team-capacity")
+    .forEach((btn) => btn.classList.toggle("hidden", lobbyActive));
   const adminButtons = Array.from(els.navButtons || []).filter((btn) => isAdminView(btn.dataset.view));
   let hasAnyVisibleAdminButton = false;
   adminButtons.forEach((btn) => {
-    const allowed = canAccessView(btn.dataset.view || "");
+    const view = btn.dataset.view || "";
+    const allowed = canAccessView(view) && (!lobbyActive || view === "spaces" || view === "access");
     btn.classList.toggle("hidden", !allowed);
     if (allowed) hasAnyVisibleAdminButton = true;
   });
@@ -928,6 +961,9 @@ async function switchActiveSpace(targetSpaceId) {
       recordRecentSpace(current);
     }
     state.activeSpace = switched || state.activeSpace;
+    if (state.activeSpace?.space_kind !== "lobby") {
+      clearSpaceGovernanceNotice();
+    }
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
     stopLiveSync({ phase: "reconnecting" });
     clearDataState();
@@ -937,7 +973,7 @@ async function switchActiveSpace(targetSpaceId) {
     state.spaceSwitcherOpen = false;
     telemetryController?.syncRuntimeContext?.();
     telemetryController?.trackSpaceSwitch?.();
-    setSpaceFeedback(`Now working in ${state.activeSpace?.space_name || targetName || target}.`, "success", 4200);
+    setSpaceFeedback(`Now working in ${spaceNameForId(state.activeSpace?.space_id || target) || targetName || target}.`, "success", 4200);
     return true;
   } catch (err) {
     console.warn("Space switch failed", err);
@@ -982,6 +1018,16 @@ async function refreshSpaceContext(options = {}) {
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
+    state.requestableSpaces = [];
+    state.requestableSpacesLoaded = false;
+    state.spaceAccessRequests = [];
+    state.spaceAccessRequestsLoaded = false;
+    state.reviewableAccessRequests = [];
+    state.reviewableAccessRequestsLoaded = false;
+    state.agentChangeRequestModalId = "";
+    state.lobbyPersonalSpaceCreating = false;
+    state.accessRequestSubmittingSpaceId = "";
+    state.lobbyRequestSearch = "";
     state.tasksWorkbench.savedViews = [];
     state.tasksWorkbench.selectedSavedViewId = "";
     state.filters = {};
@@ -1001,6 +1047,11 @@ async function refreshSpaceContext(options = {}) {
   ]);
   state.spaces = Array.isArray(spaces) ? spaces : [];
   state.activeSpace = activeSpace || null;
+  if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
+    state.requestableSpacesLoaded = false;
+    state.spaceAccessRequestsLoaded = false;
+    state.reviewableAccessRequestsLoaded = false;
+  }
   telemetryController?.syncRuntimeContext?.();
   if (state.activeSpace?.space_id && !state.spaces.some((s) => s.space_id === state.activeSpace.space_id)) {
     state.spaces.unshift({
@@ -1008,6 +1059,8 @@ async function refreshSpaceContext(options = {}) {
       name: state.activeSpace.space_name || state.activeSpace.space_id,
       slug: "",
       is_active: true,
+      space_kind: state.activeSpace.space_kind || "collaboration",
+      owner_user_id: state.activeSpace.owner_user_id || null,
     });
   }
   const visibleSpaceIds = new Set((state.spaces || []).map((space) => space.space_id));
@@ -1029,6 +1082,7 @@ async function refreshSpaceContext(options = {}) {
   restoreKanbanViewState();
   restoreTeamCapacityViewState();
   restorePlanningWindowViewState();
+  restoreSpaceGovernanceViewState();
   restoreTasksWorkbenchUiState();
   renderSpaceSwitcher();
   loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
@@ -1088,6 +1142,16 @@ function setAuthed(user) {
     state.spaceMembersLoadedBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
+    state.requestableSpaces = [];
+    state.requestableSpacesLoaded = false;
+    state.spaceAccessRequests = [];
+    state.spaceAccessRequestsLoaded = false;
+    state.reviewableAccessRequests = [];
+    state.reviewableAccessRequestsLoaded = false;
+    state.agentChangeRequestModalId = "";
+    state.lobbyPersonalSpaceCreating = false;
+    state.accessRequestSubmittingSpaceId = "";
+    state.lobbyRequestSearch = "";
     state.tasksWorkbench.savedViews = [];
     state.tasksWorkbench.selectedSavedViewId = "";
     state.ganttWindow = { from: "", to: "" };
@@ -1774,7 +1838,7 @@ function solutionProgress(solution) {
   const phases = [...state.phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
   const idx = phases.findIndex((p) => p.phase_id === solution.current_phase);
   if (idx === -1) return 0;
-  return Math.round(((idx + 1) / phases.length) * 100);
+  return Math.round((idx / phases.length) * 100);
 }
 
 function formatStatus(status) {
@@ -2003,6 +2067,8 @@ function renderPMDashboard() {
   mod.renderPMDashboard({
     state,
     els,
+    apiBase: API_BASE,
+    setStatus,
     formatStatus,
     viewHref,
     openPMDashboardCapacityDrilldown,
@@ -3867,6 +3933,27 @@ function restorePlanningWindowViewState() {
   if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();
 }
 
+function persistSpaceGovernanceViewState() {
+  if (!state.authed || !activeSpaceId() || state.activeSpace?.space_kind === "lobby") return;
+  writeStoredJson(
+    activeSpaceScopedStorageKey(SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX),
+    {
+      section: normalizeGovernanceSection(state.spaceAdminSection),
+    }
+  );
+}
+
+function restoreSpaceGovernanceViewState() {
+  if (!state.authed || !activeSpaceId()) return;
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX), {});
+  const allowed = governanceSections().map((section) => section.id);
+  const storedSection = normalizeGovernanceSection(stored.section);
+  state.spaceAdminSection = allowed.includes(storedSection) ? storedSection : "current-space";
+  if (recovered || !Object.keys(stored || {}).length || stored.section !== state.spaceAdminSection) {
+    persistSpaceGovernanceViewState();
+  }
+}
+
 function persistTasksWorkbenchUiState() {
   const wb = state.tasksWorkbench;
   writeStoredJson(
@@ -3979,11 +4066,17 @@ function renderSpaceDirectoryModal() {
 }
 
 function renderGovernanceHub(preferredSection = "") {
-  return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
+  const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
+  persistSpaceGovernanceViewState();
+  return result;
 }
 
 async function refreshGlobalAdmins() {
   return spaceGovernanceController.refreshGlobalAdmins();
+}
+
+async function refreshAccessRequests(options = {}) {
+  return spaceGovernanceController.refreshAccessRequests(options);
 }
 
 async function refreshApiTokens(userId, options = {}) {
@@ -3996,6 +4089,14 @@ async function refreshSpaceMembers(spaceId, options = {}) {
 
 async function refreshAgentChangeRequests(options = {}) {
   return spaceGovernanceController.refreshAgentChangeRequests(options);
+}
+
+async function refreshRequestableSpaces(options = {}) {
+  return spaceGovernanceController.refreshRequestableSpaces(options);
+}
+
+async function refreshReviewableAccessRequests(options = {}) {
+  return spaceGovernanceController.refreshReviewableAccessRequests(options);
 }
 
 function bindSpaceAdminControls() {
@@ -4020,6 +4121,8 @@ function renderPlanning() {
     refreshFromServer,
     setStatus,
     showConfirmModal,
+    openProjectForm,
+    openSolutionModal,
     canDeleteAllocations: userCanAccessAdminViews(),
     assigneeKeyFromAlloc,
     findUserBySoeid,

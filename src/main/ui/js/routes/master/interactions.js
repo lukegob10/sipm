@@ -17,6 +17,93 @@ function setStatusSelectVisualState(fieldEl, value) {
   fieldEl.classList.add(statusTone(status));
 }
 
+function firstElementWithAttribute(root, attr, value) {
+  if (!root) return null;
+  return Array.from(root.querySelectorAll(`[${attr}]`)).find((el) => el.getAttribute(attr) === value) || null;
+}
+
+function windowScrollPosition() {
+  if (typeof window === "undefined") return { left: 0, top: 0 };
+  return {
+    left: Number(window.scrollX || window.pageXOffset || 0),
+    top: Number(window.scrollY || window.pageYOffset || 0),
+  };
+}
+
+function scrollWindowTo(left, top) {
+  if (typeof window === "undefined" || typeof window.scrollTo !== "function") return;
+  const targetLeft = Number(left || 0);
+  const targetTop = Number(top || 0);
+  const current = windowScrollPosition();
+  if (current.left === targetLeft && current.top === targetTop) return;
+  try {
+    window.scrollTo(targetLeft, targetTop);
+  } catch {
+    // jsdom and older embedded browsers may not implement scrollTo.
+  }
+}
+
+function captureMasterTableViewport(root, rowKey) {
+  if (!root) return null;
+  const windowScroll = windowScrollPosition();
+  const row = firstElementWithAttribute(root, "data-master-row-key", rowKey);
+  const rowTop = typeof row?.getBoundingClientRect === "function"
+    ? row.getBoundingClientRect().top
+    : null;
+  return {
+    rowKey,
+    rowTop,
+    scrollLeft: Number(root.scrollLeft || 0),
+    scrollTop: Number(root.scrollTop || 0),
+    windowLeft: windowScroll.left,
+    windowTop: windowScroll.top,
+  };
+}
+
+function restoreFocusWithoutScroll(target, root) {
+  if (!target || typeof target.focus !== "function") return;
+  const tableScrollTop = Number(root?.scrollTop || 0);
+  const tableScrollLeft = Number(root?.scrollLeft || 0);
+  const windowScroll = windowScrollPosition();
+  try {
+    target.focus({ preventScroll: true });
+    return;
+  } catch {
+    target.focus();
+  }
+  if (root) {
+    root.scrollTop = tableScrollTop;
+    root.scrollLeft = tableScrollLeft;
+  }
+  scrollWindowTo(windowScroll.left, windowScroll.top);
+}
+
+function restoreMasterTableViewport(root, snapshot) {
+  if (!root || !snapshot) return;
+  root.scrollTop = snapshot.scrollTop;
+  root.scrollLeft = snapshot.scrollLeft;
+  scrollWindowTo(snapshot.windowLeft, snapshot.windowTop);
+
+  const row = firstElementWithAttribute(root, "data-master-row-key", snapshot.rowKey);
+  if (row && Number.isFinite(snapshot.rowTop) && typeof row.getBoundingClientRect === "function") {
+    const nextTop = row.getBoundingClientRect().top;
+    if (Number.isFinite(nextTop)) {
+      const delta = nextTop - snapshot.rowTop;
+      if (Math.abs(delta) > 0.5) {
+        if (root.scrollHeight > root.clientHeight + 1) {
+          root.scrollTop += delta;
+        } else {
+          scrollWindowTo(snapshot.windowLeft, snapshot.windowTop + delta);
+        }
+      }
+    }
+  }
+
+  root.scrollLeft = snapshot.scrollLeft;
+  const replacementToggle = firstElementWithAttribute(root, "data-master-collapse-key", snapshot.rowKey);
+  restoreFocusWithoutScroll(replacementToggle, root);
+}
+
 async function updateDeliverableField(ctx, type, id, field, value) {
   const {
     state,
@@ -78,13 +165,16 @@ export function bindDeliverablesTable(ctx) {
     const type = actionBtn.getAttribute("data-type");
     const id = actionBtn.getAttribute("data-id");
     if (action === "toggle-master-collapse") {
+      event.preventDefault();
       const key = String(actionBtn.getAttribute("data-master-collapse-key") || "").trim();
       if (!key) return;
+      const viewportSnapshot = captureMasterTableViewport(els.masterTable, key);
       if (!(state.masterCollapsed instanceof Set)) state.masterCollapsed = new Set();
       if (state.masterCollapsed.has(key)) state.masterCollapsed.delete(key);
       else state.masterCollapsed.add(key);
       if (typeof persistMasterViewState === "function") persistMasterViewState();
       if (typeof renderMasterTable === "function") renderMasterTable();
+      restoreMasterTableViewport(els.masterTable, viewportSnapshot);
       return;
     }
     if (action === "edit") {

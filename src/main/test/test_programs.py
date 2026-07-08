@@ -85,6 +85,27 @@ def test_build_program_dashboard_report_pdf_includes_solution_escalation():
     assert b"Needs help" in pdf_bytes
 
 
+def test_program_dashboard_report_progress_counts_current_phase_as_in_progress():
+    phases = [
+        {"phase_id": "plan", "phase_name": "Plan", "sequence": 1},
+        {"phase_id": "build", "phase_name": "Build", "sequence": 2},
+        {"phase_id": "deploy", "phase_name": "Deploy", "sequence": 3},
+    ]
+
+    assert program_dashboard_report_pdf._progress_for_solution(
+        {"status": "active", "current_phase": "plan"},
+        phases,
+    ) == 0
+    assert program_dashboard_report_pdf._progress_for_solution(
+        {"status": "active", "current_phase": "deploy"},
+        phases,
+    ) == 67
+    assert program_dashboard_report_pdf._progress_for_solution(
+        {"status": "complete", "current_phase": "deploy"},
+        phases,
+    ) == 100
+
+
 @pytest.mark.anyio
 async def test_program_crud_and_delete_blocked_with_active_projects(client):
     create = await client.post(

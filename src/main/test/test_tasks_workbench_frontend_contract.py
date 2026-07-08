@@ -132,6 +132,10 @@ def test_workbench_task_table_columns_are_balanced_and_centered():
         styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) {"):
         styles_text.index("#view-tasks-workbench .task-workbench-table tbody tr[data-id] {")
     ]
+    task_name_block = styles_text[
+        styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) strong {"):
+        styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) .task-workbench-context {")
+    ]
 
     assert "width: 26%;" in task_column_block
     assert "width: 18%;" in task_column_block
@@ -141,6 +145,8 @@ def test_workbench_task_table_columns_are_balanced_and_centered():
     assert "text-align: center;" in task_cell_block
     assert "text-align: left;" not in task_cell_block
     assert "margin-inline: auto;" in styles_text
+    assert "font-size: var(--task-workbench-row-font-size);" in task_name_block
+    assert "font-size: var(--font-size-section-title);" not in task_name_block
 
 
 def test_workbench_drawer_context_surfaces_effective_repo_link():

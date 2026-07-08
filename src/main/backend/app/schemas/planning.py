@@ -54,8 +54,31 @@ class WorkAllocationTaskRead(BaseModel):
     status: Literal["backlog", "assigned"]
 
 
+class WorkAllocationProjectRead(BaseModel):
+    id: str
+    title: str
+    status: str
+    fte_months: float
+    allocated_solution_fte_months: float = 0.0
+    residual_fte_months: float = 0.0
+    solution_count: int = 0
+
+
+class WorkAllocationSolutionRead(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    version: str
+    status: str
+    fte_months: float
+    allocated_fte_months: float = 0.0
+    remaining_fte_months: float = 0.0
+
+
 class WorkAllocationAssignmentCreate(BaseModel):
-    task_id: str = Field(min_length=1)
+    work_item_type: Literal["project", "solution", "task"] = "task"
+    work_item_id: Optional[str] = Field(default=None, min_length=1)
+    task_id: Optional[str] = Field(default=None, min_length=1)
     assignee_type: Literal["person", "team"]
     assignee_id: str = Field(min_length=1)
     month: str = Field(min_length=7, max_length=7)
@@ -70,7 +93,9 @@ class WorkAllocationAssignmentUpdate(BaseModel):
 
 class WorkAllocationAssignmentRead(BaseModel):
     id: str
-    task_id: str
+    work_item_type: Literal["project", "solution", "task"]
+    work_item_id: str
+    task_id: Optional[str] = None
     assignee_type: Literal["person", "team"]
     assignee_id: str
     assignee_name: Optional[str] = None
@@ -79,7 +104,8 @@ class WorkAllocationAssignmentRead(BaseModel):
 
 
 class WorkAllocationBoardRead(BaseModel):
-    tasks: list[WorkAllocationTaskRead]
+    projects: list[WorkAllocationProjectRead]
+    solutions: list[WorkAllocationSolutionRead]
     teams: list[WorkAllocationTeamRead]
     people: list[WorkAllocationPersonRead]
     allocations: list[WorkAllocationAssignmentRead]

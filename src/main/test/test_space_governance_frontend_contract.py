@@ -60,7 +60,8 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'event.composedPath()' in interactions_text
     assert 'classList.contains("space-member-actions")' in interactions_text
     assert "Workspace atlas" in render_text
-    assert "space-directory-card-fact" in render_text
+    assert "space-directory-table" in render_text
+    assert "space-directory-space-cell" in render_text
     assert 'data-space-action="open-directory-space"' in render_text
 
 
@@ -118,7 +119,8 @@ def test_confirm_modal_layers_above_space_directory_modal():
 def test_spaces_and_access_routes_share_the_same_governance_hub():
     spaces_text = SPACES_ROUTE.read_text(encoding="utf-8")
     access_text = ACCESS_ROUTE.read_text(encoding="utf-8")
-    assert 'renderGovernanceHub("current-space")' in spaces_text
+    assert "renderGovernanceHub();" in spaces_text
+    assert 'renderGovernanceHub("current-space")' not in spaces_text
     assert 'renderGovernanceHub("platform-access")' in access_text
 
 
@@ -138,7 +140,8 @@ def test_space_governance_controls_move_into_route_local_module():
     assert "function bindSpaceAdminControls() {" in app_text
     assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
     assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
-    assert "return spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
+    assert "persistSpaceGovernanceViewState();" in app_text
     assert "function renderSpaceDirectoryModal() {" in app_text
     assert "return spaceGovernanceRenderer.renderSpaceDirectoryModal();" in app_text
     assert "export function createSpaceGovernanceController({" in interactions_text
@@ -166,8 +169,9 @@ def test_space_governance_styles_cover_compact_switcher_and_hub():
         ".space-directory-stat",
         ".space-action-menu",
         ".space-member-actions",
-        ".space-directory-card-fact",
-        ".space-directory-card-note",
+        ".space-directory-table",
+        ".space-directory-space-cell",
+        ".space-directory-actions",
         ".space-directory-modal-shell",
         ".space-directory-preview-hero",
         ".platform-reset-grid",

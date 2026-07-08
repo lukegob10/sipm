@@ -25,6 +25,49 @@
   margin: 0;
 }
 
+.pm-report-download {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--product-border, var(--border));
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--surface-sunken);
+  font-size: var(--font-size-meta);
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.pm-report-download span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 30px;
+  min-height: 20px;
+  border-radius: 4px;
+  color: #fff;
+  background: var(--tone-danger-border);
+  font-size: var(--font-size-meta);
+  letter-spacing: 0;
+}
+
+.pm-report-download:hover {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+  background: var(--hover);
+}
+
+.pm-report-download:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
 .pm-dashboard-stack {
   display: grid;
   gap: 10px;

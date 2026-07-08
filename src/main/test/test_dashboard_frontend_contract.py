@@ -383,11 +383,17 @@ def test_program_dashboard_projects_grid_uses_deliverable_column_only():
 def test_program_dashboard_phase_column_reuses_deliverables_phase_display():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
 
     assert '"program-dashboard": ["phases", "programs", "projects", "solutions"],' in router_text
     assert "phaseDisplayName: displayPhase," in render_text
-    assert "phaseDisplayName(solution.current_phase)" in render_text
+    assert "function solutionPhaseLabel(solution, phaseDisplayName) {" in render_text
+    assert "return displayValue(phaseDisplayName(solution?.current_phase));" in render_text
+    assert "phaseSummary(programSolutions, phaseDisplayName)" in render_text
+    assert "phaseSummary(projectSolutions, phaseDisplayName)" in render_text
     assert "displayValue(solution.current_phase)" not in render_text
+    assert "return Math.round((idx / phases.length) * 100);" in app_text
+    assert "return Math.round(((idx + 1) / phases.length) * 100);" not in app_text
 
 
 def test_program_dashboard_escalation_column_sits_between_phase_and_percent_complete():

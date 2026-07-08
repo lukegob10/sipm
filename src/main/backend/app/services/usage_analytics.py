@@ -30,6 +30,7 @@ _MAX_DURATION_MS = 24 * 60 * 60 * 1000
 _SCHEMA_CHECK_TTL_SECONDS = 30
 _FAILURE_OUTCOMES = ("failure", "timeout", "server_error")
 _UNSCOPED_SPACE_ID = "__none__"
+_PERSONAL_SPACE_KIND = "personal"
 _SCHEMA_AVAILABILITY_CACHE: dict[tuple[str, str], float] = {}
 
 ALLOWED_EVENT_CATEGORIES = {"lifecycle", "navigation", "workflow", "operations"}
@@ -285,10 +286,25 @@ def analytics_scope_read(*, days: int, all_spaces: bool, scope_space_id: str | N
     }
 
 
+def _non_personal_space_ids_select():
+    return select(Space.space_id).where(
+        Space.deleted_at.is_(None),
+        or_(Space.space_kind.is_(None), Space.space_kind != _PERSONAL_SPACE_KIND),
+    )
+
+
 def _base_filters(model, *, since: datetime, scope_space_id: str | None) -> list:
     filters = [model.occurred_at >= since]
     if scope_space_id:
         filters.append(model.space_id == scope_space_id)
+    else:
+        filters.append(
+            or_(
+                model.space_id.is_(None),
+                model.space_id == "",
+                model.space_id.in_(_non_personal_space_ids_select()),
+            )
+        )
     return filters
 
 
@@ -297,9 +313,14 @@ def _rollup_space_id(space_id: str | None) -> str:
 
 
 def _rollup_space_filter(model, *, scope_space_id: str | None) -> list:
-    if not scope_space_id:
-        return []
-    return [model.space_id == _rollup_space_id(scope_space_id)]
+    if scope_space_id:
+        return [model.space_id == _rollup_space_id(scope_space_id)]
+    return [
+        or_(
+            model.space_id == _UNSCOPED_SPACE_ID,
+            model.space_id.in_(_non_personal_space_ids_select()),
+        )
+    ]
 
 
 def _rollup_date_filters(model, *, since: datetime, scope_space_id: str | None) -> list:

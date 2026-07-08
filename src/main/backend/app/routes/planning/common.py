@@ -212,7 +212,9 @@ def allocation_for_board_payload(
         assignee_name = team_display_name(session, alloc.team_id, space_ctx)
     return WorkAllocationAssignmentRead(
         id=alloc.allocation_id,
-        task_id=alloc.work_item_id,
+        work_item_type=alloc.work_item_type,
+        work_item_id=alloc.work_item_id,
+        task_id=alloc.work_item_id if alloc.work_item_type == "task" else None,
         assignee_type=assignee_type,
         assignee_id=assignee_id,
         assignee_name=assignee_name,
@@ -244,7 +246,8 @@ def resolve_work_allocation_assignee(
 def ensure_work_allocation_assignment_available(
     session: Session,
     space_ctx: SpaceContext,
-    task_id: str,
+    work_item_type: str,
+    work_item_id: str,
     month_start_value: date,
     assignee_user_soeid: Optional[str],
     team_id: Optional[str],
@@ -253,8 +256,8 @@ def ensure_work_allocation_assignment_available(
 ) -> None:
     same_assignee = (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "task")
-        .filter(ResourceAllocation.work_item_id == task_id)
+        .filter(ResourceAllocation.work_item_type == work_item_type)
+        .filter(ResourceAllocation.work_item_id == work_item_id)
         .filter(allocation_month_expr() == month_start_value)
     )
     if exclude_allocation_id:
@@ -270,8 +273,27 @@ def ensure_work_allocation_assignment_available(
     if same_assignee.first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Task is already allocated to this assignee for this month",
+            detail="Work item is already allocated to this assignee for this month",
         )
+
+    if work_item_type == "project":
+        parent_allocation = (
+            allocation_query(session, space_ctx)
+            .filter(ResourceAllocation.work_item_type == "project")
+            .filter(ResourceAllocation.work_item_id == work_item_id)
+            .filter(allocation_month_expr() == month_start_value)
+        )
+        if exclude_allocation_id:
+            parent_allocation = parent_allocation.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+        if parent_allocation.first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Project already has a parent allocation for this month",
+            )
+        return
+
+    if work_item_type != "task":
+        return
 
     if not team_id:
         return
@@ -279,7 +301,7 @@ def ensure_work_allocation_assignment_available(
     other_team_allocation = (
         allocation_query(session, space_ctx)
         .filter(ResourceAllocation.work_item_type == "task")
-        .filter(ResourceAllocation.work_item_id == task_id)
+        .filter(ResourceAllocation.work_item_id == work_item_id)
         .filter(allocation_month_expr() == month_start_value)
         .filter(ResourceAllocation.assignee_user_soeid.is_(None))
     )
@@ -293,20 +315,51 @@ def ensure_work_allocation_assignment_available(
         )
 
 
+def existing_work_allocation_assignment(
+    session: Session,
+    space_ctx: SpaceContext,
+    work_item_type: str,
+    work_item_id: str,
+    month_start_value: date,
+    assignee_user_soeid: Optional[str],
+    team_id: Optional[str],
+    *,
+    exclude_allocation_id: Optional[str] = None,
+) -> Optional[ResourceAllocation]:
+    query = (
+        allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.work_item_type == work_item_type)
+        .filter(ResourceAllocation.work_item_id == work_item_id)
+        .filter(allocation_month_expr() == month_start_value)
+    )
+    if exclude_allocation_id:
+        query = query.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+    if assignee_user_soeid:
+        return query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid).first()
+    return (
+        query
+        .filter(ResourceAllocation.assignee_user_soeid.is_(None))
+        .filter(ResourceAllocation.team_id == team_id)
+        .first()
+    )
+
+
 def work_allocation_revival_query(
     session: Session,
     space_ctx: SpaceContext,
-    task_id: str,
+    work_item_type: str,
+    work_item_id: str,
     month_start_value: date,
     assignee_user_soeid: Optional[str],
+    team_id: Optional[str],
     *,
     exclude_allocation_id: Optional[str] = None,
 ):
     revive_query = (
         session.query(ResourceAllocation)
         .filter(ResourceAllocation.space_id == space_ctx.space_id)
-        .filter(ResourceAllocation.work_item_type == "task")
-        .filter(ResourceAllocation.work_item_id == task_id)
+        .filter(ResourceAllocation.work_item_type == work_item_type)
+        .filter(ResourceAllocation.work_item_id == work_item_id)
         .filter(ResourceAllocation.week_start == month_start_value)
         .filter(ResourceAllocation.window_id.is_(None))
     )
@@ -315,7 +368,7 @@ def work_allocation_revival_query(
     if assignee_user_soeid:
         revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid == assignee_user_soeid)
     else:
-        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid.is_(None))
+        revive_query = revive_query.filter(ResourceAllocation.assignee_user_soeid.is_(None)).filter(ResourceAllocation.team_id == team_id)
     return revive_query
 
 
@@ -324,7 +377,7 @@ def raise_on_unique_allocation_conflict(err: IntegrityError) -> None:
     if _WORK_ALLOCATION_UNIQUE_CONSTRAINT in message:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Task is already allocated to this assignee for this month",
+            detail="Work item is already allocated to this assignee for this month",
         ) from err
     raise err
 

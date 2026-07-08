@@ -1,5 +1,6 @@
 import {
   applyScope,
+  clamp,
   createColumnDefinitions,
   currentUserTokens,
   daysAgo,
@@ -28,6 +29,41 @@ import {
 } from "./prefs.js";
 import { bindDashboardEvents } from "./interactions.js";
 import { renderDashboardConfigButton, renderDashboardConfigModal } from "./modal.js";
+
+function sectionPage(dashboardState, sectionId, rowCount, pageSize) {
+  dashboardState.pages = dashboardState.pages || {};
+  const totalPages = Math.max(1, Math.ceil(Math.max(0, rowCount) / Math.max(1, pageSize)));
+  const currentPage = clamp(Math.round(Number(dashboardState.pages[sectionId]) || 1), 1, totalPages);
+  dashboardState.pages[sectionId] = currentPage;
+  return currentPage;
+}
+
+function paginateSectionRows(dashboardState, sectionId, rows, pageSize) {
+  const safePageSize = Math.max(1, pageSize);
+  const page = sectionPage(dashboardState, sectionId, rows.length, safePageSize);
+  const start = (page - 1) * safePageSize;
+  return {
+    page,
+    pageSize: safePageSize,
+    totalPages: Math.max(1, Math.ceil(rows.length / safePageSize)),
+    totalRows: rows.length,
+    rows: rows.slice(start, start + safePageSize),
+  };
+}
+
+function renderDashboardPagination(sectionId, pagination) {
+  if (!pagination || pagination.totalPages <= 1) return "";
+  const from = (pagination.page - 1) * pagination.pageSize + 1;
+  const to = Math.min(pagination.totalRows, pagination.page * pagination.pageSize);
+  return `
+    <div class="dashboard-pagination" aria-label="${sectionId} pagination">
+      <button type="button" class="dashboard-page-btn" data-dashboard-action="page" data-dashboard-section="${sectionId}" data-dashboard-page-direction="prev"${pagination.page <= 1 ? " disabled" : ""} aria-label="Previous page">&lsaquo;</button>
+      <span class="dashboard-page-status">Page ${pagination.page} of ${pagination.totalPages}</span>
+      <button type="button" class="dashboard-page-btn" data-dashboard-action="page" data-dashboard-section="${sectionId}" data-dashboard-page-direction="next"${pagination.page >= pagination.totalPages ? " disabled" : ""} aria-label="Next page">&rsaquo;</button>
+      <span class="dashboard-page-range">${from}-${to} of ${pagination.totalRows}</span>
+    </div>
+  `;
+}
 
 function renderDashboardSectionTable(dashboardState, { sectionId, rows, columnDefs, tableClass, emptyText }) {
   return renderSectionTable({
@@ -158,12 +194,14 @@ export function renderDashboardView(dashboardState, ctx) {
     .filter((row) => row.status === "complete" && row.completedDate)
     .filter((row) => daysAgo(today, row.completedDate) <= prefs.horizon_days)
     .sort((a, b) => (b.completedDate?.getTime() || 0) - (a.completedDate?.getTime() || 0));
-  const completedRows = applySectionSolutionFilter(
+  const completedFilteredRows = applySectionSolutionFilter(
     dashboardState,
     completedAllRows,
     "completed",
     (row) => row.solutionId
-  ).slice(0, supportRows);
+  );
+  const completedPagination = paginateSectionRows(dashboardState, "completed", completedFilteredRows, supportRows);
+  const completedRows = completedPagination.rows;
 
   const upcomingAllRows = [];
   const upcomingSeen = new Set();
@@ -177,23 +215,25 @@ export function renderDashboardView(dashboardState, ctx) {
     upcomingAllRows.push({ row, stage: "Coming" });
     upcomingSeen.add(row.solutionId);
   }
-  const upcomingRows = applySectionSolutionFilter(
+  const upcomingFilteredRows = applySectionSolutionFilter(
     dashboardState,
     upcomingAllRows,
     "upcoming",
     (entry) => entry.row.solutionId
   )
-    .slice(0, supportRows)
     .map((entry) => ({ ...entry.row, stage: entry.stage }));
+  const upcomingPagination = paginateSectionRows(dashboardState, "upcoming", upcomingFilteredRows, supportRows);
+  const upcomingRows = upcomingPagination.rows;
 
-  const backlogRows = applySectionSolutionFilter(
+  const backlogFilteredRows = applySectionSolutionFilter(
     dashboardState,
     deferredRows,
     "backlog",
     (entry) => entry.row.solutionId
   )
-    .slice(0, supportRows)
     .map((entry) => ({ ...entry.row, shortfall: entry.shortfall }));
+  const backlogPagination = paginateSectionRows(dashboardState, "backlog", backlogFilteredRows, supportRows);
+  const backlogRows = backlogPagination.rows;
 
   dashboardState.sectionOptions = {
     main: buildSectionOptions(sortedScopedRows),
@@ -207,7 +247,13 @@ export function renderDashboardView(dashboardState, ctx) {
   const scopedActiveRows = scopedRows.filter((row) => !row.isClosed);
   const scopedAtRiskRows = scopedActiveRows.filter((row) => row.riskScore >= 45);
   const scopedOverdueRows = scopedActiveRows.filter((row) => Number.isFinite(row.dueDays) && row.dueDays < 0);
-  const mainRows = filteredMainRows.slice(0, Math.min(prefs.rows, rowBudget.main));
+  const mainPagination = paginateSectionRows(
+    dashboardState,
+    "main",
+    filteredMainRows,
+    Math.min(prefs.rows, rowBudget.main)
+  );
+  const mainRows = mainPagination.rows;
 
   const formatStatusLabel = (value) => {
     if (typeof formatStatus === "function") return formatStatus(value);
@@ -252,6 +298,7 @@ export function renderDashboardView(dashboardState, ctx) {
         tableClass: "dashboard-main-table",
         emptyText: "No solutions match the selected scope and inclusion list.",
       })}
+      ${renderDashboardPagination("main", mainPagination)}
     `;
   }
 
@@ -270,6 +317,7 @@ export function renderDashboardView(dashboardState, ctx) {
         tableClass: "dashboard-mini-table",
         emptyText: `No completed items in the last ${prefs.horizon_days} days.`,
       })}
+      ${renderDashboardPagination("completed", completedPagination)}
     `;
   }
 
@@ -288,6 +336,7 @@ export function renderDashboardView(dashboardState, ctx) {
         tableClass: "dashboard-mini-table",
         emptyText: "No working or upcoming items to show.",
       })}
+      ${renderDashboardPagination("upcoming", upcomingPagination)}
     `;
   }
 
@@ -306,6 +355,7 @@ export function renderDashboardView(dashboardState, ctx) {
         tableClass: "dashboard-mini-table",
         emptyText: "No backlog outside current FTE headroom.",
       })}
+      ${renderDashboardPagination("backlog", backlogPagination)}
     `;
   }
 }

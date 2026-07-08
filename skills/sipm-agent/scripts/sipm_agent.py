@@ -104,6 +104,13 @@ class SipmClient:
     def work_graph(self, *, space_id: str, **filters: Any) -> dict[str, Any]:
         return self.request("GET", "/agent/work-graph", space_id=space_id, query=filters)
 
+    def list_programs(self, *, space_id: str) -> list[dict[str, Any]]:
+        value = self.request("GET", "/agent/programs", space_id=space_id)
+        return value if isinstance(value, list) else value.get("value", [])
+
+    def get_program(self, *, space_id: str, program_id: str) -> dict[str, Any]:
+        return self.request("GET", f"/agent/programs/{program_id}", space_id=space_id)
+
     def find_project(
         self,
         *,
@@ -198,7 +205,7 @@ def main() -> int:
 
     sub.add_parser("list-spaces", help="List spaces accessible to the token")
 
-    graph = sub.add_parser("work-graph", help="Read scoped project/solution/task context")
+    graph = sub.add_parser("work-graph", help="Read scoped program/project/solution/task context")
     graph.add_argument("--space", help="Space name, slug, or ID")
     graph.add_argument("--project-id")
     graph.add_argument("--solution-id")
@@ -208,6 +215,13 @@ def main() -> int:
     graph.add_argument("--assignee-user-soeid")
     graph.add_argument("--updated-since")
     graph.add_argument("--limit", type=int, default=50)
+
+    programs = sub.add_parser("list-programs", help="List scoped programs")
+    programs.add_argument("--space", help="Space name, slug, or ID")
+
+    program = sub.add_parser("get-program", help="Get a scoped program by ID")
+    program.add_argument("--space", help="Space name, slug, or ID")
+    program.add_argument("--program-id", required=True)
 
     resolve = sub.add_parser("resolve-solution", help="Resolve a solution and print IDs/timestamps")
     resolve.add_argument("--space", help="Space name, slug, or ID")
@@ -223,6 +237,14 @@ def main() -> int:
     submit = sub.add_parser("submit-change-request", help="Submit a raw patch JSON file for approval")
     submit.add_argument("--space", help="Space name, slug, or ID")
     submit.add_argument("--patch-file", required=True)
+
+    propose_program = sub.add_parser("propose-program-create", help="Submit a pending program create proposal")
+    propose_program.add_argument("--space", help="Space name, slug, or ID")
+    propose_program.add_argument("--program-name", required=True)
+    propose_program.add_argument("--description")
+    propose_program.add_argument("--reason", required=True)
+    propose_program.add_argument("--idempotency-key")
+    propose_program.add_argument("--validate-only", action="store_true")
 
     propose = sub.add_parser("propose-solution-update", help="Submit a pending solution update proposal")
     propose.add_argument("--space", help="Space name, slug, or ID")
@@ -271,6 +293,14 @@ def main() -> int:
         json_out(payload)
         return 0
 
+    if args.command == "list-programs":
+        json_out(client.list_programs(space_id=space_id))
+        return 0
+
+    if args.command == "get-program":
+        json_out(client.get_program(space_id=space_id, program_id=args.program_id))
+        return 0
+
     if args.command == "resolve-solution":
         json_out(
             client.find_solution(
@@ -286,6 +316,31 @@ def main() -> int:
     if args.command in {"validate-patch", "submit-change-request"}:
         patch = load_patch(args.patch_file)
         if args.command == "validate-patch":
+            json_out(client.validate_patch(space_id=space_id, patch=patch))
+        else:
+            json_out(client.submit_change_request(space_id=space_id, patch=patch))
+        return 0
+
+    if args.command == "propose-program-create":
+        fields = {
+            "program_name": args.program_name,
+            "description": args.description,
+        }
+        fields = {key: value for key, value in fields.items() if value is not None}
+        patch = {
+            "dry_run": False,
+            "reason": args.reason,
+            "idempotency_key": args.idempotency_key or f"program-{int(time.time())}",
+            "operations": [
+                {
+                    "client_operation_id": "create-program",
+                    "op": "create",
+                    "entity": "program",
+                    "fields": fields,
+                }
+            ],
+        }
+        if args.validate_only:
             json_out(client.validate_patch(space_id=space_id, patch=patch))
         else:
             json_out(client.submit_change_request(space_id=space_id, patch=patch))

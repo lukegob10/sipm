@@ -381,10 +381,88 @@ body {
 }
 
 .brand {
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  font-size: var(--font-size-route-title);
-  margin-bottom: 14px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  margin-bottom: 16px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(159, 199, 242, 0.16), transparent 52%),
+    var(--surface-sunken);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.brand::before {
+  content: "";
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--nav-active-inset);
+}
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--nav-active-border);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, var(--nav-active-bg), rgba(95, 159, 224, 0.05)),
+    var(--surface-raised);
+  color: var(--accent-2);
+  box-shadow: inset 0 0 0 1px rgba(159, 199, 242, 0.08);
+}
+.brand-mark-svg {
+  width: 25px;
+  height: 25px;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-mark-frame {
+  stroke: var(--accent-2);
+  stroke-width: 1.7;
+}
+.brand-mark-line {
+  stroke: var(--muted);
+  stroke-width: 1.7;
+}
+.brand-mark-accent {
+  stroke: var(--nav-active-inset);
+  stroke-width: 2;
+}
+.brand-mark-dot {
+  fill: var(--muted);
+  stroke: none;
+}
+.brand-mark-dot.accent {
+  fill: var(--accent-2);
+}
+.brand-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.brand-name {
+  color: var(--text-strong);
+  font-size: var(--font-size-display-compact);
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.brand-subtitle {
+  color: var(--muted);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.2;
 }
 
 .nav-group {
@@ -430,6 +508,21 @@ body {
 .theme-light .sidebar {
   background: #ffffff;
   border-right: 1px solid var(--border);
+}
+.theme-light .brand {
+  background:
+    linear-gradient(135deg, rgba(0, 58, 114, 0.09), transparent 52%),
+    var(--panel);
+  box-shadow: var(--shadow);
+}
+.theme-light .brand-mark {
+  color: var(--accent-strong);
+  background:
+    linear-gradient(180deg, rgba(0, 58, 114, 0.1), rgba(0, 58, 114, 0.02)),
+    var(--panel);
+}
+.theme-light .brand-mark-dot.accent {
+  fill: var(--accent-strong);
 }
 .theme-light .nav-section {
   background: var(--panel-soft);
@@ -679,8 +772,6 @@ main {
 
 .space-switcher-panel-head,
 .space-governance-header,
-.space-directory-card-head,
-.space-directory-card-actions,
 .space-governance-header-actions,
 .space-hero-card,
 .space-hero-actions,

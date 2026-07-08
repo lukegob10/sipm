@@ -160,6 +160,17 @@ def test_calendar_day_cells_use_flatter_container_chrome():
     assert "box-shadow: var(--selected-ring-strong);" in text
 
 
+def test_calendar_empty_alignment_cells_are_invisible_layout_placeholders():
+    route_text = CALENDAR_ROUTE.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert 'class="calendar-cell empty" aria-hidden="true"' in route_text
+    assert ".calendar-cell.empty {" in styles_text
+    assert "visibility: hidden;" in styles_text
+    assert "pointer-events: none;" in styles_text
+    assert "border-style: dashed;" not in styles_text
+
+
 def test_calendar_day_counts_use_quieter_styling():
     text = read_ui_styles(STYLES_CSS)
 

@@ -6,7 +6,49 @@ import {
   persistCapacityMonth,
 } from "./storage.js";
 
-function handlePMDashboardClick(event, pmDashboardState) {
+function resolvePMDashboardApiBase(ctx) {
+  return String(ctx?.apiBase || window.SIPM_API_BASE || "/api").replace(/\/+$/, "");
+}
+
+async function downloadPMDashboardReport(pmDashboardState) {
+  const ctx = pmDashboardState.ctx || {};
+  const activeSpaceId = String(ctx?.state?.activeSpace?.space_id || "").trim();
+  const headers = {};
+  if (activeSpaceId) headers["X-Space-Id"] = activeSpaceId;
+  const response = await fetch(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`, {
+    method: "GET",
+    headers,
+    credentials: "include",
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    let message = `Download failed (${response.status})`;
+    try {
+      const payload = text ? JSON.parse(text) : null;
+      if (payload?.detail) message = String(payload.detail);
+      else if (text) message = text;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("application/pdf")) {
+    throw new Error("Download failed: server did not return a PDF.");
+  }
+  const blob = await response.blob();
+  const today = new Date().toISOString().slice(0, 10);
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `pm-command-center-report-${today}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+}
+
+async function handlePMDashboardClick(event, pmDashboardState) {
   const target = event.target;
   if (!(target instanceof Element)) return;
   const actionEl = target.closest("[data-pm-dashboard-action]");
@@ -14,6 +56,19 @@ function handlePMDashboardClick(event, pmDashboardState) {
   const action = actionEl.getAttribute("data-pm-dashboard-action") || "";
 
   if (action === "set-focus-section") return;
+
+  if (action === "download-report") {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      await downloadPMDashboardReport(pmDashboardState);
+      pmDashboardState.ctx?.setStatus?.("PM Command Center report downloaded.", "success");
+    } catch (err) {
+      console.error("PM Command Center report download failed", err);
+      pmDashboardState.ctx?.setStatus?.(err?.message || "PDF download failed", "danger");
+    }
+    return;
+  }
 
   if (action === "open-project") {
     event.preventDefault();
@@ -71,7 +126,7 @@ export function bindPMDashboardEvents(pmDashboardState, rerender) {
   pmDashboardState.bound = true;
 
   viewRoot.addEventListener("click", (event) => {
-    handlePMDashboardClick(event, pmDashboardState);
+    void handlePMDashboardClick(event, pmDashboardState);
   }, { capture: true });
 
   viewRoot.addEventListener("change", (event) => {

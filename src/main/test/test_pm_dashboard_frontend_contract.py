@@ -15,11 +15,16 @@ STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
 def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_and_capacity_rows():
+    index_text = (REPO_ROOT / "src" / "main" / "ui" / "index.html").read_text(encoding="utf-8")
     route_text = PM_DASHBOARD_ROUTE.read_text(encoding="utf-8")
     analytics_text = PM_DASHBOARD_ANALYTICS.read_text(encoding="utf-8")
     render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     sections_text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
 
+    assert 'id="pm-dashboard-report-download"' in index_text
+    assert "Download Report" in index_text
+    assert 'data-pm-dashboard-action="download-report"' in index_text
+    assert 'href="/api/pm-dashboard/report.pdf"' not in index_text
     assert 'import { createPMDashboardState, renderPMDashboardView } from "./pm-dashboard/render.js";' in route_text
     assert "function normalizePMDashboardIdentity(value) {" in analytics_text
     assert "function buildPMDashboardOwnerDirectory(users) {" in analytics_text
@@ -114,6 +119,7 @@ def test_pm_dashboard_uses_focus_sections_with_persisted_default_action_view():
 
 def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and_capacity_surfaces():
     text = APP_JS.read_text(encoding="utf-8")
+    pm_render_context = text[text.index("mod.renderPMDashboard({"):text.index("function openPMDashboardProjectDrilldown")]
     assert "function closePlanningModal()" in text
     assert "function openPlanningModal(title, bodyHtml)" in text
     assert "function openPMDashboardProjectDrilldown(projectId)" in text
@@ -125,6 +131,8 @@ def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and
     assert 'openPMDashboardProjectDrilldown,' in text
     assert 'openPMDashboardSolutionDrilldown,' in text
     assert 'openPMDashboardTaskDrilldown,' in text
+    assert "apiBase: API_BASE," in pm_render_context
+    assert "setStatus," in pm_render_context
     assert 'data-planning-modal-action="open-allocation-work-item"' in text
     assert 'openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);' in text
     assert 'type === "solution" ? "Open Workstream"' in text
@@ -142,6 +150,11 @@ def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and
 
 def test_pm_dashboard_uses_pm_row_link_style_for_dense_title_actions():
     text = read_ui_styles(STYLES_CSS)
+    assert ".pm-report-download {" in text
+    assert "appearance: none;" in text
+    assert "cursor: pointer;" in text
+    assert ".pm-report-download span {" in text
+    assert ".pm-report-download:hover {" in text
     assert ".pm-row-link {" in text
     assert "appearance: none;" in text
     assert "box-shadow: none;" in text
@@ -202,8 +215,10 @@ def test_pm_dashboard_uses_business_led_workstream_and_deliverable_language():
     assert "Work List" in sections_text
     assert "Planning deliverable assignments only." in sections_text
     assert "No elevated workstream risks detected." in sections_text
-    assert 'kind: "Workstream"' in render_text
-    assert 'kind: "Deliverable"' in render_text
+    assert 'kind: "Solution"' in render_text
+    assert 'kind: "Task"' in render_text
+    assert 'kind: "Workstream"' not in render_text
+    assert 'kind: "Deliverable"' not in render_text
     assert "red workstreams need intervention" in render_text
     assert "blocked deliverables are stalling flow" in render_text
     assert "active deliverables are unassigned" in render_text
@@ -274,3 +289,16 @@ def test_pm_dashboard_item_kind_tokens_use_quieter_styling():
     assert "padding: 0;" in text
     assert "border: none;" in text
     assert "background: transparent;" in text
+
+
+def test_pm_dashboard_report_download_uses_fetch_blob_not_direct_anchor():
+    text = PM_DASHBOARD_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert "async function downloadPMDashboardReport(pmDashboardState) {" in text
+    assert 'headers["X-Space-Id"] = activeSpaceId;' in text
+    assert 'fetch(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`' in text
+    assert 'credentials: "include"' in text
+    assert 'contentType.includes("application/pdf")' in text
+    assert 'link.download = `pm-command-center-report-${today}.pdf`;' in text
+    assert 'pmDashboardState.ctx?.setStatus?.("PM Command Center report downloaded.", "success");' in text
+    assert 'pmDashboardState.ctx?.setStatus?.(err?.message || "PDF download failed", "danger");' in text

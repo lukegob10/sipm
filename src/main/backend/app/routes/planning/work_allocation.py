@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ...auth.auth import hash_bootstrap_password
 from ...deps import current_space as current_space_dep, current_user as current_user_dep, get_db, require_space_role
-from ...models import ResourceAllocation, SpaceMembership, Task, Team, User
+from ...models import Project, ResourceAllocation, Solution, SpaceMembership, Task, Team, User
 from ...schemas.planning import (
     WorkAllocationAssignmentCreate,
     WorkAllocationAssignmentRead,
@@ -18,6 +18,8 @@ from ...schemas.planning import (
     WorkAllocationPersonCreate,
     WorkAllocationPersonRead,
     WorkAllocationPersonUpdate,
+    WorkAllocationProjectRead,
+    WorkAllocationSolutionRead,
     WorkAllocationTaskCreate,
     WorkAllocationTaskRead,
     WorkAllocationTaskUpdate,
@@ -29,6 +31,7 @@ from ...services.planning_report_pdf import build_work_allocation_report_pdf
 from ...services.planning_work_allocation import (
     WORK_ALLOCATION_DEFAULT_ASSIGNEE,
     WORK_ALLOCATION_DOMAIN,
+    WORK_ALLOCATION_PROJECT_PREFIX,
     active_person_by_soeid,
     active_space_user_query,
     board_solution,
@@ -53,6 +56,7 @@ from .common import (
     allocation_query,
     commit_planning_mutation,
     ensure_work_allocation_assignment_available,
+    existing_work_allocation_assignment,
     get_allocation,
     person_payload,
     raise_on_unique_allocation_conflict,
@@ -68,12 +72,252 @@ from .common import (
 
 router = APIRouter()
 
+_CLOSED_TASK_STATUSES = {TaskStatus.complete, TaskStatus.abandoned}
+_WORK_ALLOCATION_TYPES = {"project", "solution", "task"}
+
 
 def _nonblank_text(value: object, *, field_name: str) -> str:
     text = str(value or "").strip()
     if not text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"{field_name} is required")
     return text
+
+
+def _fte_from_hours(hours: int | float | None, *, fallback: float = 0.25) -> float:
+    numeric = float(hours or 0)
+    if numeric <= 0:
+        return round(float(fallback), 3)
+    return round(numeric / _HOURS_PER_FTE_MONTH, 3)
+
+
+def _allocation_fte(row: ResourceAllocation) -> float:
+    fte = float(row.fte_months or 0.0)
+    if fte <= 0 and row.hours:
+        fte = float(row.hours or 0) / _HOURS_PER_FTE_MONTH
+    return round(max(fte, 0.0), 3)
+
+
+def _active_portfolio_project_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(~Project.project_name.like(f"{WORK_ALLOCATION_PROJECT_PREFIX} [%"))
+    )
+
+
+def _active_portfolio_solution_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(~Project.project_name.like(f"{WORK_ALLOCATION_PROJECT_PREFIX} [%"))
+    )
+
+
+def _solution_effort_map(
+    solutions: list[Solution],
+    tasks_by_solution: dict[str, list[Task]],
+) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for solution in solutions:
+        if int(solution.capacity_hours or 0) > 0:
+            values[solution.solution_id] = _fte_from_hours(solution.capacity_hours)
+            continue
+        active_task_hours = 0
+        for task in tasks_by_solution.get(solution.solution_id, []):
+            if task.status in _CLOSED_TASK_STATUSES:
+                continue
+            active_task_hours += int(task.capacity_hours or task.estimate_hours or 0)
+        values[solution.solution_id] = _fte_from_hours(active_task_hours)
+    return values
+
+
+def _project_effort_map(
+    projects: list[Project],
+    solutions_by_project: dict[str, list[Solution]],
+    solution_fte: dict[str, float],
+) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for project in projects:
+        total = sum(solution_fte.get(solution.solution_id, 0.0) for solution in solutions_by_project.get(project.project_id, []))
+        values[project.project_id] = round(total if total > 0 else 0.25, 3)
+    return values
+
+
+def _allocated_solution_fte_by_project(
+    allocations: list[ResourceAllocation],
+    solution_project_map: dict[str, str],
+) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for allocation in allocations:
+        if allocation.work_item_type != "solution":
+            continue
+        project_id = solution_project_map.get(allocation.work_item_id)
+        if not project_id:
+            continue
+        values[project_id] = round(values.get(project_id, 0.0) + _allocation_fte(allocation), 3)
+    return values
+
+
+def _allocated_solution_fte_by_solution(allocations: list[ResourceAllocation]) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for allocation in allocations:
+        if allocation.work_item_type != "solution":
+            continue
+        values[allocation.work_item_id] = round(values.get(allocation.work_item_id, 0.0) + _allocation_fte(allocation), 3)
+    return values
+
+
+def _capped_allocated_solution_fte_by_project(
+    allocated_solution_fte: dict[str, float],
+    solution_project_map: dict[str, str],
+    solution_fte: dict[str, float],
+) -> dict[str, float]:
+    values: dict[str, float] = {}
+    for solution_id, allocated_fte in allocated_solution_fte.items():
+        project_id = solution_project_map.get(solution_id)
+        if not project_id:
+            continue
+        planned_fte = solution_fte.get(solution_id, 0.0)
+        values[project_id] = round(values.get(project_id, 0.0) + min(max(allocated_fte, 0.0), planned_fte), 3)
+    return values
+
+
+def _resolve_assignment_work_item(payload: WorkAllocationAssignmentCreate) -> tuple[str, str]:
+    work_item_type = str(payload.work_item_type or "task").strip().lower()
+    if work_item_type not in _WORK_ALLOCATION_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="work_item_type must be project, solution, or task")
+    work_item_id = str(payload.work_item_id or payload.task_id or "").strip()
+    if not work_item_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="work_item_id is required")
+    return work_item_type, work_item_id
+
+
+def _get_project_or_404(session: Session, space_ctx: SpaceContext, project_id: str) -> Project:
+    project = _active_portfolio_project_query(session, space_ctx).filter(Project.project_id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    return project
+
+
+def _get_solution_or_404(session: Session, space_ctx: SpaceContext, solution_id: str) -> Solution:
+    solution = _active_portfolio_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
+    if not solution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
+    return solution
+
+
+def _work_item_fte(session: Session, space_ctx: SpaceContext, work_item_type: str, work_item_id: str) -> float:
+    if work_item_type == "task":
+        task = planning_task_query(session, space_ctx).filter(Task.task_id == work_item_id).first()
+        if not task:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        return task_fte_months(task, hours_per_fte_month=_HOURS_PER_FTE_MONTH)
+
+    if work_item_type == "solution":
+        solution = _get_solution_or_404(session, space_ctx, work_item_id)
+        tasks = (
+            planning_task_query(session, space_ctx)
+            .filter(Task.solution_id == solution.solution_id)
+            .all()
+        )
+        return _solution_effort_map([solution], {solution.solution_id: tasks})[solution.solution_id]
+
+    project = _get_project_or_404(session, space_ctx, work_item_id)
+    solutions = _active_portfolio_solution_query(session, space_ctx).filter(Solution.project_id == project.project_id).all()
+    solution_ids = [row.solution_id for row in solutions]
+    tasks_by_solution: dict[str, list[Task]] = {solution_id: [] for solution_id in solution_ids}
+    if solution_ids:
+        for task in planning_task_query(session, space_ctx).filter(Task.solution_id.in_(solution_ids)).all():
+            tasks_by_solution.setdefault(task.solution_id, []).append(task)
+    solution_fte = _solution_effort_map(solutions, tasks_by_solution)
+    return _project_effort_map([project], {project.project_id: solutions}, solution_fte)[project.project_id]
+
+
+def _solution_allocation_total(
+    session: Session,
+    space_ctx: SpaceContext,
+    solution_id: str,
+    month_start,
+    *,
+    exclude_allocation_id: str | None = None,
+) -> float:
+    query = (
+        allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.work_item_type == "solution")
+        .filter(ResourceAllocation.work_item_id == solution_id)
+        .filter(allocation_month_expr() == month_start)
+    )
+    if exclude_allocation_id:
+        query = query.filter(ResourceAllocation.allocation_id != exclude_allocation_id)
+    return round(sum(_allocation_fte(row) for row in query.all()), 3)
+
+
+def _project_solution_allocation_total(
+    session: Session,
+    space_ctx: SpaceContext,
+    project_id: str,
+    month_start,
+) -> float:
+    solutions = (
+        _active_portfolio_solution_query(session, space_ctx)
+        .filter(Solution.project_id == project_id)
+        .all()
+    )
+    solution_ids = [row.solution_id for row in solutions]
+    if not solution_ids:
+        return 0.0
+    tasks_by_solution: dict[str, list[Task]] = {solution_id: [] for solution_id in solution_ids}
+    for task in planning_task_query(session, space_ctx).filter(Task.solution_id.in_(solution_ids)).all():
+        tasks_by_solution.setdefault(task.solution_id, []).append(task)
+    solution_fte = _solution_effort_map(solutions, tasks_by_solution)
+    rows = (
+        allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.work_item_type == "solution")
+        .filter(ResourceAllocation.work_item_id.in_(solution_ids))
+        .filter(allocation_month_expr() == month_start)
+        .all()
+    )
+    allocated_solution_fte = _allocated_solution_fte_by_solution(rows)
+    return round(
+        sum(min(allocated_solution_fte.get(solution_id, 0.0), solution_fte.get(solution_id, 0.0)) for solution_id in solution_ids),
+        3,
+    )
+
+
+def _project_residual_fte(session: Session, space_ctx: SpaceContext, project_id: str, month_start) -> float:
+    project_fte = _work_item_fte(session, space_ctx, "project", project_id)
+    child_fte = _project_solution_allocation_total(session, space_ctx, project_id, month_start)
+    return round(max(project_fte - child_fte, 0.0), 3)
+
+
+def _sync_project_residual_allocation(
+    session: Session,
+    space_ctx: SpaceContext,
+    project_id: str,
+    month_start,
+) -> None:
+    parent_rows = (
+        allocation_query(session, space_ctx)
+        .filter(ResourceAllocation.work_item_type == "project")
+        .filter(ResourceAllocation.work_item_id == project_id)
+        .filter(allocation_month_expr() == month_start)
+        .all()
+    )
+    if not parent_rows:
+        return
+    residual = _project_residual_fte(session, space_ctx, project_id, month_start)
+    hours = max(int(round(residual * _HOURS_PER_FTE_MONTH)), 0)
+    now = datetime.now(timezone.utc)
+    for row in parent_rows:
+        row.fte_months = residual
+        row.hours = hours
+        row.updated_at = now
+        session.add(row)
 
 
 def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
@@ -111,28 +355,101 @@ def _work_allocation_board_payload(
     teams = team_query(session, space_ctx).order_by(Team.name.asc()).all()
     team_map = team_name_to_id_map(session, space_ctx)
     people = active_space_user_query(session, space_ctx).order_by(User.display_name.asc()).all()
-    task_query = planning_task_query(session, space_ctx)
+
+    project_query = _active_portfolio_project_query(session, space_ctx)
+    solution_query = _active_portfolio_solution_query(session, space_ctx)
     if search:
         term = f"%{search.strip().lower()}%"
-        task_query = task_query.filter(func.lower(Task.task_name).like(term))
-    tasks = task_query.order_by(Task.created_at.asc()).all()
-    task_ids = [task.task_id for task in tasks]
+        direct_project_ids = [
+            row[0]
+            for row in _active_portfolio_project_query(session, space_ctx)
+            .filter(func.lower(Project.project_name).like(term))
+            .with_entities(Project.project_id)
+            .all()
+        ]
+        solution_project_ids = [
+            row[0]
+            for row in _active_portfolio_solution_query(session, space_ctx)
+            .filter(func.lower(Solution.solution_name).like(term))
+            .with_entities(Solution.project_id)
+            .distinct()
+            .all()
+        ]
+        matching_project_ids = sorted(set(direct_project_ids + solution_project_ids))
+        project_query = project_query.filter(Project.project_id.in_(matching_project_ids or [""]))
+        solution_query = solution_query.filter(Solution.project_id.in_(matching_project_ids or [""]))
+
+    projects = project_query.order_by(Project.priority.asc(), Project.created_at.asc()).all()
+    project_ids = [project.project_id for project in projects]
+    solutions = (
+        solution_query
+        .filter(Solution.project_id.in_(project_ids or [""]))
+        .order_by(Solution.priority.asc(), Solution.created_at.asc())
+        .all()
+    )
+    solution_ids = [solution.solution_id for solution in solutions]
+
+    tasks_by_solution: dict[str, list[Task]] = {solution_id: [] for solution_id in solution_ids}
+    if solution_ids:
+        for task in planning_task_query(session, space_ctx).filter(Task.solution_id.in_(solution_ids)).all():
+            tasks_by_solution.setdefault(task.solution_id, []).append(task)
+
+    solutions_by_project: dict[str, list[Solution]] = {project_id: [] for project_id in project_ids}
+    for solution in solutions:
+        solutions_by_project.setdefault(solution.project_id, []).append(solution)
+
+    solution_fte = _solution_effort_map(solutions, tasks_by_solution)
+    project_fte = _project_effort_map(projects, solutions_by_project, solution_fte)
+    solution_project_map = {solution.solution_id: solution.project_id for solution in solutions}
+
     allocations: list[ResourceAllocation] = []
-    assigned_ids: set[str] = set()
-    if task_ids:
+    work_item_ids = project_ids + solution_ids
+    if work_item_ids:
         allocations = (
             allocation_query(session, space_ctx)
-            .filter(ResourceAllocation.work_item_type == "task")
-            .filter(ResourceAllocation.work_item_id.in_(task_ids))
+            .filter(ResourceAllocation.work_item_type.in_(["project", "solution"]))
+            .filter(ResourceAllocation.work_item_id.in_(work_item_ids))
             .filter(allocation_month_expr() == month_start)
             .order_by(ResourceAllocation.created_at.asc())
             .all()
         )
-        assigned_ids = {row.work_item_id for row in allocations}
+
+    allocated_solution_by_solution = _allocated_solution_fte_by_solution(allocations)
+    allocated_solution_by_project = _allocated_solution_fte_by_project(allocations, solution_project_map)
+    capped_allocated_solution_by_project = _capped_allocated_solution_fte_by_project(
+        allocated_solution_by_solution,
+        solution_project_map,
+        solution_fte,
+    )
+
     return WorkAllocationBoardRead(
         teams=[WorkAllocationTeamRead(id=row.team_id, name=row.name) for row in teams],
         people=[person_payload(row, team_map) for row in people],
-        tasks=[task_payload(row, assigned_ids) for row in tasks],
+        projects=[
+            WorkAllocationProjectRead(
+                id=row.project_id,
+                title=row.project_name,
+                status=row.status.value if hasattr(row.status, "value") else str(row.status),
+                fte_months=project_fte[row.project_id],
+                allocated_solution_fte_months=allocated_solution_by_project.get(row.project_id, 0.0),
+                residual_fte_months=round(max(project_fte[row.project_id] - capped_allocated_solution_by_project.get(row.project_id, 0.0), 0.0), 3),
+                solution_count=len(solutions_by_project.get(row.project_id, [])),
+            )
+            for row in projects
+        ],
+        solutions=[
+            WorkAllocationSolutionRead(
+                id=row.solution_id,
+                project_id=row.project_id,
+                title=row.solution_name,
+                version=row.version,
+                status=row.status.value if hasattr(row.status, "value") else str(row.status),
+                fte_months=solution_fte[row.solution_id],
+                allocated_fte_months=allocated_solution_by_solution.get(row.solution_id, 0.0),
+                remaining_fte_months=round(max(solution_fte[row.solution_id] - allocated_solution_by_solution.get(row.solution_id, 0.0), 0.0), 3),
+            )
+            for row in solutions
+        ],
         allocations=[allocation_for_board_payload(row, space_ctx, session) for row in allocations],
     )
 
@@ -160,6 +477,8 @@ def get_work_allocation_board(
         ttl_seconds=_PLANNING_LIST_TTL_SECONDS,
         scope_tokens=[
             make_scope_token("planning", space_ctx.space_id),
+            make_scope_token("projects", space_ctx.space_id),
+            make_scope_token("solutions", space_ctx.space_id),
             make_scope_token("tasks", space_ctx.space_id),
             make_scope_token("teams", space_ctx.space_id),
             make_scope_token("users", space_ctx.space_id),
@@ -611,14 +930,16 @@ def list_work_allocation_allocations(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> List[WorkAllocationAssignmentRead]:
     month_start = month_from_token(month or month_token(None))
-    query = planning_task_query(session, space_ctx)
-    task_ids = [row.task_id for row in query.all()]
-    if not task_ids:
+    project_ids = [row.project_id for row in _active_portfolio_project_query(session, space_ctx).all()]
+    solution_ids = [row.solution_id for row in _active_portfolio_solution_query(session, space_ctx).all()]
+    task_ids = [row.task_id for row in planning_task_query(session, space_ctx).all()]
+    work_item_ids = project_ids + solution_ids + task_ids
+    if not work_item_ids:
         return []
     rows = (
         allocation_query(session, space_ctx)
-        .filter(ResourceAllocation.work_item_type == "task")
-        .filter(ResourceAllocation.work_item_id.in_(task_ids))
+        .filter(ResourceAllocation.work_item_type.in_(["project", "solution", "task"]))
+        .filter(ResourceAllocation.work_item_id.in_(work_item_ids))
         .filter(allocation_month_expr() == month_start)
         .order_by(ResourceAllocation.created_at.asc())
         .all()
@@ -692,36 +1013,62 @@ def create_work_allocation_allocation(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationAssignmentRead:
     month_start = month_from_token(payload.month)
-    task_query = planning_task_query(session, space_ctx)
-    task = task_query.filter(Task.task_id == payload.task_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    work_item_type, work_item_id = _resolve_assignment_work_item(payload)
+    parent_project_id: str | None = None
+    if work_item_type == "project":
+        _get_project_or_404(session, space_ctx, work_item_id)
+        parent_project_id = work_item_id
+    elif work_item_type == "solution":
+        solution = _get_solution_or_404(session, space_ctx, work_item_id)
+        parent_project_id = solution.project_id
+    else:
+        task = planning_task_query(session, space_ctx).filter(Task.task_id == work_item_id).first()
+        if not task:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     assignee_user_soeid, assignee_name, team_id = resolve_work_allocation_assignee(
         session, payload.assignee_type, payload.assignee_id, space_ctx
     )
+    existing_assignment = existing_work_allocation_assignment(
+        session,
+        space_ctx,
+        work_item_type,
+        work_item_id,
+        month_start,
+        assignee_user_soeid,
+        team_id,
+    )
+    if existing_assignment:
+        return allocation_for_board_payload(existing_assignment, space_ctx, session)
     ensure_work_allocation_assignment_available(
         session,
         space_ctx,
-        payload.task_id,
+        work_item_type,
+        work_item_id,
         month_start,
         assignee_user_soeid,
         team_id,
     )
 
     fte = payload.fte_months_allocated
-    if fte is None:
-        fte = task_fte_months(task, hours_per_fte_month=_HOURS_PER_FTE_MONTH)
-    fte = round(max(float(fte), 0.05), 3)
-    hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
+    if work_item_type == "project":
+        fte = _project_residual_fte(session, space_ctx, work_item_id, month_start)
+    elif work_item_type == "solution" and fte is None:
+        fte = round(max(_work_item_fte(session, space_ctx, "solution", work_item_id) - _solution_allocation_total(session, space_ctx, work_item_id, month_start), 0.05), 3)
+    elif fte is None:
+        fte = _work_item_fte(session, space_ctx, work_item_type, work_item_id)
+    fte = round(max(float(fte), 0.0 if work_item_type == "project" else 0.05), 3)
+    hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 0 if work_item_type == "project" else 1)
     now = datetime.now(timezone.utc)
 
     revive_row = work_allocation_revival_query(
         session,
         space_ctx,
-        payload.task_id,
+        work_item_type,
+        work_item_id,
         month_start,
         assignee_user_soeid,
+        team_id,
     ).first()
     if revive_row:
         revive_row.assignee_user_soeid = assignee_user_soeid
@@ -735,6 +1082,9 @@ def create_work_allocation_allocation(
         revive_row.deleted_at = None
         revive_row.updated_at = now
         session.add(revive_row)
+        if parent_project_id and work_item_type == "solution":
+            session.flush()
+            _sync_project_residual_allocation(session, space_ctx, parent_project_id, month_start)
         commit_planning_mutation(
             session,
             space_ctx,
@@ -745,8 +1095,8 @@ def create_work_allocation_allocation(
 
     row = ResourceAllocation(
         space_id=space_ctx.space_id,
-        work_item_type="task",
-        work_item_id=payload.task_id,
+        work_item_type=work_item_type,
+        work_item_id=work_item_id,
         assignee_user_soeid=assignee_user_soeid,
         assignee=assignee_name,
         team_id=team_id,
@@ -759,6 +1109,9 @@ def create_work_allocation_allocation(
         updated_at=now,
     )
     session.add(row)
+    if parent_project_id and work_item_type == "solution":
+        session.flush()
+        _sync_project_residual_allocation(session, space_ctx, parent_project_id, month_start)
     commit_planning_mutation(
         session,
         space_ctx,
@@ -780,16 +1133,24 @@ def update_work_allocation_allocation(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> WorkAllocationAssignmentRead:
     row = get_allocation(session, allocation_id, space_ctx)
-    if row.work_item_type != "task":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation is not a planning task assignment")
+    if row.work_item_type not in _WORK_ALLOCATION_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation is not a planning board assignment")
 
     month_start = row.month_start or (row.week_start.replace(day=1) if row.week_start else None)
     if month_start is None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Allocation month is missing")
 
-    task = planning_task_query(session, space_ctx).filter(Task.task_id == row.work_item_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    parent_project_id: str | None = None
+    if row.work_item_type == "project":
+        _get_project_or_404(session, space_ctx, row.work_item_id)
+        parent_project_id = row.work_item_id
+    elif row.work_item_type == "solution":
+        solution = _get_solution_or_404(session, space_ctx, row.work_item_id)
+        parent_project_id = solution.project_id
+    else:
+        task = planning_task_query(session, space_ctx).filter(Task.task_id == row.work_item_id).first()
+        if not task:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     assignee_user_soeid, assignee_name, team_id = resolve_work_allocation_assignee(
         session, payload.assignee_type, payload.assignee_id, space_ctx
@@ -797,6 +1158,7 @@ def update_work_allocation_allocation(
     ensure_work_allocation_assignment_available(
         session,
         space_ctx,
+        row.work_item_type,
         row.work_item_id,
         month_start,
         assignee_user_soeid,
@@ -805,20 +1167,24 @@ def update_work_allocation_allocation(
     )
 
     fte = payload.fte_months_allocated
-    if fte is None:
+    if row.work_item_type == "project":
+        fte = _project_residual_fte(session, space_ctx, row.work_item_id, month_start)
+    elif fte is None:
         fte = float(row.fte_months or 0.0)
         if fte <= 0:
-            fte = task_fte_months(task, hours_per_fte_month=_HOURS_PER_FTE_MONTH)
-    fte = round(max(float(fte), 0.05), 3)
-    hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 1)
+            fte = _work_item_fte(session, space_ctx, row.work_item_type, row.work_item_id)
+    fte = round(max(float(fte), 0.0 if row.work_item_type == "project" else 0.05), 3)
+    hours = max(int(round(fte * _HOURS_PER_FTE_MONTH)), 0 if row.work_item_type == "project" else 1)
     now = datetime.now(timezone.utc)
 
     revive_row = work_allocation_revival_query(
         session,
         space_ctx,
+        row.work_item_type,
         row.work_item_id,
         month_start,
         assignee_user_soeid,
+        team_id,
         exclude_allocation_id=row.allocation_id,
     ).first()
     if revive_row and revive_row.deleted_at is not None:
@@ -836,6 +1202,9 @@ def update_work_allocation_allocation(
         row.updated_at = now
         session.add(revive_row)
         session.add(row)
+        if parent_project_id and row.work_item_type == "solution":
+            session.flush()
+            _sync_project_residual_allocation(session, space_ctx, parent_project_id, month_start)
         commit_planning_mutation(
             session,
             space_ctx,
@@ -854,6 +1223,9 @@ def update_work_allocation_allocation(
     row.window_id = None
     row.updated_at = now
     session.add(row)
+    if parent_project_id and row.work_item_type == "solution":
+        session.flush()
+        _sync_project_residual_allocation(session, space_ctx, parent_project_id, month_start)
     commit_planning_mutation(
         session,
         space_ctx,
@@ -871,9 +1243,17 @@ def delete_work_allocation_allocation(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
     row = get_allocation(session, allocation_id, space_ctx)
+    parent_project_id: str | None = None
+    month_start = row.month_start or (row.week_start.replace(day=1) if row.week_start else None)
+    if row.work_item_type == "solution":
+        solution = _get_solution_or_404(session, space_ctx, row.work_item_id)
+        parent_project_id = solution.project_id
     now = datetime.now(timezone.utc)
     row.deleted_at = now
     row.updated_at = now
     session.add(row)
+    if parent_project_id and month_start is not None:
+        session.flush()
+        _sync_project_residual_allocation(session, space_ctx, parent_project_id, month_start)
     commit_planning_mutation(session, space_ctx)
     return None

@@ -13,9 +13,13 @@ from ..models import Space, SpaceMembership, User
 from ..security import security_http_exception
 
 
-DEFAULT_SPACE_NAME = "Main"
-DEFAULT_SPACE_SLUG = "main"
+DEFAULT_SPACE_NAME = "Home"
+DEFAULT_SPACE_SLUG = "home"
 ACTIVE_SPACE_COOKIE = "active_space_id"
+SPACE_KIND_COLLABORATION = "collaboration"
+SPACE_KIND_LOBBY = "lobby"
+SPACE_KIND_PERSONAL = "personal"
+SPACE_KINDS = {SPACE_KIND_COLLABORATION, SPACE_KIND_LOBBY, SPACE_KIND_PERSONAL}
 
 
 @dataclass(frozen=True)
@@ -24,6 +28,8 @@ class SpaceContext:
     space_name: str
     is_global_admin: bool
     space_role: str
+    space_kind: str = SPACE_KIND_COLLABORATION
+    owner_user_id: str | None = None
 
 
 def _normalize_slug(value: str) -> str:
@@ -39,12 +45,47 @@ def _normalize_space_role(value: str | None) -> str:
     return normalized or "member"
 
 
+def normalize_space_kind(value: str | None) -> str:
+    normalized = (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    return normalized if normalized in SPACE_KINDS else SPACE_KIND_COLLABORATION
+
+
 def normalize_global_role(value: str | None) -> str:
     return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def is_global_admin_role(value: str | None) -> bool:
     return normalize_global_role(value) == "global_admin"
+
+
+def _ensure_lobby_shape(session: Session, space: Space) -> Space:
+    changed = False
+    name_conflict = (
+        session.query(Space)
+        .filter(Space.name == DEFAULT_SPACE_NAME)
+        .filter(Space.space_id != space.space_id)
+        .filter(Space.deleted_at.is_(None))
+        .first()
+    )
+    if space.name != DEFAULT_SPACE_NAME and not name_conflict:
+        space.name = DEFAULT_SPACE_NAME
+        changed = True
+    if normalize_space_kind(getattr(space, "space_kind", None)) != SPACE_KIND_LOBBY:
+        space.space_kind = SPACE_KIND_LOBBY
+        changed = True
+    if getattr(space, "owner_user_id", None) is not None:
+        space.owner_user_id = None
+        changed = True
+    if not space.is_active:
+        space.is_active = True
+        space.archived_at = None
+        changed = True
+    if changed:
+        space.updated_at = datetime.now(timezone.utc)
+        session.add(space)
+        session.commit()
+        session.refresh(space)
+    return space
 
 
 def get_or_create_default_space(session: Session) -> Space:
@@ -55,14 +96,7 @@ def get_or_create_default_space(session: Session) -> Space:
         .first()
     )
     if space:
-        if not space.is_active:
-            space.is_active = True
-            space.archived_at = None
-            space.updated_at = datetime.now(timezone.utc)
-            session.add(space)
-            session.commit()
-            session.refresh(space)
-        return space
+        return _ensure_lobby_shape(session, space)
 
     now = datetime.now(timezone.utc)
     space = Space(
@@ -70,6 +104,8 @@ def get_or_create_default_space(session: Session) -> Space:
         name=DEFAULT_SPACE_NAME,
         slug=DEFAULT_SPACE_SLUG,
         is_active=True,
+        space_kind=SPACE_KIND_LOBBY,
+        owner_user_id=None,
         created_at=now,
         updated_at=now,
     )
@@ -87,7 +123,7 @@ def get_or_create_default_space(session: Session) -> Space:
             .first()
         )
         if existing:
-            return existing
+            return _ensure_lobby_shape(session, existing)
         raise
 
 
@@ -103,11 +139,13 @@ def ensure_space_membership(
         session.query(SpaceMembership)
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.user_id == user.user_id)
-        .filter(SpaceMembership.deleted_at.is_(None))
         .first()
     )
     if membership:
         changed = False
+        if membership.deleted_at is not None:
+            membership.deleted_at = None
+            changed = True
         if membership.status != status:
             membership.status = status
             changed = True
@@ -143,6 +181,7 @@ def list_user_spaces(session: Session, user: User) -> Iterable[Space]:
             session.query(Space)
             .filter(Space.deleted_at.is_(None))
             .filter(Space.is_active == True)
+            .filter((Space.space_kind != SPACE_KIND_PERSONAL) | (Space.owner_user_id == user.user_id))
             .order_by(Space.name.asc())
             .all()
         )
@@ -186,6 +225,8 @@ def resolve_active_space_context(
             space_name=target.name,
             is_global_admin=True,
             space_role="space_admin",
+            space_kind=normalize_space_kind(getattr(target, "space_kind", None)),
+            owner_user_id=getattr(target, "owner_user_id", None),
         )
 
     memberships = (
@@ -213,13 +254,22 @@ def resolve_active_space_context(
                 selected = (membership, space)
                 break
     if not selected:
-        selected = memberships[0]
+        selected = next(
+            (
+                (membership, space)
+                for membership, space in memberships
+                if normalize_space_kind(getattr(space, "space_kind", None)) != SPACE_KIND_LOBBY
+            ),
+            memberships[0],
+        )
     membership, space = selected
     return SpaceContext(
         space_id=space.space_id,
         space_name=space.name,
         is_global_admin=False,
         space_role=_normalize_space_role(membership.role),
+        space_kind=normalize_space_kind(getattr(space, "space_kind", None)),
+        owner_user_id=getattr(space, "owner_user_id", None),
     )
 
 

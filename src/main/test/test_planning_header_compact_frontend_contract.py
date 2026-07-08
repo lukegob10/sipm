@@ -61,8 +61,9 @@ def test_planning_styles_define_compact_toolbar_and_disclosure_panel_layout():
         ".wab-create-divider {",
         ".wab-create-row-team {",
         ".wab-create-row-person {",
-        ".wab-create-row-backlog {",
         ".wab-create-action {",
+        ".wab-project-card {",
+        ".wab-solution-chip {",
         ".wab-toolbar-guide-grid {",
         ".wab-toolbar-tools-grid {",
         ".wab-toolbar-meta {",
@@ -93,17 +94,33 @@ def test_planning_people_and_teams_create_card_uses_grouped_add_team_and_add_per
     assert 'class="wab-create-divider"' in text
     assert 'class="wab-create-form wab-create-row wab-create-row-team"' in text
     assert 'class="wab-create-form wab-create-row wab-create-row-person"' in text
-    assert 'class="wab-create-form wab-create-row wab-create-row-backlog"' in text
+    assert "Portfolio Backlog" in text
+    assert "Create projects and solutions in the portfolio views" in text
     assert 'class="secondary" data-wab-action="add-team"' in text
     assert 'class="secondary" data-wab-action="add-person"' in text
 
 
-def test_planning_task_detail_uses_modal_shell_instead_of_side_column():
+def test_planning_project_and_solution_titles_open_entity_modals_without_detail_shell():
     text = PLANNING_RENDER.read_text(encoding="utf-8")
 
-    assert 'class="wab-modal-shell wab-task-modal-shell"' in text
-    assert 'class="wab-modal-backdrop wab-task-modal-backdrop"' in text
-    assert 'class="wab-modal-card wab-detail-panel wab-detail-panel-open"' in text
-    assert 'data-wab-action="close-task-modal"' in text
-    assert 'id="wab-task-modal-title"' in text
+    assert 'class="wab-work-title-link" data-wab-action="open-project"' in text
+    assert 'class="wab-work-title-link" data-wab-action="open-solution"' in text
+    assert 'class="wab-modal-shell wab-task-modal-shell"' not in text
+    assert 'class="wab-modal-backdrop wab-task-modal-backdrop"' not in text
+    assert 'class="wab-modal-card wab-detail-panel wab-detail-panel-open"' not in text
+    assert 'id="wab-task-modal-title"' not in text
     assert 'class="wab-layout${selected ? " has-detail" : ""}"' not in text
+
+
+def test_planning_solution_drop_allocates_directly_without_split_panel():
+    interactions_text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "planning" / "interactions.js").read_text(encoding="utf-8")
+    render_text = PLANNING_RENDER.read_text(encoding="utf-8")
+
+    assert "function openSolutionSplit" not in interactions_text
+    assert 'if (allocationId) {\n          await moveAssignment(allocationId, "person", zone.personId, { pushUndo: true });' in interactions_text
+    assert 'if (allocationId) {\n          await moveAssignment(allocationId, "team", zone.teamId, { pushUndo: true });' in interactions_text
+    assert 'await replaceWorkItemAssignment(workItem.type, workItem.id, "person", zone.personId, { pushUndo: true });' in interactions_text
+    assert 'await replaceWorkItemAssignment(workItem.type, workItem.id, "team", zone.teamId, { pushUndo: true });' in interactions_text
+    assert "await unassignWorkItem(workItem.type, workItem.id, { pushUndo: true });" in interactions_text
+    assert "Drop a solution chip directly on a team or person" in render_text
+    assert "then set the exact split FTE" not in render_text

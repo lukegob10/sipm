@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from ..models import Program, Project, Solution, Task
 from ..schemas.agent import (
+    AgentProgramNode,
     AgentProjectNode,
     AgentSolutionNode,
     AgentTaskNode,
@@ -26,6 +27,25 @@ def _utc_naive(value: datetime) -> datetime:
     return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _program_nodes(session: Session, space_ctx: SpaceContext) -> list[AgentProgramNode]:
+    programs = (
+        session.query(Program)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
+        .order_by(Program.program_name.asc())
+        .all()
+    )
+    return [
+        AgentProgramNode(
+            program_id=program.program_id,
+            program_name=program.program_name,
+            description=program.description,
+            updated_at=program.updated_at,
+        )
+        for program in programs
+    ]
+
+
 def build_work_graph(
     session: Session,
     space_ctx: SpaceContext,
@@ -38,6 +58,7 @@ def build_work_graph(
     updated_since: datetime | None = None,
     limit: int = 50,
 ) -> AgentWorkGraphRead:
+    programs = _program_nodes(session, space_ctx)
     updated_since_value = _utc_naive(updated_since) if updated_since else None
     query = (
         session.query(Project)
@@ -64,7 +85,11 @@ def build_work_graph(
             except ValueError:
                 pass
         if not status_filters:
-            return AgentWorkGraphRead(space_id=space_ctx.space_id, records=[])
+            return AgentWorkGraphRead(
+                space_id=space_ctx.space_id,
+                programs=programs,
+                records=[],
+            )
         query = (
             query.outerjoin(Solution, Solution.project_id == Project.project_id)
             .outerjoin(Task, Task.project_id == Project.project_id)
@@ -105,7 +130,11 @@ def build_work_graph(
     )
     project_ids = [project.project_id for project in projects]
     if not project_ids:
-        return AgentWorkGraphRead(space_id=space_ctx.space_id, records=[])
+        return AgentWorkGraphRead(
+            space_id=space_ctx.space_id,
+            programs=programs,
+            records=[],
+        )
 
     solutions = (
         session.query(Solution)
@@ -189,4 +218,8 @@ def build_work_graph(
         )
         for project in projects
     ]
-    return AgentWorkGraphRead(space_id=space_ctx.space_id, records=records)
+    return AgentWorkGraphRead(
+        space_id=space_ctx.space_id,
+        programs=programs,
+        records=records,
+    )

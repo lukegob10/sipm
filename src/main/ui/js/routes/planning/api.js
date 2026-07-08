@@ -18,6 +18,7 @@ import {
 } from "./storage.js";
 import {
   selectedTask,
+  selectedWorkItem,
   selectTask,
   syncDetailDraft,
 } from "./selection.js";
@@ -77,6 +78,36 @@ async function confirmAction(options = {}) {
   return false;
 }
 
+function openPlanningProjectDrilldown(projectId) {
+  const ctx = boardState.ctx;
+  const targetId = String(projectId || "").trim();
+  if (!targetId) return;
+  const project = (ctx?.state?.projects || []).find((row) => row.project_id === targetId);
+  if (!project) {
+    setNotice("Project details are not available yet. Refresh and try again.", "warn");
+    rerenderPlanning();
+    return;
+  }
+  if (typeof ctx?.openProjectForm === "function") {
+    ctx.openProjectForm(project);
+  }
+}
+
+function openPlanningSolutionDrilldown(solutionId) {
+  const ctx = boardState.ctx;
+  const targetId = String(solutionId || "").trim();
+  if (!targetId) return;
+  const solution = (ctx?.state?.solutions || []).find((row) => row.solution_id === targetId);
+  if (!solution) {
+    setNotice("Solution details are not available yet. Refresh and try again.", "warn");
+    rerenderPlanning();
+    return;
+  }
+  if (typeof ctx?.openSolutionModal === "function") {
+    ctx.openSolutionModal(solution, "details");
+  }
+}
+
 async function refreshGlobal(ctx, entity) {
   if (typeof ctx.refreshFromServer !== "function") return;
   try {
@@ -101,24 +132,19 @@ export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
   rerenderPlanning();
   try {
     const month = boardState.month || currentMonthToken();
-    if (allocationsOnly && boardState.loaded) {
-      const [tasks, allocations] = await Promise.all([
-        callApi(ctx, `/planning/work-allocation/tasks?month=${encodeURIComponent(month)}`),
-        callApi(ctx, `/planning/work-allocation/allocations?month=${encodeURIComponent(month)}`),
-      ]);
-      boardState.data.tasks = Array.isArray(tasks) ? tasks : [];
-      boardState.data.allocations = Array.isArray(allocations) ? allocations : [];
-    } else {
-      const board = await callApi(ctx, `/planning/work-allocation/board?month=${encodeURIComponent(month)}`);
-      boardState.data.teams = Array.isArray(board?.teams) ? board.teams : [];
-      boardState.data.people = Array.isArray(board?.people) ? board.people : [];
-      boardState.data.tasks = Array.isArray(board?.tasks) ? board.tasks : [];
-      boardState.data.allocations = Array.isArray(board?.allocations) ? board.allocations : [];
-    }
+    const board = await callApi(ctx, `/planning/work-allocation/board?month=${encodeURIComponent(month)}`);
+    boardState.data.teams = Array.isArray(board?.teams) ? board.teams : [];
+    boardState.data.people = Array.isArray(board?.people) ? board.people : [];
+    boardState.data.projects = Array.isArray(board?.projects) ? board.projects : [];
+    boardState.data.solutions = Array.isArray(board?.solutions) ? board.solutions : [];
+    boardState.data.tasks = Array.isArray(board?.tasks) ? board.tasks : [];
+    boardState.data.allocations = Array.isArray(board?.allocations) ? board.allocations : [];
     boardState.loaded = true;
     normalizePersistedBoardFilters();
-    const nextSelectedTask = selectedTask();
+    const nextSelectedTask = selectedWorkItem() || selectedTask();
     if (!nextSelectedTask) {
+      boardState.selectedWorkItemType = "";
+      boardState.selectedWorkItemId = "";
       boardState.selectedTaskId = "";
       boardState.detailDraft = defaultDetailDraft();
     } else {
@@ -144,7 +170,9 @@ export async function loadBoard(ctx, { allocationsOnly = false } = {}) {
 
 function allocationToCreatePayload(allocation) {
   return {
-    task_id: allocation.task_id,
+    work_item_type: allocation.work_item_type || "task",
+    work_item_id: allocation.work_item_id || allocation.task_id,
+    task_id: allocation.task_id || undefined,
     assignee_type: allocation.assignee_type,
     assignee_id: allocation.assignee_id,
     month: allocation.month,
@@ -160,37 +188,98 @@ function allocationToUpdatePayload(allocation) {
   };
 }
 
-async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = true } = {}) {
-  const ctx = boardState.ctx;
-  const task = (boardState.data.tasks || []).find((row) => row.id === taskId);
-  if (!task) return;
-  if (assigneeType === "person") {
-    const person = (boardState.data.people || []).find((row) => row.id === assigneeId);
-    if (!person) {
-      setNotice("Person not found", "warn");
-      rerenderPlanning();
-      return;
-    }
-    if (!normalizeTeamId(person.team_id)) {
-      setNotice("Move this person onto a team before assigning work", "warn");
-      rerenderPlanning();
-      return;
-    }
+function findWorkItem(workItemType, workItemId) {
+  const type = String(workItemType || "").trim();
+  const id = String(workItemId || "").trim();
+  if (type === "project") return (boardState.data.projects || []).find((row) => row.id === id) || null;
+  if (type === "solution") return (boardState.data.solutions || []).find((row) => row.id === id) || null;
+  return (boardState.data.tasks || []).find((row) => row.id === id) || null;
+}
+
+function workItemEffort(workItemType, workItem) {
+  if (!workItem) return 0.25;
+  if (workItemType === "project") return numberOr(workItem.residual_fte_months, numberOr(workItem.fte_months, 0.25));
+  if (workItemType === "solution") return numberOr(workItem.remaining_fte_months, numberOr(workItem.fte_months, 0.25));
+  return numberOr(workItem.fte_months, 0.25);
+}
+
+function allocationType(allocation) {
+  return String(allocation?.work_item_type || (allocation?.task_id ? "task" : "")).trim() || "task";
+}
+
+function allocationItemId(allocation) {
+  return String(allocation?.work_item_id || allocation?.task_id || "").trim();
+}
+
+function solutionIdsForProject(projectId) {
+  const normalizedProjectId = String(projectId || "").trim();
+  return new Set(
+    (boardState.data.solutions || [])
+      .filter((solution) => String(solution?.project_id || "") === normalizedProjectId)
+      .map((solution) => String(solution?.id || ""))
+      .filter(Boolean)
+  );
+}
+
+function allocationsForWorkItemFamily(workItemType, workItemId) {
+  const type = String(workItemType || "task").trim();
+  const itemId = String(workItemId || "").trim();
+  const childSolutionIds = type === "project" ? solutionIdsForProject(itemId) : new Set();
+  return (boardState.data.allocations || []).filter((allocation) => {
+    const allocationWorkType = allocationType(allocation);
+    const allocationWorkId = allocationItemId(allocation);
+    if (allocationWorkType === type && allocationWorkId === itemId) return true;
+    return type === "project" && allocationWorkType === "solution" && childSolutionIds.has(allocationWorkId);
+  });
+}
+
+function validateAssignmentTarget(assigneeType, assigneeId) {
+  if (assigneeType !== "person") return true;
+  const person = (boardState.data.people || []).find((row) => row.id === assigneeId);
+  if (!person) {
+    setNotice("Person not found", "warn");
+    rerenderPlanning();
+    return false;
   }
+  if (!normalizeTeamId(person.team_id)) {
+    setNotice("Move this person onto a team before assigning work", "warn");
+    rerenderPlanning();
+    return false;
+  }
+  return true;
+}
+
+async function createAssignment(
+  workItemType,
+  workItemId,
+  assigneeType,
+  assigneeId,
+  { pushUndo = true, fteMonths = null } = {}
+) {
+  const ctx = boardState.ctx;
+  const type = String(workItemType || "task").trim();
+  const itemId = String(workItemId || "").trim();
+  const workItem = findWorkItem(type, itemId);
+  if (!workItem) return;
+  if (!validateAssignmentTarget(assigneeType, assigneeId)) return;
   const existingSame = (boardState.data.allocations || []).find(
-    (row) => row.task_id === taskId && row.assignee_type === assigneeType && row.assignee_id === assigneeId
+    (row) => (row.work_item_type || "task") === type
+      && (row.work_item_id || row.task_id) === itemId
+      && row.assignee_type === assigneeType
+      && row.assignee_id === assigneeId
   );
   if (existingSame) {
-    setNotice("Task is already assigned there", "warn");
+    setNotice("Work item is already assigned there", "warn");
     rerenderPlanning();
     return;
   }
   const payload = {
-    task_id: taskId,
+    work_item_type: type,
+    work_item_id: itemId,
     assignee_type: assigneeType,
     assignee_id: assigneeId,
     month: boardState.month,
-    fte_months_allocated: numberOr(task.fte_months, 0.25),
+    fte_months_allocated: fteMonths == null ? workItemEffort(type, workItem) : numberOr(fteMonths, 0.25),
   };
   const created = await callApi(ctx, "/planning/work-allocation/allocations", {
     method: "POST",
@@ -202,14 +291,15 @@ async function createAssignment(taskId, assigneeType, assigneeId, { pushUndo = t
       source: "planning_board",
     });
   }
-  boardState.data.allocations.push(created);
   if (pushUndo) {
     boardState.undoStack.push({ kind: "unassign", allocationId: created.id });
   }
-  setNotice("Assignee added to task", "success");
-  flashTargets([{ kind: "task", id: taskId }, { kind: assigneeType, id: assigneeId }], "success");
+  setNotice("Assignee added to work item", "success");
+  flashTargets([{ kind: type, id: itemId }, { kind: assigneeType, id: assigneeId }], "success");
   await refreshGlobal(ctx, "allocations");
+  await loadBoard(ctx, { allocationsOnly: false });
   rerenderPlanning();
+  return created;
 }
 
 export async function moveAssignment(allocationId, assigneeType, assigneeId, { pushUndo = true } = {}) {
@@ -249,13 +339,14 @@ export async function moveAssignment(allocationId, assigneeType, assigneeId, { p
   setNotice("Task moved to new assignee", "success");
   flashTargets(
     [
-      { kind: "task", id: existing.task_id },
+      { kind: existing.work_item_type || "task", id: existing.work_item_id || existing.task_id },
       { kind: existing.assignee_type, id: existing.assignee_id },
       { kind: assigneeType, id: assigneeId },
     ],
     "success"
   );
   await refreshGlobal(ctx, "allocations");
+  await loadBoard(ctx, { allocationsOnly: false });
   rerenderPlanning();
 }
 
@@ -282,15 +373,21 @@ async function unassignAllocation(
     });
   }
   if (noticeMessage) setNotice(noticeMessage, "success");
-  flashTargets([{ kind: "task", id: existing.task_id }, { kind: existing.assignee_type, id: existing.assignee_id }], "success");
+  flashTargets([
+    { kind: existing.work_item_type || "task", id: existing.work_item_id || existing.task_id },
+    { kind: existing.assignee_type, id: existing.assignee_id },
+  ], "success");
   if (refresh) await refreshGlobal(ctx, "allocations");
+  if (refresh) await loadBoard(ctx, { allocationsOnly: false });
   if (render) rerenderPlanning();
 }
 
-async function unassignTask(taskId, { pushUndo = true } = {}) {
-  const matches = (boardState.data.allocations || []).filter((row) => row.task_id === taskId);
+async function unassignWorkItem(workItemType, workItemId, { pushUndo = true } = {}) {
+  const type = String(workItemType || "task").trim();
+  const itemId = String(workItemId || "").trim();
+  const matches = allocationsForWorkItemFamily(type, itemId);
   if (!matches.length) {
-    setNotice("Task is already in backlog", "warn");
+    setNotice("Work item is already in backlog", "warn");
     rerenderPlanning();
     return;
   }
@@ -298,9 +395,47 @@ async function unassignTask(taskId, { pushUndo = true } = {}) {
     await unassignAllocation(allocation.id, { pushUndo, noticeMessage: "", refresh: false, render: false });
   }
   await refreshGlobal(boardState.ctx, "allocations");
-  setNotice(matches.length > 1 ? "Task unassigned from all assignees" : "Task moved back to backlog", "success");
-  flashTargets([{ kind: "task", id: taskId }], "success");
+  await loadBoard(boardState.ctx, { allocationsOnly: false });
+  setNotice(matches.length > 1 ? "Work item unassigned from all assignees" : "Work item moved back to backlog", "success");
+  flashTargets([{ kind: type, id: itemId }], "success");
   rerenderPlanning();
+}
+
+async function replaceWorkItemAssignment(
+  workItemType,
+  workItemId,
+  assigneeType,
+  assigneeId,
+  { pushUndo = true } = {}
+) {
+  const type = String(workItemType || "task").trim();
+  const itemId = String(workItemId || "").trim();
+  if (!validateAssignmentTarget(assigneeType, assigneeId)) return;
+  const previousAllocations = allocationsForWorkItemFamily(type, itemId);
+  const previousPayloads = previousAllocations.map((allocation) => allocationToCreatePayload(allocation));
+  for (const allocation of previousAllocations) {
+    await unassignAllocation(allocation.id, { pushUndo: false, noticeMessage: "", refresh: false, render: false });
+  }
+  const workItem = findWorkItem(type, itemId);
+  const replacementFte = type === "solution" ? numberOr(workItem?.fte_months, 0.25) : null;
+  const created = await createAssignment(type, itemId, assigneeType, assigneeId, {
+    pushUndo: false,
+    fteMonths: replacementFte,
+  });
+  if (pushUndo && created) {
+    boardState.undoStack.push({
+      kind: "replace-work-item-assignments",
+      createdAllocationId: created.id,
+      previousPayloads,
+    });
+  }
+  const targetLabel = assigneeType === "person" ? "person" : "team";
+  setNotice(`${type === "project" ? "Project" : "Solution"} moved to ${targetLabel}`, "success");
+  rerenderPlanning();
+}
+
+async function unassignTask(taskId, { pushUndo = true } = {}) {
+  await unassignWorkItem("task", taskId, { pushUndo });
 }
 
 async function movePersonToTeam(personId, teamId, { pushUndo = true } = {}) {
@@ -352,6 +487,16 @@ async function performUndo() {
         method: "PATCH",
         body: JSON.stringify(next.payload),
       });
+    } else if (next.kind === "replace-work-item-assignments") {
+      if (next.createdAllocationId) {
+        await callApi(ctx, `/planning/work-allocation/allocations/${encodeURIComponent(next.createdAllocationId)}`, { method: "DELETE" });
+      }
+      for (const payload of next.previousPayloads || []) {
+        await callApi(ctx, "/planning/work-allocation/allocations", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
     } else if (next.kind === "delete-task") {
       await callApi(ctx, `/planning/work-allocation/tasks/${encodeURIComponent(next.taskId)}`, { method: "DELETE" });
     } else if (next.kind === "move-person") {
@@ -371,22 +516,31 @@ async function performUndo() {
 
 async function assignSelectedTaskToTarget(rawTarget) {
   const target = parseAssignmentTarget(rawTarget);
-  const taskId = boardState.selectedTaskId;
-  if (!taskId) {
-    setNotice("Select a task first", "warn");
+  const workItem = selectedWorkItem() || selectedTask();
+  const workItemType = boardState.selectedWorkItemType || (boardState.selectedTaskId ? "task" : "");
+  const workItemId = boardState.selectedWorkItemId || boardState.selectedTaskId;
+  if (!workItem || !workItemType || !workItemId) {
+    setNotice("Select a project or solution first", "warn");
     rerenderPlanning();
     return;
   }
   if (!target) return;
   if (target.type === "backlog") {
-    await unassignTask(taskId, { pushUndo: true });
+    await unassignWorkItem(workItemType, workItemId, { pushUndo: true });
     return;
   }
   if (target.type === "team" && target.id === UNASSIGNED_TEAM_ID) {
-    await unassignTask(taskId, { pushUndo: true });
+    await unassignWorkItem(workItemType, workItemId, { pushUndo: true });
     return;
   }
-  await createAssignment(taskId, target.type, target.id, { pushUndo: true });
+  if (workItemType === "project" || workItemType === "solution") {
+    await replaceWorkItemAssignment(workItemType, workItemId, target.type, target.id, { pushUndo: true });
+    return;
+  }
+  await createAssignment(workItemType, workItemId, target.type, target.id, {
+    pushUndo: true,
+    fteMonths: numberOr(boardState.detailDraft.fte, workItemEffort(workItemType, workItem)),
+  });
 }
 
 export async function onPlanningAction(action, actionEl = null) {
@@ -422,6 +576,14 @@ export async function onPlanningAction(action, actionEl = null) {
       boardState.personSearch = "";
       persistViewState();
       rerenderPlanning();
+      return;
+    }
+    if (action === "open-project") {
+      openPlanningProjectDrilldown(actionEl?.getAttribute("data-project-id"));
+      return;
+    }
+    if (action === "open-solution") {
+      openPlanningSolutionDrilldown(actionEl?.getAttribute("data-solution-id"));
       return;
     }
     if (action === "refresh") {
@@ -619,7 +781,11 @@ export async function onPlanningAction(action, actionEl = null) {
     }
     if (action === "save-task") {
       const selectedId = boardState.selectedTaskId;
-      if (!selectedId) return;
+      if (!selectedId) {
+        setNotice("Project and solution details are edited from their portfolio records.", "warn");
+        rerenderPlanning();
+        return;
+      }
       const title = String(boardState.detailDraft.title || "").trim();
       const fte = Math.max(numberOr(boardState.detailDraft.fte, 0.25), 0.05);
       if (!title) {
@@ -642,7 +808,11 @@ export async function onPlanningAction(action, actionEl = null) {
     }
     if (action === "delete-task") {
       const selectedId = boardState.selectedTaskId;
-      if (!selectedId) return;
+      if (!selectedId) {
+        setNotice("Project and solution records are deleted from the portfolio views.", "warn");
+        rerenderPlanning();
+        return;
+      }
       const confirmed = await confirmAction({
         title: "Delete Task?",
         message: "Delete this task and remove its assignments?",
@@ -664,9 +834,10 @@ export async function onPlanningAction(action, actionEl = null) {
       return;
     }
     if (action === "unassign-task") {
-      const selectedId = boardState.selectedTaskId;
-      if (!selectedId) return;
-      await unassignTask(selectedId, { pushUndo: true });
+      const selectedId = boardState.selectedWorkItemId || boardState.selectedTaskId;
+      const selectedType = boardState.selectedWorkItemType || (boardState.selectedTaskId ? "task" : "");
+      if (!selectedId || !selectedType) return;
+      await unassignWorkItem(selectedType, selectedId, { pushUndo: true });
       return;
     }
   } catch (err) {
@@ -695,4 +866,12 @@ export async function onPlanningAction(action, actionEl = null) {
   }
 }
 
-export { assignSelectedTaskToTarget, createAssignment, movePersonToTeam, unassignAllocation, unassignTask };
+export {
+  assignSelectedTaskToTarget,
+  createAssignment,
+  movePersonToTeam,
+  replaceWorkItemAssignment,
+  unassignAllocation,
+  unassignTask,
+  unassignWorkItem,
+};

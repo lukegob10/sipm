@@ -17,6 +17,7 @@ from .agent import (
     AgentPatchOperationResult,
     AgentPatchRequest,
     AgentPatchResponse,
+    AgentProgramNode,
     AgentProjectNode,
     AgentSolutionNode,
     AgentTaskNode,
@@ -48,6 +49,8 @@ from .planning import (
     WorkAllocationPersonCreate,
     WorkAllocationPersonRead,
     WorkAllocationPersonUpdate,
+    WorkAllocationProjectRead,
+    WorkAllocationSolutionRead,
     WorkAllocationTaskCreate,
     WorkAllocationTaskRead,
     WorkAllocationTaskUpdate,
@@ -70,6 +73,7 @@ __all__ = [
     "AgentPatchOperationResult",
     "AgentPatchRequest",
     "AgentPatchResponse",
+    "AgentProgramNode",
     "AgentProjectNode",
     "AgentSolutionNode",
     "AgentTaskNode",
@@ -100,6 +104,8 @@ __all__ = [
     "WorkAllocationPersonCreate",
     "WorkAllocationPersonRead",
     "WorkAllocationPersonUpdate",
+    "WorkAllocationProjectRead",
+    "WorkAllocationSolutionRead",
     "WorkAllocationTaskCreate",
     "WorkAllocationTaskRead",
     "WorkAllocationTaskUpdate",
@@ -232,6 +238,11 @@ class SpaceCreate(BaseModel):
     slug: Optional[str] = None
 
 
+class PersonalSpaceCreate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+
+
 class SpaceUpdate(BaseModel):
     name: Optional[str] = None
     is_active: Optional[bool] = None
@@ -245,6 +256,8 @@ class SpaceRead(BaseModel):
     name: str
     slug: str
     is_active: bool
+    space_kind: str = "collaboration"
+    owner_user_id: Optional[str] = None
     public_program_dashboard_enabled: bool = False
     created_at: datetime
     updated_at: datetime
@@ -282,6 +295,33 @@ class SpaceMembershipRead(BaseModel):
     updated_at: datetime
 
 
+class SpaceAccessRequestCreate(BaseModel):
+    requested_role: str = "member"
+
+
+class SpaceAccessRequestReview(BaseModel):
+    decision_note: Optional[str] = None
+
+
+class SpaceAccessRequestRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    request_id: str
+    space_id: str
+    space_name: Optional[str] = None
+    space_slug: Optional[str] = None
+    requester_user_id: str
+    requester_soeid: Optional[str] = None
+    requester_display_name: Optional[str] = None
+    requested_role: str
+    status: str
+    decided_by_user_id: Optional[str] = None
+    decided_at: Optional[datetime] = None
+    decision_note: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
 class ActiveSpaceSwitchRequest(BaseModel):
     space_id: str
 
@@ -291,6 +331,8 @@ class ActiveSpaceResponse(BaseModel):
     space_name: str
     space_role: str
     is_global_admin: bool
+    space_kind: str = "collaboration"
+    owner_user_id: Optional[str] = None
     usage_analytics_enabled: bool = False
 
 
@@ -419,7 +461,7 @@ class SolutionCreate(SolutionBase):
 
 
 class SolutionUpdate(SolutionBase):
-    pass
+    project_id: Optional[str] = None
 
 
 class SolutionRead(TextLikeReadModel):

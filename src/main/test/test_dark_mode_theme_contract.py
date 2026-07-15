@@ -87,13 +87,6 @@ def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hack
     for snippet in shared_token_snippets:
         assert snippet in text
 
-    for snippet in [
-        ".wab-task-chip.is-selected{",
-        "background:var(--backlog-bg-strong);",
-    ]:
-        assert snippet in compact
-
-
 def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved_look():
     text = read_ui_styles(STYLES_CSS)
 

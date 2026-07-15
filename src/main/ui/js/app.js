@@ -12,6 +12,7 @@ import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
 import { createDataStoreController } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
+import { createActivitySessionController } from "./shell/activity-session.js";
 import { createTelemetryController } from "./shell/telemetry.js";
 import {
   createLiveSyncController,
@@ -148,32 +149,6 @@ function numberOr(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function normalizeMonthStart(value) {
-  if (!value) return "";
-  const iso = String(value).slice(0, 10);
-  const parsed = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return "";
-  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function monthInputToDate(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (/^\d{4}-\d{2}$/.test(raw)) return `${raw}-01`;
-  return normalizeMonthStart(raw);
-}
-
-function allocationMonthStart(allocation) {
-  return normalizeMonthStart(allocation?.month_start || allocation?.week_start);
-}
-
-function allocationFteMonths(allocation) {
-  if (!allocation) return 0;
-  if (Number.isFinite(Number(allocation.fte_months))) return Number(allocation.fte_months);
-  if (Number.isFinite(Number(allocation.hours))) return Number(allocation.hours) / HOURS_PER_FTE_MONTH;
-  return 0;
-}
-
 function userCapacityFteMonth(user) {
   if (!user) return 1;
   if (Number.isFinite(Number(user.capacity_fte_month))) return Number(user.capacity_fte_month);
@@ -243,6 +218,7 @@ const state = {
   agentChangeRequestPendingCount: 0,
   agentChangeRequestFailedCount: 0,
   agentChangeRequestSelectedIds: new Set(),
+  agentChangeRequestSelectedOperationIds: {},
   agentChangeRequestActiveId: "",
   agentChangeRequestModalId: "",
   requestableSpaces: [],
@@ -264,9 +240,6 @@ const state = {
   tasks: [],
   teams: [],
   users: [],
-  allocations: [],
-  planningWindows: [],
-  planningWindowSelectedId: "",
   filters: {},
   masterCollapsed: new Set(),
   taskView: "table",
@@ -305,7 +278,6 @@ const state = {
   calendarFilters: { project: "", owner: "" },
   ganttWindow: { from: "", to: "" },
   ganttCollapsed: new Set(),
-  planningGroupCollapsed: new Set(),
   capacitySelectedSoeid: "",
   teamCapacity: createTeamCapacityState(),
   shellStatus: { text: "Loading…", tone: "" },
@@ -320,8 +292,6 @@ const state = {
   loadedEntities: new Set(),
 };
 
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000;
-const IDLE_WARN_MS = 55 * 60 * 1000;
 const ACCESS_REFRESH_INTERVAL_MS = 4 * 60 * 1000;
 const MASTER_VIEW_STATE_KEY_PREFIX = "sipm-master-filters-v1";
 const WORKSPACE_VIEW_PREFS_KEY_PREFIX = "sipm-workspace-prefs-v1";
@@ -329,16 +299,11 @@ const CALENDAR_VIEW_STATE_KEY_PREFIX = "sipm-calendar-view-state-v1";
 const GANTT_VIEW_STATE_KEY_PREFIX = "sipm-gantt-view-state-v1";
 const KANBAN_VIEW_STATE_KEY_PREFIX = "sipm-kanban-view-state-v1";
 const TEAM_CAPACITY_VIEW_STATE_KEY_PREFIX = "sipm-team-capacity-view-state-v1";
-const PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX = "sipm-planning-window-state-v1";
 const SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX = "sipm-space-governance-state-v1";
 const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";
 const TASKS_WORKBENCH_UI_STATE_KEY_PREFIX = "sipm-tasks-workbench-state-v1";
 const TASKS_WORKBENCH_SAVED_VIEWS_KEY_PREFIX = "sipm-tasks-workbench-views";
 const RECENT_SPACES_LIMIT = 5;
-let idleLastActive = Date.now();
-let idleWarned = false;
-let idleInterval = null;
-let idleListenersBound = false;
 const csvUploadState = {
   kind: "",
   file: null,
@@ -347,6 +312,7 @@ const csvUploadState = {
 let routerController = null;
 let dataStoreController = null;
 let sessionController = null;
+let activitySessionController = null;
 let liveSyncController = null;
 let telemetryController = null;
 const ignoreNextRefresh = {
@@ -582,14 +548,7 @@ const {
   closeTopbarCreateMenu,
   closeTaskCreatePicker,
 } = topbarCreateController;
-const modalShellController = createModalShellController({
-  els,
-  onPlanningModalAction(action, { allocationId }) {
-    if (action === "open-allocation-work-item") {
-      openAllocationWorkItemDrilldown(allocationId);
-    }
-  },
-});
+const modalShellController = createModalShellController({ els });
 const spaceSwitcherController = createSpaceSwitcherController({
   state,
   els,
@@ -612,10 +571,6 @@ async function ensureRouteModule(view) {
 
 function isAdminView(view) {
   return routerController.isAdminView(view);
-}
-
-function userCanAccessAdminViews() {
-  return routerController.userCanAccessAdminViews();
 }
 
 function canAccessView(view) {
@@ -683,6 +638,13 @@ function usageAnalyticsEnabled() {
 }
 
 function initShellControllers() {
+  activitySessionController = createActivitySessionController({
+    onWarning: showIdleModal,
+    onWarningDismissed: hideIdleModal,
+    onHeartbeat: (options) => sessionController.recordSessionActivity(options),
+    onIdleLogout: () => sessionController.logoutForInactivity(),
+    onRemoteLogout: () => sessionController.handleRemoteLogout(),
+  });
   routerController = createRouterController({
     state,
     els,
@@ -742,8 +704,9 @@ function initShellControllers() {
     showAuthNotice,
     showResetError,
     showResetSuccess,
-    resetIdleTimer,
-    hideIdleModal,
+    configureSessionPolicy: (policy) => activitySessionController.configure(policy),
+    noteSessionActivity: () => activitySessionController.noteUserActivity(),
+    broadcastSessionLogout: () => activitySessionController.broadcastLogout(),
     refreshSpaceContext,
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
@@ -760,7 +723,7 @@ function initShellControllers() {
     refreshFromServer: (...args) => dataStoreController.refreshFromServer(...args),
     refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
     handleAuthError: (...args) => sessionController.handleAuthError(...args),
-    handleSessionExpired: (...args) => sessionController.handleSessionExpired(...args),
+    handleSessionExpired: (...args) => handleSessionExpired(...args),
     renderTopbarStatus,
     setSpaceFeedback,
     spaceNameForId,
@@ -1081,7 +1044,6 @@ async function refreshSpaceContext(options = {}) {
   restoreGanttViewState();
   restoreKanbanViewState();
   restoreTeamCapacityViewState();
-  restorePlanningWindowViewState();
   restoreSpaceGovernanceViewState();
   restoreTasksWorkbenchUiState();
   renderSpaceSwitcher();
@@ -1117,8 +1079,7 @@ function setAuthed(user) {
   }
   if (user) {
     showAuthNotice("");
-    resetIdleTimer();
-    startIdleWatch();
+    activitySessionController.start(user.user_id);
     state.spaceRecentIds = readRecentSpaceIds();
   } else {
     state.workspacePrefs = { showCompleted: false };
@@ -1160,7 +1121,7 @@ function setAuthed(user) {
     closeSpaceCreateModal();
     closeSpaceMemberModal();
     closeSpaceDirectoryModal();
-    stopIdleWatch();
+    activitySessionController.stop();
     setLiveSyncPhase("idle", { clear: true });
   }
   setAuthVisible(!state.authed);
@@ -1204,55 +1165,18 @@ function showResetSuccess(message) {
   if (els.resetSuccess) els.resetSuccess.textContent = message || "";
 }
 
-function showIdleModal() {
+function showIdleModal(remainingSeconds) {
   if (!els.idleModal) return;
+  if (els.idleCountdown) {
+    const seconds = Math.max(1, Number(remainingSeconds) || 60);
+    els.idleCountdown.textContent = `${seconds} second${seconds === 1 ? "" : "s"}`;
+  }
   els.idleModal.classList.remove("hidden");
 }
 
 function hideIdleModal() {
   if (!els.idleModal) return;
   els.idleModal.classList.add("hidden");
-}
-
-function resetIdleTimer() {
-  idleLastActive = Date.now();
-  if (idleWarned) {
-    idleWarned = false;
-    hideIdleModal();
-  }
-  maybeRefreshSessionOnActivity();
-}
-
-function startIdleWatch() {
-  stopIdleWatch();
-  if (!idleListenersBound) {
-    const events = ["mousemove", "keydown", "click", "scroll", "touchstart"];
-    events.forEach((evt) => window.addEventListener(evt, resetIdleTimer, { passive: true }));
-    idleListenersBound = true;
-  }
-  idleInterval = setInterval(() => {
-    if (!state.authed) return;
-    const elapsed = Date.now() - idleLastActive;
-    if (!idleWarned && elapsed >= IDLE_WARN_MS) {
-      idleWarned = true;
-      showIdleModal();
-    }
-    if (elapsed >= IDLE_TIMEOUT_MS) {
-      handleSessionExpired();
-    }
-  }, 30 * 1000);
-}
-
-function stopIdleWatch() {
-  if (idleInterval) {
-    clearInterval(idleInterval);
-    idleInterval = null;
-  }
-  hideIdleModal();
-}
-
-function maybeRefreshSessionOnActivity() {
-  return sessionController.maybeRefreshSessionOnActivity();
 }
 
 async function api(path, options = {}) {
@@ -1376,17 +1300,6 @@ function resolveAssigneeSelectValue(assigneeUserId, assigneeName) {
   return match ? match.soeid : "";
 }
 
-function assigneeKeyFromAlloc(alloc) {
-  return alloc.assignee_user_soeid || alloc.assignee || "unassigned";
-}
-
-function assigneeLabelFromKey(key) {
-  const user = findUserBySoeid(key);
-  if (user) return user.display_name || key;
-  if (key === "unassigned") return "Unassigned";
-  return key;
-}
-
 function populateCapacityUserOptions() {
   if (!els.capacityUserOptions) return;
   const options = state.users
@@ -1394,26 +1307,6 @@ function populateCapacityUserOptions() {
     .map((u) => `<option value="${u.display_name || u.soeid}"></option>`)
     .join("");
   els.capacityUserOptions.innerHTML = options;
-}
-
-function openPlanningDrawer(kind) {
-  if (!els.planningDrawer || !els.planningLayout) return;
-  els.planningLayout.classList.add("drawer-open");
-  els.planningDrawer.classList.add("open");
-  if (els.planningAllocationDrawer) {
-    els.planningAllocationDrawer.classList.toggle("hidden", kind !== "allocation");
-  }
-  if (els.planningWindowDrawer) {
-    els.planningWindowDrawer.classList.toggle("hidden", kind !== "window");
-  }
-}
-
-function closePlanningDrawer() {
-  if (!els.planningDrawer || !els.planningLayout) return;
-  els.planningLayout.classList.remove("drawer-open");
-  els.planningDrawer.classList.remove("open");
-  els.planningAllocationDrawer?.classList.add("hidden");
-  els.planningWindowDrawer?.classList.add("hidden");
 }
 
 function renderActiveView() {
@@ -1430,7 +1323,6 @@ function renderActiveView() {
     kanban: () => renderKanban(),
     calendar: () => renderCalendar(),
     gantt: () => renderGantt(),
-    planning: () => renderPlanning(),
     "team-capacity": () => renderTeamCapacity(),
     spaces: () => renderSpaces(),
     access: () => renderAccess(),
@@ -2071,13 +1963,9 @@ function renderPMDashboard() {
     setStatus,
     formatStatus,
     viewHref,
-    openPMDashboardCapacityDrilldown,
     openPMDashboardProjectDrilldown,
     openPMDashboardSolutionDrilldown,
     openPMDashboardTaskDrilldown,
-    assigneeKeyFromAlloc,
-    assigneeLabelFromKey,
-    allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
   });
@@ -2089,114 +1977,6 @@ function openPMDashboardProjectDrilldown(projectId) {
   const project = state.projects.find((row) => row.project_id === targetId);
   if (!project) return;
   openProjectForm(project);
-}
-
-function closePlanningModal() {
-  return modalShellController.closePlanningModal();
-}
-
-function openPlanningModal(title, bodyHtml) {
-  return modalShellController.openPlanningModal(title, bodyHtml);
-}
-
-function openAllocationWorkItemDrilldown(allocationId) {
-  const targetId = String(allocationId || "").trim();
-  if (!targetId) return;
-  const allocation = state.allocations.find((row) => String(row.allocation_id || "") === targetId);
-  if (!allocation) {
-    setStatus("Allocation details are no longer available.", "warn");
-    return;
-  }
-  closePlanningModal();
-  const workItemId = String(allocation.work_item_id || "").trim();
-  if (!workItemId) {
-    setStatus("The linked work item is unavailable.", "warn");
-    return;
-  }
-  if (allocation.work_item_type === "project") {
-    const project = state.projects.find((row) => row.project_id === workItemId);
-    if (!project) {
-      setStatus("The linked project is unavailable.", "warn");
-      return;
-    }
-    openProjectForm(project);
-    return;
-  }
-  if (allocation.work_item_type === "solution") {
-    const solution = state.solutions.find((row) => row.solution_id === workItemId);
-    if (!solution) {
-      setStatus("The linked workstream is unavailable.", "warn");
-      return;
-    }
-    openSolutionModal(solution, "details");
-    return;
-  }
-  if (allocation.work_item_type === "task") {
-    const task = state.tasks.find((row) => row.task_id === workItemId);
-    if (!task) {
-      setStatus("The linked deliverable is unavailable.", "warn");
-      return;
-    }
-    const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
-    if (!solution) {
-      setStatus("The linked workstream is unavailable.", "warn");
-      return;
-    }
-    openSolutionModal(solution, "tasks");
-    fillTaskForm(task);
-    return;
-  }
-  setStatus("This allocation type does not have a linked drill-down yet.", "warn");
-}
-
-function openPMDashboardCapacityDrilldown(detail) {
-  const allocations = Array.isArray(detail?.allocations) ? detail.allocations : [];
-  const assigneeLabel = String(detail?.label || "Unassigned").trim() || "Unassigned";
-  const scopeLabel = String(detail?.scopeLabel || "").trim();
-  const allocated = Number(detail?.allocated);
-  const capacity = Number(detail?.capacity);
-  const utilization = Number(detail?.utilization);
-  const summaryBits = [];
-  if (scopeLabel) summaryBits.push(scopeLabel);
-  if (Number.isFinite(allocated)) summaryBits.push(`${formatFte(allocated)} FTE-mo allocated`);
-  if (Number.isFinite(capacity) && capacity > 0) summaryBits.push(`${formatFte(capacity)} FTE-mo capacity`);
-  if (Number.isFinite(utilization) && capacity > 0) summaryBits.push(`${Math.round(utilization)}% load`);
-  const itemsHtml = allocations.length
-    ? allocations
-        .map((allocation) => {
-          const type = String(allocation.work_item_type || "").trim().toLowerCase();
-          const itemTitle = allocationLabel(allocation) || allocation.work_item_id || "Unknown Item";
-          const teamName = allocation.team_id ? state.teams.find((team) => team.team_id === allocation.team_id)?.name : "";
-          const windowName = allocation.window_id ? state.planningWindows.find((row) => row.window_id === allocation.window_id)?.name : "";
-          const actionLabel =
-            type === "project" ? "Open Project" : type === "solution" ? "Open Workstream" : type === "task" ? "Open Deliverable" : "Open Item";
-          const itemTypeLabel =
-            type === "project" ? "Project" : type === "solution" ? "Workstream" : type === "task" ? "Deliverable" : allocation.work_item_type || "work item";
-          const itemClass = type === "solution" || type === "task" ? ` ${type}` : "";
-          return `<div class="modal-item${itemClass}">
-            <div class="modal-item-title">${esc(itemTitle)}</div>
-            <div class="modal-item-meta">${esc(itemTypeLabel)} • ${formatFte(allocationFteMonths(allocation))} FTE-mo • ${esc(allocationMonthStart(allocation) || "—")}</div>
-            <div class="modal-item-meta">Team: ${esc(teamName || "Unassigned")}${windowName ? ` • Window: ${esc(windowName)}` : ""}</div>
-            <div class="modal-item-actions">
-              <button type="button" class="secondary modal-item-action" data-planning-modal-action="open-allocation-work-item" data-allocation-id="${esc(allocation.allocation_id || "")}">${esc(actionLabel)}</button>
-            </div>
-          </div>`;
-        })
-        .join("")
-    : '<p class="modal-empty">No allocations in this scope.</p>';
-  const bodyHtml = `<div class="modal-section">
-    <div class="modal-section-title">Capacity Summary</div>
-    <div class="modal-item">
-      <div class="modal-item-title">${esc(assigneeLabel)}</div>
-      <div class="modal-item-meta">${esc(summaryBits.join(" • ") || "Allocation detail")}</div>
-      <div class="modal-item-meta">${allocations.length} allocation${allocations.length === 1 ? "" : "s"} in this scope</div>
-    </div>
-  </div>
-  <div class="modal-section">
-    <div class="modal-section-title">Underlying Allocations</div>
-    <div class="modal-list">${itemsHtml}</div>
-  </div>`;
-  openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);
 }
 
 function openPMDashboardSolutionDrilldown(solutionId) {
@@ -2791,36 +2571,6 @@ function populateSelects() {
   if (els.teamMemberForm && els.teamMemberForm.querySelector('[name="team_id"]') && state.teams.length && !els.teamMemberForm.querySelector('[name="team_id"]').value) {
     els.teamMemberForm.querySelector('[name="team_id"]').value = state.teams[0].team_id;
   }
-  // planning view uses team tags, not team ids
-  if (els.planningWindowSelect) {
-    const winOpts = state.planningWindows
-      .map((w) => `<option value="${w.window_id}">${w.name} (${w.start_date} → ${w.end_date})</option>`)
-      .join("");
-    const prev = els.planningWindowSelect.value || state.planningWindowSelectedId || "";
-    els.planningWindowSelect.innerHTML = `<option value="">Select window</option>${winOpts}`;
-    let nextSelectedId = "";
-    if (prev && state.planningWindows.find((w) => w.window_id === prev)) {
-      nextSelectedId = prev;
-    } else if (state.planningWindows.length) {
-      nextSelectedId = state.planningWindows[0].window_id;
-    }
-    els.planningWindowSelect.value = nextSelectedId;
-    state.planningWindowSelectedId = nextSelectedId;
-    if (prev !== nextSelectedId) persistPlanningWindowViewState();
-    const selectedWin = state.planningWindows.find((w) => w.window_id === els.planningWindowSelect.value);
-    if (selectedWin) {
-      if (els.planningFrom) els.planningFrom.value = selectedWin.start_date;
-      if (els.planningTo) els.planningTo.value = selectedWin.end_date;
-      const monthStartInput = els.allocationForm?.querySelector('[name="month_start"]');
-      if (monthStartInput && !monthStartInput.value) {
-        monthStartInput.value = (normalizeMonthStart(selectedWin.start_date) || "").slice(0, 7);
-      }
-    }
-    updateAllocationWindowHint();
-    renderPlanningWindowSummary();
-    renderPlanningRoster();
-  }
-
   populateCapacityUserOptions();
 
   // Assignee dropdown for tasks from team members
@@ -2840,21 +2590,6 @@ function populateSelects() {
     }
   }
   populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });
-  if (els.allocationForm) {
-    const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
-    const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
-    const typeSel = els.allocationForm.querySelector('[name="work_item_type"]');
-    if (assigneeSel) {
-      const users = state.users.filter((u) => u.display_name && u.soeid);
-      assigneeSel.innerHTML =
-        users.length > 0
-          ? `<option value="">Select</option>${users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("")}`
-          : `<option value="">No users configured</option>`;
-    }
-    typeSel?.addEventListener("change", updateAllocationItems);
-    itemSel?.addEventListener("change", applyAllocationDefaults);
-    updateAllocationItems();
-  }
 
   if (els.aiEntityType && els.aiEntityId) {
     const type = els.aiEntityType.value;
@@ -2869,39 +2604,6 @@ function populateSelects() {
       options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
     }
     els.aiEntityId.innerHTML = options || `<option value=\"\">No items</option>`;
-  }
-}
-
-function updateAllocationItems() {
-  if (!els.allocationForm) return;
-  const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
-  const typeSel = els.allocationForm.querySelector('[name="work_item_type"]');
-  if (!itemSel || !typeSel) return;
-  const type = typeSel.value;
-  let options = "";
-  if (type === "project") {
-    options = state.projects.map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`).join("");
-  } else if (type === "solution") {
-    options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
-  } else {
-    options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
-  }
-  itemSel.innerHTML = `<option value="">Select</option>${options}`;
-  applyAllocationDefaults();
-}
-
-function updateAllocationWindowHint() {
-  if (!els.allocationWindowHint) return;
-  const selectedId = els.planningWindowSelect?.value;
-  const win = state.planningWindows.find((w) => w.window_id === selectedId);
-  if (win) {
-    els.allocationWindowHint.textContent = "";
-    els.allocationWindowHint.classList.add("hidden");
-    els.allocationWindowHint.classList.remove("warn");
-  } else {
-    els.allocationWindowHint.textContent = "Select or create a planning window first.";
-    els.allocationWindowHint.classList.remove("hidden");
-    els.allocationWindowHint.classList.add("warn");
   }
 }
 
@@ -3508,248 +3210,6 @@ function bindCalendarControls() {
   calendarRouteController.bindCalendarRouteControls();
   ganttRouteController.bindGanttRouteControls();
   kanbanRouteController.bindKanbanRouteControls();
-
-  if (els.planningWindowSelect) {
-    els.planningWindowSelect.addEventListener("change", () => {
-      state.planningWindowSelectedId = els.planningWindowSelect.value || "";
-      persistPlanningWindowViewState();
-      const win = state.planningWindows.find((w) => w.window_id === els.planningWindowSelect.value);
-      if (win) {
-        if (els.planningFrom) els.planningFrom.value = win.start_date;
-        if (els.planningTo) els.planningTo.value = win.end_date;
-        const monthStartInput = els.allocationForm?.querySelector('[name="month_start"]');
-        if (monthStartInput) monthStartInput.value = (normalizeMonthStart(win.start_date) || "").slice(0, 7);
-      }
-      updateAllocationWindowHint();
-      renderPlanningWindowSummary();
-      renderPlanningRoster();
-      renderPlanning();
-    });
-  }
-
-  if (els.editWindowBtn) {
-    els.editWindowBtn.addEventListener("click", () => {
-      const selectedId = els.planningWindowSelect?.value;
-      const win = state.planningWindows.find((w) => w.window_id === selectedId);
-      if (!els.planningWindowForm) return;
-      if (win) {
-        els.planningWindowForm.querySelector('[name="window_id_edit"]').value = win.window_id;
-        els.planningWindowForm.querySelector('[name="window_name"]').value = win.name || "";
-        els.planningWindowForm.querySelector('[name="window_start"]').value = win.start_date || "";
-        els.planningWindowForm.querySelector('[name="window_end"]').value = win.end_date || "";
-        if (els.saveWindowBtn) els.saveWindowBtn.textContent = "Save Window";
-      } else {
-        els.planningWindowForm.reset();
-        if (els.saveWindowBtn) els.saveWindowBtn.textContent = "Create Window";
-      }
-      openPlanningDrawer("window");
-    });
-  }
-
-  if (els.planningAddAllocation) {
-    els.planningAddAllocation.addEventListener("click", () => {
-      openPlanningDrawer("allocation");
-      applyAllocationDefaults();
-    });
-  }
-
-  if (els.planningCloseAllocation) {
-    els.planningCloseAllocation.addEventListener("click", closePlanningDrawer);
-  }
-
-  if (els.planningCloseWindow) {
-    els.planningCloseWindow.addEventListener("click", closePlanningDrawer);
-  }
-
-  bindDebouncedInput(els.planningSearch, () => renderPlanning());
-  bindDebouncedInput(els.planningTeamTagFilter, () => renderPlanning());
-  els.planningFilterOver?.addEventListener("change", renderPlanning);
-  els.planningFilterUnder?.addEventListener("change", renderPlanning);
-
-  if (els.planningBoard) {
-    els.planningBoard.addEventListener("click", async (e) => {
-      if (!(e.target instanceof Element)) return;
-      if (e.target.closest(".wab-shell") || e.target.closest(".wab-toolbar") || e.target.closest(".wab-inline-forms")) {
-        return;
-      }
-      const groupBtn = e.target.closest(".group-toggle");
-      if (groupBtn) {
-        const group = groupBtn.getAttribute("data-group") || "";
-        if (group) {
-          if (state.planningGroupCollapsed.has(group)) state.planningGroupCollapsed.delete(group);
-          else state.planningGroupCollapsed.add(group);
-          renderPlanning();
-        }
-        return;
-      }
-      const rowAdd = e.target.closest(".row-add");
-      if (rowAdd) {
-        const assigneeKey = rowAdd.getAttribute("data-assignee") || "";
-        if (els.allocationForm) {
-          const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
-          const assigneeUser = els.allocationForm.querySelector('[name="assignee_user_soeid"]');
-          if (assigneeSel) assigneeSel.value = assigneeKey;
-          if (assigneeUser) assigneeUser.value = assigneeKey;
-          applyAllocationDefaults();
-          openPlanningDrawer("allocation");
-        }
-        return;
-      }
-      const btn = e.target.closest(".chip-delete");
-      if (btn) {
-        if (!userCanAccessAdminViews()) {
-          return;
-        }
-        const allocId = btn.getAttribute("data-alloc-id");
-        if (!allocId) return;
-        const confirmed = await showConfirmModal({
-          title: "Delete Allocation?",
-          message: "Delete this allocation?",
-          confirmLabel: "Delete Allocation",
-        });
-        if (!confirmed) return;
-        try {
-          await api(`/resource-allocations/${allocId}`, { method: "DELETE" });
-          state.allocations = state.allocations.filter((a) => a.allocation_id !== allocId);
-          renderPlanning();
-        } catch (err) {
-          if (els.allocationStatus) els.allocationStatus.textContent = `Delete failed: ${err.message}`;
-        }
-        return;
-      }
-      const chip = e.target.closest(".alloc-chip");
-      if (chip) {
-        const allocId = chip.getAttribute("data-alloc-id");
-        const alloc = state.allocations.find((a) => a.allocation_id === allocId);
-        if (!alloc) return;
-        const item = allocationLabel(alloc);
-        const teamName = alloc.team_id ? state.teams.find((t) => t.team_id === alloc.team_id)?.name : "";
-        const win = alloc.window_id ? state.planningWindows.find((w) => w.window_id === alloc.window_id) : null;
-        const fteMonths = allocationFteMonths(alloc);
-        const monthStart = allocationMonthStart(alloc);
-        const details = `
-          <div class="modal-item">
-            <div class="modal-item-title">${item || alloc.work_item_id}</div>
-            <div class="modal-item-meta">
-              ${alloc.work_item_type || ""} • ${formatFte(fteMonths)} FTE-mo • ${monthStart || "—"}
-            </div>
-            <div class="modal-item-meta">Assignee: ${assigneeLabelFromKey(assigneeKeyFromAlloc(alloc)) || "—"}</div>
-            <div class="modal-item-meta">Team: ${teamName || "Unassigned"}</div>
-            ${win ? `<div class="modal-item-meta">Window: ${win.name} (${win.start_date} → ${win.end_date})</div>` : ""}
-          </div>
-        `;
-        openPlanningModal("Allocation Details", details);
-      }
-    });
-  }
-  if (els.planningWindowForm) {
-    els.planningWindowForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const data = new FormData(els.planningWindowForm);
-      const editId = data.get("window_id_edit");
-      const name = data.get("window_name");
-      const start = data.get("window_start");
-      const end = data.get("window_end");
-      if (!name || !start || !end) {
-        setStatus("Name, start, and end are required to create a planning window.", "danger");
-        return;
-      }
-      try {
-        let savedWin;
-        if (editId) {
-          savedWin = await api(`/planning/windows/${editId}`, {
-            method: "PATCH",
-            body: JSON.stringify({ name, start_date: start, end_date: end }),
-          });
-          const idx = state.planningWindows.findIndex((w) => w.window_id === savedWin.window_id);
-          if (idx === -1) state.planningWindows.push(savedWin);
-          else state.planningWindows[idx] = savedWin;
-        } else {
-          savedWin = await api("/planning/windows", {
-            method: "POST",
-            body: JSON.stringify({ name, start_date: start, end_date: end }),
-          });
-          state.planningWindows.push(savedWin);
-        }
-        populateSelects();
-        if (els.planningWindowSelect) {
-          els.planningWindowSelect.value = savedWin.window_id;
-        }
-        state.planningWindowSelectedId = savedWin.window_id;
-        persistPlanningWindowViewState();
-        if (els.planningFrom) els.planningFrom.value = savedWin.start_date;
-        if (els.planningTo) els.planningTo.value = savedWin.end_date;
-        const monthStartInput = els.allocationForm?.querySelector('[name="month_start"]');
-        if (monthStartInput) monthStartInput.value = (normalizeMonthStart(savedWin.start_date) || "").slice(0, 7);
-        updateAllocationWindowHint();
-        renderPlanningWindowSummary();
-        renderPlanningRoster();
-        renderPlanning();
-        els.planningWindowForm.reset();
-        els.planningWindowForm.querySelector('[name="window_id_edit"]').value = "";
-        if (els.saveWindowBtn) els.saveWindowBtn.textContent = "Create Window";
-        closePlanningDrawer();
-      } catch (err) {
-        setStatus(`Window create failed: ${err.message}`, "danger");
-      }
-    });
-
-    els.planningWindowForm.addEventListener("reset", () => {
-      if (els.saveWindowBtn) els.saveWindowBtn.textContent = "Create Window";
-      els.planningWindowForm.querySelector('[name="window_id_edit"]').value = "";
-    });
-  }
-
-  if (els.allocationForm) {
-    els.allocationForm.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const data = new FormData(els.allocationForm);
-      const windowId = els.planningWindowSelect?.value || "";
-      const selectedWindow = windowId ? state.planningWindows.find((w) => w.window_id === windowId) : null;
-      const providedMonthStart = monthInputToDate(data.get("month_start"));
-      const resolvedMonthStart =
-        providedMonthStart || normalizeMonthStart(selectedWindow?.start_date) || normalizeMonthStart(els.planningFrom?.value) || null;
-      const assigneeUserId = data.get("assignee") || "";
-      const assigneeUser = findUserBySoeid(assigneeUserId);
-      const fteMonths = numberOr(data.get("fte_months"), 0);
-      const payload = {
-        work_item_type: data.get("work_item_type"),
-        work_item_id: data.get("work_item_id"),
-        assignee: assigneeUser?.display_name || "",
-        assignee_user_soeid: assigneeUserId || null,
-        team_id: deriveTeamForItem(data.get("work_item_type"), data.get("work_item_id")),
-        month_start: resolvedMonthStart,
-        fte_months: fteMonths,
-        week_start: resolvedMonthStart,
-        hours: Math.round(fteMonths * HOURS_PER_FTE_MONTH),
-        window_id: windowId || null,
-      };
-      if (!payload.window_id) {
-        if (els.allocationStatus) els.allocationStatus.textContent = "Select or create a planning window first.";
-        return;
-      }
-      if (!payload.work_item_type || !payload.work_item_id || !payload.assignee || !payload.month_start || !payload.fte_months) {
-        if (els.allocationStatus) els.allocationStatus.textContent = "Type, item, assignee, month, and FTE-months are required.";
-        return;
-      }
-      try {
-        const created = await api("/resource-allocations", { method: "POST", body: JSON.stringify(payload) });
-        state.allocations.push(created);
-        if (els.allocationStatus) els.allocationStatus.textContent = "Saved.";
-        applyAllocationDefaults();
-        renderPlanningWindowSummary();
-        renderPlanningRoster();
-        renderPlanning();
-      } catch (err) {
-        if (els.allocationStatus) els.allocationStatus.textContent = `Save failed: ${err.message || err}`;
-      }
-    });
-
-    els.allocationForm.addEventListener("reset", () => {
-      if (els.allocationStatus) els.allocationStatus.textContent = "";
-      applyAllocationDefaults();
-    });
-  }
 }
 
 async function loadTeamCapacityData(options = {}) {
@@ -3870,6 +3330,32 @@ function persistWorkspaceViewPreferences() {
   );
 }
 
+function persistTasksWorkbenchUiState() {
+  const wb = state.tasksWorkbench || {};
+  writeStoredJson(
+    activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX),
+    {
+      preset: wb.preset || "all",
+      filters: { ...(wb.filters || {}) },
+      drawerOpen: wb.drawerOpen !== false,
+      activeTaskId: wb.activeTaskId || "",
+      selectedSavedViewId: wb.selectedSavedViewId || "",
+    }
+  );
+}
+
+function restoreTasksWorkbenchUiState() {
+  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
+  const wb = state.tasksWorkbench;
+  wb.preset = String(stored.preset || "all");
+  wb.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
+  wb.drawerOpen = stored.drawerOpen !== false;
+  wb.activeTaskId = String(stored.activeTaskId || "");
+  wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
+  normalizeWorkbenchUiState(createTasksWorkbenchContext());
+  if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
+}
+
 function restoreWorkspaceViewPreferences() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});
   const nextShowCompleted = stored.showCompleted === true;
@@ -3918,28 +3404,11 @@ function restoreTeamCapacityViewState() {
   return teamCapacityRouteController.restoreTeamCapacityViewState();
 }
 
-function persistPlanningWindowViewState() {
-  writeStoredJson(
-    activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX),
-    {
-      selected_window_id: String(state.planningWindowSelectedId || ""),
-    }
-  );
-}
-
-function restorePlanningWindowViewState() {
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(PLANNING_WINDOW_VIEW_STATE_KEY_PREFIX), {});
-  state.planningWindowSelectedId = String(stored.selected_window_id || "");
-  if (recovered || !Object.keys(stored || {}).length) persistPlanningWindowViewState();
-}
-
 function persistSpaceGovernanceViewState() {
   if (!state.authed || !activeSpaceId() || state.activeSpace?.space_kind === "lobby") return;
   writeStoredJson(
     activeSpaceScopedStorageKey(SPACE_GOVERNANCE_VIEW_STATE_KEY_PREFIX),
-    {
-      section: normalizeGovernanceSection(state.spaceAdminSection),
-    }
+    { section: normalizeGovernanceSection(state.spaceAdminSection) }
   );
 }
 
@@ -3952,49 +3421,6 @@ function restoreSpaceGovernanceViewState() {
   if (recovered || !Object.keys(stored || {}).length || stored.section !== state.spaceAdminSection) {
     persistSpaceGovernanceViewState();
   }
-}
-
-function persistTasksWorkbenchUiState() {
-  const wb = state.tasksWorkbench;
-  writeStoredJson(
-    activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX),
-    {
-      preset: wb.preset || "all",
-      filters: {
-        search: wb.filters?.search || "",
-        project_id: wb.filters?.project_id || "",
-        solution_id: wb.filters?.solution_id || "",
-        assignee: wb.filters?.assignee || "",
-        assignee_name: wb.filters?.assignee_name || "",
-        status: wb.filters?.status || "",
-        priority_max: wb.filters?.priority_max || "",
-      },
-      activeTaskId: wb.activeTaskId || "",
-      selectedSavedViewId: wb.selectedSavedViewId || "",
-      drawerOpen: wb.drawerOpen === true,
-    }
-  );
-}
-
-function restoreTasksWorkbenchUiState() {
-  const wb = state.tasksWorkbench;
-  const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
-  wb.preset = String(stored.preset || "all");
-  wb.filters = {
-    search: String(stored.filters?.search || ""),
-    project_id: String(stored.filters?.project_id || ""),
-    solution_id: String(stored.filters?.solution_id || ""),
-    assignee: String(stored.filters?.assignee || ""),
-    assignee_name: String(stored.filters?.assignee_name || ""),
-    status: String(stored.filters?.status || ""),
-    priority_max: String(stored.filters?.priority_max || ""),
-  };
-  wb.selected.clear();
-  wb.activeTaskId = String(stored.activeTaskId || "");
-  wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
-  wb.drawerOpen = stored.drawerOpen === true;
-  normalizeWorkbenchUiState(createTasksWorkbenchContext());
-  if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
 }
 
 function canManageSpaceMembership(spaceId) {
@@ -4103,43 +3529,6 @@ function bindSpaceAdminControls() {
   return spaceGovernanceController.bindSpaceAdminControls();
 }
 
-function renderPlanning() {
-  const mod = getRouteModule("planning");
-  if (!mod || typeof mod.renderPlanning !== "function") {
-    if (state.currentView === "planning" && els.planningBoard) {
-      els.planningBoard.innerHTML = "<p class='muted'>Loading...</p>";
-    }
-    ensureRouteModule("planning").then((loaded) => {
-      if (loaded && state.currentView === "planning") renderPlanning();
-    });
-    return;
-  }
-  mod.renderPlanning(createShellContext({
-    state,
-    els,
-    api,
-    refreshFromServer,
-    setStatus,
-    showConfirmModal,
-    openProjectForm,
-    openSolutionModal,
-    canDeleteAllocations: userCanAccessAdminViews(),
-    assigneeKeyFromAlloc,
-    findUserBySoeid,
-    assigneeLabelFromKey,
-    allocationLabel,
-    allocationMonthStart,
-    allocationFteMonths,
-    userCapacityFteMonth,
-    formatFte,
-    renderPlanningWindowSummary,
-    renderPlanningRoster,
-    trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
-    noteRouteDataLoaded: (durationMs) => telemetryController?.noteRouteDataLoaded?.("planning", durationMs),
-    noteViewRendered: (renderMs) => telemetryController?.noteViewRendered?.("planning", renderMs),
-  }, { view: "planning" }));
-}
-
 function renderTeamCapacity() {
   const renderStartedAt = performance.now();
   const mod = getRouteModule("team-capacity");
@@ -4152,7 +3541,6 @@ function renderTeamCapacity() {
   mod.renderTeamCapacity({
     state,
     els,
-    allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
     teamCapacityState: state.teamCapacity,
@@ -4209,155 +3597,6 @@ function renderAccess() {
   });
 }
 
-function getSelectedWindow() {
-  const id = els.planningWindowSelect?.value || "";
-  return id ? state.planningWindows.find((w) => w.window_id === id) : null;
-}
-
-function renderPlanningWindowSummary() {
-  if (!els.planningWindowSummary) return;
-  const win = getSelectedWindow();
-  if (!win) {
-    els.planningWindowSummary.textContent = "Select or create a planning window.";
-    return;
-  }
-  const allocs = state.allocations.filter((a) => a.window_id === win.window_id);
-  const totalFte = allocs.reduce((sum, a) => sum + allocationFteMonths(a), 0);
-  const totalCapacity = state.users.reduce((sum, u) => sum + userCapacityFteMonth(u), 0);
-  const gap = totalCapacity - totalFte;
-  els.planningWindowSummary.innerHTML =
-    `<strong>${win.name}</strong> • ${win.start_date} → ${win.end_date} • ${allocs.length} allocations • ` +
-    `${formatFte(totalFte)} FTE-mo allocated • ${gap >= 0 ? formatFte(gap) : `-${formatFte(Math.abs(gap))}`} FTE-mo ${gap >= 0 ? "remaining" : "over"}`;
-}
-
-function allocationFteDefault(type, itemId) {
-  if (type === "solution") {
-    const sol = state.solutions.find((s) => s.solution_id === itemId);
-    if (sol) {
-      if (Number.isFinite(Number(sol.capacity_fte_months))) return Number(sol.capacity_fte_months);
-      if (Number.isFinite(Number(sol.capacity_hours))) return Number(sol.capacity_hours) / HOURS_PER_FTE_MONTH;
-    }
-  }
-  if (type === "task") {
-    const sc = state.tasks.find((s) => s.task_id === itemId);
-    if (sc) {
-      if (Number.isFinite(Number(sc.estimate_fte_months))) return Number(sc.estimate_fte_months);
-      if (Number.isFinite(Number(sc.capacity_fte_months))) return Number(sc.capacity_fte_months);
-      if (Number.isFinite(Number(sc.estimate_hours))) return Number(sc.estimate_hours) / HOURS_PER_FTE_MONTH;
-      if (Number.isFinite(Number(sc.capacity_hours))) return Number(sc.capacity_hours) / HOURS_PER_FTE_MONTH;
-    }
-  }
-  return 0.25;
-}
-
-function allocationLabel(allocation) {
-  if (!allocation) return "";
-  if (allocation.work_item_type === "project") {
-    return state.projects.find((p) => p.project_id === allocation.work_item_id)?.project_name || allocation.work_item_id;
-  }
-  if (allocation.work_item_type === "solution") {
-    return state.solutions.find((s) => s.solution_id === allocation.work_item_id)?.solution_name || allocation.work_item_id;
-  }
-  if (allocation.work_item_type === "task") {
-    return state.tasks.find((sc) => sc.task_id === allocation.work_item_id)?.task_name || allocation.work_item_id;
-  }
-  return allocation.work_item_id || "";
-}
-
-function deriveTeamForItem(type, itemId) {
-  if (!type || !itemId) return null;
-  return null;
-}
-
-function applyAllocationDefaults() {
-  if (!els.allocationForm) return;
-  const typeSel = els.allocationForm.querySelector('[name="work_item_type"]');
-  const itemSel = els.allocationForm.querySelector('[name="work_item_id"]');
-  const fteInput = els.allocationForm.querySelector('[name="fte_months"]');
-  const monthStart = els.allocationForm.querySelector('[name="month_start"]');
-  const win = getSelectedWindow();
-  if (win && monthStart && !monthStart.value) {
-    monthStart.value = (normalizeMonthStart(win.start_date) || "").slice(0, 7);
-  }
-  if (typeSel && itemSel && fteInput) {
-    const defaultFte = allocationFteDefault(typeSel.value, itemSel.value);
-    fteInput.value = defaultFte.toFixed(2);
-  }
-}
-
-function renderPlanningRoster() {
-  if (!els.planningRoster) return;
-  const win = getSelectedWindow();
-  if (!win) {
-    els.planningRoster.innerHTML = "<p class='muted'>Select a planning window to see roster.</p>";
-    return;
-  }
-  const searchTerm = (els.planningSearch?.value || "").toLowerCase();
-  const teamTagFilter = (els.planningTeamTagFilter?.value || "").toLowerCase();
-  const allocs = state.allocations.filter((a) => a.window_id === win.window_id);
-  const fteByAssignee = new Map();
-  state.users.forEach((u) => {
-    if (u.soeid) fteByAssignee.set(u.soeid, 0);
-  });
-  allocs.forEach((a) => {
-    const key = assigneeKeyFromAlloc(a);
-    fteByAssignee.set(key, (fteByAssignee.get(key) || 0) + allocationFteMonths(a));
-  });
-  const memberCap = new Map();
-  state.users.forEach((u) => {
-    if (u.soeid) memberCap.set(u.soeid, userCapacityFteMonth(u));
-  });
-  const rows = Array.from(fteByAssignee.entries())
-    .filter(([key]) => key && key !== "unassigned")
-    .map(([key, fte]) => {
-      const cap = memberCap.get(key);
-      const remaining = cap != null ? Math.max(cap - fte, 0) : null;
-      return { key, fte, cap, remaining };
-    })
-    .filter((r) => {
-      const user = findUserBySoeid(r.key);
-      if (teamTagFilter && !(user?.team_tag || "").toLowerCase().includes(teamTagFilter)) return false;
-      if (searchTerm) {
-        const label = assigneeLabelFromKey(r.key).toLowerCase();
-        if (!label.includes(searchTerm) && !r.key.toLowerCase().includes(searchTerm)) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => (b.cap || 0) - (a.cap || 0));
-  const pill = (val, cls = "") => `<span class="pill ${cls}">${val}</span>`;
-  const html = rows.length
-    ? rows
-        .map(
-          (r) =>
-            `<div class="roster-row" data-assignee="${r.key}">
-              <div class="roster-main">
-                <strong>${assigneeLabelFromKey(r.key)}</strong>
-                <div class="roster-meta">${pill(`${formatFte(r.fte)} FTE`, "warn")} ${
-              r.cap != null ? pill(`${formatFte(r.cap)} cap`) : pill("no capacity", "muted")
-            } ${r.remaining !== null ? pill(`${formatFte(r.remaining)} left`, r.remaining <= 0.1 ? "warn" : "") : ""}</div>
-              </div>
-              <div class="roster-actions">
-                <button type="button" class="secondary roster-add" data-assignee="${r.key}">+ add</button>
-              </div>
-            </div>`
-        )
-        .join("")
-    : "<p class='muted'>No allocations yet.</p>";
-  els.planningRoster.innerHTML = `<h3>Roster (${win.name})</h3>${html}`;
-  els.planningRoster.querySelectorAll(".roster-add").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      if (!els.allocationForm) return;
-      const assignee = btn.getAttribute("data-assignee") || "";
-      const assigneeSel = els.allocationForm.querySelector('[name="assignee"]');
-      const assigneeUser = els.allocationForm.querySelector('[name="assignee_user_soeid"]');
-      if (assigneeSel) assigneeSel.value = assignee !== "unassigned" ? assignee : "";
-      if (assigneeUser) assigneeUser.value = assignee !== "unassigned" ? assignee : "";
-      applyAllocationDefaults();
-      openPlanningDrawer("allocation");
-    });
-  });
-}
-
 function init() {
   initTheme();
   if (publicProgramDashboardSlug()) {
@@ -4373,7 +3612,6 @@ function init() {
   bindNav();
   document.addEventListener("visibilitychange", handleLiveSyncVisibilityChange);
   bindConfirmModal();
-  modalShellController.bindPlanningModal();
   renderTopbarStatus();
   renderSpaceSwitcher();
   bindMasterDeliverablesControls(createMasterRouteContext());

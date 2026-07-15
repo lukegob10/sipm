@@ -129,7 +129,7 @@ Authenticated view load:
 
 Mutation flow from a form:
 
-1. A user submits a project, solution, task, team, planning, or admin form.
+1. A user submits a project, solution, task, team, or admin form.
 2. The relevant entity controller or route interaction module builds the payload.
 3. The controller calls `api(path, { method, body })`.
 4. `shell/session.js` attaches credentials and `X-Space-Id`.
@@ -165,7 +165,7 @@ Design choice: `app.js` remains the integration surface because the app is a no-
 
 `shell/data-store.js`
 
-- Fetches entity data: phases, projects, solutions, tasks, teams, users, allocations, windows.
+- Fetches entity data: phases, projects, solutions, tasks, teams, and users.
 - Caches loaded entity names in `state.loadedEntities`.
 - Prevents duplicate simultaneous loads.
 - Handles refresh coalescing.
@@ -241,11 +241,10 @@ The router exposes these user-facing modules:
 | Gantt | `/gantt` | `routes/gantt.js`, `routes/gantt/interactions.js` | projects, solutions, tasks |
 | Tasks Workbench | `/tasks-workbench` | `routes/tasks-workbench.js`, `routes/tasks-workbench/*` | projects, solutions, tasks, users |
 | Dashboard | `/dashboard` | `routes/dashboard.js`, `routes/dashboard/*` | projects, solutions, users |
-| PM Dashboard | `/pm-dashboard` | `routes/pm-dashboard.js`, `routes/pm-dashboard/*` | projects, solutions, tasks, users, allocations, windows |
+| PM Dashboard | `/pm-dashboard` | `routes/pm-dashboard.js`, `routes/pm-dashboard/*` | projects, solutions, tasks, users |
 | Kanban | `/kanban` | `routes/kanban.js`, `routes/kanban/interactions.js` | phases, projects, solutions |
 | Calendar | `/calendar` | `routes/calendar.js`, `routes/calendar/interactions.js` | projects, solutions |
-| Planning | `/planning` | `routes/planning.js`, `routes/planning/*` plus legacy functions in `app.js` | projects, solutions, tasks, teams, users, allocations, windows |
-| Team Capacity | `/team-capacity` | `routes/team-capacity.js`, `routes/team-capacity/interactions.js` | users, allocations |
+| Team Capacity | `/team-capacity` | `routes/team-capacity.js`, `routes/team-capacity/interactions.js` | users, teams |
 | Space Governance | `/spaces` and `/access` | `routes/spaces.js`, `routes/access.js`, `routes/spaces/*` | users, spaces, memberships |
 | Analytics | `/analytics` | `routes/analytics.js` | analytics API payloads |
 
@@ -343,7 +342,7 @@ Design choice: browser auth is cookie-backed to avoid exposing reusable tokens t
 
 `backend/app/models/work.py`
 
-- Projects, solutions, phases, solution phases, tasks, resource allocations, planning windows.
+- Projects, solutions, phases, solution phases, and tasks.
 
 `backend/app/models/analytics.py`
 
@@ -353,11 +352,7 @@ Design choice: browser auth is cookie-backed to avoid exposing reusable tokens t
 
 `backend/app/schemas/__init__.py`
 
-- Core read/create/update schemas for users, spaces, projects, solutions, tasks, teams, planning windows, and allocations.
-
-`backend/app/schemas/planning.py`
-
-- Work Allocation Board request/response schemas.
+- Core read/create/update schemas for users, spaces, projects, solutions, tasks, and teams.
 
 `backend/app/schemas/analytics.py`
 
@@ -380,7 +375,6 @@ Major route groups:
 - `teams.py`: teams and team members.
 - `users.py`: user directory, global admins, admin password reset, API tokens, import/export.
 - `spaces.py`: spaces and space memberships.
-- `planning/*`: legacy allocations/windows plus work-allocation board endpoints.
 - `phases.py`: phase reference data and solution-phase configuration.
 - `analytics.py`: telemetry ingest and analytics dashboard APIs.
 - `audit.py`: change log reads.
@@ -413,12 +407,6 @@ Major route groups:
 
 - Resolves active space context and role.
 - Determines global admin and space-level access.
-
-`services/planning_work_allocation.py`
-
-- Bridges the Work Allocation Board UX to existing users, teams, tasks, and allocations.
-- Creates or revives the hidden board project/solution when needed.
-- Converts month tokens and FTE-month values.
 
 `services/usage_analytics.py`
 
@@ -476,18 +464,6 @@ Portfolio work:
 - `PATCH /api/tasks/actions/batch`
 - `POST /api/tasks/import`
 - `GET /api/tasks/export`
-
-Planning:
-
-- `GET/POST/PATCH/DELETE /api/resource-allocations`
-- `GET/POST/PATCH/DELETE /api/planning/windows`
-- `GET /api/resource-allocations/summary`
-- `GET /api/planning/work-allocation/board`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/teams`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/people`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/tasks`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/allocations`
-- `GET /api/planning/work-allocation/report.pdf`
 
 Administration:
 
@@ -572,27 +548,6 @@ flowchart TD
 
 Design choice: mutations perform audit logging and live refresh scheduling server-side so browser clients do not need to know who else should refresh.
 
-### Work Allocation Board
-
-The Work Allocation Board is displayed under `#/planning` or `/planning`, but its newer backend APIs are under `/api/planning/work-allocation/*`.
-
-Important design choice: the board does not use separate task/person tables. It maps board concepts onto existing platform entities:
-
-- Board task = `Task`
-- Person = active `User` with active `SpaceMembership`
-- Team = `Team`
-- Assignment = `ResourceAllocation`
-- Planning month = `ResourceAllocation.month_start`
-- Capacity = `User.capacity_fte_month`
-
-The service `services/planning_work_allocation.py` creates a hidden project and solution for board tasks:
-
-- Project name: `Work Allocation Board [<space-token>]`
-- Solution name: `Backlog`
-- Version: `1.0.0`
-
-Normal project and solution list endpoints exclude these hidden board records so the planning board can reuse core tables without polluting the portfolio UX.
-
 ### Realtime Refresh
 
 ```mermaid
@@ -616,14 +571,13 @@ The form model follows the business hierarchy:
 1. Project forms create portfolio containers.
 2. Solution forms create deliverables under a project.
 3. Task forms create execution items under a solution.
-4. Planning forms allocate work and capacity against users, teams, and planning windows.
-5. Space/admin forms govern access and operational setup.
+4. Space/admin forms govern access and operational setup.
 
 Why this shape exists:
 
 - The database hierarchy is project -> solution -> task, so the UI mirrors the persistence model.
 - Owner/assignee SOEID fields support enterprise identity lookup while preserving display labels for readability.
-- FTE-month capacity fields normalize planning around monthly staffing instead of weekly hours, while legacy allocation fields retain week/hour compatibility.
+- FTE-month capacity fields support team capacity administration while preserving legacy weekly-hour compatibility.
 - Modal and drawer forms keep edits in context instead of forcing full page transitions.
 - Shared forms use centralized entity controllers so validation, telemetry, refresh, and state updates are consistent.
 - Route-specific filters and saved views live in local/session storage because they are user experience preferences, not system records.
@@ -637,8 +591,7 @@ Frontend state:
 - `state.user`, `state.authed`: current identity.
 - `state.spaces`, `state.activeSpace`: space context and role.
 - `state.projects`, `state.solutions`, `state.tasks`: portfolio work records.
-- `state.teams`, `state.users`: planning and access directory data.
-- `state.allocations`, `state.planningWindows`: capacity planning data.
+- `state.teams`, `state.users`: team capacity and access directory data.
 - `state.loadedEntities`: prevents redundant entity loads.
 - Route-specific nested objects hold filters, selected rows, drawer state, saved view state, and current board state.
 

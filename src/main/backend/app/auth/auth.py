@@ -61,6 +61,10 @@ SECRET_KEY = os.getenv("SIPM_SECRET_KEY", DEFAULT_DEV_SECRET)
 ALGORITHM = "HS256"
 _access_minutes = _int_env("SIPM_ACCESS_MINUTES")
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 if _access_minutes is None else _access_minutes
+DELEGATED_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_DELEGATED_MINUTES", 10)
+SESSION_IDLE_MINUTES = _int_env_with_default("SIPM_SESSION_IDLE_MINUTES", 30)
+SESSION_IDLE_WARNING_SECONDS = 60
+SESSION_ACTIVITY_HEARTBEAT_SECONDS = 15
 _refresh_minutes = _int_env("SIPM_REFRESH_MINUTES")
 _refresh_days = _int_env("SIPM_REFRESH_DAYS")
 if _refresh_minutes is not None:
@@ -70,12 +74,16 @@ elif _refresh_days is not None:
 else:
     REFRESH_TOKEN_EXPIRE_MINUTES = 60
 RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_RESET_MINUTES", 30)
-ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_ONE_TIME_RESET_MINUTES", 30)
+ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES = _int_env_with_default(
+    "SIPM_ONE_TIME_RESET_MINUTES", 30
+)
 ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS = max(ACCESS_TOKEN_EXPIRE_MINUTES, 0) * 60
 REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS = max(REFRESH_TOKEN_EXPIRE_MINUTES, 0) * 60
 
 SECURE_COOKIES = _bool_env("SIPM_SECURE_COOKIES", IS_NON_DEV)
-COOKIE_SAMESITE = os.getenv("SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax").lower()
+COOKIE_SAMESITE = os.getenv(
+    "SIPM_COOKIE_SAMESITE", "strict" if IS_NON_DEV else "lax"
+).lower()
 ACTIVE_SPACE_COOKIE = "active_space_id"
 _VALID_COOKIE_SAMESITE = {"lax", "strict", "none"}
 
@@ -93,6 +101,8 @@ def allow_self_register() -> bool:
 def validate_auth_configuration() -> None:
     duration_settings = [
         ("SIPM_ACCESS_MINUTES", ACCESS_TOKEN_EXPIRE_MINUTES),
+        ("SIPM_DELEGATED_MINUTES", DELEGATED_TOKEN_EXPIRE_MINUTES),
+        ("SIPM_SESSION_IDLE_MINUTES", SESSION_IDLE_MINUTES),
         ("SIPM_RESET_MINUTES", RESET_TOKEN_EXPIRE_MINUTES),
         ("SIPM_ONE_TIME_RESET_MINUTES", ONE_TIME_RESET_TOKEN_EXPIRE_MINUTES),
     ]
@@ -105,20 +115,30 @@ def validate_auth_configuration() -> None:
     for setting_name, setting_value in duration_settings:
         if setting_value < 0:
             raise RuntimeError(f"{setting_name} must be greater than or equal to 0.")
+    if SESSION_IDLE_MINUTES < 1:
+        raise RuntimeError(
+            "SIPM_SESSION_IDLE_MINUTES must be greater than or equal to 1."
+        )
     if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
     if IS_NON_DEV and ALLOW_SELF_REGISTER:
-        raise RuntimeError("SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments.")
+        raise RuntimeError(
+            "SIPM_ALLOW_SELF_REGISTER must be false in non-dev environments."
+        )
     if COOKIE_SAMESITE not in _VALID_COOKIE_SAMESITE:
         raise RuntimeError("SIPM_COOKIE_SAMESITE must be one of: lax, strict, none.")
     if COOKIE_SAMESITE == "none" and not SECURE_COOKIES:
-        raise RuntimeError("SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true.")
+        raise RuntimeError(
+            "SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true."
+        )
     try:
         bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     except ValueError as exc:
-        raise RuntimeError("SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value.") from exc
+        raise RuntimeError(
+            "SIPM_BCRYPT_ROUNDS must be a valid bcrypt rounds value."
+        ) from exc
 
 
 def _password_bytes_for_bcrypt(password: str) -> bytes:
@@ -164,9 +184,13 @@ def _expiry(delta: timedelta) -> datetime:
     return datetime.now(timezone.utc) + delta
 
 
-def create_token(user_id: str, role: str, token_type: str) -> str:
+def create_token(
+    user_id: str, role: str, token_type: str, *, session_id: str | None = None
+) -> str:
     if token_type == "access":
         expires = _expiry(timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    elif token_type == "delegated":
+        expires = _expiry(timedelta(minutes=DELEGATED_TOKEN_EXPIRE_MINUTES))
     elif token_type == "refresh":
         expires = _expiry(timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES))
     elif token_type == "reset":
@@ -180,6 +204,8 @@ def create_token(user_id: str, role: str, token_type: str) -> str:
         "exp": expires,
         "iat": int(datetime.now(timezone.utc).timestamp()),
     }
+    if session_id:
+        to_encode["sid"] = session_id
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 

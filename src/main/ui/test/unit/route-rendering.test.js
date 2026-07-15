@@ -137,7 +137,7 @@ describe("simple route rendering", () => {
     expect(root.querySelector("[data-dashboard-page-direction='next']")?.disabled).toBe(true);
   });
 
-  it("renders team capacity summaries with filters, allocation load, and escaped labels", () => {
+  it("renders team capacity summaries with filters and escaped labels", () => {
     const capacityUserList = document.createElement("section");
     const capacityTeamFilter = document.createElement("input");
     const capacityNameFilter = document.createElement("input");
@@ -151,13 +151,8 @@ describe("simple route rendering", () => {
           { soeid: "sam1", display_name: "Sam <One>", team_tag: "Platform", capacity_hours: 160 },
           { soeid: "lee2", display_name: "Lee Two", team_tag: "Delivery", capacity_hours: 160 },
         ],
-        allocations: [
-          { assignee_user_soeid: "sam1", effort_hours: 80 },
-          { assignee_user_soeid: "sam1", effort_hours: 120 },
-        ],
       },
       els: { capacityUserList, capacityTeamFilter, capacityNameFilter },
-      allocationFteMonths: (row) => Number(row.effort_hours || 0) / 160,
       userCapacityFteMonth: (user) => Number(user.capacity_hours || 0) / 160,
       formatFte: (value) => Number(value).toFixed(2),
       teamCapacityState: {
@@ -172,7 +167,7 @@ describe("simple route rendering", () => {
 
     expect(capacityUserList.textContent).toContain("Team Capacity");
     expect(capacityUserList.textContent).toContain("1 visible");
-    expect(capacityUserList.textContent).toContain("125%");
+    expect(capacityUserList.textContent).toContain("Capacity1.00FTE-mo");
     expect(capacityUserList.innerHTML).toContain("Sam &lt;One&gt;");
     expect(capacityUserList.innerHTML).toContain("Core &lt;Space&gt;");
     expect(capacityUserList.innerHTML).toContain("Network &lt;down&gt;");
@@ -751,6 +746,11 @@ describe("simple route rendering", () => {
     expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-group-row")).toHaveLength(2);
     expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-child-row")).toHaveLength(2);
     expect(root.querySelector('[data-program-dashboard-action="download-pdf"]')?.textContent).toBe("Download PDF");
+    expect(root.querySelector('[data-program-dashboard-action="download-excel"]')?.textContent).toBe("Download Excel");
+    expect(root.querySelector(".program-dashboard-table-download-actions")?.textContent).toContain("Download PDF");
+    expect(root.querySelector(".program-dashboard-table-download-actions")?.textContent).toContain("Download Excel");
+    expect(root.querySelector(".program-dashboard-table-outline-actions")?.textContent).toContain("Expand All");
+    expect(root.querySelector(".program-dashboard-table-outline-actions")?.textContent).toContain("Collapse All");
 
     root.querySelector('[data-program-dashboard-action="toggle-project"]')?.click();
     expect(root.querySelectorAll(".program-dashboard-grid-row.program-dashboard-child-row")).toHaveLength(1);
@@ -933,6 +933,61 @@ describe("simple route rendering", () => {
       }),
     });
     expect(createObjectUrl).toHaveBeenCalled();
+  });
+
+  it("downloads the program dashboard Excel report with selected and collapsed state", async () => {
+    document.body.innerHTML = `
+      <section id="view-program-dashboard">
+        <div id="program-dashboard-root"></div>
+      </section>
+    `;
+    localStorage.setItem("sipm-program-dashboard-v1:space-1", JSON.stringify({
+      selectedProgramIds: ["program-1"],
+      collapsedProjectIds: ["project-1"],
+    }));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: vi.fn().mockResolvedValue(new Blob(["xlsx"], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("URL", {
+      ...URL,
+      createObjectURL: vi.fn().mockReturnValue("blob:program-dashboard-excel-report"),
+      revokeObjectURL: vi.fn(),
+    });
+
+    renderProgramDashboardView(createProgramDashboardState(), {
+      apiBase: "/project-manager/api",
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state: {
+        activeSpace: { space_id: "space-1" },
+        programs: [{ program_id: "program-1", program_name: "Program One" }],
+        projects: [{ project_id: "project-1", program_id: "program-1", project_name: "Project One" }],
+        solutions: [],
+      },
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+    });
+
+    document.querySelector('[data-program-dashboard-action="download-excel"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).toHaveBeenCalledWith("/project-manager/api/programs/dashboard/report.xlsx", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Space-Id": "space-1",
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        selected_program_ids: ["program-1"],
+        collapsed_program_ids: [],
+        collapsed_project_ids: ["project-1"],
+      }),
+    });
   });
 
   it("reports program dashboard PDF download failures without changing collapse state", async () => {

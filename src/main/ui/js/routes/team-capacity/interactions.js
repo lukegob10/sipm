@@ -111,7 +111,6 @@ export function createTeamCapacityRouteController({
       state.teamCapacity.error = "No active space selected.";
       state.teamCapacity.lastLoadedAt = "";
       applyEntityData("users", []);
-      applyEntityData("allocations", []);
       if (state.currentView === "team-capacity") renderTeamCapacity();
       if (typeof onViewDataLoaded === "function") {
         onViewDataLoaded({ view: "team-capacity", durationMs: Date.now() - startedAt, changed: false });
@@ -127,31 +126,11 @@ export function createTeamCapacityRouteController({
 
     try {
       const spaceHeaders = { "X-Space-Id": requestedSpaceId };
-      const [usersResult, allocationsResult] = await Promise.allSettled([
-        api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders }),
-        api("/resource-allocations", { timeoutMs: 45000, headers: spaceHeaders }),
-      ]);
+      const usersResult = await api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders });
       if (state.teamCapacity.requestId !== requestId) return;
       if ((state.activeSpace?.space_id || "") !== requestedSpaceId) return;
 
-      const loadErrors = [];
-      if (usersResult.status === "fulfilled") {
-        applyEntityData("users", usersResult.value);
-      } else {
-        if (handleAuthError(usersResult.reason)) return;
-        loadErrors.push(`roster: ${usersResult.reason?.message || "failed"}`);
-      }
-      if (allocationsResult.status === "fulfilled") {
-        applyEntityData("allocations", allocationsResult.value);
-      } else {
-        if (handleAuthError(allocationsResult.reason)) return;
-        loadErrors.push(`allocations: ${allocationsResult.reason?.message || "failed"}`);
-        applyEntityData("allocations", []);
-      }
-
-      if (loadErrors.length) {
-        state.teamCapacity.error = `Partial load: ${loadErrors.join(" | ")}`;
-      }
+      applyEntityData("users", usersResult);
       state.teamCapacity.lastLoadedAt = new Date().toISOString();
       state.teamCapacity.lastLoadedSpaceId = requestedSpaceId;
       state.teamCapacity.lastLoadedSpaceName = requestedSpaceName;

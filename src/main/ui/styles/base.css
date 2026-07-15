@@ -131,6 +131,9 @@
   --tone-positive-bg: var(--success-soft);
   --tone-positive-border: var(--success-border);
   --tone-positive-text: var(--text);
+  --tone-info-bg: var(--info-soft);
+  --tone-info-border: var(--info-border);
+  --tone-info-text: var(--text);
   --tone-warn-bg: var(--warning-soft);
   --tone-warn-border: var(--warning-border);
   --tone-warn-text: var(--text);
@@ -334,6 +337,9 @@
   --tone-positive-bg: var(--success-soft);
   --tone-positive-border: var(--success-border);
   --tone-positive-text: var(--text);
+  --tone-info-bg: var(--info-soft);
+  --tone-info-border: var(--info-border);
+  --tone-info-text: var(--text);
   --tone-warn-bg: var(--warning-soft);
   --tone-warn-border: var(--warning-border);
   --tone-warn-text: var(--text);
@@ -1370,6 +1376,11 @@ label.wide {
   border-color: var(--tone-positive-border);
   background: var(--tone-positive-bg);
 }
+.pill.info {
+  color: var(--tone-info-text);
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+}
 .pill.warn {
   color: var(--tone-warn-text);
   border-color: var(--tone-warn-border);
@@ -1789,11 +1800,16 @@ button.secondary.danger:hover {
 }
 .status-select.positive,
 .status-select[data-status-state="active"],
-.status-select[data-status-state="in_progress"],
-.status-select[data-status-state="complete"] {
+.status-select[data-status-state="in_progress"] {
   background: var(--tone-positive-bg);
   border-color: var(--tone-positive-border);
   color: var(--tone-positive-text);
+}
+.status-select.info,
+.status-select[data-status-state="complete"] {
+  background: var(--tone-info-bg);
+  border-color: var(--tone-info-border);
+  color: var(--tone-info-text);
 }
 .status-select.warn,
 .status-select[data-status-state="on_hold"] {

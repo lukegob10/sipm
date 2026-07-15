@@ -1,25 +1,6 @@
-export function createModalShellController({ els, onPlanningModalAction }) {
+export function createModalShellController({ els }) {
   let pendingConfirmResolve = null;
   let confirmReturnFocusEl = null;
-
-  function closePlanningModal() {
-    if (els.planningModal) {
-      els.planningModal.classList.add("hidden");
-    }
-    if (els.planningModalBody) {
-      els.planningModalBody.innerHTML = "";
-    }
-  }
-
-  function openPlanningModal(title, bodyHtml) {
-    if (els.planningModalTitle) {
-      els.planningModalTitle.textContent = title || "Details";
-    }
-    if (els.planningModalBody) {
-      els.planningModalBody.innerHTML = bodyHtml || "";
-    }
-    els.planningModal?.classList.remove("hidden");
-  }
 
   function closeConfirmModal(result = false) {
     const resolver = pendingConfirmResolve;
@@ -81,37 +62,9 @@ export function createModalShellController({ els, onPlanningModalAction }) {
     els.confirmModal._bound = true;
   }
 
-  function bindPlanningModal() {
-    if (els.planningModal && !els.planningModal._bound) {
-      els.planningModal.addEventListener("click", (event) => {
-        if (!(event.target instanceof Element)) return;
-        const actionEl = event.target.closest("[data-planning-modal-action]");
-        if (actionEl) {
-          const action = actionEl.getAttribute("data-planning-modal-action") || "";
-          const allocationId = actionEl.getAttribute("data-allocation-id") || "";
-          if (typeof onPlanningModalAction === "function") {
-            onPlanningModalAction(action, { allocationId, actionEl, event });
-          }
-          return;
-        }
-        if (event.target === els.planningModal || event.target.classList.contains("modal-backdrop")) {
-          closePlanningModal();
-        }
-      });
-      els.planningModal._bound = true;
-    }
-    if (els.planningModalClose && !els.planningModalClose._bound) {
-      els.planningModalClose.addEventListener("click", closePlanningModal);
-      els.planningModalClose._bound = true;
-    }
-  }
-
   return {
     bindConfirmModal,
-    bindPlanningModal,
     closeConfirmModal,
-    closePlanningModal,
-    openPlanningModal,
     showConfirmModal,
   };
 }

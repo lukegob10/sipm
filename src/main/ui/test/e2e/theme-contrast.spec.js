@@ -19,6 +19,13 @@ async function loadLocalAuthedApp(page) {
   });
   expect(register.ok()).toBeTruthy();
 
+  const personalSpace = await page.request.post("/project-manager/api/spaces/personal", { data: {} });
+  expect(personalSpace.ok()).toBeTruthy();
+  const activate = await page.request.post("/project-manager/api/auth/active-space", {
+    data: { space_id: (await personalSpace.json()).space_id },
+  });
+  expect(activate.ok()).toBeTruthy();
+
   const program = await page.request.post("/project-manager/api/programs", {
     data: {
       program_name: programName,
@@ -246,15 +253,6 @@ test("shared controls keep readable contrast in light and dark themes", async ({
         { selector: "#kanban-board .kanban-project", label: "kanban project" },
         { selector: "#kanban-board .kanban-column", label: "kanban column" },
         { selector: "#kanban-board .kanban-card", label: "kanban card" },
-      ],
-    },
-    {
-      view: "planning",
-      waitFor: "#planning-board",
-      selectors: [
-        { selector: "#view-planning button", label: "planning button" },
-        { selector: "#view-planning .table", label: "planning table shell" },
-        { selector: "#view-planning .pill", label: "planning pill" },
       ],
     },
     {

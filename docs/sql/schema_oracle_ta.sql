@@ -63,6 +63,23 @@ CREATE TABLE "TB_TA_PM_USERS" (
 
 ALTER TABLE "TB_TA_PM_SPACES" ADD CONSTRAINT fk_spaces_owner_user FOREIGN KEY(owner_user_id) REFERENCES "TB_TA_PM_USERS" (user_id);
 
+-- Table: TB_TA_PM_AUTH_SESSIONS
+
+CREATE TABLE "TB_TA_PM_AUTH_SESSIONS" (
+	session_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	last_activity_at DATE NOT NULL,
+	revoked_at DATE,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (session_id),
+	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
+);
+
+CREATE INDEX idx_auth_session_user ON "TB_TA_PM_AUTH_SESSIONS" (user_id);
+CREATE INDEX idx_auth_session_activity ON "TB_TA_PM_AUTH_SESSIONS" (last_activity_at);
+CREATE INDEX idx_auth_session_revoked ON "TB_TA_PM_AUTH_SESSIONS" (revoked_at);
+
 -- Table: TB_TA_PM_API_TOKENS
 
 CREATE TABLE "TB_TA_PM_API_TOKENS" (
@@ -239,22 +256,6 @@ CREATE TABLE "TB_TA_PM_USAGE_ROUTE_IDENTITY_DAILY_ROLLUPS" (
 	PRIMARY KEY (rollup_date, space_id, view_key, token_type, token_value)
 );
 
--- Table: TB_TA_PM_PLANNING_WINDOWS
-
-CREATE TABLE "TB_TA_PM_PLANNING_WINDOWS" (
-	window_id VARCHAR2(255 CHAR) NOT NULL,
-	space_id VARCHAR2(255 CHAR),
-	name VARCHAR2(255 CHAR) NOT NULL,
-	start_date DATE NOT NULL,
-	end_date DATE NOT NULL,
-	created_at DATE NOT NULL,
-	updated_at DATE NOT NULL,
-	deleted_at DATE,
-	PRIMARY KEY (window_id),
-	CONSTRAINT uix_planning_window_name UNIQUE (name),
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
-);
-
 -- Table: TB_TA_PM_PROGRAMS
 
 CREATE TABLE "TB_TA_PM_PROGRAMS" (
@@ -346,31 +347,6 @@ CREATE TABLE "TB_TA_PM_TEAMS" (
 	PRIMARY KEY (team_id),
 	CONSTRAINT uix_team_space_name UNIQUE (space_id, name),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id)
-);
-
--- Table: TB_TA_PM_RESOURCE_ALLOCATIONS
-
-CREATE TABLE "TB_TA_PM_RESOURCE_ALLOCATIONS" (
-	allocation_id VARCHAR2(255 CHAR) NOT NULL,
-	space_id VARCHAR2(255 CHAR),
-	work_item_type VARCHAR2(255 CHAR) NOT NULL,
-	work_item_id VARCHAR2(255 CHAR) NOT NULL,
-	assignee_user_soeid VARCHAR2(255 CHAR),
-	assignee VARCHAR2(255 CHAR),
-	team_id VARCHAR2(255 CHAR),
-	week_start DATE NOT NULL,
-	month_start DATE,
-	hours INTEGER NOT NULL,
-	fte_months FLOAT NOT NULL,
-	window_id VARCHAR2(255 CHAR),
-	created_at DATE NOT NULL,
-	updated_at DATE NOT NULL,
-	deleted_at DATE,
-	PRIMARY KEY (allocation_id),
-	CONSTRAINT uix_alloc_unique_assignment UNIQUE (work_item_type, work_item_id, assignee_user_soeid, week_start, window_id),
-	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
-	FOREIGN KEY(team_id) REFERENCES "TB_TA_PM_TEAMS" (team_id),
-	FOREIGN KEY(window_id) REFERENCES "TB_TA_PM_PLANNING_WINDOWS" (window_id)
 );
 
 -- Table: TB_TA_PM_SOLUTIONS
@@ -502,14 +478,8 @@ CREATE TABLE "TB_TA_PM_TASKS" (
 	FOREIGN KEY(solution_id) REFERENCES "TB_TA_PM_SOLUTIONS" (solution_id)
 );
 
--- Index: idx_alloc_item
-CREATE INDEX idx_alloc_item ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (work_item_type, work_item_id);
 
--- Index: idx_alloc_month_assignee
-CREATE INDEX idx_alloc_month_assignee ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (month_start, assignee_user_soeid);
 
--- Index: idx_alloc_week_assignee
-CREATE INDEX idx_alloc_week_assignee ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (week_start, assignee_user_soeid);
 
 -- Index: idx_change_entity_created
 CREATE INDEX idx_change_entity_created ON "TB_TA_PM_CHANGE_LOG" (entity_type, entity_id, created_at);
@@ -592,11 +562,7 @@ CREATE INDEX "ix_TB_TA_PM_CHANGE_LOG_user_id" ON "TB_TA_PM_CHANGE_LOG" (user_id)
 -- Index: ix_TB_TA_PM_PHASES_sequence
 CREATE INDEX "ix_TB_TA_PM_PHASES_sequence" ON "TB_TA_PM_PHASES" (sequence);
 
--- Index: ix_TB_TA_PM_PLANNING_WINDOWS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_PLANNING_WINDOWS_deleted_at" ON "TB_TA_PM_PLANNING_WINDOWS" (deleted_at);
 
--- Index: ix_TB_TA_PM_PLANNING_WINDOWS_space_id
-CREATE INDEX "ix_TB_TA_PM_PLANNING_WINDOWS_space_id" ON "TB_TA_PM_PLANNING_WINDOWS" (space_id);
 
 -- Index: ix_TB_TA_PM_PROGRAMS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_PROGRAMS_deleted_at" ON "TB_TA_PM_PROGRAMS" (deleted_at);
@@ -619,26 +585,12 @@ CREATE INDEX "ix_TB_TA_PM_PROJECTS_sponsor_user_soeid" ON "TB_TA_PM_PROJECTS" (s
 -- Index: ix_TB_TA_PM_PROJECTS_status
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_status" ON "TB_TA_PM_PROJECTS" (status);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_assignee_user_soeid
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_assignee_user_soeid" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (assignee_user_soeid);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_deleted_at
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_deleted_at" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (deleted_at);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_month_start
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_month_start" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (month_start);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_space_id
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_space_id" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (space_id);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_team_id
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_team_id" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (team_id);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_week_start
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_week_start" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (week_start);
 
--- Index: ix_TB_TA_PM_RESOURCE_ALLOCATIONS_window_id
-CREATE INDEX "ix_TB_TA_PM_RESOURCE_ALLOCATIONS_window_id" ON "TB_TA_PM_RESOURCE_ALLOCATIONS" (window_id);
 
 -- Index: ix_TB_TA_PM_SOLUTIONS_approver_user_soeid
 CREATE INDEX "ix_TB_TA_PM_SOLUTIONS_approver_user_soeid" ON "TB_TA_PM_SOLUTIONS" (approver_user_soeid);

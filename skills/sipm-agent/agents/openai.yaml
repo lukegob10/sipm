@@ -1,4 +1,4 @@
 interface:
   display_name: "SIPM Agent"
-  short_description: "Submit approval-gated SIPM agent change requests."
-  default_prompt: "Use the SIPM Agent skill to read scoped SIPM work context and submit approval-gated project manager changes."
+  short_description: "Run complete, scoped SIPM workflows safely."
+  default_prompt: "Use $sipm-agent to locate scoped work, propose approval-gated changes, track review, and verify the result."

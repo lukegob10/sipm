@@ -153,6 +153,15 @@ an environment is missing phase rows.
 
 ## Oracle Migration Repairs
 
+After deploying the server-enforced inactivity-session feature to an existing
+database, run:
+
+1. `docs/sql/20260715_auth_sessions_v1.sql`
+
+The migration is idempotent and must be applied before the updated application
+accepts interactive logins. It creates `TB_TA_PM_AUTH_SESSIONS` and its required
+indexes; application startup intentionally does not create it automatically.
+
 If an environment has already renamed `TB_TA_PM_SUBCOMPONENTS` to
 `TB_TA_PM_TASKS` but still errors with `ORA-00904:
 "TB_TA_PM_TASKS"."TASK_NAME": invalid identifier`, run:

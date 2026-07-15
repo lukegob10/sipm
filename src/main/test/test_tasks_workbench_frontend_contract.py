@@ -165,26 +165,6 @@ def test_workbench_drawer_context_surfaces_effective_repo_link():
     assert 'className: "repo-external-link-inline"' in drawer_text
 
 
-def test_workbench_team_meta_uses_quieter_styling():
-    text = read_ui_styles(STYLES)
-
-    assert ".wab-team-meta span {" in text
-    assert "padding: 0;" in text
-    assert "border: none;" in text
-    assert "border-radius: 0;" in text
-    assert "background: transparent;" in text
-
-
-def test_workbench_section_counts_use_quieter_styling():
-    text = read_ui_styles(STYLES)
-
-    assert ".wab-section-count {" in text
-    assert "padding: 0;" in text
-    assert "border: none;" in text
-    assert "border-radius: 0;" in text
-    assert "background: transparent;" in text
-
-
 def test_workbench_invalid_project_filter_is_auto_cleared():
     text = WORKBENCH_FILTERS.read_text(encoding="utf-8")
 
@@ -234,19 +214,11 @@ def test_workbench_restore_and_saved_view_apply_reuse_filter_normalization():
     saved_views_text = WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
     options_text = WORKBENCH_OPTIONS.read_text(encoding="utf-8")
 
-    restore_start = app_text.index("function restoreTasksWorkbenchUiState() {")
-    restore_end = app_text.index("function canManageSpaceMembership")
-    restore_slice = app_text[restore_start:restore_end]
-
-    populate_start = app_text.index("function populateSelects() {")
-    populate_end = app_text.index("if (els.allocationForm) {")
-    populate_slice = app_text[populate_start:populate_end]
-
     assert "export function normalizeTasksWorkbenchUiState(ctx, { persist = false } = {}) {" in filters_text
-    assert "normalizeWorkbenchUiState(createTasksWorkbenchContext());" in restore_slice
+    assert "normalizeWorkbenchUiState(createTasksWorkbenchContext());" in app_text
     assert "function applyTasksWorkbenchSavedView(ctx, savedView) {" in saved_views_text
     assert "normalizeTasksWorkbenchUiState({ persist: true });" in saved_views_text
-    assert "populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });" in populate_slice
+    assert "populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
     assert "normalizeTasksWorkbenchUiState({ persist: true });" in options_text
 
 

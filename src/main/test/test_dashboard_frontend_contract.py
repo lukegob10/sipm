@@ -431,7 +431,9 @@ def test_program_dashboard_projects_remain_collapsible_headers():
     assert 'data-program-dashboard-action="expand-projects"' in render_text
     assert 'data-program-dashboard-action="collapse-projects"' in render_text
     assert 'data-program-dashboard-action="download-pdf"' in render_text
+    assert 'data-program-dashboard-action="download-excel"' in render_text
     assert "/programs/dashboard/report.pdf" in render_text
+    assert "/programs/dashboard/report.xlsx" in render_text
     assert 'className: `program-dashboard-program-row ${programCollapsed ? "program-dashboard-program-row-collapsed" : ""}`' in render_text
     assert 'className: `program-dashboard-group-row program-dashboard-project-row ${collapsed ? "program-dashboard-group-row-collapsed" : ""}`' in render_text
     assert 'className: "program-dashboard-child-row"' in render_text

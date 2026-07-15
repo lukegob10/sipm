@@ -21,10 +21,6 @@ ALTER INDEX "ix_TB_TA_PM_SUBCOMPONENTS_solution_id" RENAME TO "ix_TB_TA_PM_TASKS
 ALTER INDEX "ix_TB_TA_PM_SUBCOMPONENTS_space_id" RENAME TO "ix_TB_TA_PM_TASKS_space_id";
 ALTER INDEX "ix_TB_TA_PM_SUBCOMPONENTS_status" RENAME TO "ix_TB_TA_PM_TASKS_status";
 
-UPDATE "TB_TA_PM_RESOURCE_ALLOCATIONS"
-SET work_item_type = 'task'
-WHERE work_item_type = 'subcomponent';
-
 UPDATE "TB_TA_PM_CHANGE_LOG"
 SET entity_type = 'task'
 WHERE entity_type = 'subcomponent';

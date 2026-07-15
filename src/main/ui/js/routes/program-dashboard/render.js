@@ -333,10 +333,15 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
       return;
     }
 
-    if (action === "download-pdf") {
+    if (action === "download-pdf" || action === "download-excel") {
       event.preventDefault();
+      const reportType = action === "download-excel" ? "Excel" : "PDF";
       try {
-        await downloadProgramDashboardPdf(programDashboardState);
+        if (action === "download-excel") {
+          await downloadProgramDashboardExcel(programDashboardState);
+        } else {
+          await downloadProgramDashboardPdf(programDashboardState);
+        }
         if (typeof programDashboardState.ctx?.trackWorkflow === "function") {
           programDashboardState.ctx.trackWorkflow("program_dashboard", "report_download", "success", {
             source: "program_dashboard",
@@ -348,8 +353,8 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
             source: "program_dashboard",
           });
         }
-        console.error("Program dashboard PDF download failed", err);
-        programDashboardState.ctx?.setStatus?.(err?.message || "PDF download failed", "danger");
+        console.error(`Program dashboard ${reportType} download failed`, err);
+        programDashboardState.ctx?.setStatus?.(err?.message || `${reportType} download failed`, "danger");
       }
       return;
     }
@@ -382,6 +387,14 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
 }
 
 async function downloadProgramDashboardPdf(programDashboardState) {
+  return downloadProgramDashboardReport(programDashboardState, "pdf");
+}
+
+async function downloadProgramDashboardExcel(programDashboardState) {
+  return downloadProgramDashboardReport(programDashboardState, "xlsx");
+}
+
+async function downloadProgramDashboardReport(programDashboardState, extension) {
   const ctx = programDashboardState.ctx || {};
   const activeSpaceId = ctx?.state?.activeSpace?.space_id || "";
   const publicSlug = String(ctx.publicSlug || "").trim();
@@ -389,8 +402,12 @@ async function downloadProgramDashboardPdf(programDashboardState) {
   const headers = { "Content-Type": "application/json" };
   if (!isPublicMode && activeSpaceId) headers["X-Space-Id"] = activeSpaceId;
   const reportUrl = isPublicMode
-    ? `${resolveApiBase(ctx)}/public/program-dashboard/${encodeURIComponent(publicSlug)}/report.pdf`
-    : `${resolveApiBase(ctx)}/programs/dashboard/report.pdf`;
+    ? (extension === "xlsx"
+      ? `${resolveApiBase(ctx)}/public/program-dashboard/${encodeURIComponent(publicSlug)}/report.xlsx`
+      : `${resolveApiBase(ctx)}/public/program-dashboard/${encodeURIComponent(publicSlug)}/report.pdf`)
+    : (extension === "xlsx"
+      ? `${resolveApiBase(ctx)}/programs/dashboard/report.xlsx`
+      : `${resolveApiBase(ctx)}/programs/dashboard/report.pdf`);
   const response = await fetch(reportUrl, {
     method: "POST",
     headers,
@@ -420,7 +437,7 @@ async function downloadProgramDashboardPdf(programDashboardState) {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `program-dashboard-report-${today}.pdf`;
+  link.download = `program-dashboard-report-${today}.${extension}`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -675,9 +692,14 @@ function renderProjectsTable({
   return `
     <div class="program-dashboard-table-shell program-dashboard-project-grid-shell">
       <div class="program-dashboard-table-actions">
-        <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="expand-projects">Expand All</button>
-        <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="collapse-projects" data-program-ids="${esc(programIds.join(","))}" data-project-ids="${esc(projectIds.join(","))}">Collapse All</button>
-        <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="download-pdf">Download PDF</button>
+        <div class="program-dashboard-table-action-group program-dashboard-table-download-actions">
+          <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="download-pdf">Download PDF</button>
+          <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="download-excel">Download Excel</button>
+        </div>
+        <div class="program-dashboard-table-action-group program-dashboard-table-outline-actions">
+          <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="expand-projects">Expand All</button>
+          <button type="button" class="program-dashboard-table-action" data-program-dashboard-action="collapse-projects" data-program-ids="${esc(programIds.join(","))}" data-project-ids="${esc(projectIds.join(","))}">Collapse All</button>
+        </div>
       </div>
       <div class="program-dashboard-project-grid" role="table" aria-label="Projects and solutions">
         ${projectGridHeaderRow()}

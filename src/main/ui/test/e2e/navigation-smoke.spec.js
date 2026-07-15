@@ -13,12 +13,19 @@ async function loadLocalAuthedApp(page) {
   });
   expect(register.ok()).toBeTruthy();
 
+  const personalSpace = await page.request.post("/project-manager/api/spaces/personal", { data: {} });
+  expect(personalSpace.ok()).toBeTruthy();
+  const activate = await page.request.post("/project-manager/api/auth/active-space", {
+    data: { space_id: (await personalSpace.json()).space_id },
+  });
+  expect(activate.ok()).toBeTruthy();
+
   await page.goto("/");
   await expect(page.locator("#app-shell")).toBeVisible();
 }
 
 
-test("dashboard and planning routes load from the shared shell", async ({ page }) => {
+test("dashboard routes load from the shared shell", async ({ page }) => {
   await loadLocalAuthedApp(page);
 
   await page.locator('.nav-btn[data-view="dashboard"]').click();
@@ -29,10 +36,6 @@ test("dashboard and planning routes load from the shared shell", async ({ page }
   await page.locator('.nav-btn[data-view="program-dashboard"]').click();
   await expect(page.locator("#view-program-dashboard")).toHaveClass(/active/);
   await expect(page.locator("#program-dashboard-root")).toBeVisible();
-
-  await page.locator('.nav-btn[data-view="planning"]').click();
-  await expect(page.locator("#view-planning")).toHaveClass(/active/);
-  await expect(page.locator("#planning-board")).toBeVisible();
 
   await page.locator("#space-switcher-trigger").click();
   await expect(page.locator("#space-switcher-panel")).not.toHaveClass(/hidden/);

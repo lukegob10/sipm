@@ -16,8 +16,9 @@ export function createSessionController({
   showAuthNotice,
   showResetError,
   showResetSuccess,
-  resetIdleTimer,
-  hideIdleModal,
+  configureSessionPolicy,
+  noteSessionActivity,
+  broadcastSessionLogout,
   refreshSpaceContext,
   onApiFailure = null,
   startLiveSync,
@@ -40,6 +41,12 @@ export function createSessionController({
     }
     if (err.code === "TOKEN_REVOKED") {
       return "Your session was reset after an account change. Please sign in again.";
+    }
+    if (err.code === "SESSION_IDLE_EXPIRED") {
+      return "You were signed out after 30 minutes of inactivity.";
+    }
+    if (err.code === "SESSION_REQUIRED" || err.code === "SESSION_REVOKED") {
+      return "Your session is no longer active. Sign in again to continue.";
     }
     return err.message || fallback;
   }
@@ -89,6 +96,9 @@ export function createSessionController({
       "TOKEN_TYPE_INVALID",
       "TOKEN_SUBJECT_INVALID",
       "TOKEN_REVOKED",
+      "SESSION_REQUIRED",
+      "SESSION_REVOKED",
+      "SESSION_IDLE_EXPIRED",
       "USER_INACTIVE_OR_MISSING",
     ]);
     if (err.code) return terminalCodes.has(err.code);
@@ -298,6 +308,7 @@ export function createSessionController({
   }
 
   function handleSessionExpired(options = {}) {
+    broadcastSessionLogout?.();
     clearLocalSession();
     setStatus(options.statusText || "Sign in required", "warn");
     showAuthNotice(options.message || "Your session expired due to inactivity. Please sign in again.");
@@ -308,6 +319,36 @@ export function createSessionController({
     sessionRefreshPromise = null;
     lastSessionRefreshAt = 0;
     setAuthed(null);
+  }
+
+  async function recordSessionActivity(options = {}) {
+    try {
+      return await api("/auth/activity", {
+        method: "POST",
+        keepalive: !!options.keepalive,
+      });
+    } catch (err) {
+      if (isTerminalAuthFailure(err)) handleSessionExpired({ message: authErrorMessage(err) });
+      throw err;
+    }
+  }
+
+  async function logoutLocally({ idle = false, remote = false } = {}) {
+    if (!remote) broadcastSessionLogout?.();
+    clearLocalSession();
+    setAuthVisible(true);
+    setStatus("Sign in required", "warn");
+    if (idle) {
+      showAuthNotice("You were signed out after 30 minutes of inactivity.");
+    } else if (remote) {
+      showAuthNotice("You were signed out in another tab.");
+    }
+    if (remote) return;
+    try {
+      await api("/auth/logout", { method: "POST", skipAuthRefresh: true });
+    } catch (err) {
+      console.warn("Logout error", err);
+    }
   }
 
   function handleAuthError(err) {
@@ -427,39 +468,11 @@ export function createSessionController({
       });
     });
 
-    els.logoutBtn?.addEventListener("click", async () => {
-      try {
-        await api("/auth/logout", { method: "POST" });
-      } catch (err) {
-        console.warn("Logout error", err);
-      } finally {
-        clearLocalSession();
-        setAuthVisible(true);
-      }
-    });
+    els.logoutBtn?.addEventListener("click", () => logoutLocally());
 
-    els.idleStay?.addEventListener("click", async () => {
-      try {
-        const user = await refreshSessionTokens({ force: true });
-        if (!user) throw new Error("Session refresh failed");
-        startLiveSync({ force: true });
-        resetIdleTimer();
-        hideIdleModal();
-      } catch {
-        handleSessionExpired();
-      }
-    });
+    els.idleStay?.addEventListener("click", () => noteSessionActivity?.());
 
-    els.idleLogout?.addEventListener("click", async () => {
-      try {
-        await api("/auth/logout", { method: "POST" });
-      } catch (err) {
-        console.warn("Logout error", err);
-      } finally {
-        clearLocalSession();
-        setAuthVisible(true);
-      }
-    });
+    els.idleLogout?.addEventListener("click", () => logoutLocally());
   }
 
   async function bootstrapAuth() {
@@ -471,6 +484,12 @@ export function createSessionController({
       return;
     }
     setStatus("Checking session...", "warn");
+    try {
+      const policy = await api("/auth/session-policy", { skipAuthRefresh: true });
+      configureSessionPolicy?.(policy);
+    } catch (err) {
+      if (!isNetworkOrTimeoutFailure(err)) console.warn("Session policy load failed", err);
+    }
     let user = null;
     try {
       user = await fetchCurrentUser();
@@ -504,5 +523,8 @@ export function createSessionController({
     isResetPath,
     bindAuthUI,
     bootstrapAuth,
+    recordSessionActivity,
+    logoutForInactivity: () => logoutLocally({ idle: true }),
+    handleRemoteLogout: () => logoutLocally({ remote: true }),
   };
 }

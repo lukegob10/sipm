@@ -41,8 +41,6 @@ export function createDataStoreController({
     state.tasks = [];
     state.teams = [];
     state.users = [];
-    state.allocations = [];
-    state.planningWindows = [];
     state.ganttCollapsed = new Set();
     state.loadedEntities = new Set();
     state.capacitySelectedSoeid = "";
@@ -75,8 +73,6 @@ export function createDataStoreController({
     if (entity === "tasks") return api("/tasks");
     if (entity === "teams") return api("/teams");
     if (entity === "users") return api("/users");
-    if (entity === "allocations") return api("/resource-allocations");
-    if (entity === "windows") return api("/planning/windows");
     throw new Error(`Unknown data entity: ${entity}`);
   }
 
@@ -96,10 +92,6 @@ export function createDataStoreController({
       state.teams = Array.isArray(data) ? data : [];
     } else if (entity === "users") {
       state.users = Array.isArray(data) ? data : [];
-    } else if (entity === "allocations") {
-      state.allocations = Array.isArray(data) ? data : [];
-    } else if (entity === "windows") {
-      state.planningWindows = Array.isArray(data) ? data : [];
     }
     state.loadedEntities.add(entity);
   }

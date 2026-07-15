@@ -702,6 +702,12 @@
   color: var(--tone-positive-text);
 }
 
+#view-dashboard .dashboard-condensed-table .pill.info {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-text);
+}
+
 #view-dashboard .dashboard-condensed-table .pill.warn {
   border-color: var(--tone-warn-border);
   background: var(--tone-warn-bg);

@@ -17,7 +17,6 @@ from ...utils.enums import ProjectStatus
 from .common import (
     _PROJECTS_DETAIL_TTL_SECONDS,
     _PROJECTS_LIST_TTL_SECONDS,
-    _exclude_work_allocation_board_projects,
     _get_project_or_404,
     _project_payload,
     _project_query,
@@ -47,9 +46,11 @@ def list_projects(
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
     def _load():
-        query = _exclude_work_allocation_board_projects(
-            _project_query(session, space_ctx).join(Program, Program.program_id == Project.program_id)
-        ).filter(Program.deleted_at.is_(None))
+        query = (
+            _project_query(session, space_ctx)
+            .join(Program, Program.program_id == Project.program_id)
+            .filter(Program.deleted_at.is_(None))
+        )
         if status_filter:
             query = query.filter(Project.status == status_filter)
         if program_id:

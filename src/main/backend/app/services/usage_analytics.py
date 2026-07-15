@@ -39,7 +39,6 @@ ALLOWED_FEATURE_KEYS = {
     "app",
     "csv",
     "navigation",
-    "planning",
     "projects",
     "spaces",
     "tasks",

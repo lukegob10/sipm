@@ -168,6 +168,10 @@ export function createSpaceGovernanceController({
         state.agentChangeRequestSelectedIds = new Set(
           [...(state.agentChangeRequestSelectedIds || new Set())].filter((id) => knownIds.has(id))
         );
+        state.agentChangeRequestSelectedOperationIds = Object.fromEntries(
+          Object.entries(state.agentChangeRequestSelectedOperationIds || {})
+            .filter(([id]) => knownIds.has(id))
+        );
         if (!knownIds.has(state.agentChangeRequestModalId)) {
           state.agentChangeRequestModalId = "";
         }
@@ -281,6 +285,17 @@ export function createSpaceGovernanceController({
     if (action === "open-agent-change-request") {
       state.agentChangeRequestModalId = button.getAttribute("data-change-request-id") || "";
       state.agentChangeRequestActiveId = state.agentChangeRequestModalId;
+      const request = (state.agentChangeRequests || []).find(
+        (row) => row.change_request_id === state.agentChangeRequestModalId
+      );
+      if (request && !(state.agentChangeRequestSelectedOperationIds?.[request.change_request_id] instanceof Set)) {
+        state.agentChangeRequestSelectedOperationIds = {
+          ...(state.agentChangeRequestSelectedOperationIds || {}),
+          [request.change_request_id]: new Set(
+            (request.operations || []).map((operation) => operation.client_operation_id)
+          ),
+        };
+      }
       renderGovernanceHub("agent-approvals");
       return true;
     }
@@ -289,38 +304,72 @@ export function createSpaceGovernanceController({
       renderGovernanceHub("agent-approvals");
       return true;
     }
+    if (
+      action === "select-all-agent-change-request-operations"
+      || action === "clear-agent-change-request-operations"
+    ) {
+      const id = state.agentChangeRequestModalId || "";
+      const request = (state.agentChangeRequests || []).find((row) => row.change_request_id === id);
+      if (!request) return true;
+      const selected = action === "select-all-agent-change-request-operations"
+        ? new Set((request.operations || []).map((operation) => operation.client_operation_id))
+        : new Set();
+      state.agentChangeRequestSelectedOperationIds = {
+        ...(state.agentChangeRequestSelectedOperationIds || {}),
+        [id]: selected,
+      };
+      renderGovernanceHub("agent-approvals");
+      return true;
+    }
     if (action === "approve-agent-change-request" || action === "reject-agent-change-request") {
       const id = button.getAttribute("data-change-request-id") || state.agentChangeRequestModalId || "";
       if (!id) return true;
       const approving = action === "approve-agent-change-request";
+      const selectedOperationIds = [
+        ...(state.agentChangeRequestSelectedOperationIds?.[id] || new Set()),
+      ];
+      if (approving && !selectedOperationIds.length) {
+        setSpaceGovernanceNotice("Select at least one proposed change first.", "error", 5000);
+        return true;
+      }
       const confirmed = await showConfirmModal({
         title: approving ? "Approve Agent Proposal" : "Reject Agent Proposal",
-        message: `${approving ? "Approve" : "Reject"} this agent proposal?`,
-        confirmLabel: approving ? "Approve proposal" : "Reject proposal",
+        message: approving
+          ? `Approve ${selectedOperationIds.length} selected change${selectedOperationIds.length === 1 ? "" : "s"}? Unselected changes will not be applied.`
+          : "Reject this entire agent proposal?",
+        confirmLabel: approving ? "Approve selected" : "Reject proposal",
       });
       if (!confirmed) return true;
       try {
         const endpoint = approving
-          ? "/agent/change-requests/actions/approve-selected"
+          ? `/agent/change-requests/${encodeURIComponent(id)}/approve-selected-operations`
           : "/agent/change-requests/actions/reject-selected";
         const result = await api(endpoint, {
           method: "POST",
-          body: JSON.stringify({ change_request_ids: [id] }),
+          body: JSON.stringify(
+            approving
+              ? { client_operation_ids: selectedOperationIds }
+              : { change_request_ids: [id] }
+          ),
         });
         const selected = new Set(state.agentChangeRequestSelectedIds || []);
         selected.delete(id);
         state.agentChangeRequestSelectedIds = selected;
+        delete state.agentChangeRequestSelectedOperationIds?.[id];
         state.agentChangeRequestModalId = "";
         state.agentChangeRequestsLoaded = false;
         await refreshAgentChangeRequests({ force: true });
         await refreshFromServer("all");
         renderGovernanceHub("agent-approvals");
-        const completed = approving
-          ? Number(result?.approved || 0)
-          : Number(result?.rejected || 0);
-        const failed = Number(result?.failed || 0);
+        const completed = approving ? selectedOperationIds.length : Number(result?.rejected || 0);
+        const approvalFailed = approving && result?.status !== "approved";
+        const failed = approvalFailed ? 1 : Number(result?.failed || 0);
         setSpaceGovernanceNotice(
-          `${approving ? "Approved" : "Rejected"} ${completed || 1} proposal${failed ? `; ${failed} failed revalidation` : ""}.`,
+          approvalFailed
+            ? "Selected changes failed revalidation and were not applied."
+            : approving
+            ? `Approved ${completed} selected change${completed === 1 ? "" : "s"}.`
+            : `Rejected ${completed || 1} proposal${failed ? `; ${failed} failed revalidation` : ""}.`,
           failed ? "error" : "success",
           7000
         );
@@ -1051,6 +1100,20 @@ export function createSpaceGovernanceController({
           if (event.target.checked) selected.add(id);
           else selected.delete(id);
           state.agentChangeRequestSelectedIds = selected;
+          renderGovernanceHub("agent-approvals");
+        }
+        if (event.target.matches("[data-agent-change-operation-checkbox]")) {
+          const requestId = state.agentChangeRequestModalId || "";
+          const operationId = event.target.getAttribute("data-client-operation-id") || "";
+          const selected = new Set(
+            state.agentChangeRequestSelectedOperationIds?.[requestId] || []
+          );
+          if (event.target.checked) selected.add(operationId);
+          else selected.delete(operationId);
+          state.agentChangeRequestSelectedOperationIds = {
+            ...(state.agentChangeRequestSelectedOperationIds || {}),
+            [requestId]: selected,
+          };
           renderGovernanceHub("agent-approvals");
         }
       });

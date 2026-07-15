@@ -10,7 +10,6 @@ INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 LISTED_VIEW_IDS = (
     "view-master",
     "view-tasks-workbench",
-    "view-planning",
     "view-pm-dashboard",
     "view-dashboard",
     "view-program-dashboard",

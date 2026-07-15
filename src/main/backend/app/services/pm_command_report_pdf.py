@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from .planning_report_pdf import (
+from .pdf_utils import (
     _SimplePdfDoc,
     _TopPdfPainter,
     _draw_report_card,
@@ -360,49 +360,6 @@ def build_pm_command_report_pdf(
         )
     timeline_rows.sort(key=lambda row: (int(row["days"]), str(row["context"]).lower()))
 
-    capacity_by_key = {
-        str(user.get("soeid") or "").strip(): max(float(user.get("capacity_fte_month") or 0.0), 0.0)
-        for user in users
-        if user.get("is_active") is not False and str(user.get("soeid") or "").strip()
-    }
-    user_label_by_key = {
-        str(user.get("soeid") or "").strip(): _text(user.get("display_name") or user.get("soeid"), "Unassigned")
-        for user in users
-    }
-    current_month = today_value.replace(day=1)
-    allocated_by_key: dict[str, float] = {}
-    for allocation in allocations:
-        if _enum_text(allocation.get("work_item_type")) != "task":
-            continue
-        if str(allocation.get("work_item_id") or "").strip() not in task_ids:
-            continue
-        month = _date_value(allocation.get("month_start") or allocation.get("week_start"))
-        if not month or month.replace(day=1) != current_month:
-            continue
-        key = str(allocation.get("assignee_user_soeid") or allocation.get("assignee") or "unassigned").strip() or "unassigned"
-        fte = float(allocation.get("fte_months") or 0.0)
-        if fte <= 0 and allocation.get("hours"):
-            fte = float(allocation.get("hours") or 0.0) / 160.0
-        allocated_by_key[key] = allocated_by_key.get(key, 0.0) + max(fte, 0.0)
-    capacity_rows = []
-    for key in sorted(set(capacity_by_key) | set(allocated_by_key)):
-        capacity = capacity_by_key.get(key, 0.0)
-        allocated = allocated_by_key.get(key, 0.0)
-        utilization = (allocated / capacity * 100.0) if capacity > 0 else (999.0 if allocated > 0 else 0.0)
-        capacity_rows.append(
-            {
-                "label": user_label_by_key.get(key, key if key != "unassigned" else "Unassigned"),
-                "capacity": capacity,
-                "allocated": allocated,
-                "gap": capacity - allocated,
-                "utilization": utilization,
-            }
-        )
-    capacity_rows.sort(key=lambda row: (-float(row["utilization"]), -float(row["allocated"]), str(row["label"]).lower()))
-    overloaded_rows = [row for row in capacity_rows if float(row["capacity"]) > 0 and float(row["allocated"]) > float(row["capacity"]) * 1.05]
-    total_capacity = sum(float(row["capacity"]) for row in capacity_rows)
-    total_allocated = sum(float(row["allocated"]) for row in capacity_rows)
-
     overdue_item_rows = [row for row in timeline_rows if int(row["days"]) < 0]
 
     watch_item_map: dict[str, dict[str, object]] = {}
@@ -483,18 +440,6 @@ def build_pm_command_report_pdf(
                 priority=priority,
             )
 
-    for row in overloaded_rows:
-        add_watch_item(
-            f"capacity:{row['label']}",
-            item_type="Person",
-            item=str(row["label"]),
-            context="Current-month planning assignments",
-            owner=str(row["label"]),
-            due="-",
-            reason=f"Capacity load {round(float(row['utilization']))}% ({float(row['allocated']):.2f}/{float(row['capacity']):.2f} FTE-mo)",
-            priority=40 + int(float(row["utilization"]) // 10),
-        )
-
     watch_item_rows = sorted(
         watch_item_map.values(),
         key=lambda row: (-int(row["priority"]), str(row["owner"]).lower(), str(row["item"]).lower()),
@@ -520,8 +465,6 @@ def build_pm_command_report_pdf(
         actions.append(("Critical", f"{overdue_total} overdue items require replan", "Rebaseline due dates or de-scope low-value work."))
     if blocked_tasks:
         actions.append(("Watch", f"{len(blocked_tasks)} blocked deliverables are stalling flow", "Clear blocker notes and escalate dependency owners."))
-    if overloaded_rows:
-        actions.append(("Watch", f"{len(overloaded_rows)} assignees are overloaded", "Reallocate work in the planning window."))
     if unassigned_tasks:
         actions.append(("Watch", f"{len(unassigned_tasks)} active deliverables are unassigned", "Assign owners so execution can start and status can move."))
     if stale_total:
@@ -594,7 +537,7 @@ def build_pm_command_report_pdf(
         ("Open Workstreams", str(len(active_solutions)), f"{len(red_solutions)} red, {len(amber_solutions)} amber", (40, 111, 232)),
         ("Open Deliverables", str(len(active_tasks)), f"{len(blocked_tasks)} blocked, {len(unassigned_tasks)} unassigned", (99, 102, 241)),
         ("Schedule Pressure", str(overdue_total + due_soon_total), f"{overdue_total} overdue, {due_soon_total} due soon", (217, 119, 6) if overdue_total else (40, 111, 232)),
-        ("Capacity Gap", f"{total_capacity - total_allocated:+.1f}", f"{total_allocated:.1f} of {total_capacity:.1f} FTE-mo", (190, 46, 77) if total_allocated > total_capacity else (48, 138, 101)),
+        ("Watch Items", str(len(watch_item_rows)), f"{len(overdue_item_rows)} overdue timeline items", (190, 46, 77) if overdue_item_rows else (48, 138, 101)),
     ]
     for idx, (title, value, subtitle, accent) in enumerate(cards):
         _draw_report_card(
@@ -697,21 +640,6 @@ def build_pm_command_report_pdf(
         ],
         "No overdue work or due dates in the next 30 days.",
         max_rows=16,
-    )
-
-    draw_issue_rows(
-        "Capacity Watch",
-        [("Assignee", 240), ("Capacity", 82), ("Allocated", 82), ("Gap", 82), ("Load", content_width - 486)],
-        [row for row in capacity_rows if float(row["utilization"]) >= 85 or float(row["gap"]) < 0],
-        lambda row: [
-            (_wrap_pdf_text(str(row["label"]), 224, 8.2, 2), 240, (27, 38, 66), True),
-            ([f"{float(row['capacity']):.2f}"], 82, (44, 55, 80), False),
-            ([f"{float(row['allocated']):.2f}"], 82, (44, 55, 80), False),
-            ([f"{float(row['gap']):+.2f}"], 82, (190, 46, 77) if float(row["gap"]) < 0 else (48, 138, 101), True),
-            ([f"{round(float(row['utilization']))}%" if float(row["capacity"]) > 0 else "n/a"], content_width - 486, (190, 46, 77) if float(row["utilization"]) >= 100 else (217, 119, 6), True),
-        ],
-        "No capacity pressure detected for current-month planning deliverable assignments.",
-        max_rows=12,
     )
 
     return document.build()

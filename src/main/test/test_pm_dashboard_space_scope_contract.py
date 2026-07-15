@@ -18,16 +18,15 @@ def test_pm_dashboard_filters_records_to_project_graph():
     assert "const projectIds = new Set" in text
     assert "const solutions = rawSolutions.filter" in text
     assert "const tasks = rawTasks.filter" in text
-    assert "const allocations = rawAllocations.filter" in text
 
 
-def test_pm_dashboard_capacity_card_uses_planning_deliverable_assignments_only():
+def test_pm_dashboard_capacity_card_uses_configured_team_capacity_only():
     render_text = PM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     text = PM_DASHBOARD_SECTIONS.read_text(encoding="utf-8")
-    assert "const planningTaskAllocations = scopedAllocations.filter" in render_text
-    assert 'String(allocation?.work_item_type || "").trim().toLowerCase() === "task"' in render_text
-    assert "planningTaskAllocations.forEach((allocation) => {" in render_text
-    assert "Source: Planning deliverable assignments only." in text
+    assert "const capacityRows = users" in render_text
+    assert "const totalCapacity = capacityRows.reduce" in render_text
+    assert "Configured team capacity" in text
+    assert "Planning deliverable assignments only." not in text
 
 
 def test_pm_dashboard_capacity_card_defaults_to_current_month_and_exposes_month_picker():
@@ -42,7 +41,7 @@ def test_pm_dashboard_capacity_card_defaults_to_current_month_and_exposes_month_
     assert "if (!restoredMonth) persistCapacityMonth(normalizedSpaceId, pmDashboardState.capacityMonth);" in storage_text
     assert "if (pmDashboardState.capacityMonth !== normalizedMonth) {" in storage_text
     assert "persistCapacityMonth(normalizedSpaceId, normalizedMonth);" in storage_text
-    assert "const allocationScopeLabel = selectedCapacityMonth === todayMonthKey" in render_text
-    assert "Current month (${selectedCapacityMonth})" in render_text
-    assert "Selected month (${selectedCapacityMonth})" in render_text
-    assert '<input type="month" value="${esc(selectedCapacityMonth)}" data-pm-dashboard-action="set-capacity-month"' in sections_text
+    assert "renderPMDashboardCapacitySection({" in render_text
+    assert "capacityRows," in render_text
+    assert "Total Capacity" in sections_text
+    assert 'data-pm-dashboard-action="set-capacity-month"' not in sections_text

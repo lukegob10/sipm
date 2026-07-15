@@ -1,19 +1,16 @@
 import {
   TASK_STATUS_ORDER,
   SOLUTION_STATUS_ORDER,
-  clamp,
   dueDeltaLabel,
   esc,
   formatFteValue,
   healthTone,
   isoDateLabel,
-  renderPMDashboardCapacityLink,
   renderPMDashboardOwnerLink,
   renderPMDashboardProjectLink,
   renderPMDashboardSolutionLink,
   renderPMDashboardTimelineLink,
   scoreTone,
-  utilTone,
 } from "./analytics.js";
 import {
   escDisplay,
@@ -35,8 +32,6 @@ export function renderPMDashboardSummarySection({
   dueSoonTotal,
   staleTotal,
   staleStatusDays,
-  totalGap,
-  totalAllocated,
   totalCapacity,
   completionsThisMonth,
   formatFte,
@@ -74,9 +69,9 @@ export function renderPMDashboardSummarySection({
       <div class="pm-kpi-meta">${staleTotal > 0 ? `Records older than ${staleStatusDays} days` : "No stale active records"}</div>
     </article>
     <article class="pm-kpi-card">
-      <div class="pm-kpi-label">Capacity Gap</div>
-      <div class="pm-kpi-value ${totalGap < 0 ? "danger" : "positive"}">${totalGap >= 0 ? "+" : "-"}${formatFteValue(Math.abs(totalGap), formatFte)}</div>
-      <div class="pm-kpi-meta">${formatFteValue(totalAllocated, formatFte)} allocated / ${formatFteValue(totalCapacity, formatFte)} capacity</div>
+      <div class="pm-kpi-label">Capacity</div>
+      <div class="pm-kpi-value">${formatFteValue(totalCapacity, formatFte)}</div>
+      <div class="pm-kpi-meta">Configured team capacity</div>
     </article>
     <article class="pm-kpi-card">
       <div class="pm-kpi-label">Throughput (This Month)</div>
@@ -188,61 +183,31 @@ export function renderPMDashboardTimelineSection({
 export function renderPMDashboardCapacitySection({
   els,
   capacityRows,
-  selectedCapacityMonth,
-  capacityScopeLabel,
   totalCapacity,
-  totalAllocated,
-  totalGap,
-  overloadedRows,
-  hrefFor,
   formatFte,
 }) {
   if (!els.pmDashboardCapacity) return;
   const rows = capacityRows
     .slice(0, 12)
     .map((row) => {
-      const tone = utilTone(row.utilization, row.capacity, row.allocated);
-      const width = clamp(
-        row.capacity > 0 ? row.utilization : row.allocated > 0 ? 100 : 0,
-        0,
-        160
-      );
-      const utilLabel = row.capacity > 0 ? `${Math.round(row.utilization)}%` : row.allocated > 0 ? "n/a" : "0%";
       return `<tr>
-        <td>${renderPMDashboardCapacityLink(row)}</td>
+        <td>${esc(row.label)}</td>
         <td>${formatFteValue(row.capacity, formatFte)}</td>
-        <td>${formatFteValue(row.allocated, formatFte)}</td>
-        <td class="${row.gap < 0 ? "danger" : "positive"}">${row.gap >= 0 ? "+" : "-"}${formatFteValue(Math.abs(row.gap), formatFte)}</td>
-        <td>
-          <div class="pm-util-meter"><span class="${tone}" style="width:${width}%;"></span></div>
-          <div class="muted">${utilLabel}</div>
-        </td>
       </tr>`;
     })
     .join("");
 
   els.pmDashboardCapacity.innerHTML = `
     <div class="pm-card-header">
-      <h3>Capacity and Allocation</h3>
-      <div class="pm-card-controls">
-        <label class="pm-scope-control">
-          <span>Month</span>
-          <input type="month" value="${esc(selectedCapacityMonth)}" data-pm-dashboard-action="set-capacity-month" aria-label="Select capacity month" />
-        </label>
-        <a href="${esc(hrefFor("planning"))}" class="pm-card-link">Planning</a>
-      </div>
+      <h3>Capacity</h3>
     </div>
-    <p class="muted">${esc(capacityScopeLabel)}</p>
-    <p class="muted">Source: Planning deliverable assignments only.</p>
     <div class="pm-capacity-summary">
       <div><span>Total Capacity</span><strong>${formatFteValue(totalCapacity, formatFte)} FTE-mo</strong></div>
-      <div><span>Allocated</span><strong>${formatFteValue(totalAllocated, formatFte)} FTE-mo</strong></div>
-      <div><span>Gap</span><strong class="${totalGap < 0 ? "danger" : "positive"}">${totalGap >= 0 ? "+" : "-"}${formatFteValue(Math.abs(totalGap), formatFte)} FTE-mo</strong></div>
-      <div><span>Overloaded</span><strong>${overloadedRows.length}</strong></div>
+      <div><span>People</span><strong>${capacityRows.length}</strong></div>
     </div>
     ${rows
-      ? `<div class="table pm-table-wrap"><table><thead><tr><th>Assignee</th><th>Cap.</th><th>Alloc.</th><th>Gap</th><th>Load</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : "<p class='muted'>No allocations found for this scope.</p>"
+      ? `<div class="table pm-table-wrap"><table><thead><tr><th>Assignee</th><th>Capacity</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : "<p class='muted'>No capacity records found for this scope.</p>"
     }
   `;
 }
@@ -326,7 +291,6 @@ export function renderPMDashboardActionsSection({ els, actions, hrefFor }) {
     <ul class="pm-actions-list">${actionRows}</ul>
     <div class="pm-quick-links">
       <a href="${esc(hrefFor("master"))}">Work List</a>
-      <a href="${esc(hrefFor("planning"))}">Planning</a>
       <a href="${esc(hrefFor("tasks-workbench"))}">Deliverables</a>
       <a href="${esc(hrefFor("calendar"))}">Calendar</a>
     </div>

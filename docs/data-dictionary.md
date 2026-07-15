@@ -29,9 +29,6 @@ erDiagram
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_PHASES : enables
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_TEAMS : scopes
   TB_TA_PM_TEAMS ||--o{ TB_TA_PM_TEAM_MEMBERS : has
-  TB_TA_PM_TEAMS ||--o{ TB_TA_PM_RESOURCE_ALLOCATIONS : assigned
-  TB_TA_PM_PLANNING_WINDOWS ||--o{ TB_TA_PM_RESOURCE_ALLOCATIONS : groups
-  TB_TA_PM_SPACES ||--o{ TB_TA_PM_RESOURCE_ALLOCATIONS : scopes
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_CHANGE_LOG : scopes
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_USAGE_EVENTS : scopes
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_PERFORMANCE_SAMPLES : scopes
@@ -59,9 +56,9 @@ Key fields:
 | `role` | string | Global application role, including global admin. |
 | `is_active` | boolean | Whether user may authenticate and be assigned. |
 | `is_service_account` | boolean | Whether admin-issued API tokens may be used for this user. |
-| `team_tag` | string nullable | Display/team assignment used by planning views. |
+| `team_tag` | string nullable | Display/team assignment used by team capacity administration. |
 | `capacity_hours` | integer | Legacy weekly capacity value. |
-| `capacity_fte_month` | float | Monthly FTE capacity used by planning UX. |
+| `capacity_fte_month` | float | Monthly FTE capacity used by team capacity administration. |
 | `failed_attempts` | integer | Login lockout counter. |
 | `locked_until` | datetime nullable | Lockout expiration. |
 | `last_login_at` | datetime nullable | Last successful login. |
@@ -276,9 +273,6 @@ Data flow:
 5. Backend writes `Project`.
 6. Backend logs changes and broadcasts `projects`.
 
-Special rule:
-
-- Hidden Work Allocation Board projects are excluded from normal project list queries.
 - Project import/export includes `program_id` and `program_name`; imports resolve by `program_id`, then `program_name`, then the default program when both are blank.
 - Updating `Project.program_id` reassigns the project to another active program without changing child solution or task identifiers.
 
@@ -344,7 +338,6 @@ Primary APIs:
 
 Special rules:
 
-- Hidden Work Allocation Board backlog solutions are excluded from normal solution list queries.
 - Tasks inherit an effective GitHub repo URL from their parent solution unless overridden.
 - Documents are stored as DB-backed attachments under the solution and are downloaded individually.
 
@@ -433,10 +426,6 @@ Derived API fields:
 - `repo_source`: `override`, `inherited`, or `none`.
 - `is_overdue`, `is_due_soon`, `is_stale`, `urgency_score`: route payload-derived indicators.
 
-Planning board rule:
-
-- Work Allocation Board tasks are persisted as tasks under the hidden board solution.
-
 ### Phase Reference Data
 
 #### `TB_TA_PM_PHASES`
@@ -479,7 +468,7 @@ Important constraints:
 
 - Unique `(solution_id, phase_id)`.
 
-### Planning And Capacity
+### Team Capacity
 
 #### `TB_TA_PM_TEAMS`
 
@@ -508,11 +497,6 @@ Important constraints:
 Primary APIs:
 
 - `GET/POST/PATCH/DELETE /api/teams`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/teams`
-
-Work allocation note:
-
-- Renaming a team updates matching user `team_tag` values in that space.
 
 #### `TB_TA_PM_TEAM_MEMBERS`
 
@@ -540,71 +524,6 @@ Key fields:
 Primary APIs:
 
 - `GET/POST/PATCH/DELETE /api/teams/{team_id}/members`
-
-#### `TB_TA_PM_RESOURCE_ALLOCATIONS`
-
-SQLAlchemy model: `ResourceAllocation`
-
-Purpose: assignment of work items to users or teams for a week/month/window.
-
-Key fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `allocation_id` | string PK | Allocation identifier. |
-| `space_id` | FK spaces | Owning space. |
-| `work_item_type` | string | `project`, `solution`, or `task`. |
-| `work_item_id` | string | Id of the referenced work item. |
-| `assignee_user_soeid` | string nullable | User assignment. |
-| `assignee` | string nullable | Display label. |
-| `team_id` | FK teams nullable | Team assignment. |
-| `week_start` | date | Legacy week start; often same as month start. |
-| `month_start` | date nullable | Month bucket for FTE-month planning. |
-| `hours` | integer | Hours equivalent. |
-| `fte_months` | float | Monthly FTE allocation. |
-| `window_id` | FK planning windows nullable | Optional planning window. |
-| `deleted_at` | datetime nullable | Soft-delete marker. |
-
-Important constraints:
-
-- Unique `(work_item_type, work_item_id, assignee_user_soeid, week_start, window_id)`.
-- Indexed by `(work_item_type, work_item_id)`.
-- Indexed by `(month_start, assignee_user_soeid)`.
-
-Primary APIs:
-
-- `GET/POST/PATCH/DELETE /api/resource-allocations`
-- `GET /api/resource-allocations/summary`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/allocations`
-
-Work allocation rules:
-
-- The board currently allows one assignment for a task in a month.
-- Assignment can target a person or a team.
-- FTE-month values are converted to hours by `160` hours per FTE month for planning payloads.
-
-#### `TB_TA_PM_PLANNING_WINDOWS`
-
-SQLAlchemy model: `PlanningWindow`
-
-Purpose: named date windows for grouping allocations.
-
-Key fields:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `window_id` | string PK | Window identifier. |
-| `space_id` | FK spaces | Owning space. |
-| `name` | string unique | Window display name. |
-| `start_date` | date | Window start. |
-| `end_date` | date | Window end. |
-| `deleted_at` | datetime nullable | Soft-delete marker. |
-
-Primary APIs:
-
-- `GET/POST/PATCH/DELETE /api/planning/windows`
-- `POST /api/planning/windows/import`
-- `GET /api/planning/windows/export`
 
 ### Audit And Observability
 
@@ -727,48 +646,6 @@ Primary read APIs:
 
 ## API-Facing Data Shapes
 
-### Work Allocation Board
-
-`WorkAllocationBoardRead`:
-
-| Field | Meaning |
-| --- | --- |
-| `tasks` | List of board tasks from tasks. |
-| `teams` | List of active teams in the space. |
-| `people` | List of active users with active memberships. |
-| `allocations` | Month-specific assignment rows. |
-
-`WorkAllocationTaskRead`:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | `Task.task_id`. |
-| `title` | `Task.task_name`. |
-| `fte_months` | Derived from capacity/estimate hours. |
-| `status` | `backlog` or `assigned` for the selected month. |
-
-`WorkAllocationPersonRead`:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | `User.soeid`. |
-| `name` | `User.display_name`. |
-| `team_id` | Resolved from `User.team_tag` to `Team.team_id`. |
-| `capacity_fte_months` | `User.capacity_fte_month`. |
-| `active` | `User.is_active`. |
-
-`WorkAllocationAssignmentRead`:
-
-| Field | Meaning |
-| --- | --- |
-| `id` | `ResourceAllocation.allocation_id`. |
-| `task_id` | `ResourceAllocation.work_item_id`. |
-| `assignee_type` | `person` or `team`. |
-| `assignee_id` | SOEID for person, team id for team. |
-| `assignee_name` | Display label. |
-| `month` | `YYYY-MM` month token. |
-| `fte_months_allocated` | Allocation size. |
-
 ### Analytics Ingest
 
 `TelemetryBatchIn`:
@@ -805,22 +682,6 @@ flowchart TD
   Solution --> Task["Task"]
   Solution --> Repo["Solution GitHub repo URL"]
   Task --> EffectiveRepo["Effective repo = override or inherited"]
-  Task --> Allocation["ResourceAllocation when planned"]
-```
-
-### Work Allocation Flow
-
-```mermaid
-flowchart TD
-  Board["Planning board UI"] --> BoardApi["/api/planning/work-allocation/board"]
-  BoardApi --> HiddenProject["Hidden Work Allocation Board project"]
-  HiddenProject --> HiddenSolution["Backlog solution"]
-  HiddenSolution --> Task["Task task"]
-  BoardApi --> Person["User + SpaceMembership"]
-  BoardApi --> Team["Team"]
-  Task --> Assignment["ResourceAllocation"]
-  Person --> Assignment
-  Team --> Assignment
 ```
 
 ### Space Isolation Flow
@@ -843,9 +704,6 @@ flowchart TD
 - Task names are unique within a solution.
 - Space membership is unique by `(space_id, user_id)`.
 - Soft-deleted entities are normally excluded from reads.
-- Work allocation month tokens must use `YYYY-MM`.
-- FTE-month planning values are clamped to non-negative values.
-- Work allocation task creation enforces a minimum FTE value before converting to hours.
 - User deactivation is guarded when the user cannot safely be deactivated.
 - Auth tokens issued before `password_changed_at` are rejected.
 
@@ -857,13 +715,11 @@ The frontend stores fetched entity arrays in memory:
 | --- | --- | --- |
 | `state.phases` | `/api/phases` | master, kanban, solution phase controls |
 | `state.programs` | `/api/programs` | project forms, project filters, hierarchy labels |
-| `state.projects` | `/api/projects` | master, dashboards, Gantt, planning |
+| `state.projects` | `/api/projects` | master, dashboards, Gantt |
 | `state.solutions` | `/api/solutions` | master, dashboards, Gantt, Kanban, Calendar |
-| `state.tasks` | `/api/tasks` | workbench, PM dashboard, planning |
-| `state.teams` | `/api/teams` | planning, team capacity |
+| `state.tasks` | `/api/tasks` | workbench, PM dashboard |
+| `state.teams` | `/api/teams` | team capacity |
 | `state.users` | `/api/users` | assignment selectors, governance, dashboards |
-| `state.allocations` | `/api/resource-allocations` | planning, PM dashboard, team capacity |
-| `state.planningWindows` | `/api/planning/windows` | planning views and allocation filters |
 
 `state.loadedEntities` prevents repeat fetches. Live sync, explicit reloads, and mutations can force a reload.
 

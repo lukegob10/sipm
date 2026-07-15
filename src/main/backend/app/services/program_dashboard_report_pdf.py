@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from .planning_report_pdf import _SimplePdfDoc, _TopPdfPainter, _estimate_pdf_text_width, _wrap_pdf_text
+from .pdf_utils import _SimplePdfDoc, _TopPdfPainter, _estimate_pdf_text_width, _wrap_pdf_text
 
 
 TABLE_COLUMNS = (

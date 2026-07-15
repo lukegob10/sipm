@@ -8,14 +8,22 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..deps import current_space as current_space_dep, get_db, require_space_role
-from ..models import Project, ResourceAllocation, Solution, Task, User
-from ..routes.projects.common import _exclude_work_allocation_board_projects
-from ..routes.solutions.common import _exclude_work_allocation_board_solutions
+from ..models import Project, Solution, SpaceMembership, Task, User
 from ..services.pm_command_report_pdf import build_pm_command_report_pdf
-from ..services.planning_work_allocation import active_space_user_query
 from ..services.spaces import SpaceContext
 
 router = APIRouter()
+
+
+def active_space_user_query(session: Session, space_ctx: SpaceContext):
+    return (
+        session.query(User)
+        .join(SpaceMembership, SpaceMembership.user_id == User.user_id)
+        .filter(SpaceMembership.space_id == space_ctx.space_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(SpaceMembership.status == "active")
+        .filter(User.is_active == True)
+    )
 
 
 def _enum_value(value: object) -> object:
@@ -29,11 +37,9 @@ def download_pm_command_report_pdf(
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> StreamingResponse:
     project_rows = (
-        _exclude_work_allocation_board_projects(
-            session.query(Project)
-            .filter(Project.deleted_at.is_(None))
-            .filter(Project.space_id == space_ctx.space_id)
-        )
+        session.query(Project)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
         .order_by(Project.priority.asc(), Project.project_name.asc())
         .all()
     )
@@ -41,14 +47,10 @@ def download_pm_command_report_pdf(
     solution_rows = []
     if project_ids:
         solution_rows = (
-            _exclude_work_allocation_board_solutions(
-                session.query(Solution)
-                .filter(Solution.deleted_at.is_(None))
-                .filter(Solution.space_id == space_ctx.space_id)
-                .filter(Solution.project_id.in_(project_ids)),
-                session,
-                space_ctx,
-            )
+            session.query(Solution)
+            .filter(Solution.deleted_at.is_(None))
+            .filter(Solution.space_id == space_ctx.space_id)
+            .filter(Solution.project_id.in_(project_ids))
             .order_by(Solution.priority.asc(), Solution.solution_name.asc())
             .all()
         )
@@ -69,18 +71,6 @@ def download_pm_command_report_pdf(
         .order_by(User.display_name.asc())
         .all()
     )
-    allocation_rows = []
-    if task_ids:
-        allocation_rows = (
-            session.query(ResourceAllocation)
-            .filter(ResourceAllocation.deleted_at.is_(None))
-            .filter(ResourceAllocation.space_id == space_ctx.space_id)
-            .filter(ResourceAllocation.work_item_type == "task")
-            .filter(ResourceAllocation.work_item_id.in_(task_ids))
-            .order_by(ResourceAllocation.created_at.asc())
-            .all()
-        )
-
     pdf_bytes = build_pm_command_report_pdf(
         space_name=space_ctx.space_name,
         projects=[
@@ -138,20 +128,7 @@ def download_pm_command_report_pdf(
             }
             for row in user_rows
         ],
-        allocations=[
-            {
-                "allocation_id": row.allocation_id,
-                "work_item_type": row.work_item_type,
-                "work_item_id": row.work_item_id,
-                "assignee_user_soeid": row.assignee_user_soeid,
-                "assignee": row.assignee,
-                "week_start": row.week_start,
-                "month_start": row.month_start,
-                "hours": row.hours,
-                "fte_months": row.fte_months,
-            }
-            for row in allocation_rows
-        ],
+        allocations=[],
     )
     filename = f"pm-command-center-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

@@ -17,7 +17,6 @@ from ...utils import normalize_str
 
 _PROJECTS_LIST_TTL_SECONDS = 20
 _PROJECTS_DETAIL_TTL_SECONDS = 30
-_WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 _PROJECT_CREATE_AUDIT_FIELDS = (
     "program_id",
     "project_name",
@@ -77,10 +76,6 @@ def _default_program(session: Session, space_ctx: SpaceContext) -> Program:
     from ..programs import ensure_default_program
 
     return ensure_default_program(session, space_ctx)
-
-
-def _exclude_work_allocation_board_projects(query):
-    return query.filter(~Project.project_name.like(f"{_WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
 
 
 def _get_project_or_404(session: Session, project_id: str, space_ctx: SpaceContext) -> Project:
@@ -177,7 +172,6 @@ __all__ = [
     "_active_project_name_conflict_query",
     "_default_program",
     "_deleted_project_name",
-    "_exclude_work_allocation_board_projects",
     "_ensure_program_exists",
     "_get_project_or_404",
     "_is_project_name_conflict_integrity_error",

@@ -51,6 +51,24 @@ class User(TimestampMixin, Base):
     )
 
 
+class AuthSession(TimestampMixin, Base):
+    __tablename__ = physical_table_name("auth_sessions")
+    __table_args__ = (
+        Index("idx_auth_session_user", "user_id"),
+        Index("idx_auth_session_activity", "last_activity_at"),
+        Index("idx_auth_session_revoked", "revoked_at"),
+    )
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=False,
+    )
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow_naive, nullable=False)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class ApiToken(TimestampMixin, Base):
     __tablename__ = physical_table_name("api_tokens")
     __table_args__ = (
@@ -224,6 +242,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 
 __all__ = [
+    "AuthSession",
     "ChangeLog",
     "Space",
     "SpaceAccessRequest",

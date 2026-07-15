@@ -20,7 +20,6 @@ from ...services.mutations import commit_session
 from ..projects.common import _default_program, _resolve_project_sponsor
 from .common import (
     _apply_solution_completion_state,
-    _exclude_work_allocation_board_solutions,
     _parse_rag_status,
     _publish_solution_import,
     _resolve_solution_assignee,
@@ -441,11 +440,7 @@ def export_solutions(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    solutions = _exclude_work_allocation_board_solutions(
-        _solution_query(session, space_ctx),
-        session,
-        space_ctx,
-    ).all()
+    solutions = _solution_query(session, space_ctx).all()
     project_map = {
         p.project_id: p.project_name
         for p in (

@@ -25,7 +25,6 @@ SOLUTIONS_LIST_TTL_SECONDS = 20
 SOLUTIONS_DETAIL_TTL_SECONDS = 30
 TASKS_LIST_TTL_SECONDS = 20
 TASKS_DETAIL_TTL_SECONDS = 30
-WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 PROJECT_CREATE_AUDIT_FIELDS = (
     "program_id",
     "project_name",
@@ -86,10 +85,6 @@ def ensure_program_exists(session: Session, program_id: str, space_ctx: SpaceCon
 
 def default_program(session: Session, space_ctx: SpaceContext) -> Program:
     return ensure_default_program(session, space_ctx)
-
-
-def exclude_work_allocation_board_projects(query):
-    return query.filter(~Project.project_name.like(f"{WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
 
 
 def get_project_or_404(session: Session, project_id: str, space_ctx: SpaceContext) -> Project:
@@ -296,19 +291,6 @@ def solution_query(session: Session, space_ctx: SpaceContext):
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
     )
-
-
-def work_allocation_project_id_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(Project.project_id)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.project_name.like(f"{WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
-    )
-
-
-def exclude_work_allocation_board_solutions(query, session: Session, space_ctx: SpaceContext):
-    return query.filter(~Solution.project_id.in_(work_allocation_project_id_query(session, space_ctx)))
 
 
 def get_solution_or_404(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:

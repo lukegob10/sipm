@@ -355,6 +355,12 @@
   color: var(--tone-positive-text);
 }
 
+#view-master #master-table .deliverables-table .pill.info {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-text);
+}
+
 #view-master #master-table .deliverables-table .pill.warn,
 #view-master #master-table .deliverables-table .rag-pill.rag-amber {
   border-color: var(--tone-warn-border);
@@ -1036,6 +1042,11 @@
   border-color: var(--tone-positive-border);
   background: var(--tone-positive-bg);
   color: var(--tone-positive-text);
+}
+.theme-light .pill.info {
+  border-color: var(--tone-info-border);
+  background: var(--tone-info-bg);
+  color: var(--tone-info-text);
 }
 .theme-light .pill.warn {
   border-color: var(--tone-warn-border);

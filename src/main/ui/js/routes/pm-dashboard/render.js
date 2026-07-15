@@ -12,7 +12,7 @@ import {
   resolvePMDashboardOwnerAssigneeKey,
 } from "./analytics.js";
 import { bindPMDashboardEvents } from "./interactions.js";
-import { ensureActiveSection, ensureCapacityMonth, monthKey } from "./storage.js";
+import { ensureActiveSection } from "./storage.js";
 import {
   renderPMDashboardActionsSection,
   renderPMDashboardCapacitySection,
@@ -101,7 +101,6 @@ export function createPMDashboardState() {
     ctx: null,
     bound: false,
     activeSection: "",
-    capacityDrilldowns: new Map(),
     capacityScopeLabel: "",
     capacityMonth: "",
     capacitySpaceId: "",
@@ -114,9 +113,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     els,
     formatStatus,
     viewHref,
-    assigneeKeyFromAlloc,
-    assigneeLabelFromKey,
-    allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
   } = ctx;
@@ -139,7 +135,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   const rawSolutions = Array.isArray(state.solutions) ? state.solutions : [];
   const rawTasks = Array.isArray(state.tasks) ? state.tasks : [];
   const rawUsers = Array.isArray(state.users) ? state.users : [];
-  const rawAllocations = Array.isArray(state.allocations) ? state.allocations : [];
 
   const projectIds = new Set(rawProjects.map((project) => String(project?.project_id || "").trim()).filter(Boolean));
   const projects = rawProjects.filter((project) => projectIds.has(String(project?.project_id || "").trim()));
@@ -155,31 +150,15 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     const solutionId = String(task?.solution_id || "").trim();
     return !!projectId && !!solutionId && projectIds.has(projectId) && solutionIds.has(solutionId);
   });
-  const taskIds = new Set(
-    tasks.map((task) => String(task?.task_id || "").trim()).filter(Boolean)
-  );
-
   const users = [...rawUsers];
-  const allocations = rawAllocations.filter((allocation) => {
-    const type = String(allocation?.work_item_type || "").toLowerCase();
-    const workItemId = String(allocation?.work_item_id || "").trim();
-    if (!workItemId) return false;
-    if (type === "project") return projectIds.has(workItemId);
-    if (type === "solution") return solutionIds.has(workItemId);
-    if (type === "task") return taskIds.has(workItemId);
-    return false;
-  });
-  const today = startOfDay(new Date());
-  const todayMonthKey = monthKey(today);
-  const selectedCapacityMonth = ensureCapacityMonth(pmDashboardState, activeSpaceId);
-  const ownerDirectory = buildPMDashboardOwnerDirectory(users);
-
   const projectNameById = new Map(
     projects.map((project) => [project.project_id, project.project_name || "Unmapped Project"])
   );
   const solutionNameById = new Map(
     solutions.map((solution) => [solution.solution_id, solution.solution_name || "Unnamed Workstream"])
   );
+  const ownerDirectory = buildPMDashboardOwnerDirectory(users);
+  const today = startOfDay(new Date());
 
   const tasksByProject = new Map();
   const tasksBySolution = new Map();
@@ -422,40 +401,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   const timelineFocusRows = timelineRows.filter((row) => row.days <= 30).slice(0, 14);
   const overdueTotal = overdueSolutions.length + overdueTasks.length;
   const dueSoonTotal = dueSoonSolutions.length + dueSoonTasks.length;
-
-  const allocDate = (allocation) => parseDate(allocation?.month_start || allocation?.week_start);
-  const scopedAllocations = allocations.filter((allocation) => {
-    const date = allocDate(allocation);
-    return !!date && monthKey(date) === selectedCapacityMonth;
-  });
-  const allocationScopeLabel = selectedCapacityMonth === todayMonthKey
-    ? `Current month (${selectedCapacityMonth})`
-    : `Selected month (${selectedCapacityMonth})`;
-  const planningTaskAllocations = scopedAllocations.filter(
-    (allocation) => String(allocation?.work_item_type || "").trim().toLowerCase() === "task"
-  );
-  const capacityScopeLabel = planningTaskAllocations.length
-    ? allocationScopeLabel
-    : scopedAllocations.length
-      ? `${allocationScopeLabel} | No planning deliverable assignments`
-      : "No planning deliverable assignments";
-
-  const allocKey = typeof assigneeKeyFromAlloc === "function"
-    ? assigneeKeyFromAlloc
-    : (allocation) => allocation?.assignee_user_soeid || allocation?.assignee || "unassigned";
-  const allocLabel = typeof assigneeLabelFromKey === "function"
-    ? assigneeLabelFromKey
-    : (key) => (key === "unassigned" ? "Unassigned" : key || "Unassigned");
-  const allocFte = typeof allocationFteMonths === "function"
-    ? allocationFteMonths
-    : (allocation) => {
-      if (!allocation) return 0;
-      const byFte = Number(allocation.fte_months);
-      if (Number.isFinite(byFte)) return byFte;
-      const byHours = Number(allocation.hours);
-      if (Number.isFinite(byHours)) return byHours / 160;
-      return 0;
-    };
   const userCapacity = typeof userCapacityFteMonth === "function"
     ? userCapacityFteMonth
     : (user) => {
@@ -466,52 +411,17 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       return Number.isFinite(byHours) ? byHours / 40 : 1;
     };
 
-  const capacityByKey = new Map();
-  users
-    .filter((user) => user && user.is_active !== false)
-    .forEach((user) => {
-      const key = String(user.soeid || "").trim();
-      if (!key) return;
-      capacityByKey.set(key, Math.max(0, userCapacity(user)));
-    });
-  const allocatedByKey = new Map();
-  const allocationsByKey = new Map();
-  planningTaskAllocations.forEach((allocation) => {
-    const key = String(allocKey(allocation) || "unassigned");
-    allocatedByKey.set(key, (allocatedByKey.get(key) || 0) + Math.max(0, allocFte(allocation)));
-    const bucket = allocationsByKey.get(key) || [];
-    bucket.push(allocation);
-    allocationsByKey.set(key, bucket);
-  });
-
-  const allCapacityKeys = new Set([...capacityByKey.keys(), ...allocatedByKey.keys()]);
-  const capacityRows = Array.from(allCapacityKeys)
-    .map((key) => {
-      const rowAllocations = allocationsByKey.get(key) || [];
-      const capacity = capacityByKey.get(key) || 0;
-      const allocated = allocatedByKey.get(key) || 0;
-      const utilization = capacity > 0 ? (allocated / capacity) * 100 : allocated > 0 ? 999 : 0;
-      return {
-        key,
-        label: allocLabel(key),
-        capacity,
-        allocated,
-        gap: capacity - allocated,
-        utilization,
-        allocations: rowAllocations,
-      };
-    })
-    .sort((a, b) => {
-      if (a.utilization !== b.utilization) return b.utilization - a.utilization;
-      if (a.allocated !== b.allocated) return b.allocated - a.allocated;
-      return a.label.localeCompare(b.label);
-    });
-  pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));
-  pmDashboardState.capacityScopeLabel = `${capacityScopeLabel} | Planning deliverable assignments only`;
-  const overloadedRows = capacityRows.filter((row) => row.capacity > 0 && row.allocated > row.capacity * 1.05);
-  const totalCapacity = Array.from(capacityByKey.values()).reduce((sum, value) => sum + value, 0);
-  const totalAllocated = Array.from(allocatedByKey.values()).reduce((sum, value) => sum + value, 0);
-  const totalGap = totalCapacity - totalAllocated;
+  const capacityRows = users
+    .filter((user) => user && user.is_active !== false && String(user.soeid || "").trim())
+    .map((user) => ({
+      key: String(user.soeid || "").trim(),
+      label: String(user.display_name || user.soeid || "Unassigned"),
+      capacity: Math.max(0, userCapacity(user)),
+    }))
+    .sort((a, b) => b.capacity - a.capacity || a.label.localeCompare(b.label));
+  pmDashboardState.capacityScopeLabel = "";
+  const overloadedRows = [];
+  const totalCapacity = capacityRows.reduce((sum, row) => sum + row.capacity, 0);
 
   const ragCounts = activeSolutions.reduce(
     (acc, solution) => {
@@ -588,15 +498,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
       cta: "Open Deliverables",
     });
   }
-  if (overloadedRows.length > 0) {
-    actions.push({
-      tone: "warn",
-      title: `${overloadedRows.length} assignees are overloaded`,
-      detail: "Reallocate work in the planning window to reduce delivery risk.",
-      href: hrefFor("planning"),
-      cta: "Open Planning",
-    });
-  }
   if (unassignedTasks.length > 0) {
     actions.push({
       tone: "warn",
@@ -650,8 +551,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     dueSoonTotal,
     staleTotal,
     staleStatusDays: STALE_STATUS_DAYS,
-    totalGap,
-    totalAllocated,
     totalCapacity,
     completionsThisMonth,
     formatFte,
@@ -668,13 +567,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   renderPMDashboardCapacitySection({
     els,
     capacityRows,
-    selectedCapacityMonth,
-    capacityScopeLabel,
     totalCapacity,
-    totalAllocated,
-    totalGap,
-    overloadedRows,
-    hrefFor,
     formatFte,
   });
   renderPMDashboardStatusSection({

@@ -104,7 +104,7 @@ export function createSpaceGovernanceRenderer({
       return `
         <div class="space-empty-card">
           <h3>No members yet</h3>
-          <p class="muted">Add people to this space so ownership, planning, and access can be managed without leaving the governance hub.</p>
+          <p class="muted">Add people to this space so ownership, roles, and access can be managed without leaving the governance hub.</p>
         </div>
       `;
     }
@@ -674,10 +674,11 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
-  function renderAgentDiff(request) {
+  function renderAgentDiff(request, selectedOperationIds) {
     const items = request?.diff || [];
     if (!items.length) return "<p class='muted'>No field-level diff available.</p>";
     return items.map((item) => {
+      const checked = selectedOperationIds.has(item.client_operation_id);
       const fields = Object.entries(item.fields || {}).map(([field, values]) => `
         <tr>
           <td>${esc(field)}</td>
@@ -686,10 +687,13 @@ export function createSpaceGovernanceRenderer({
         </tr>
       `).join("");
       return `
-        <div class="agent-diff-card">
+        <div class="agent-diff-card ${checked ? "is-selected" : ""}">
           <div class="agent-diff-card-head">
-            <span class="pill">${esc(item.op)} ${esc(item.entity)}</span>
-            <strong>${esc(item.entity_label || "New item")}</strong>
+            <label class="agent-diff-card-selector">
+              <input type="checkbox" data-agent-change-operation-checkbox data-client-operation-id="${escapeAttr(item.client_operation_id)}" ${checked ? "checked" : ""} />
+              <span class="pill">${esc(item.op)} ${esc(item.entity)}</span>
+              <strong>${esc(item.entity_label || "New item")}</strong>
+            </label>
           </div>
           <div class="table compact-table">
             <table>
@@ -719,6 +723,12 @@ export function createSpaceGovernanceRenderer({
   function renderAgentProposalModal(request) {
     if (!request) return "";
     const operationCount = Number(request.operation_count || 0);
+    const storedSelection = state.agentChangeRequestSelectedOperationIds?.[request.change_request_id];
+    const selectedOperationIds = storedSelection instanceof Set
+      ? storedSelection
+      : new Set((request.operations || []).map((operation) => operation.client_operation_id));
+    const selectedCount = selectedOperationIds.size;
+    const allSelected = operationCount > 0 && selectedCount === operationCount;
     return `
       <div class="modal agent-proposal-modal" role="dialog" aria-modal="true" aria-labelledby="agent-proposal-modal-title">
         <button type="button" class="modal-backdrop" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review"></button>
@@ -736,12 +746,17 @@ export function createSpaceGovernanceRenderer({
           <div class="agent-proposal-modal-meta">
             <span class="pill">${esc(request.status || "pending")}</span>
             <span class="pill muted">${esc(agentProposalSummary(request))}</span>
+            <span class="pill muted">${esc(selectedCount)} selected</span>
+          </div>
+          <div class="agent-proposal-selection-actions" role="group" aria-label="Proposal change selection">
+            <button type="button" class="secondary" data-space-action="select-all-agent-change-request-operations" ${allSelected ? "disabled" : ""}>Select all</button>
+            <button type="button" class="secondary" data-space-action="clear-agent-change-request-operations" ${selectedCount ? "" : "disabled"}>Clear selection</button>
           </div>
           <div class="agent-proposal-modal-body">
-            ${renderAgentDiff(request)}
+            ${renderAgentDiff(request, selectedOperationIds)}
           </div>
           <div class="form-actions agent-proposal-modal-actions">
-            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Approve proposal</button>
+            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}"${disabledReasonAttr(!selectedCount, "Select at least one change before approving.")}>Approve selected (${esc(selectedCount)})</button>
             <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject proposal</button>
             <button type="button" class="secondary" data-space-action="close-agent-change-request-modal">Close</button>
           </div>

@@ -419,8 +419,8 @@
 }
 
 .gantt-status-complete {
-  border-color: var(--success-border);
-  background: var(--success-soft);
+  border-color: var(--info-border);
+  background: var(--info-soft);
 }
 
 .gantt-status-on-hold {

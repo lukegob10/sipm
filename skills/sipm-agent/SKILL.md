@@ -1,120 +1,127 @@
 ---
 name: sipm-agent
-description: Work with SIPM's approval-gated agent API for project manager data transport. Use when Codex needs to read SIPM spaces/work graphs, validate agent patches, submit pending change requests for projects, solutions, or tasks, or help an external coding agent interact with SIPM through configurable base URL, token, space, and proxy settings.
+description: Operate SIPM through its scoped, approval-gated Agent API. Use when Codex needs to discover SIPM spaces, locate or inspect programs/projects/solutions/tasks, understand bounded work context, validate and submit atomic change proposals, poll or cancel owned requests, perform explicitly authenticated human-delegated review, or verify results through the audit feed.
 ---
 
 # SIPM Agent
 
-## Overview
-
-Use this skill to interact with SIPM through the controlled Agent API. Agent writes must be submitted as change requests; do not bypass the approval gate with normal program, project, solution, or task write endpoints.
-
-The bundled command wrapper is `scripts/sipm_agent.py`. It uses Python stdlib only and reads credentials/config from environment variables or CLI flags.
+Use `scripts/sipm_agent.py`, a stdlib-only wrapper around the Agent API. Never use normal work-item write endpoints with a service-account token.
 
 ## Configuration
 
-Prefer environment variables so secrets are not written into prompts, scripts, or repo files:
+Keep credentials out of prompts and files:
 
 ```bash
 SIPM_BASE_URL=http://sipm/project-manager
-SIPM_AGENT_TOKEN=<service-account-api-token>
-SIPM_SPACE_ID=<optional-default-space-id>
-SIPM_PROXY=http://proxy-host:port
+SIPM_AGENT_TOKEN=<service-account-token>
+SIPM_SPACE_ID=<optional-exact-default-space-id>
+SIPM_HUMAN_TOKEN=<optional-human-access-session-token-for-delegated-review>
+SIPM_PROXY=<optional-proxy>
 ```
 
-Rules:
-- `SIPM_BASE_URL` must point at the app root, including `/project-manager` when SIPM is behind that proxy path.
-- `SIPM_AGENT_TOKEN` must be a service-account bearer token.
-- `SIPM_SPACE_ID` is optional when a command can resolve `--space main` through `/api/spaces`.
-- `SIPM_PROXY` is optional. If omitted, Python's normal proxy environment handling still applies.
-- Never print or commit tokens.
+`SIPM_BASE_URL` is the app root, including `/project-manager` when deployed there. Never print, echo, or commit tokens. A service token reads and proposes; a short-lived human access-session token only enters delegated-review commands.
 
-## Command Workflow
+## Conversational Boundary
 
-Run commands from the skill folder or pass the full script path.
+Translate each user turn into the narrowest stage that satisfies it:
 
-Check connectivity and discover spaces:
+1. **Discover scope** — resolve the space; do not guess it.
+2. **Locate** — use typed server-side search; do not download the graph to find a name.
+3. **Inspect** — fetch one direct detail before deciding or updating.
+4. **Understand context** — use a bounded summary graph only when relationships matter; request `full` only when genuinely needed.
+5. **Validate** — validate complex or multi-operation patches before submission.
+6. **Propose** — submit one coherent user intent with a reason and idempotency key.
+7. **Track** — retrieve, poll, cancel, or replace the pending request; do not silently submit duplicates.
+8. **Review** — service accounts cannot approve. Human-delegated review requires a human access-session token, an inspected immutable diff, and explicit user confirmation bound to its ID and `updated_at`.
+9. **Verify** — use the returned entity IDs and audit feed instead of reloading an entire space.
+
+Do not combine unrelated user intentions merely because a patch can contain 25 operations. A hierarchy created for one outcome is coherent; unrelated housekeeping is not.
+
+## Fast Path
+
+Start by checking capabilities and resolving a space:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py list-spaces
+python skills/sipm-agent/scripts/sipm_agent.py manifest
+python skills/sipm-agent/scripts/sipm_agent.py list-spaces --all
 ```
 
-Read scoped work context:
+Locate and inspect one item:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py work-graph --space main --project-name "HomeLab Server"
+python skills/sipm-agent/scripts/sipm_agent.py search-work --space main --entity-type solution --exact-name Alpha
+python skills/sipm-agent/scripts/sipm_agent.py get-work --space main --entity-type solution --id <solution-id>
 ```
 
-List or inspect programs:
+Resolve assignment and approval identities before proposing them:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py list-programs --space main
-python skills/sipm-agent/scripts/sipm_agent.py get-program --space main --program-id <program-id>
+python skills/sipm-agent/scripts/sipm_agent.py list-people --space main --soeid <soeid>
+python skills/sipm-agent/scripts/sipm_agent.py list-teams --space main --all
+python skills/sipm-agent/scripts/sipm_agent.py list-team-members --space main --team-id <team-id> --all
 ```
 
-Submit a new program for approval:
+Use contextual graph data sparingly:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py propose-program-create \
-  --space main \
-  --program-name "Test Program" \
-  --description "Program created by the agent API" \
-  --reason "Create test program"
+python skills/sipm-agent/scripts/sipm_agent.py work-graph --space main --project-id <project-id> --projection summary
 ```
 
-Resolve a solution by names:
+Before constructing a raw patch, fetch the live contract:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py resolve-solution --space main --project-name "HomeLab Server" --solution-name Alpha
+python skills/sipm-agent/scripts/sipm_agent.py reference-data
 ```
 
-Submit a solution update as a pending approval request:
+For one update, the wrapper fetches `updated_at` and builds the optimistic operation:
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py propose-solution-update \
-  --space main \
-  --project-name "HomeLab Server" \
-  --solution-name Alpha \
-  --description "Short proposed description." \
-  --reason "Update Alpha solution description"
+python skills/sipm-agent/scripts/sipm_agent.py propose-update \
+  --space main --entity-type solution --id <solution-id> \
+  --fields-json '{"description":"Short proposed description"}' \
+  --reason "Clarify Alpha scope" --validate-only
 ```
 
-Validate or submit a prepared patch JSON file:
+After the validation result is clean, run the same command without `--validate-only`. For multi-entity work, use `validate-patch` and `submit-change-request` with the contract in `references/api-contract.md`.
+
+## Request Lifecycle
 
 ```bash
-python skills/sipm-agent/scripts/sipm_agent.py validate-patch --space main --patch-file patch.json
-python skills/sipm-agent/scripts/sipm_agent.py submit-change-request --space main --patch-file patch.json
+python skills/sipm-agent/scripts/sipm_agent.py list-change-requests --space main --status pending
+python skills/sipm-agent/scripts/sipm_agent.py get-change-request --space main --request-id <id>
+python skills/sipm-agent/scripts/sipm_agent.py poll-change-request --space main --request-id <id>
+python skills/sipm-agent/scripts/sipm_agent.py cancel-change-request --space main --request-id <id>
 ```
 
-## Patch Contract
+On a stale entity, refetch the direct detail, explain the conflict, and create a fresh proposal with a fresh idempotency key. Never rewrite the stored request.
 
-Read `references/api-contract.md` before building raw patch files or adding new commands.
+## Human-Delegated Review
 
-V1 supports only:
-- entities: `program`, `project`, `solution`, `task`
-- operations: `create`, `update`
-- max operations: `25`
+Only enter this flow when the user explicitly asks to approve or reject. From an authenticated human browser session, call `POST /api/agent/delegated-session` to obtain a 10-minute, session-bound delegated token, then configure it as `SIPM_HUMAN_TOKEN`. Do not expose the token in conversation.
 
-Update operations require:
-- `id`
-- `if_updated_at`
-- allowed mutable fields only
+First retrieve and present the complete diff:
 
-Create operations require:
-- `program_name` for programs
-- `project_id` for solutions
-- `solution_id` for tasks
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py review-request --space main --request-id <id>
+```
 
-Submission requires:
-- `dry_run=false`
-- `reason`
-- `idempotency_key`
+After explicit confirmation, pass the exact `updated_at` from that response:
+
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py delegated-approve \
+  --space main --request-id <id> --observed-updated-at <updated_at> \
+  --review-note "Explicitly approved by the authenticated user"
+```
+
+Never substitute `SIPM_AGENT_TOKEN` for `SIPM_HUMAN_TOKEN`, infer approval from an earlier unrelated statement, or approve a request whose diff changed.
 
 ## Operating Rules
 
-- Use `/api/agent/programs` and `/api/agent/work-graph` to fetch stable IDs and `updated_at` before proposing updates.
-- Use `/api/agent/patches/validate` when assembling a complex patch.
-- Use `/api/agent/change-requests` to submit proposals.
-- Expect submitted changes to remain pending until a real user approves them in SIPM.
-- Treat `if_updated_at` failures as normal concurrency protection; refetch work graph and create a fresh proposal.
-- Do not use normal write endpoints with service-account tokens. They should return `AGENT_APPROVAL_REQUIRED`.
+- Prefer exact IDs. If only a name is known, use `search-work` and stop on ambiguity.
+- Use cursor traversal only when the user's intent needs all matches.
+- Use summary projections by default; full projections can become large.
+- Read `references/api-contract.md` before creating raw patches or changing this wrapper.
+- Treat validation errors as structured guidance; do not weaken the contract to force a request through.
+- Soft archive is approval-gated. It is not hard delete and does not imply restore.
+- Verify applied work with `get-work` and `audit-feed` scoped to the returned entity or request correlation.
+- If server manifest/reference versions differ from this skill, trust the live manifest and reference data, then update the skill before using unsupported behavior.

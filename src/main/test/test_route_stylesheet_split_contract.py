@@ -5,9 +5,8 @@ from ui_style_contract import read_ui_styles
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
-SHARED_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "workbench-planning-admin.css"
+SHARED_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "workbench-admin.css"
 TASKS_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "tasks-workbench.css"
-PLANNING_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "planning-work-allocation.css"
 TEAM_CAPACITY_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "team-capacity.css"
 SPACE_GOVERNANCE_STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "space-governance.css"
 
@@ -16,9 +15,8 @@ def test_styles_entrypoint_imports_route_partials():
     text = STYLES_CSS.read_text(encoding="utf-8")
 
     for snippet in [
-        '@import "./styles/routes/workbench-planning-admin.css";',
+        '@import "./styles/routes/workbench-admin.css";',
         '@import "./styles/routes/tasks-workbench.css";',
-        '@import "./styles/routes/planning-work-allocation.css";',
         '@import "./styles/routes/team-capacity.css";',
         '@import "./styles/routes/space-governance.css";',
     ]:
@@ -38,49 +36,12 @@ def test_tasks_workbench_styles_move_into_route_partial():
         assert snippet not in shared_text
 
 
-def test_planning_work_allocation_styles_move_into_route_partial_and_drop_stale_shells():
-    route_text = PLANNING_STYLES.read_text(encoding="utf-8")
-    shared_text = SHARED_STYLES.read_text(encoding="utf-8")
-    all_styles = read_ui_styles(STYLES_CSS)
-
-    for snippet in [
-        "#view-planning .panel {",
-        ".wab-toolbar-main {",
-        ".wab-shell {",
-        ".wab-work-title-link {",
-    ]:
-        assert snippet in route_text
-        assert snippet not in shared_text
-
-    for stale_snippet in [
-        ".wab-legend {",
-        ".wab-selection-summary {",
-        ".wab-summary-strip {",
-    ]:
-        assert stale_snippet not in all_styles
-
-
-def test_planning_backlog_rail_contains_chips_and_helper_copy():
-    route_text = PLANNING_STYLES.read_text(encoding="utf-8")
-
-    for snippet in [
-        ".wab-side-rail {box-sizing:border-box;min-width:0;max-width:100%;",
-        ".wab-side-rail {box-sizing:border-box;min-width:0;max-width:100%;border:1px solid var(--border);border-radius:10px;padding:8px;display:grid;gap:8px;align-self:start;overflow:hidden;}",
-        ".wab-task-list {box-sizing:border-box;min-width:0;max-width:100%;",
-        ".wab-task-chip {box-sizing:border-box;min-width:0;max-width:100%;width:100%;",
-        ".wab-task-chip-title {min-width:0;",
-        ".wab-task-chip-meta {min-width:0;",
-        "overflow-wrap:anywhere;",
-    ]:
-        assert snippet in route_text
-
-
 def test_team_capacity_styles_move_into_route_partial():
     route_text = TEAM_CAPACITY_STYLES.read_text(encoding="utf-8")
     shared_text = SHARED_STYLES.read_text(encoding="utf-8")
 
     for snippet in [
-        ".planning-kpis {",
+        ".capacity-kpis {",
         ".capacity-badge {",
         ".stacked {",
         "#view-team-capacity .panel-header {",

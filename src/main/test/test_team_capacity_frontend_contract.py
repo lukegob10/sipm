@@ -42,7 +42,6 @@ def test_team_capacity_loader_is_space_aware_and_uses_extended_timeout():
     assert 'const requestedSpaceId = state.activeSpace?.space_id || "";' in interactions_text
     assert 'const spaceHeaders = { "X-Space-Id": requestedSpaceId };' in interactions_text
     assert 'api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders })' in interactions_text
-    assert 'api("/resource-allocations", { timeoutMs: 45000, headers: spaceHeaders })' in interactions_text
     assert 'state.teamCapacity.lastLoadedSpaceId = requestedSpaceId;' in interactions_text
 
 

@@ -122,10 +122,6 @@ BEGIN
 END;
 /
 
-UPDATE "TB_TA_PM_RESOURCE_ALLOCATIONS"
-SET work_item_type = 'task'
-WHERE work_item_type = 'subcomponent';
-
 UPDATE "TB_TA_PM_CHANGE_LOG"
 SET entity_type = 'task'
 WHERE entity_type = 'subcomponent';

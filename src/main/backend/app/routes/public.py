@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_db
 from ..models import Phase, Program, Project, Solution, Space
-from ..routes.projects.common import _exclude_work_allocation_board_projects, _project_payload
-from ..routes.solutions.common import _exclude_work_allocation_board_solutions, _solution_payload
+from ..routes.projects.common import _project_payload
+from ..routes.solutions.common import _solution_payload
 from ..schemas import PhaseRead, ProgramDashboardReportRequest, ProgramRead
 from ..services.program_dashboard_report_pdf import build_program_dashboard_report_pdf
+from ..services.program_dashboard_report_data import load_program_dashboard_report_data
+from ..services.program_dashboard_report_xlsx import build_program_dashboard_report_xlsx
 from ..services.spaces import SpaceContext
 
 router = APIRouter(prefix="/public")
@@ -50,28 +52,22 @@ def get_public_program_dashboard(space_slug: str, session: Session = Depends(get
         .all()
     )
     projects = (
-        _exclude_work_allocation_board_projects(
-            session.query(Project)
-            .join(Program, Program.program_id == Project.program_id)
-            .filter(Project.deleted_at.is_(None))
-            .filter(Project.space_id == space.space_id)
-            .filter(Program.deleted_at.is_(None))
-            .filter(Program.space_id == space.space_id)
-        )
+        session.query(Project)
+        .join(Program, Program.program_id == Project.program_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space.space_id)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space.space_id)
         .order_by(Project.project_name.asc())
         .all()
     )
     solutions = (
-        _exclude_work_allocation_board_solutions(
-            session.query(Solution)
-            .join(Project, Project.project_id == Solution.project_id)
-            .filter(Solution.deleted_at.is_(None))
-            .filter(Solution.space_id == space.space_id)
-            .filter(Project.deleted_at.is_(None))
-            .filter(Project.space_id == space.space_id),
-            session,
-            SpaceContext(space_id=space.space_id, space_name=space.name, is_global_admin=False, space_role="public"),
-        )
+        session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Solution.space_id == space.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Project.space_id == space.space_id)
         .order_by(Solution.priority.asc(), Solution.created_at.asc())
         .all()
     )
@@ -132,7 +128,6 @@ def download_public_program_dashboard_report_pdf(
             .filter(Project.deleted_at.is_(None))
             .filter(Project.space_id == space.space_id)
             .filter(Project.program_id.in_(valid_program_ids))
-            .filter(~Project.project_name.like("Work Allocation Board [%"))
             .order_by(Project.project_name.asc())
             .all()
         )
@@ -207,3 +202,47 @@ def download_public_program_dashboard_report_pdf(
     filename = f"program-dashboard-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
+
+@router.post("/program-dashboard/{space_slug}/report.xlsx")
+def download_public_program_dashboard_report_xlsx(
+    space_slug: str,
+    payload: ProgramDashboardReportRequest,
+    session: Session = Depends(get_db),
+) -> StreamingResponse:
+    space = _public_dashboard_space_or_404(space_slug, session)
+    selected_program_ids = [
+        str(program_id or "").strip()
+        for program_id in payload.selected_program_ids
+        if str(program_id or "").strip()
+    ]
+    report_data = load_program_dashboard_report_data(
+        session,
+        space_id=space.space_id,
+        selected_program_ids=selected_program_ids,
+    )
+    xlsx_bytes = build_program_dashboard_report_xlsx(
+        space_name=space.name,
+        selected_program_label=str(report_data["selected_program_label"]),
+        programs=report_data["programs"],
+        projects=report_data["projects"],
+        solutions=report_data["solutions"],
+        phases=report_data["phases"],
+        collapsed_program_ids={
+            str(program_id or "").strip()
+            for program_id in payload.collapsed_program_ids
+            if str(program_id or "").strip()
+        },
+        collapsed_project_ids={
+            str(project_id or "").strip()
+            for project_id in payload.collapsed_project_ids
+            if str(project_id or "").strip()
+        },
+    )
+    filename = f"program-dashboard-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )

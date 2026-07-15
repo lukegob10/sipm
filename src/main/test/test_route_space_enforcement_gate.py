@@ -9,7 +9,14 @@ ALLOWED_NO_SPACE_DEP = {
     ("phases.py", "list_phases"),
     ("public.py", "get_public_program_dashboard"),
     ("public.py", "download_public_program_dashboard_report_pdf"),
+    ("public.py", "download_public_program_dashboard_report_xlsx"),
     ("spaces.py", "list_spaces"),
+    ("agent/manifest.py", "get_agent_manifest"),
+    ("agent/spaces.py", "list_spaces"),
+    ("agent/spaces.py", "get_space"),
+    ("agent/discovery.py", "get_reference_data"),
+    ("agent/discovery.py", "get_agent_openapi"),
+    ("agent/discovery.py", "create_delegated_session"),
 }
 
 SKIP_FILES = {"__init__.py", "auth.py", "sync.py"}
@@ -57,12 +64,18 @@ def _is_space_enforced(dep_targets):
             "current_space_dep",
             "current_space",
             "current_agent_space",
+            "current_agent_or_user_space",
+            "current_delegated_human_space",
             "require_global_admin",
         }:
             return True
         if target.startswith("require_space_role("):
             return True
         if target.startswith("require_agent_space_role("):
+            return True
+        if target.startswith("require_agent_or_user_space_role("):
+            return True
+        if target.startswith("require_delegated_human_space_role("):
             return True
     return False
 

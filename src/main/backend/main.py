@@ -63,6 +63,7 @@ _environment.load_repo_env()
 
 
 from backend.app.auth.auth import validate_auth_configuration
+from backend.app.agent_errors import install_agent_error_handlers
 from backend.app.db.db import check_db_connection, init_db, warm_db_pool
 from backend.app.paths import (
     API_PREFIX,
@@ -303,6 +304,7 @@ app = FastAPI(
     docs_url=DOCS_PATH,
     redoc_url=REDOC_PATH,
 )
+install_agent_error_handlers(app)
 
 # API under the app context path so the full product is self-contained.
 app.include_router(api_router, prefix=API_PREFIX)

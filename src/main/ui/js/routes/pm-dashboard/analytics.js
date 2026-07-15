@@ -159,13 +159,9 @@ export function resolvePMDashboardOwnerAssigneeKey(soeidValue, labelValue, owner
 }
 
 export function renderPMDashboardOwnerLink(label, assigneeKey) {
+  void assigneeKey;
   const ownerLabel = String(label || "Unassigned").trim() || "Unassigned";
-  const resolvedKey = String(assigneeKey || "").trim();
-  if (!resolvedKey || resolvedKey === "unassigned") return esc(ownerLabel);
-  return renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations", {
-    "data-assignee-key": resolvedKey,
-    "aria-label": `Open workload for ${ownerLabel}`,
-  });
+  return esc(ownerLabel);
 }
 
 export function renderPMDashboardTimelineLink(row) {
@@ -176,15 +172,5 @@ export function renderPMDashboardTimelineLink(row) {
   return renderPMDashboardRowLink(row.name, "open-task", {
     "data-task-id": row.taskId,
     "aria-label": `Open task ${row.name}`,
-  });
-}
-
-export function renderPMDashboardCapacityLink(row) {
-  const assigneeKey = String(row?.key || "").trim();
-  const label = String(row?.label || "Unassigned").trim() || "Unassigned";
-  if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;
-  return renderPMDashboardRowLink(row.label, "open-capacity-allocations", {
-    "data-assignee-key": row.key,
-    "aria-label": `Open workload for ${row.label}`,
   });
 }

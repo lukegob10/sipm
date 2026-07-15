@@ -23,22 +23,6 @@ const masterTableMock = vi.hoisted(() => ({
   buildMasterTable: vi.fn(),
 }));
 
-const planningMock = vi.hoisted(() => ({
-  loadBoard: vi.fn(),
-  bindPlanningBoardEvents: vi.fn(),
-  renderPlanningView: vi.fn(),
-  syncDetailDraft: vi.fn(),
-  selectedTask: vi.fn(),
-  boardState: {
-    ctx: null,
-    detailDraft: {},
-    loaded: false,
-    loading: false,
-    spaceId: "",
-  },
-  setPlanningRerender: vi.fn(),
-  resetBoardState: vi.fn(),
-}));
 
 vi.mock("../../js/routes/dashboard/render.js", () => ({
   createDashboardState: dashboardMock.createDashboardState,
@@ -65,31 +49,6 @@ vi.mock("../../js/routes/master/table.js", () => ({
   buildMasterTable: masterTableMock.buildMasterTable,
 }));
 
-vi.mock("../../js/routes/planning/api.js", () => ({
-  loadBoard: planningMock.loadBoard,
-}));
-
-vi.mock("../../js/routes/planning/interactions.js", () => ({
-  bindPlanningBoardEvents: planningMock.bindPlanningBoardEvents,
-}));
-
-vi.mock("../../js/routes/planning/render.js", () => ({
-  renderPlanningView: planningMock.renderPlanningView,
-}));
-
-vi.mock("../../js/routes/planning/selection.js", () => ({
-  selectedTask: planningMock.selectedTask,
-  syncDetailDraft: planningMock.syncDetailDraft,
-}));
-
-vi.mock("../../js/routes/planning/state.js", () => ({
-  boardState: planningMock.boardState,
-  setPlanningRerender: planningMock.setPlanningRerender,
-}));
-
-vi.mock("../../js/routes/planning/storage.js", () => ({
-  resetBoardState: planningMock.resetBoardState,
-}));
 
 dashboardMock.createDashboardState.mockReturnValue(dashboardMock.dashboardState);
 pmDashboardMock.createPMDashboardState.mockReturnValue(pmDashboardMock.pmDashboardState);
@@ -99,19 +58,11 @@ const dashboardRoute = await import("../../js/routes/dashboard.js");
 const pmDashboardRoute = await import("../../js/routes/pm-dashboard.js");
 const programDashboardRoute = await import("../../js/routes/program-dashboard.js");
 const masterRoute = await import("../../js/routes/master.js");
-const planningRoute = await import("../../js/routes/planning.js");
 
 describe("route entrypoints", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     masterTableMock.buildMasterTable.mockReturnValue({ html: "<table><tbody><tr><td>row</td></tr></tbody></table>", rowCount: 1 });
-    planningMock.boardState.ctx = null;
-    planningMock.boardState.detailDraft = {};
-    planningMock.boardState.loaded = false;
-    planningMock.boardState.loading = false;
-    planningMock.boardState.spaceId = "";
-    planningMock.selectedTask.mockReturnValue(null);
-    planningMock.loadBoard.mockResolvedValue(undefined);
     vi.spyOn(performance, "now").mockReturnValue(100);
   });
 
@@ -225,53 +176,5 @@ describe("route entrypoints", () => {
     });
 
     expect(masterTableMock.buildMasterTable).not.toHaveBeenCalled();
-  });
-
-  it("resets planning state, starts loading, syncs detail draft, renders, and records timing", () => {
-    const planningBoard = document.createElement("section");
-    const activeTask = { id: "task-1", title: "Build API" };
-    planningMock.selectedTask.mockReturnValue(activeTask);
-    planningMock.boardState.spaceId = "old-space";
-    planningMock.boardState.detailDraft = { taskId: "other-task" };
-    vi.mocked(performance.now).mockReturnValueOnce(100).mockReturnValueOnce(116);
-    const ctx = {
-      els: { planningBoard },
-      state: { activeSpace: { space_id: "space-1" } },
-      noteViewRendered: vi.fn(),
-    };
-
-    planningRoute.renderPlanning(ctx);
-
-    expect(planningMock.boardState.ctx).toBe(ctx);
-    expect(planningMock.resetBoardState).toHaveBeenCalledWith("space-1");
-    expect(planningMock.bindPlanningBoardEvents).toHaveBeenCalledTimes(1);
-    expect(planningMock.loadBoard).toHaveBeenCalledWith(ctx, { allocationsOnly: false });
-    expect(planningMock.syncDetailDraft).toHaveBeenCalledWith(activeTask);
-    expect(planningMock.renderPlanningView).toHaveBeenCalledWith(planningBoard);
-    expect(ctx.noteViewRendered).toHaveBeenCalledWith(16);
-  });
-
-  it("skips planning loads while already loaded or loading", () => {
-    const planningBoard = document.createElement("section");
-    const ctx = { els: { planningBoard }, state: { activeSpace: { space_id: "" } } };
-
-    planningMock.boardState.loaded = true;
-    planningRoute.render(ctx);
-    planningMock.boardState.loaded = false;
-    planningMock.boardState.loading = true;
-    planningRoute.renderPlanning(ctx);
-
-    expect(planningMock.loadBoard).not.toHaveBeenCalled();
-    expect(planningMock.resetBoardState).not.toHaveBeenCalled();
-  });
-
-  it("returns early when the planning board root is unavailable", () => {
-    const ctx = { els: {}, state: { activeSpace: { space_id: "space-1" } } };
-
-    planningRoute.renderPlanning(ctx);
-
-    expect(planningMock.boardState.ctx).toBe(ctx);
-    expect(planningMock.bindPlanningBoardEvents).not.toHaveBeenCalled();
-    expect(planningMock.renderPlanningView).not.toHaveBeenCalled();
   });
 });

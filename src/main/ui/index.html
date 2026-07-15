@@ -36,13 +36,13 @@
     </div>
   </div>
 
-  <div id="idle-modal" class="modal hidden">
+  <div id="idle-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="idle-modal-title" aria-describedby="idle-modal-description">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Session Expiring</h3>
+        <h3 id="idle-modal-title">Session Expiring</h3>
       </div>
-      <p class="muted">You've been inactive for a while. You'll be signed out soon.</p>
+      <p id="idle-modal-description" class="muted">You've been inactive. You'll be signed out in <strong id="idle-countdown" aria-live="polite">60 seconds</strong>.</p>
       <div class="form-actions">
         <button id="idle-stay" class="primary" type="button">Stay signed in</button>
         <button id="idle-logout" class="secondary" type="button">Sign out</button>
@@ -112,7 +112,6 @@
         <p class="nav-label">Work</p>
         <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
         <button type="button" data-view="tasks-workbench" class="nav-btn">Tasks</button>
-        <button type="button" data-view="planning" class="nav-btn">Planning</button>
       </div>
       <div id="nav-insight-section" class="nav-group nav-section">
         <p class="nav-label">Insight</p>
@@ -882,19 +881,6 @@
         </div>
       </div>
 
-      <div id="planning-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="planning-modal-title">
-        <div class="modal-backdrop"></div>
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3 id="planning-modal-title">Allocation Details</h3>
-            <button type="button" id="planning-modal-close" class="secondary modal-close-x" aria-label="Close planning details dialog" title="Close" data-tooltip="Close">
-              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
-            </button>
-          </div>
-          <div id="planning-modal-body" class="modal-body"></div>
-        </div>
-      </div>
-
       <div id="space-create-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="space-create-modal-title">
         <div class="modal-backdrop"></div>
         <div class="modal-content">
@@ -1017,18 +1003,6 @@
               </div>
             </div>
           <div id="calendar-grid" class="calendar"></div>
-        </div>
-      </section>
-
-      <section id="view-planning" class="view">
-        <div class="panel product-route-panel">
-          <div class="panel-header">
-            <div class="view-heading">
-              <p class="view-breadcrumb">Work / Planning</p>
-              <h2>Work Allocation Board</h2>
-            </div>
-          </div>
-          <div id="planning-board" class="table"></div>
         </div>
       </section>
 

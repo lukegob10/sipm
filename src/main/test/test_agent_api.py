@@ -15,6 +15,8 @@ from backend.app.models import (
     SpaceMembership,
     Solution,
     Task,
+    Team,
+    TeamMember,
     User,
 )
 from backend.app.services.api_tokens import TOKEN_PREFIX, hash_api_token
@@ -124,6 +126,47 @@ def _seed_cookie_user(
     return soeid, space_id
 
 
+def _seed_additional_agent_token(
+    db_sessionmaker,
+    *,
+    space_id: str,
+    user_id: str,
+    is_service_account: bool = True,
+) -> str:
+    raw_token = f"{TOKEN_PREFIX}test-token-{user_id}"
+    with db_sessionmaker() as session:
+        user = User(
+            user_id=user_id,
+            soeid=user_id,
+            email=f"{user_id}@example.com",
+            display_name=f"Service Account {user_id}",
+            password_hash=hash_password("Password123"),
+            role="user",
+            is_active=True,
+            is_service_account=is_service_account,
+        )
+        session.add(user)
+        session.flush()
+        session.add_all(
+            [
+                SpaceMembership(
+                    space_id=space_id,
+                    user_id=user.user_id,
+                    role="member",
+                    status="active",
+                ),
+                ApiToken(
+                    user_id=user.user_id,
+                    name="agent",
+                    token_hash=hash_api_token(raw_token),
+                    created_by_user_id=user.user_id,
+                ),
+            ]
+        )
+        session.commit()
+    return raw_token
+
+
 def _auth_headers(token: str, space_id: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "X-Space-Id": space_id}
 
@@ -163,15 +206,187 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
 
     accepted = await agent_client.get(
         "/project-manager/api/agent/manifest",
-        headers=_auth_headers(token, space_id),
+        headers={"Authorization": f"Bearer {token}"},
     )
     assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["writable_entities"] == [
+    manifest = accepted.json()
+    assert manifest["version"] == "1.2"
+    assert manifest["capabilities"] == [
+        "read_programs",
+        "read_spaces",
+        "read_work_graph",
+        "read_paginated_work_graph",
+        "read_work_item_details",
+        "search_work_items",
+        "read_own_change_requests",
+        "cancel_own_change_request",
+        "archive_work_items",
+        "human_delegated_review",
+        "read_audit_feed",
+        "read_reference_data",
+        "read_agent_openapi",
+        "read_people_and_teams",
+        "validate_patch",
+        "submit_change_request",
+    ]
+    assert "apply_patch" not in manifest["capabilities"]
+    assert manifest["writable_entities"] == [
         "program",
         "project",
         "solution",
         "task",
     ]
+    assert manifest["writable_actions"] == ["archive", "create", "update"]
+    assert manifest["writes_require_change_request"] is True
+    assert manifest["human_review_required"] is True
+    assert manifest["service_account_can_approve"] is False
+    assert manifest["human_delegated_review"] is True
+    assert manifest["max_patch_operations"] == 25
+    assert manifest["requires_space_id"] is True
+    assert manifest["space_discovery_requires_space_id"] is False
+    assert manifest["space_discovery_path"] == "/api/agent/spaces"
+
+
+@pytest.mark.anyio
+async def test_agent_space_discovery_is_accessible_paginated_and_scoped(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    user_id = f"user-{space_id}-True-True"
+    accessible_ids = {space_id}
+    with db_sessionmaker() as session:
+        for index in range(5):
+            extra_space_id = f"agent-space-{index}"
+            accessible_ids.add(extra_space_id)
+            session.add(
+                Space(
+                    space_id=extra_space_id,
+                    name=f"Workspace {index:02d}",
+                    slug=f"workspace-{index:02d}",
+                )
+            )
+            session.flush()
+            session.add(
+                SpaceMembership(
+                    space_id=extra_space_id,
+                    user_id=user_id,
+                    role="member",
+                    status="active",
+                )
+            )
+        session.add(
+            Space(
+                space_id="inaccessible-space",
+                name="Inaccessible Workspace",
+                slug="inaccessible-workspace",
+            )
+        )
+        session.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    discovered_ids: list[str] = []
+    cursor = None
+    while True:
+        response = await agent_client.get(
+            "/project-manager/api/agent/spaces",
+            headers=headers,
+            params={
+                "limit": 2,
+                **({"cursor": cursor} if cursor else {}),
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert len(body["records"]) <= 2
+        discovered_ids.extend(row["space_id"] for row in body["records"])
+        if not body["has_more"]:
+            assert body["next_cursor"] is None
+            break
+        cursor = body.get("next_cursor")
+        assert cursor
+
+    assert len(discovered_ids) == len(set(discovered_ids))
+    assert set(discovered_ids) == accessible_ids
+    assert "inaccessible-space" not in discovered_ids
+
+    by_slug = await agent_client.get(
+        "/project-manager/api/agent/spaces",
+        headers=headers,
+        params={"slug": "workspace-03"},
+    )
+    assert by_slug.status_code == 200, by_slug.text
+    assert [row["space_id"] for row in by_slug.json()["records"]] == ["agent-space-3"]
+
+    detail = await agent_client.get(
+        "/project-manager/api/agent/spaces/agent-space-3",
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["slug"] == "workspace-03"
+    assert detail.json()["role"] == "member"
+
+    inaccessible_detail = await agent_client.get(
+        "/project-manager/api/agent/spaces/inaccessible-space",
+        headers=headers,
+    )
+    assert inaccessible_detail.status_code == 404
+    assert inaccessible_detail.json()["code"] == "SPACE_NOT_FOUND"
+
+    tampered = await agent_client.get(
+        "/project-manager/api/agent/spaces",
+        headers=headers,
+        params={"limit": 2, "cursor": f"{cursor}x"},
+    )
+    assert tampered.status_code == 400
+    assert tampered.json()["code"] == "INVALID_CURSOR"
+
+
+@pytest.mark.anyio
+async def test_agent_errors_use_stable_envelope_and_request_id(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+
+    unauthenticated = await agent_client.get(
+        "/project-manager/api/agent/manifest",
+        headers={"X-Space-Id": space_id, "X-Request-ID": "agent-auth-error"},
+    )
+    assert unauthenticated.status_code == 401
+    assert unauthenticated.headers["X-Error-Code"] == "AUTH_REQUIRED"
+    assert unauthenticated.json() == {
+        "code": "AUTH_REQUIRED",
+        "message": "Bearer API token required",
+        "request_id": "agent-auth-error",
+        "details": {},
+    }
+
+    invalid_payload = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers={
+            **_auth_headers(token, space_id),
+            "X-Request-ID": "agent-validation-error",
+        },
+        json={"dry_run": True},
+    )
+    assert invalid_payload.status_code == 422
+    assert invalid_payload.headers["X-Error-Code"] == "REQUEST_VALIDATION_ERROR"
+    validation_error = invalid_payload.json()
+    assert validation_error["code"] == "REQUEST_VALIDATION_ERROR"
+    assert validation_error["message"] == "Agent request validation failed"
+    assert validation_error["request_id"] == "agent-validation-error"
+    assert validation_error["details"]["errors"][0]["loc"] == [
+        "body",
+        "operations",
+    ]
+
+
+@pytest.mark.anyio
+async def test_non_agent_errors_keep_fastapi_response_shape(client):
+    response = await client.get("/project-manager/api/projects/missing-project")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Project not found"}
+    assert "X-Error-Code" not in response.headers
 
 
 @pytest.mark.anyio
@@ -439,7 +654,9 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
         task_updated_at,
     ) = _seed_work_graph(db_sessionmaker)
     with db_sessionmaker() as session:
-        other_project = session.query(Project).filter(Project.space_id == other_space_id).one()
+        other_project = (
+            session.query(Project).filter(Project.space_id == other_space_id).one()
+        )
         program = session.query(Program).filter(Program.space_id == space_id).one()
         program_id = program.program_id
         program_updated_at = program.updated_at.isoformat()
@@ -561,7 +778,9 @@ async def test_agent_program_read_endpoints_are_service_account_scoped(
     token, space_id, other_token, other_space_id, *_ = _seed_work_graph(db_sessionmaker)
     with db_sessionmaker() as session:
         program = session.query(Program).filter(Program.space_id == space_id).one()
-        other_program = session.query(Program).filter(Program.space_id == other_space_id).one()
+        other_program = (
+            session.query(Program).filter(Program.space_id == other_space_id).one()
+        )
 
     no_bearer = await agent_client.get(
         "/project-manager/api/agent/programs",
@@ -603,10 +822,14 @@ async def test_agent_program_read_endpoints_are_service_account_scoped(
 async def test_agent_program_patch_validation_rejects_bad_names_stale_and_cross_space(
     agent_client, db_sessionmaker
 ):
-    token, space_id, _other_token, other_space_id, *_ = _seed_work_graph(db_sessionmaker)
+    token, space_id, _other_token, other_space_id, *_ = _seed_work_graph(
+        db_sessionmaker
+    )
     with db_sessionmaker() as session:
         program = session.query(Program).filter(Program.space_id == space_id).one()
-        other_program = session.query(Program).filter(Program.space_id == other_space_id).one()
+        other_program = (
+            session.query(Program).filter(Program.space_id == other_space_id).one()
+        )
 
     payload = {
         "dry_run": True,
@@ -717,7 +940,10 @@ async def test_agent_change_request_approval_applies_and_audits(
     assert submitted.status_code == 201, submitted.text
     request_id = submitted.json()["change_request_id"]
     assert submitted.json()["status"] == "pending"
-    assert submitted.json()["diff"][0]["fields"]["project_name"]["new"] == "Created By Approval"
+    assert (
+        submitted.json()["diff"][0]["fields"]["project_name"]["new"]
+        == "Created By Approval"
+    )
 
     service_account_approval = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{request_id}/approve",
@@ -758,6 +984,172 @@ async def test_agent_change_request_approval_applies_and_audits(
             .filter(ChangeLog.entity_id == project.project_id)
             .count()
             > 0
+        )
+
+
+@pytest.mark.anyio
+async def test_agent_work_item_details_are_complete_scoped_and_direct(
+    agent_client, db_sessionmaker
+):
+    (
+        token,
+        space_id,
+        _other_token,
+        other_space_id,
+        project_id,
+        solution_id,
+        task_id,
+        *_timestamps,
+    ) = _seed_work_graph(db_sessionmaker)
+    with db_sessionmaker() as session:
+        project = session.query(Project).filter(Project.project_id == project_id).one()
+        solution = (
+            session.query(Solution).filter(Solution.solution_id == solution_id).one()
+        )
+        task = session.query(Task).filter(Task.task_id == task_id).one()
+        program_id = project.program_id
+        project.description = "Complete project context"
+        project.success_criteria = "Project succeeds"
+        project.strategic_objective = "Scale safely"
+        solution.github_repo_url = "https://github.com/example/solution"
+        solution.description = "Complete solution context"
+        solution.problem_statement = "A specific problem"
+        solution.risks = "A known risk"
+        solution.capacity_hours = 21
+        task.done_criteria = "Verified by tests"
+        task.estimate_hours = 8
+        task.capacity_hours = 5
+        session.commit()
+
+    headers = _auth_headers(token, space_id)
+    program_response = await agent_client.get(
+        f"/project-manager/api/agent/programs/{program_id}", headers=headers
+    )
+    project_response = await agent_client.get(
+        f"/project-manager/api/agent/projects/{project_id}", headers=headers
+    )
+    solution_response = await agent_client.get(
+        f"/project-manager/api/agent/solutions/{solution_id}", headers=headers
+    )
+    task_response = await agent_client.get(
+        f"/project-manager/api/agent/tasks/{task_id}", headers=headers
+    )
+
+    for response in (
+        program_response,
+        project_response,
+        solution_response,
+        task_response,
+    ):
+        assert response.status_code == 200, response.text
+        assert response.json()["created_at"]
+        assert response.json()["updated_at"]
+
+    assert project_response.json()["description"] == "Complete project context"
+    assert project_response.json()["success_criteria"] == "Project succeeds"
+    assert project_response.json()["strategic_objective"] == "Scale safely"
+    assert (
+        solution_response.json()["github_repo_url"]
+        == "https://github.com/example/solution"
+    )
+    assert solution_response.json()["problem_statement"] == "A specific problem"
+    assert solution_response.json()["capacity_hours"] == 21
+    task_data = task_response.json()
+    assert task_data["done_criteria"] == "Verified by tests"
+    assert task_data["estimate_hours"] == 8
+    assert task_data["capacity_hours"] == 5
+    assert (
+        task_data["effective_github_repo_url"] == "https://github.com/example/solution"
+    )
+    assert task_data["repo_source"] == "inherited"
+    assert isinstance(task_data["urgency_score"], float)
+
+    wrong_space = await agent_client.get(
+        f"/project-manager/api/agent/projects/{project_id}",
+        headers=_auth_headers(token, other_space_id),
+    )
+    assert wrong_space.status_code == 403
+
+    missing = await agent_client.get(
+        "/project-manager/api/agent/tasks/not-a-task", headers=headers
+    )
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "TASK_NOT_FOUND"
+
+
+@pytest.mark.anyio
+async def test_agent_change_request_can_approve_selected_operations(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="partial-reviewer",
+        user_id="partial-reviewer-user",
+    )
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "create only approved projects",
+            "idempotency_key": "partial-approval-1",
+            "operations": [
+                {
+                    "client_operation_id": "approved-project",
+                    "op": "create",
+                    "entity": "project",
+                    "fields": {"project_name": "Approved Project"},
+                },
+                {
+                    "client_operation_id": "skipped-project",
+                    "op": "create",
+                    "entity": "project",
+                    "fields": {"project_name": "Skipped Project"},
+                },
+            ],
+        },
+    )
+    assert submitted.status_code == 201, submitted.text
+    request_id = submitted.json()["change_request_id"]
+
+    login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": soeid, "password": "Password123"},
+    )
+    assert login.status_code == 200, login.text
+    approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/approve-selected-operations",
+        headers={"X-Space-Id": space_id},
+        json={
+            "client_operation_ids": ["approved-project"],
+            "review_note": "Only the first project is ready",
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    body = approved.json()
+    assert body["status"] == "approved"
+    assert body["operation_count"] == 2
+    assert [
+        result["client_operation_id"] for result in body["validation"]["results"]
+    ] == ["approved-project"]
+    assert [item["client_operation_id"] for item in body["diff"]] == [
+        "approved-project",
+        "skipped-project",
+    ]
+
+    with db_sessionmaker() as session:
+        assert (
+            session.query(Project)
+            .filter(Project.project_name == "Approved Project")
+            .one()
+        )
+        assert (
+            session.query(Project)
+            .filter(Project.project_name == "Skipped Project")
+            .first()
+            is None
         )
 
 
@@ -803,9 +1195,16 @@ async def test_agent_program_change_request_approval_applies_and_audits(
     assert retry.status_code == 201, retry.text
     assert retry.json()["change_request_id"] == submitted.json()["change_request_id"]
     assert submitted.json()["status"] == "pending"
-    assert submitted.json()["diff"][0]["fields"]["program_name"]["new"] == "Agent Program"
+    assert (
+        submitted.json()["diff"][0]["fields"]["program_name"]["new"] == "Agent Program"
+    )
     with db_sessionmaker() as session:
-        assert session.query(Program).filter(Program.program_name == "Agent Program").first() is None
+        assert (
+            session.query(Program)
+            .filter(Program.program_name == "Agent Program")
+            .first()
+            is None
+        )
 
     login = await agent_client.post(
         "/project-manager/api/auth/login",
@@ -821,7 +1220,9 @@ async def test_agent_program_change_request_approval_applies_and_audits(
     assert approved.json()["status"] == "approved"
 
     with db_sessionmaker() as session:
-        program = session.query(Program).filter(Program.program_name == "Agent Program").one()
+        program = (
+            session.query(Program).filter(Program.program_name == "Agent Program").one()
+        )
         program_id = program.program_id
         program_updated_at = program.updated_at.isoformat()
         assert (
@@ -936,6 +1337,246 @@ async def test_agent_change_request_idempotency_key_deduplicates_retry(
 
 
 @pytest.mark.anyio
+async def test_service_account_can_page_and_get_only_its_change_requests(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    other_token = _seed_additional_agent_token(
+        db_sessionmaker,
+        space_id=space_id,
+        user_id="other-agent",
+    )
+
+    async def submit(raw_token: str, index: int):
+        return await agent_client.post(
+            "/project-manager/api/agent/change-requests",
+            headers=_auth_headers(raw_token, space_id),
+            json={
+                "dry_run": False,
+                "reason": f"create project {index}",
+                "idempotency_key": f"owned-request-{index}",
+                "operations": [
+                    {
+                        "client_operation_id": f"create-project-{index}",
+                        "op": "create",
+                        "entity": "project",
+                        "fields": {"project_name": f"Owned Project {index}"},
+                    }
+                ],
+            },
+        )
+
+    owned = [await submit(token, index) for index in range(3)]
+    other = await submit(other_token, 99)
+    assert all(response.status_code == 201 for response in [*owned, other])
+
+    missing_space = await agent_client.get(
+        "/project-manager/api/agent/change-requests",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert missing_space.status_code == 403
+    assert missing_space.json()["code"] == "FORBIDDEN_SPACE"
+
+    first_page = await agent_client.get(
+        "/project-manager/api/agent/change-requests?status=all&limit=2",
+        headers=_auth_headers(token, space_id),
+    )
+    assert first_page.status_code == 200, first_page.text
+    first_body = first_page.json()
+    assert len(first_body["records"]) == 2
+    assert first_body["has_more"] is True
+    assert first_body["next_cursor"]
+    assert first_body["pending_count"] == 3
+    assert {row["proposed_by_user_id"] for row in first_body["records"]} == {
+        f"user-{space_id}-True-True"
+    }
+
+    second_page = await agent_client.get(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        params={
+            "status": "all",
+            "limit": 2,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert second_page.status_code == 200, second_page.text
+    second_body = second_page.json()
+    assert len(second_body["records"]) == 1
+    assert second_body["has_more"] is False
+    assert second_body["next_cursor"] is None
+    paged_ids = {
+        row["change_request_id"]
+        for row in [*first_body["records"], *second_body["records"]]
+    }
+    assert paged_ids == {response.json()["change_request_id"] for response in owned}
+
+    filtered = await agent_client.get(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        params={"status": "all", "idempotency_key": "owned-request-1"},
+    )
+    assert filtered.status_code == 200, filtered.text
+    assert [row["idempotency_key"] for row in filtered.json()["records"]] == [
+        "owned-request-1"
+    ]
+
+    own_detail = await agent_client.get(
+        (
+            "/project-manager/api/agent/change-requests/"
+            f"{owned[0].json()['change_request_id']}"
+        ),
+        headers=_auth_headers(token, space_id),
+    )
+    assert own_detail.status_code == 200, own_detail.text
+
+    other_detail = await agent_client.get(
+        (
+            "/project-manager/api/agent/change-requests/"
+            f"{other.json()['change_request_id']}"
+        ),
+        headers=_auth_headers(token, space_id),
+    )
+    assert other_detail.status_code == 404
+
+    changed_filter_cursor = await agent_client.get(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        params={
+            "status": "pending",
+            "limit": 2,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert changed_filter_cursor.status_code == 400
+    assert changed_filter_cursor.json()["code"] == "INVALID_CURSOR"
+
+    reviewer_soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="queue-reviewer",
+        user_id="queue-reviewer-user",
+    )
+    login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": reviewer_soeid, "password": "Password123"},
+    )
+    assert login.status_code == 200, login.text
+    reviewer_queue = await agent_client.get(
+        "/project-manager/api/agent/change-requests?status=all",
+        headers={"X-Space-Id": space_id},
+    )
+    assert reviewer_queue.status_code == 200, reviewer_queue.text
+    assert reviewer_queue.json()["pending_count"] == 4
+    assert len(reviewer_queue.json()["records"]) == 4
+
+
+@pytest.mark.anyio
+async def test_service_account_can_cancel_only_its_pending_request_and_replace_it(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    other_token = _seed_additional_agent_token(
+        db_sessionmaker,
+        space_id=space_id,
+        user_id="cancel-other-agent",
+    )
+    original_payload = {
+        "dry_run": False,
+        "reason": "create original project",
+        "idempotency_key": "cancel-original",
+        "operations": [
+            {
+                "client_operation_id": "create-original",
+                "op": "create",
+                "entity": "project",
+                "fields": {"project_name": "Original Cancel Project"},
+            }
+        ],
+    }
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=original_payload,
+    )
+    assert submitted.status_code == 201, submitted.text
+    request_id = submitted.json()["change_request_id"]
+
+    other_cancel = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/cancel",
+        headers=_auth_headers(other_token, space_id),
+    )
+    assert other_cancel.status_code == 404
+    assert other_cancel.json()["code"] == "CHANGE_REQUEST_NOT_FOUND"
+
+    cancelled = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/cancel",
+        headers=_auth_headers(token, space_id),
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["status"] == "cancelled"
+
+    repeated_cancel = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/cancel",
+        headers=_auth_headers(token, space_id),
+    )
+    assert repeated_cancel.status_code == 200, repeated_cancel.text
+    assert repeated_cancel.json()["status"] == "cancelled"
+
+    cancelled_list = await agent_client.get(
+        "/project-manager/api/agent/change-requests?status=cancelled",
+        headers=_auth_headers(token, space_id),
+    )
+    assert cancelled_list.status_code == 200, cancelled_list.text
+    assert [row["change_request_id"] for row in cancelled_list.json()["records"]] == [
+        request_id
+    ]
+
+    idempotent_retry = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=original_payload,
+    )
+    assert idempotent_retry.status_code == 201, idempotent_retry.text
+    assert idempotent_retry.json()["change_request_id"] == request_id
+    assert idempotent_retry.json()["status"] == "cancelled"
+
+    replacement_payload = {
+        **original_payload,
+        "reason": "replace cancelled project request",
+        "idempotency_key": "cancel-replacement",
+        "operations": [
+            {
+                "client_operation_id": "create-replacement",
+                "op": "create",
+                "entity": "project",
+                "fields": {"project_name": "Replacement Cancel Project"},
+            }
+        ],
+    }
+    replacement = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=replacement_payload,
+    )
+    assert replacement.status_code == 201, replacement.text
+    assert replacement.json()["status"] == "pending"
+    assert replacement.json()["change_request_id"] != request_id
+
+    with db_sessionmaker() as session:
+        audit_rows = (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "agent_change_request")
+            .filter(ChangeLog.entity_id == request_id)
+            .filter(ChangeLog.action == "cancel")
+            .all()
+        )
+        assert len(audit_rows) == 1
+        assert audit_rows[0].old_value == "pending"
+        assert audit_rows[0].new_value == "cancelled"
+
+
+@pytest.mark.anyio
 async def test_agent_change_request_reject_and_stale_failure(
     agent_client, db_sessionmaker
 ):
@@ -1030,3 +1671,749 @@ async def test_agent_change_request_reject_and_stale_failure(
         assert row.status == "failed"
         project = session.query(Project).filter(Project.project_id == project_id).one()
         assert project.description == "Changed elsewhere"
+
+
+@pytest.mark.anyio
+async def test_agent_work_search_is_typed_filtered_paginated_and_cursor_bound(
+    agent_client, db_sessionmaker
+):
+    seeded = _seed_work_graph(db_sessionmaker)
+    token, space_id = seeded[0], seeded[1]
+    project_id, solution_id = seeded[4], seeded[5]
+    with db_sessionmaker() as session:
+        for index in range(5):
+            session.add(
+                Task(
+                    space_id=space_id,
+                    project_id=project_id,
+                    solution_id=solution_id,
+                    task_name=f"Searchable Task {index}",
+                    status="in_progress" if index % 2 else "to_do",
+                    priority=index + 1,
+                    assignee=f"Worker {index}",
+                    assignee_user_soeid="shared-worker"
+                    if index < 3
+                    else f"worker-{index}",
+                )
+            )
+        session.commit()
+
+    headers = _auth_headers(token, space_id)
+    cursor = None
+    first_cursor = None
+    seen: list[str] = []
+    while True:
+        params = {
+            "entity_type": "task",
+            "parent_id": solution_id,
+            "q": "Searchable",
+            "limit": 2,
+        }
+        if cursor:
+            params["cursor"] = cursor
+        response = await agent_client.get(
+            "/project-manager/api/agent/work-items", headers=headers, params=params
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["entity_type"] == "task"
+        seen.extend(record["entity_id"] for record in body["records"])
+        cursor = body["next_cursor"]
+        first_cursor = first_cursor or cursor
+        if not body["has_more"]:
+            break
+    assert len(seen) == 5
+    assert len(set(seen)) == 5
+
+    principal = await agent_client.get(
+        "/project-manager/api/agent/work-items",
+        headers=headers,
+        params={
+            "entity_type": "task",
+            "principal_soeid": "shared-worker",
+            "limit": 10,
+        },
+    )
+    assert principal.status_code == 200, principal.text
+    assert len(principal.json()["records"]) == 3
+    assert all(
+        row["assignee_user_soeid"] == "shared-worker"
+        for row in principal.json()["records"]
+    )
+
+    changed_filter = await agent_client.get(
+        "/project-manager/api/agent/work-items",
+        headers=headers,
+        params={"entity_type": "task", "q": "different", "cursor": first_cursor},
+    )
+    assert changed_filter.status_code == 400
+
+    invalid_type = await agent_client.get(
+        "/project-manager/api/agent/work-items",
+        headers=headers,
+        params={"entity_type": "everything"},
+    )
+    assert invalid_type.status_code == 400
+    assert invalid_type.json()["code"] == "INVALID_ENTITY_TYPE"
+
+
+@pytest.mark.anyio
+async def test_agent_work_graph_is_cursor_paginated_task_filterable_and_projectable(
+    agent_client, db_sessionmaker
+):
+    seeded = _seed_work_graph(db_sessionmaker)
+    token, space_id = seeded[0], seeded[1]
+    first_project_id, first_solution_id, first_task_id = seeded[4:7]
+    with db_sessionmaker() as session:
+        first_project = (
+            session.query(Project).filter(Project.project_id == first_project_id).one()
+        )
+        first_solution = (
+            session.query(Solution)
+            .filter(Solution.solution_id == first_solution_id)
+            .one()
+        )
+        first_task = session.query(Task).filter(Task.task_id == first_task_id).one()
+        first_project.description = "Full project detail"
+        first_solution.problem_statement = "Full solution detail"
+        first_task.done_criteria = "Full task detail"
+        for index in range(4):
+            session.add(
+                Project(
+                    space_id=space_id,
+                    program_id=first_project.program_id,
+                    project_name=f"Graph Page Project {index}",
+                    status="active",
+                    sponsor="Sponsor",
+                )
+            )
+        session.commit()
+
+    headers = _auth_headers(token, space_id)
+    cursor = None
+    first_cursor = None
+    seen: list[str] = []
+    while True:
+        params = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        response = await agent_client.get(
+            "/project-manager/api/agent/work-graph", headers=headers, params=params
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["projection"] == "summary"
+        assert body["filter_semantics"] == "parent_match_full_children"
+        seen.extend(row["project_id"] for row in body["records"])
+        cursor = body.get("next_cursor")
+        first_cursor = first_cursor or cursor
+        if not body["has_more"]:
+            break
+    assert len(seen) == 5
+    assert len(set(seen)) == 5
+
+    task_filtered = await agent_client.get(
+        "/project-manager/api/agent/work-graph",
+        headers=headers,
+        params={"task_id": first_task_id, "projection": "full"},
+    )
+    assert task_filtered.status_code == 200, task_filtered.text
+    full = task_filtered.json()
+    assert [row["project_id"] for row in full["records"]] == [first_project_id]
+    assert full["records"][0]["description"] == "Full project detail"
+    assert (
+        full["records"][0]["solutions"][0]["problem_statement"]
+        == "Full solution detail"
+    )
+    assert (
+        full["records"][0]["solutions"][0]["tasks"][0]["done_criteria"]
+        == "Full task detail"
+    )
+
+    mismatched_cursor = await agent_client.get(
+        "/project-manager/api/agent/work-graph",
+        headers=headers,
+        params={"cursor": first_cursor, "projection": "full"},
+    )
+    assert mismatched_cursor.status_code == 400
+    assert mismatched_cursor.json()["code"] == "INVALID_CURSOR"
+
+
+@pytest.mark.anyio
+async def test_agent_patch_client_refs_create_hierarchy_atomically(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="hierarchy-reviewer",
+        user_id="hierarchy-reviewer-user",
+    )
+    payload = {
+        "dry_run": False,
+        "reason": "Create one coherent work hierarchy",
+        "idempotency_key": "hierarchy-with-refs-1",
+        "operations": [
+            {
+                "client_operation_id": "program",
+                "op": "create",
+                "entity": "program",
+                "ref": "new-program",
+                "fields": {"program_name": "Reference Program"},
+            },
+            {
+                "client_operation_id": "project",
+                "op": "create",
+                "entity": "project",
+                "ref": "new-project",
+                "program_ref": "new-program",
+                "fields": {"project_name": "Reference Project"},
+            },
+            {
+                "client_operation_id": "solution",
+                "op": "create",
+                "entity": "solution",
+                "ref": "new-solution",
+                "project_ref": "new-project",
+                "fields": {"solution_name": "Reference Solution"},
+            },
+            {
+                "client_operation_id": "task",
+                "op": "create",
+                "entity": "task",
+                "ref": "new-task",
+                "solution_ref": "new-solution",
+                "fields": {"task_name": "Reference Task"},
+            },
+        ],
+    }
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json=payload,
+    )
+    assert submitted.status_code == 201, submitted.text
+    body = submitted.json()
+    assert body["validation"]["valid"] is True
+    assert [item["entity_ref"] for item in body["diff"]] == [
+        "new-program",
+        "new-project",
+        "new-solution",
+        "new-task",
+    ]
+
+    login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": soeid, "password": "Password123"},
+    )
+    assert login.status_code == 200, login.text
+    approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{body['change_request_id']}/approve",
+        headers={"X-Space-Id": space_id},
+        json={"review_note": "Hierarchy reviewed"},
+    )
+    assert approved.status_code == 200, approved.text
+    result_rows = approved.json()["validation"]["results"]
+    assert all(row["applied"] for row in result_rows)
+    assert all(row["entity_id"] for row in result_rows)
+    assert [row["ref"] for row in result_rows] == [
+        "new-program",
+        "new-project",
+        "new-solution",
+        "new-task",
+    ]
+    with db_sessionmaker() as session:
+        program = (
+            session.query(Program)
+            .filter(Program.program_name == "Reference Program")
+            .one()
+        )
+        project = (
+            session.query(Project)
+            .filter(Project.project_name == "Reference Project")
+            .one()
+        )
+        solution = (
+            session.query(Solution)
+            .filter(Solution.solution_name == "Reference Solution")
+            .one()
+        )
+        task = session.query(Task).filter(Task.task_name == "Reference Task").one()
+        assert project.program_id == program.program_id
+        assert solution.project_id == project.project_id
+        assert task.solution_id == solution.solution_id
+        assert task.project_id == project.project_id
+
+    invalid = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers=_auth_headers(token, space_id),
+        json={
+            "operations": [
+                {
+                    "client_operation_id": "forward",
+                    "op": "create",
+                    "entity": "solution",
+                    "project_ref": "later-project",
+                    "fields": {"solution_name": "Invalid"},
+                },
+                {
+                    "client_operation_id": "later",
+                    "op": "create",
+                    "entity": "project",
+                    "ref": "later-project",
+                    "fields": {"project_name": "Later"},
+                },
+            ]
+        },
+    )
+    assert invalid.status_code == 200, invalid.text
+    assert invalid.json()["valid"] is False
+    assert invalid.json()["results"][0]["code"] == "REFERENCE_NOT_FOUND_OR_FORWARD"
+
+
+@pytest.mark.anyio
+async def test_agent_archive_is_approval_gated_scoped_and_explicit_about_descendants(
+    agent_client, db_sessionmaker
+):
+    seeded = _seed_work_graph(db_sessionmaker)
+    token, space_id = seeded[0], seeded[1]
+    project_id, solution_id, task_id = seeded[4:7]
+    solution_updated_at = seeded[8]
+    soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="archive-reviewer",
+        user_id="archive-reviewer-user",
+    )
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "Archive an obsolete solution",
+            "idempotency_key": "archive-solution-1",
+            "operations": [
+                {
+                    "client_operation_id": "archive-solution",
+                    "op": "archive",
+                    "entity": "solution",
+                    "id": solution_id,
+                    "if_updated_at": solution_updated_at,
+                }
+            ],
+        },
+    )
+    assert submitted.status_code == 201, submitted.text
+    diff = submitted.json()["diff"][0]["fields"]
+    assert diff["lifecycle"] == {"old": "active", "new": "archived"}
+    assert diff["descendant_visibility"]["new"] == "inaccessible_with_parent"
+
+    login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": soeid, "password": "Password123"},
+    )
+    assert login.status_code == 200, login.text
+    approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{submitted.json()['change_request_id']}/approve",
+        headers={"X-Space-Id": space_id},
+        json={"review_note": "Archive confirmed"},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+
+    headers = _auth_headers(token, space_id)
+    solution_detail = await agent_client.get(
+        f"/project-manager/api/agent/solutions/{solution_id}", headers=headers
+    )
+    task_detail = await agent_client.get(
+        f"/project-manager/api/agent/tasks/{task_id}", headers=headers
+    )
+    assert solution_detail.status_code == 404
+    assert task_detail.status_code == 404
+    archived_search = await agent_client.get(
+        "/project-manager/api/agent/work-items",
+        headers=headers,
+        params={
+            "entity_type": "solution",
+            "entity_id": solution_id,
+            "lifecycle": "archived",
+        },
+    )
+    assert archived_search.status_code == 200, archived_search.text
+    assert archived_search.json()["records"][0]["lifecycle"] == "archived"
+    hidden_child_search = await agent_client.get(
+        "/project-manager/api/agent/work-items",
+        headers=headers,
+        params={"entity_type": "task", "entity_id": task_id},
+    )
+    assert hidden_child_search.status_code == 200, hidden_child_search.text
+    assert hidden_child_search.json()["records"] == []
+    with db_sessionmaker() as session:
+        archived_solution = (
+            session.query(Solution).filter(Solution.solution_id == solution_id).one()
+        )
+        child_task = session.query(Task).filter(Task.task_id == task_id).one()
+        assert archived_solution.deleted_at is not None
+        assert child_task.deleted_at is None
+        assert (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "solution")
+            .filter(ChangeLog.entity_id == solution_id)
+            .filter(ChangeLog.action == "delete")
+            .count()
+            > 0
+        )
+
+    with db_sessionmaker() as session:
+        project = session.query(Project).filter(Project.project_id == project_id).one()
+        program = (
+            session.query(Program)
+            .filter(Program.program_id == project.program_id)
+            .one()
+        )
+        program_id = program.program_id
+        program_updated_at = program.updated_at.isoformat()
+        project_updated_at = project.updated_at.isoformat()
+        current_description = project.description
+    validation = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers=headers,
+        json={
+            "operations": [
+                {
+                    "client_operation_id": "program-with-child",
+                    "op": "archive",
+                    "entity": "program",
+                    "id": program_id,
+                    "if_updated_at": program_updated_at,
+                },
+                {
+                    "client_operation_id": "noop-project",
+                    "op": "update",
+                    "entity": "project",
+                    "id": project_id,
+                    "if_updated_at": project_updated_at,
+                    "fields": {"description": current_description},
+                },
+            ]
+        },
+    )
+    assert validation.status_code == 200, validation.text
+    assert [row["code"] for row in validation.json()["results"]] == [
+        "ACTIVE_CHILDREN",
+        "NO_CHANGES",
+    ]
+
+
+@pytest.mark.anyio
+async def test_human_delegated_review_requires_session_token_and_exact_request_version(
+    agent_client, db_sessionmaker
+):
+    service_token, space_id = _seed_agent_token(db_sessionmaker)
+    human_soeid, _ = _seed_cookie_user(
+        db_sessionmaker,
+        space_id=space_id,
+        soeid="delegated-human",
+        user_id="delegated-human",
+    )
+    human_login = await agent_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": human_soeid, "password": "Password123"},
+    )
+    assert human_login.status_code == 200, human_login.text
+    delegated_session = await agent_client.post(
+        "/project-manager/api/agent/delegated-session"
+    )
+    assert delegated_session.status_code == 200, delegated_session.text
+    assert delegated_session.json()["expires_in_seconds"] == 600
+    human_token = delegated_session.json()["access_token"]
+    submitted = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(service_token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "Delegated human review",
+            "idempotency_key": "delegated-review-1",
+            "operations": [
+                {
+                    "client_operation_id": "create-delegated-project",
+                    "op": "create",
+                    "entity": "project",
+                    "fields": {"project_name": "Delegated Project"},
+                }
+            ],
+        },
+    )
+    assert submitted.status_code == 201, submitted.text
+    request_id = submitted.json()["change_request_id"]
+
+    human_headers = _auth_headers(human_token, space_id)
+    reviewed = await agent_client.get(
+        f"/project-manager/api/agent/change-requests/{request_id}/delegated-review",
+        headers=human_headers,
+    )
+    assert reviewed.status_code == 200, reviewed.text
+    observed_at = reviewed.json()["updated_at"]
+
+    service_attempt = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/delegated-approve",
+        headers=_auth_headers(service_token, space_id),
+        json={
+            "confirm_change_request_id": request_id,
+            "if_request_updated_at": observed_at,
+        },
+    )
+    assert service_attempt.status_code == 403
+    assert service_attempt.json()["code"] == "HUMAN_DELEGATED_TOKEN_REQUIRED"
+
+    mismatch = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/delegated-approve",
+        headers=human_headers,
+        json={
+            "confirm_change_request_id": "different-request",
+            "if_request_updated_at": observed_at,
+        },
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["code"] == "CONFIRMATION_REQUEST_MISMATCH"
+
+    approved = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/delegated-approve",
+        headers=human_headers,
+        json={
+            "confirm_change_request_id": request_id,
+            "if_request_updated_at": observed_at,
+            "review_note": "Explicit delegated confirmation",
+        },
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "approved"
+    assert approved.json()["reviewed_by_user_id"] == "delegated-human"
+    with db_sessionmaker() as session:
+        assert (
+            session.query(Project)
+            .filter(Project.project_name == "Delegated Project")
+            .one()
+        )
+
+    replay = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/delegated-approve",
+        headers=human_headers,
+        json={
+            "confirm_change_request_id": request_id,
+            "if_request_updated_at": observed_at,
+        },
+    )
+    assert replay.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_usable(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    with db_sessionmaker() as session:
+        session.add(
+            Space(
+                space_id="not-accessible", name="Not Accessible", slug="not-accessible"
+            )
+        )
+        session.flush()
+        for index in range(5):
+            session.add(
+                ChangeLog(
+                    change_id=f"audit-{index}",
+                    entity_type="task",
+                    entity_id=f"task-{index}",
+                    action="update",
+                    field="status",
+                    old_value="to_do",
+                    new_value="in_progress",
+                    user_id="audit-user",
+                    space_id=space_id,
+                    request_id="audit-request",
+                )
+            )
+        session.add(
+            ChangeLog(
+                change_id="other-space-audit",
+                entity_type="task",
+                entity_id="other-task",
+                action="update",
+                user_id="other-user",
+                space_id="not-accessible",
+            )
+        )
+        session.commit()
+
+    headers = _auth_headers(token, space_id)
+    cursor = None
+    first_cursor = None
+    seen: list[str] = []
+    while True:
+        params = {"entity_type": "task", "request_id": "audit-request", "limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        response = await agent_client.get(
+            "/project-manager/api/agent/audit-feed", headers=headers, params=params
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen.extend(row["change_id"] for row in body["records"])
+        cursor = body.get("next_cursor")
+        first_cursor = first_cursor or cursor
+        if not body["has_more"]:
+            break
+    assert len(seen) == 5
+    assert len(set(seen)) == 5
+    assert "other-space-audit" not in seen
+
+    cursor_mismatch = await agent_client.get(
+        "/project-manager/api/agent/audit-feed",
+        headers=headers,
+        params={"entity_type": "project", "cursor": first_cursor},
+    )
+    assert cursor_mismatch.status_code == 400
+    assert cursor_mismatch.json()["code"] == "INVALID_CURSOR"
+
+    reference = await agent_client.get(
+        "/project-manager/api/agent/reference-data",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert reference.status_code == 200, reference.text
+    assert reference.headers["etag"] == '"agent-reference-1.0"'
+    reference_data = reference.json()
+    assert reference_data["operations"] == ["archive", "create", "update"]
+    assert "project_id" not in reference_data["fields"]["solution"]["create"]
+    assert "project_id" in reference_data["fields"]["solution"]["update"]
+    assert reference_data["statuses"]["task"] == [
+        "to_do",
+        "in_progress",
+        "on_hold",
+        "complete",
+        "abandoned",
+    ]
+    assert reference_data["limits"]["patch_operations"] == 25
+
+    openapi = await agent_client.get(
+        "/project-manager/api/agent/openapi.json",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert openapi.status_code == 200, openapi.text
+    contract = openapi.json()
+    assert contract["paths"]
+    assert all("/api/agent/" in path for path in contract["paths"])
+    assert not any(path.endswith("/api/projects") for path in contract["paths"])
+    detail_operation = contract["paths"][
+        "/project-manager/api/agent/projects/{project_id}"
+    ]["get"]
+    assert detail_operation["x-agent-safe"] is True
+    assert any(
+        parameter["name"] == "X-Space-Id" and parameter["required"] is True
+        for parameter in detail_operation["parameters"]
+    )
+
+
+@pytest.mark.anyio
+async def test_agent_people_and_teams_are_scoped_paginated_and_capacity_aware(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    with db_sessionmaker() as session:
+        for index in range(5):
+            user = User(
+                user_id=f"person-{index}",
+                soeid=f"person{index}",
+                email=f"person{index}@example.com",
+                display_name=f"Person {index}",
+                password_hash=hash_password("Password123"),
+                role="user",
+                is_active=True,
+                team_tag="delivery",
+                capacity_hours=30 + index,
+                capacity_fte_month=0.8,
+            )
+            session.add(user)
+            session.flush()
+            session.add(
+                SpaceMembership(
+                    space_id=space_id,
+                    user_id=user.user_id,
+                    role="space_admin" if index == 0 else "member",
+                    status="active",
+                )
+            )
+        for index in range(3):
+            team = Team(
+                space_id=space_id,
+                name=f"Delivery Team {index}",
+                description="Scoped delivery team",
+                lead=f"person{index}",
+                default_capacity_per_week=40,
+                default_capacity_fte_month=1.0,
+                capacity_unit="hours",
+            )
+            session.add(team)
+            session.flush()
+            for member_index in range(3):
+                session.add(
+                    TeamMember(
+                        space_id=space_id,
+                        team_id=team.team_id,
+                        member_name=f"Member {member_index}",
+                        role="lead" if member_index == 0 else "member",
+                        hours_capacity=35 + member_index,
+                        capacity_fte_month=0.9,
+                    )
+                )
+        session.commit()
+
+    headers = _auth_headers(token, space_id)
+    cursor = None
+    people_ids: list[str] = []
+    while True:
+        params = {"limit": 2}
+        if cursor:
+            params["cursor"] = cursor
+        response = await agent_client.get(
+            "/project-manager/api/agent/people", headers=headers, params=params
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        people_ids.extend(row["user_id"] for row in body["records"])
+        cursor = body.get("next_cursor")
+        if not body["has_more"]:
+            break
+    assert len(people_ids) == 6
+    assert len(set(people_ids)) == 6
+
+    exact_person = await agent_client.get(
+        "/project-manager/api/agent/people",
+        headers=headers,
+        params={"soeid": "person0"},
+    )
+    assert exact_person.status_code == 200, exact_person.text
+    assert exact_person.json()["records"][0]["membership_role"] == "space_admin"
+    assert exact_person.json()["records"][0]["capacity_hours"] == 30
+
+    teams = await agent_client.get(
+        "/project-manager/api/agent/teams",
+        headers=headers,
+        params={"limit": 2},
+    )
+    assert teams.status_code == 200, teams.text
+    assert teams.json()["has_more"] is True
+    first_team = teams.json()["records"][0]
+    assert first_team["member_count"] == 3
+    assert first_team["default_capacity_per_week"] == 40
+
+    members = await agent_client.get(
+        f"/project-manager/api/agent/teams/{first_team['team_id']}/members",
+        headers=headers,
+        params={"limit": 2},
+    )
+    assert members.status_code == 200, members.text
+    assert members.json()["has_more"] is True
+    assert members.json()["records"][0]["role"] == "lead"
+    assert members.json()["records"][0]["hours_capacity"] == 35

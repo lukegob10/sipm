@@ -1,6 +1,4 @@
-# SIPM App (Work Allocation Board MVP)
-
-This app now uses `#/planning` as a **Work Allocation Board** for FTE-month task allocation.
+# SIPM App
 
 ## Run
 
@@ -17,36 +15,11 @@ Then open `http://127.0.0.1:8000/project-manager/`.
 Use the repo-root [.env](/mnt/f/vault/projects/sipm/.env) or `.env.local` as the runtime source of truth. The nested [src/main/.env](/mnt/f/vault/projects/sipm/src/main/.env) file is deprecated and only exists as a legacy fallback if the repo-root env files are missing.
 
 Auth is application-managed. Users sign in with SOEID and password against the SIPM `users` table. SIPM stores bcrypt password hashes and mints its own HTTP-only access, refresh, and active-space cookies after local login.
-
-## Planning MVP Features
-
-- Backlog tasks with search and effort filter.
-- Team columns with person cards and capacity bars.
-- Drag/drop assignment:
-  - Backlog -> person
-  - Backlog -> team header
-  - Assigned task -> backlog (unassign)
-- Task details side panel (edit/unassign/delete).
-- Month selector (`YYYY-MM`) and month-scoped allocations.
-- Inline add team/person/task.
-- Undo last action (client-side stack).
+Interactive browser sessions are also server-tracked and expire after 30 minutes without genuine user activity. Configure this independently with `SIPM_SESSION_IDLE_MINUTES`; access-token, refresh-token, and WebSocket idle durations do not replace this policy.
 
 ## Initial Data
 
 No sample teams, people, or tasks are auto-created.
-Use the work-allocation create endpoints to add board data explicitly.
-
-## Work Allocation API
-
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/teams`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/people`
-- `GET/POST/PATCH/DELETE /api/planning/work-allocation/tasks`
-- `GET/POST/DELETE /api/planning/work-allocation/allocations`
-
-Validation highlights:
-
-- A task can have only one allocation per month (no split allocation in MVP).
-- Assignee must exist (person or team).
 
 ## Ops
 

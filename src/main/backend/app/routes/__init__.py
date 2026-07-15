@@ -15,7 +15,6 @@ from .sync import router as sync_router
 from .spaces import router as spaces_router
 from .teams import router as teams_router
 from .users import router as users_router
-from .planning import router as planning_router
 from .public import router as public_router
 
 api_router = APIRouter()
@@ -31,7 +30,6 @@ protected_router.include_router(tasks_router, tags=["tasks"])
 protected_router.include_router(teams_router, tags=["teams"])
 protected_router.include_router(spaces_router, tags=["spaces"])
 protected_router.include_router(users_router, tags=["users"])
-protected_router.include_router(planning_router, tags=["planning"])
 protected_router.include_router(audit_router, tags=["audit"])
 protected_router.include_router(analytics_router, tags=["analytics"])
 

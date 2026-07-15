@@ -15,7 +15,7 @@ export function createRouterController({
   onModuleLoadFailure = null,
   routeModuleLoaders = null,
 }) {
-  const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"];
+  const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users"];
   const KNOWN_VIEWS = [
     "master",
     "gantt",
@@ -25,7 +25,6 @@ export function createRouterController({
     "pm-dashboard",
     "kanban",
     "calendar",
-    "planning",
     "team-capacity",
     "spaces",
     "access",
@@ -39,11 +38,10 @@ export function createRouterController({
     "tasks-workbench": ["programs", "projects", "solutions", "tasks", "users"],
     dashboard: ["programs", "projects", "solutions", "users"],
     "program-dashboard": ["phases", "programs", "projects", "solutions"],
-    "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users", "allocations", "windows"],
+    "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users"],
     kanban: ["phases", "programs", "projects", "solutions"],
     calendar: ["programs", "projects", "solutions"],
-    planning: ["programs", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"],
-    "team-capacity": ["users", "allocations"],
+    "team-capacity": ["users"],
     spaces: ["users"],
     access: ["users"],
     analytics: [],
@@ -51,17 +49,16 @@ export function createRouterController({
   const VIEW_PREFETCH_TARGET = {
     master: "dashboard",
     gantt: "tasks-workbench",
-    "tasks-workbench": "planning",
+    "tasks-workbench": "team-capacity",
     dashboard: "pm-dashboard",
     "program-dashboard": "tasks-workbench",
     "pm-dashboard": "kanban",
-    kanban: "planning",
-    calendar: "planning",
-    planning: "team-capacity",
+    kanban: "team-capacity",
+    calendar: "team-capacity",
     "team-capacity": "spaces",
     spaces: "access",
     access: "analytics",
-    analytics: "planning",
+    analytics: "master",
   };
   const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-escalation-grid-v1";
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
@@ -73,7 +70,6 @@ export function createRouterController({
     "pm-dashboard": () => import("../routes/pm-dashboard.js"),
     kanban: () => import("../routes/kanban.js"),
     calendar: () => import("../routes/calendar.js"),
-    planning: () => import("../routes/planning.js"),
     "team-capacity": () => import("../routes/team-capacity.js"),
     spaces: () => import("../routes/spaces.js"),
     access: () => import("../routes/access.js"),

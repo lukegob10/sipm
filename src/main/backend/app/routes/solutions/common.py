@@ -17,7 +17,6 @@ from ...utils.enums import RagStatus, SolutionStatus
 
 _SOLUTIONS_LIST_TTL_SECONDS = 20
 _SOLUTIONS_DETAIL_TTL_SECONDS = 30
-_WORK_ALLOCATION_PROJECT_NAME_PREFIX = "Work Allocation Board ["
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:
@@ -143,19 +142,6 @@ def _solution_query(session: Session, space_ctx: SpaceContext):
     )
 
 
-def _work_allocation_project_id_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(Project.project_id)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.project_name.like(f"{_WORK_ALLOCATION_PROJECT_NAME_PREFIX}%"))
-    )
-
-
-def _exclude_work_allocation_board_solutions(query, session: Session, space_ctx: SpaceContext):
-    return query.filter(~Solution.project_id.in_(_work_allocation_project_id_query(session, space_ctx)))
-
-
 def _get_solution_or_404(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
     solution = (
         _solution_query(session, space_ctx)
@@ -238,7 +224,6 @@ __all__ = [
     "_SOLUTIONS_LIST_TTL_SECONDS",
     "_apply_solution_completion_state",
     "_ensure_project_exists",
-    "_exclude_work_allocation_board_solutions",
     "_get_solution_or_404",
     "_parse_rag_status",
     "_publish_solution_deletion",

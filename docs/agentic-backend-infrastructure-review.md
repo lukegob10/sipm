@@ -30,7 +30,7 @@ SIPM already has several useful pieces for agent workflows:
 - Compact JSON request logs with user, space, auth method, status, and duration.
 - Audit logging through `ChangeLog` and `safe_log_changes`.
 - Cache invalidation and realtime refresh publishing through mutation helpers.
-- Existing CSV import/export for projects, solutions, tasks, users, resource allocations, and planning windows.
+- Existing CSV import/export for projects, solutions, tasks, and users.
 - Existing WebSocket refresh channel for browser sessions.
 - Existing `docs/agent-data-exchange-api-options.md`, which already recommends JSON import/export as the next agent interchange layer.
 
@@ -117,7 +117,7 @@ Response shape:
     "read_audit",
     "read_open_tasks"
   ],
-  "entities": ["projects", "solutions", "tasks", "users", "teams", "planning"]
+  "entities": ["projects", "solutions", "tasks", "users", "teams"]
 }
 ```
 
@@ -143,7 +143,7 @@ Query parameters:
 - `cursor`
 - `fields`
 
-Purpose: return a compact project -> solution -> task graph for planning and reasoning.
+Purpose: return a compact project -> solution -> task graph for analysis and reasoning.
 
 This should not be the same shape as the browser state. It should be an agent-safe read model with stable IDs, names, statuses, dates, user SOEIDs, dependencies, and update timestamps.
 
@@ -517,7 +517,7 @@ GET  /api/agent/work-graph
 POST /api/agent/patches/validate
 ```
 
-This provides discovery, read context, and safe write planning without committing to MCP yet. After that, add `POST /api/agent/patches/apply` with idempotency and audit behavior.
+This provides discovery, read context, and safe write preparation without committing to MCP yet. After that, add `POST /api/agent/patches/apply` with idempotency and audit behavior.
 
 ## Recommended Final Shape
 

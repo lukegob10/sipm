@@ -50,7 +50,7 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'return normalized === "access" ? "spaces" : normalized;' in router_text
     assert 'if (normalized === "access") return userCanAccessAdminViews();' in router_text
     assert "recordRecentSpace(spaceId)" in app_text
-    assert "renderGovernanceHub(preferredSection = \"\")" in app_text
+    assert "renderGovernanceHub(preferredSection = \"\")" in render_text
     assert "Issue Password Reset" in render_text
     assert 'data-space-action="issue-password-reset"' in render_text
     assert 'data-space-action="copy-temp-password"' in render_text
@@ -84,6 +84,7 @@ def test_public_program_dashboard_frontend_contract():
     assert 'document.getElementById("public-login-link")?.setAttribute("href", buildAppUrl("/"));' in app_text
     assert "const readOnly = !!(ctx.readOnly || ctx.publicMode);" in render_text
     assert 'data-program-dashboard-action="download-pdf"' in render_text
+    assert 'data-program-dashboard-action="download-excel"' in render_text
     assert "/public/program-dashboard/" in render_text
     assert 'credentials: isPublicMode ? "omit" : "include"' in render_text
     assert "publicSlug: slug" in app_text
@@ -131,19 +132,12 @@ def test_space_governance_controls_move_into_route_local_module():
 
     assert 'from "./routes/spaces/interactions.js' in app_text
     assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
-    assert "function closeSpaceDirectoryModal() {" in app_text
-    assert "return spaceGovernanceController.closeSpaceDirectoryModal();" in app_text
-    assert "async function refreshGlobalAdmins() {" in app_text
-    assert "return spaceGovernanceController.refreshGlobalAdmins();" in app_text
-    assert "async function refreshSpaceMembers(spaceId, options = {}) {" in app_text
-    assert "return spaceGovernanceController.refreshSpaceMembers(spaceId, options);" in app_text
-    assert "function bindSpaceAdminControls() {" in app_text
-    assert "return spaceGovernanceController.bindSpaceAdminControls();" in app_text
-    assert "function renderGovernanceHub(preferredSection = \"\") {" in app_text
-    assert "const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);" in app_text
-    assert "persistSpaceGovernanceViewState();" in app_text
-    assert "function renderSpaceDirectoryModal() {" in app_text
-    assert "return spaceGovernanceRenderer.renderSpaceDirectoryModal();" in app_text
+    assert "function closeSpaceDirectoryModal() {" in interactions_text
+    assert "async function refreshGlobalAdmins() {" in interactions_text
+    assert "async function refreshSpaceMembers(spaceId, options = {}) {" in interactions_text
+    assert "function bindSpaceAdminControls() {" in interactions_text
+    assert "function renderGovernanceHub(preferredSection = \"\") {" in render_text
+    assert "function renderSpaceDirectoryModal() {" in render_text
     assert "export function createSpaceGovernanceController({" in interactions_text
     assert "async function handleSpaceGovernanceAction(button) {" in interactions_text
     assert "function bindSpaceAdminControls() {" in interactions_text

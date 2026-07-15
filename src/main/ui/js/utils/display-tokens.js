@@ -22,7 +22,8 @@ export function formatStatusLabel(value, fallback = "\u2014") {
 
 export function statusTone(value) {
   const status = normalizeDisplayToken(value);
-  if (status === "active" || status === "in_progress" || status === "complete") return "positive";
+  if (status === "complete") return "info";
+  if (status === "active" || status === "in_progress") return "positive";
   if (status === "on_hold") return "warn";
   if (status === "abandoned") return "danger";
   return "muted";

@@ -21,6 +21,8 @@ from ..schemas import ProgramCreate, ProgramDashboardReportRequest, ProgramRead,
 from ..services.audit_log import safe_log_changes
 from ..services.mutations import publish_space_mutation
 from ..services.program_dashboard_report_pdf import build_program_dashboard_report_pdf
+from ..services.program_dashboard_report_data import load_program_dashboard_report_data
+from ..services.program_dashboard_report_xlsx import build_program_dashboard_report_xlsx
 from ..services.smart_cache import cached_call, make_scope_token
 from ..services.spaces import SpaceContext
 from ..utils import normalize_str
@@ -196,7 +198,6 @@ def download_program_dashboard_report_pdf(
             .filter(Project.deleted_at.is_(None))
             .filter(Project.space_id == space_ctx.space_id)
             .filter(Project.program_id.in_(valid_program_ids))
-            .filter(~Project.project_name.like("Work Allocation Board [%"))
             .order_by(Project.project_name.asc())
             .all()
         )
@@ -271,6 +272,50 @@ def download_program_dashboard_report_pdf(
     filename = f"program-dashboard-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.pdf"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
+
+
+@router.post("/dashboard/report.xlsx")
+def download_program_dashboard_report_xlsx(
+    payload: ProgramDashboardReportRequest,
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+    _authz: SpaceContext = Depends(require_space_role("member")),
+) -> StreamingResponse:
+    selected_program_ids = [
+        str(program_id or "").strip()
+        for program_id in payload.selected_program_ids
+        if str(program_id or "").strip()
+    ]
+    report_data = load_program_dashboard_report_data(
+        session,
+        space_id=space_ctx.space_id,
+        selected_program_ids=selected_program_ids,
+    )
+    xlsx_bytes = build_program_dashboard_report_xlsx(
+        space_name=space_ctx.space_name,
+        selected_program_label=str(report_data["selected_program_label"]),
+        programs=report_data["programs"],
+        projects=report_data["projects"],
+        solutions=report_data["solutions"],
+        phases=report_data["phases"],
+        collapsed_program_ids={
+            str(program_id or "").strip()
+            for program_id in payload.collapsed_program_ids
+            if str(program_id or "").strip()
+        },
+        collapsed_project_ids={
+            str(project_id or "").strip()
+            for project_id in payload.collapsed_project_ids
+            if str(project_id or "").strip()
+        },
+    )
+    filename = f"program-dashboard-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.xlsx"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(
+        BytesIO(xlsx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @router.get("/{program_id}", response_model=ProgramRead)

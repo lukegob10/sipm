@@ -40,7 +40,7 @@ export function renderMasterQuickstart(ctx, rowCount = 0) {
       <ol class="quickstart-steps">
         <li>Create a project with sponsor and objective.</li>
         <li>Add 1-3 solutions, then assign owners and due dates.</li>
-        <li>Use Planning to allocate work and Dashboard to track progress.</li>
+        <li>Use Team Capacity to manage people and Dashboard to track progress.</li>
       </ol>
     `;
     return;

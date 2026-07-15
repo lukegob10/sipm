@@ -53,8 +53,9 @@ function createHarness(overrides = {}) {
     showAuthNotice,
     showResetError,
     showResetSuccess: vi.fn(),
-    resetIdleTimer: vi.fn(),
-    hideIdleModal: vi.fn(),
+    configureSessionPolicy: vi.fn(),
+    noteSessionActivity: vi.fn(),
+    broadcastSessionLogout: vi.fn(),
     refreshSpaceContext,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
     startLiveSync,
@@ -88,6 +89,9 @@ describe("session controller", () => {
 
   it("restores the requested route from the URL after bootstrap auth succeeds", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) {
+        return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
+      }
       if (String(url).endsWith("/auth/me")) {
         return jsonResponse({ user_id: "user-1", display_name: "User 1" });
       }
@@ -109,6 +113,9 @@ describe("session controller", () => {
 
   it("shows the local sign-in screen after the session check fails", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) {
+        return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
+      }
       if (String(url).endsWith("/auth/me")) {
         return jsonResponse({ detail: "Not authenticated" }, { status: 401 });
       }
@@ -130,6 +137,9 @@ describe("session controller", () => {
 
   it("handles terminal bootstrap auth failures without throwing", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) {
+        return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
+      }
       if (String(url).endsWith("/auth/me")) {
         return jsonResponse({ detail: "Account locked" }, { status: 423, errorCode: "ACCOUNT_LOCKED" });
       }
@@ -148,6 +158,9 @@ describe("session controller", () => {
 
   it("keeps bootstrap network failures in a controlled sign-in state", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) {
+        return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
+      }
       if (String(url).endsWith("/auth/me")) {
         throw new TypeError("Failed to fetch");
       }

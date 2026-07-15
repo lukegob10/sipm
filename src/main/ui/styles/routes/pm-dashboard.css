@@ -489,6 +489,9 @@
 .pm-mini-meter span.positive {
   background: var(--tone-positive-border);
 }
+.pm-mini-meter span.info {
+  background: var(--tone-info-border);
+}
 .pm-mini-meter span.warn {
   background: var(--tone-warn-border);
 }

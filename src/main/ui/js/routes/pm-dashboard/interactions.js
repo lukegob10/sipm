@@ -90,26 +90,6 @@ async function handlePMDashboardClick(event, pmDashboardState) {
     return;
   }
 
-  if (action === "open-capacity-allocations") {
-    event.preventDefault();
-    event.stopPropagation();
-    const assigneeKey = String(actionEl.getAttribute("data-assignee-key") || "");
-    const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);
-    if (!detail) return;
-    if (typeof pmDashboardState.ctx?.openPMDashboardCapacityDrilldown === "function") {
-      pmDashboardState.ctx.openPMDashboardCapacityDrilldown({
-        key: detail.key,
-        label: detail.label,
-        allocated: detail.allocated,
-        capacity: detail.capacity,
-        utilization: detail.utilization,
-        scopeLabel: pmDashboardState.capacityScopeLabel,
-        allocations: detail.allocations,
-      });
-    }
-    return;
-  }
-
   if (action === "open-task") {
     event.preventDefault();
     event.stopPropagation();

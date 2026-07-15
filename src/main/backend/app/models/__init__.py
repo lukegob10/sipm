@@ -9,6 +9,7 @@ from .analytics import (
 from .agent import AgentChangeRequest
 from .identity import (
     ApiToken,
+    AuthSession,
     ChangeLog,
     Space,
     SpaceAccessRequest,
@@ -19,10 +20,8 @@ from .identity import (
 )
 from .work import (
     Phase,
-    PlanningWindow,
     Program,
     Project,
-    ResourceAllocation,
     Solution,
     SolutionDocument,
     SolutionPhase,
@@ -33,13 +32,12 @@ __all__ = [
     "Base",
     "AgentChangeRequest",
     "ApiToken",
+    "AuthSession",
     "ChangeLog",
     "PerformanceSample",
     "Phase",
-    "PlanningWindow",
     "Program",
     "Project",
-    "ResourceAllocation",
     "SoftDeleteMixin",
     "Solution",
     "SolutionDocument",

@@ -19,7 +19,6 @@ from ...utils.enums import ProjectStatus
 from .common import (
     _default_program,
     _ensure_program_exists,
-    _exclude_work_allocation_board_projects,
     _project_change_set,
     _project_create_changes,
     _project_query,
@@ -224,9 +223,8 @@ def export_projects(
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
     rows = (
-        _exclude_work_allocation_board_projects(
-            _project_query(session, space_ctx).join(Program, Program.program_id == Project.program_id)
-        )
+        _project_query(session, space_ctx)
+        .join(Program, Program.program_id == Project.program_id)
         .filter(Program.deleted_at.is_(None))
         .with_entities(Project, Program)
         .all()

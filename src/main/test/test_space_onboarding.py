@@ -80,10 +80,6 @@ async def test_registration_lands_in_lobby_without_personal_space_and_blocks_wor
         ("/projects/", {"project_name": "Should Not Be Created"}),
         ("/solutions/not-real/tasks", {"task_name": "Should Not Be Created"}),
         ("/teams", {"name": "Should Not Be Created"}),
-        (
-            "/planning/windows",
-            {"name": "Should Not Be Created", "start_date": "2026-01-01", "end_date": "2026-01-31"},
-        ),
     ]
     for path, payload in blocked_writes:
         blocked = await auth_client.post(f"/project-manager/api{path}", json=payload)

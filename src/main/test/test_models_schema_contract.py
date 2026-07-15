@@ -20,6 +20,7 @@ SCHEMA_DOC_PATH = Path(__file__).resolve().parents[3] / "docs/sql/schema_oracle_
 TASK_REPAIR_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_repair_partial_task_rename.sql"
 SOLUTION_DOCUMENTS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_solution_documents_v1.sql"
 PUBLIC_PROGRAM_DASHBOARD_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260622_public_program_dashboard_v1.sql"
+AUTH_SESSIONS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260715_auth_sessions_v1.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -210,7 +211,6 @@ def test_task_rename_repair_script_handles_partial_oracle_column_rename():
     assert "v_old_count > 0 AND v_new_count = 0" in sql
     assert "UIX_SUBCOMPONENT_SOLUTION_NAME" in sql
     assert "UIX_TASK_SOLUTION_NAME" in sql
-    assert "work_item_type = 'subcomponent'" in sql
     assert "entity_type = 'subcomponent'" in sql
 
 
@@ -237,6 +237,21 @@ def test_public_program_dashboard_migration_adds_space_publish_flag():
     assert "public_program_dashboard_enabled SMALLINT DEFAULT 0 NOT NULL" in sql
     assert "WHERE table_name = 'TB_TA_PM_SPACES'" in sql
     assert "AND column_name = 'PUBLIC_PROGRAM_DASHBOARD_ENABLED'" in sql
+
+
+def test_auth_sessions_migration_is_rerunnable_and_matches_metadata():
+    sql = AUTH_SESSIONS_SQL_PATH.read_text(encoding="utf-8")
+    table_name = physical_table_name("auth_sessions")
+
+    assert f'CREATE TABLE "{table_name}"' in sql
+    assert "WHERE table_name = 'TB_TA_PM_AUTH_SESSIONS'" in sql
+    assert "last_activity_at DATE NOT NULL" in sql
+    assert "revoked_at DATE" in sql
+    assert "IDX_AUTH_SESSION_USER" in sql
+    assert "IDX_AUTH_SESSION_ACTIVITY" in sql
+    assert "IDX_AUTH_SESSION_REVOKED" in sql
+    assert models.AuthSession.__table__.name == table_name
+    assert table_name in Base.metadata.tables
 
 
 def test_models_package_reexports_and_registers_metadata():

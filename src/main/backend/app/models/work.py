@@ -9,7 +9,6 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
-    Index,
     Integer,
     LargeBinary,
     String,
@@ -246,75 +245,10 @@ class Task(TimestampMixin, SoftDeleteMixin, Base):
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
-class ResourceAllocation(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = physical_table_name("resource_allocations")
-    __table_args__ = (
-        Index("idx_alloc_week_assignee", "week_start", "assignee_user_soeid"),
-        Index("idx_alloc_month_assignee", "month_start", "assignee_user_soeid"),
-        Index("idx_alloc_item", "work_item_type", "work_item_id"),
-        UniqueConstraint(
-            "work_item_type",
-            "work_item_id",
-            "assignee_user_soeid",
-            "week_start",
-            "window_id",
-            name="uix_alloc_unique_assignment",
-        ),
-    )
-
-    allocation_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(
-        String,
-        ForeignKey(fk_target("spaces", "space_id")),
-        nullable=True,
-        index=True,
-    )
-    work_item_type: Mapped[str] = mapped_column(String, nullable=False)
-    work_item_id: Mapped[str] = mapped_column(String, nullable=False)
-    assignee_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    assignee: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    team_id: Mapped[Optional[str]] = mapped_column(
-        String,
-        ForeignKey(fk_target("teams", "team_id")),
-        nullable=True,
-        index=True,
-    )
-    week_start: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    month_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
-    hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    fte_months: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    window_id: Mapped[Optional[str]] = mapped_column(
-        String,
-        ForeignKey(fk_target("planning_windows", "window_id")),
-        nullable=True,
-        index=True,
-    )
-
-
-class PlanningWindow(TimestampMixin, SoftDeleteMixin, Base):
-    __tablename__ = physical_table_name("planning_windows")
-    __table_args__ = (
-        UniqueConstraint("name", name="uix_planning_window_name"),
-    )
-
-    window_id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid4()))
-    space_id: Mapped[Optional[str]] = mapped_column(
-        String,
-        ForeignKey(fk_target("spaces", "space_id")),
-        nullable=True,
-        index=True,
-    )
-    name: Mapped[str] = mapped_column(String, nullable=False)
-    start_date: Mapped[date] = mapped_column(Date, nullable=False)
-    end_date: Mapped[date] = mapped_column(Date, nullable=False)
-
-
 __all__ = [
     "Phase",
-    "PlanningWindow",
     "Program",
     "Project",
-    "ResourceAllocation",
     "Solution",
     "SolutionDocument",
     "SolutionPhase",

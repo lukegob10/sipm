@@ -27,7 +27,6 @@ describe("PM dashboard interactions", () => {
         <button type="button" data-pm-dashboard-action="open-project" data-project-id="project-1">Project</button>
         <button type="button" data-pm-dashboard-action="open-solution" data-solution-id="solution-1">Solution</button>
         <button type="button" data-pm-dashboard-action="open-task" data-task-id="task-1">Task</button>
-        <button type="button" data-pm-dashboard-action="open-capacity-allocations" data-assignee-key="soeid-1">Capacity</button>
         <button type="button" data-pm-dashboard-action="download-report">Download Report</button>
         <input type="month" data-pm-dashboard-action="set-capacity-month" value="2026-07" />
       </section>
@@ -37,17 +36,6 @@ describe("PM dashboard interactions", () => {
       activeSection: "actions",
       capacitySpaceId: "space-1",
       capacityMonth: "2026-06",
-      capacityScopeLabel: "Current month | Planning deliverable assignments only",
-      capacityDrilldowns: new Map([
-        ["soeid-1", {
-          key: "soeid-1",
-          label: "Ada Lovelace",
-          allocated: 1.25,
-          capacity: 1,
-          utilization: 125,
-          allocations: [{ allocation_id: "alloc-1" }],
-        }],
-      ]),
       ctx: {
         state: { activeSpace: { space_id: "space-1" } },
         apiBase: "/project-manager/api",
@@ -55,7 +43,6 @@ describe("PM dashboard interactions", () => {
         openPMDashboardProjectDrilldown: vi.fn(),
         openPMDashboardSolutionDrilldown: vi.fn(),
         openPMDashboardTaskDrilldown: vi.fn(),
-        openPMDashboardCapacityDrilldown: vi.fn(),
       },
     };
     rerender = vi.fn();
@@ -78,24 +65,14 @@ describe("PM dashboard interactions", () => {
     expect(rerender).toHaveBeenCalledTimes(1);
   });
 
-  it("opens all PM dashboard drilldown actions", () => {
+  it("opens the supported PM dashboard drilldown actions", () => {
     click('[data-pm-dashboard-action="open-project"]');
     click('[data-pm-dashboard-action="open-solution"]');
     click('[data-pm-dashboard-action="open-task"]');
-    click('[data-pm-dashboard-action="open-capacity-allocations"]');
 
     expect(state.ctx.openPMDashboardProjectDrilldown).toHaveBeenCalledWith("project-1");
     expect(state.ctx.openPMDashboardSolutionDrilldown).toHaveBeenCalledWith("solution-1");
     expect(state.ctx.openPMDashboardTaskDrilldown).toHaveBeenCalledWith("task-1");
-    expect(state.ctx.openPMDashboardCapacityDrilldown).toHaveBeenCalledWith({
-      key: "soeid-1",
-      label: "Ada Lovelace",
-      allocated: 1.25,
-      capacity: 1,
-      utilization: 125,
-      scopeLabel: "Current month | Planning deliverable assignments only",
-      allocations: [{ allocation_id: "alloc-1" }],
-    });
   });
 
   it("persists capacity month changes and rerenders", () => {

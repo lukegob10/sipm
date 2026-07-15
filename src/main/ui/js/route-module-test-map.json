@@ -29,9 +29,6 @@
     "tasks-workbench.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],
-    "planning.js": [
-      "src/main/test/test_ui_route_modules_exports.py"
-    ],
     "team-capacity.js": [
       "src/main/test/test_ui_route_modules_exports.py"
     ],

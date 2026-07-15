@@ -22,7 +22,6 @@ export function renderTeamCapacity(ctx) {
   const {
     state,
     els,
-    allocationFteMonths,
     userCapacityFteMonth,
     formatFte,
     teamCapacityState,
@@ -39,12 +38,6 @@ export function renderTeamCapacity(ctx) {
 
   const teamFilter = normalize(els.capacityTeamFilter?.value || "");
   const nameFilter = normalize(els.capacityNameFilter?.value || "");
-  const fteByUser = new Map();
-  (state.allocations || []).forEach((row) => {
-    const soeid = normalize(row?.assignee_user_soeid);
-    if (!soeid) return;
-    fteByUser.set(soeid, (fteByUser.get(soeid) || 0) + allocationFteMonths(row));
-  });
 
   const users = (state.users || [])
     .filter((u) => {
@@ -61,34 +54,26 @@ export function renderTeamCapacity(ctx) {
 
   const summary = users.reduce(
     (acc, u) => {
-      const soeid = normalize(u.soeid || "");
       const cap = userCapacityFteMonth(u);
-      const allocated = fteByUser.get(soeid) || 0;
       acc.members += 1;
       acc.capacity += cap;
-      acc.allocated += allocated;
       return acc;
     },
-    { members: 0, capacity: 0, allocated: 0 }
+    { members: 0, capacity: 0 }
   );
-  const remaining = Math.max(summary.capacity - summary.allocated, 0);
 
   const teams = new Map();
   users.forEach((u) => {
-    const soeid = normalize(u.soeid || "");
     const teamLabel = String(u.team_tag || "").trim() || "Unassigned";
     const teamKey = normalize(teamLabel);
     const cap = userCapacityFteMonth(u);
-    const allocated = fteByUser.get(soeid) || 0;
     const existing = teams.get(teamKey) || {
       label: teamLabel,
       members: 0,
       capacity: 0,
-      allocated: 0,
     };
     existing.members += 1;
     existing.capacity += cap;
-    existing.allocated += allocated;
     teams.set(teamKey, existing);
   });
 
@@ -96,22 +81,14 @@ export function renderTeamCapacity(ctx) {
   const teamBody = teamRows.length
     ? teamRows
         .map((row) => {
-          const teamRemaining = Math.max(row.capacity - row.allocated, 0);
-          const teamLoadPct = row.capacity > 0
-            ? Math.min(999, Math.round((row.allocated / row.capacity) * 100))
-            : (row.allocated > 0 ? 999 : 0);
-          const teamLoadClass = teamLoadPct >= 101 ? "over" : (teamLoadPct >= 85 ? "warn" : "ok");
           return `<tr>
             <td>${esc(row.label)}</td>
             <td>${row.members}</td>
             <td>${formatFte(row.capacity)}</td>
-            <td>${formatFte(row.allocated)}</td>
-            <td>${formatFte(teamRemaining)}</td>
-            <td><span class="capacity-badge ${teamLoadClass}">${teamLoadPct}%</span></td>
           </tr>`;
         })
         .join("")
-    : `<tr><td colspan="6" class="muted">No team rows available for current filters.</td></tr>`;
+    : `<tr><td colspan="3" class="muted">No team rows available for current filters.</td></tr>`;
 
   let rosterBody = "";
   if (!users.length) {
@@ -120,25 +97,18 @@ export function renderTeamCapacity(ctx) {
       : (hasActiveFilters && totalUsersLoaded > 0
         ? "No users match current filters. Clear Team Tag/Search filters."
         : "No users found in the active space.");
-    rosterBody = `<tr><td colspan="7" class="muted">${emptyMessage}</td></tr>`;
+    rosterBody = `<tr><td colspan="4" class="muted">${emptyMessage}</td></tr>`;
   } else {
     rosterBody = users
       .map((u) => {
         const soeid = normalize(u.soeid || "");
         const cap = userCapacityFteMonth(u);
-        const allocated = fteByUser.get(soeid) || 0;
-        const remainingUser = Math.max(cap - allocated, 0);
-        const loadPct = cap > 0 ? Math.min(999, Math.round((allocated / cap) * 100)) : (allocated > 0 ? 999 : 0);
-        const loadClass = loadPct >= 101 ? "over" : (loadPct >= 85 ? "warn" : "ok");
         const selectedClass = selectedSoeid && normalize(selectedSoeid) === soeid ? "active-row" : "";
         return `<tr data-soeid="${esc(u.soeid || "")}" class="${selectedClass}">
           <td>${esc(u.display_name || u.soeid || "—")}</td>
           <td>${esc(u.soeid || "—")}</td>
           <td>${esc(u.team_tag || "—")}</td>
           <td>${formatFte(cap)}</td>
-          <td>${formatFte(allocated)}</td>
-          <td>${formatFte(remainingUser)}</td>
-          <td><span class="capacity-badge ${loadClass}">${loadPct}%</span></td>
         </tr>`;
       })
       .join("");
@@ -162,12 +132,10 @@ export function renderTeamCapacity(ctx) {
       </div>
       <div class="toolbar-group">${statusBits}</div>
     </div>
-    <div class="planning-kpis">
+    <div class="capacity-kpis">
       <div class="kpi-card"><div class="kpi-label">Members</div><div class="kpi-value">${summary.members}</div></div>
       <div class="kpi-card"><div class="kpi-label">Loaded</div><div class="kpi-value">${totalUsersLoaded}</div></div>
       <div class="kpi-card"><div class="kpi-label">Capacity</div><div class="kpi-value">${formatFte(summary.capacity)}</div><div class="kpi-label">FTE-mo</div></div>
-      <div class="kpi-card"><div class="kpi-label">Allocated</div><div class="kpi-value">${formatFte(summary.allocated)}</div><div class="kpi-label">FTE-mo</div></div>
-      <div class="kpi-card"><div class="kpi-label">Remaining</div><div class="kpi-value">${formatFte(remaining)}</div><div class="kpi-label">FTE-mo</div></div>
     </div>
     <div class="panel-toolbar compact">
       <div class="toolbar-group">
@@ -182,9 +150,6 @@ export function renderTeamCapacity(ctx) {
             <th>Team</th>
             <th>Members</th>
             <th>Capacity (FTE-mo)</th>
-            <th>Allocated (FTE-mo)</th>
-            <th>Remaining (FTE-mo)</th>
-            <th>Load</th>
           </tr>
         </thead>
         <tbody>${teamBody}</tbody>
@@ -204,9 +169,6 @@ export function renderTeamCapacity(ctx) {
             <th>SOEID</th>
             <th>Team Tag</th>
             <th>Capacity (FTE-mo)</th>
-            <th>Allocated (FTE-mo)</th>
-            <th>Remaining (FTE-mo)</th>
-            <th>Load</th>
           </tr>
         </thead>
         <tbody>${rosterBody}</tbody>

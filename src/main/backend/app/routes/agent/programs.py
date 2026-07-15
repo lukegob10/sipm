@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ...deps import current_agent_space, get_db, require_agent_space_role
 from ...models import Program
-from ...schemas.agent import AgentProgramNode
+from ...schemas.agent import AgentProgramNode, AgentProgramRead
+from ...services.agent_work_items import get_agent_program as get_program_detail
 from ...services.programs import program_query
 from ...services.spaces import SpaceContext
 
@@ -38,7 +39,7 @@ def list_agent_programs(
 
 @router.get(
     "/{program_id}",
-    response_model=AgentProgramNode,
+    response_model=AgentProgramRead,
     operation_id="agent_get_program",
     summary="Get scoped program",
 )
@@ -47,15 +48,5 @@ def get_agent_program(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_agent_space),
     _authz: SpaceContext = Depends(require_agent_space_role("member")),
-) -> AgentProgramNode:
-    program = (
-        program_query(session, space_ctx)
-        .filter(Program.program_id == program_id)
-        .first()
-    )
-    if not program:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Program not found",
-        )
-    return _program_node(program)
+) -> AgentProgramRead:
+    return get_program_detail(session, program_id, space_ctx)

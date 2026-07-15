@@ -15,18 +15,22 @@ from sqlalchemy.orm import Session
 
 from .auth.auth import decode_token
 from .db.db import get_session
-from .models import User
+from .models import AuthSession, User
 from .security import security_http_exception
 from .services.audit_log import log_changes
 from .services.api_tokens import authenticate_api_token
-from .services.spaces import SpaceContext, is_global_admin_role, resolve_active_space_context
+from .services.auth_sessions import require_auth_session
+from .services.spaces import (
+    SpaceContext,
+    is_global_admin_role,
+    resolve_active_space_context,
+)
 
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _LOBBY_WORK_WRITE_PATH_PREFIXES = (
     "/project-manager/api/agent/change-requests",
     "/project-manager/api/phases",
-    "/project-manager/api/planning",
     "/project-manager/api/programs",
     "/project-manager/api/projects",
     "/project-manager/api/solutions",
@@ -63,14 +67,19 @@ def _audit_permission_denied(
         session.rollback()
 
 
-def authenticate_access_token(session: Session, token: str | None) -> User:
+def authenticate_access_token_context(
+    session: Session,
+    token: str | None,
+    *,
+    expected_type: str = "access",
+) -> tuple[User, AuthSession, dict]:
     if not token:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="AUTH_REQUIRED",
             message="Not authenticated",
         )
-    payload = decode_token(token, expected_type="access")
+    payload = decode_token(token, expected_type=expected_type)
     user_id = payload.get("sub")
     if not user_id:
         raise security_http_exception(
@@ -96,6 +105,12 @@ def authenticate_access_token(session: Session, token: str | None) -> User:
                 code="ACCOUNT_LOCKED",
                 message="Account locked",
             )
+    auth_session = require_auth_session(session, payload, user_id=user.user_id)
+    return user, auth_session, payload
+
+
+def authenticate_access_token(session: Session, token: str | None) -> User:
+    user, _auth_session, _payload = authenticate_access_token_context(session, token)
     return user
 
 
@@ -132,8 +147,9 @@ def require_user(request: Request, session: Session = Depends(get_db)) -> User:
         return user
     token = request.cookies.get("access_token")
     if token:
-        user = authenticate_access_token(session, token)
+        user, auth_session, _payload = authenticate_access_token_context(session, token)
         request.state.auth_method = "cookie"
+        request.state.auth_session = auth_session
         request.state.user = user
         return user
     user = authenticate_access_token(session, None)
@@ -187,6 +203,47 @@ def require_interactive_user(
     return user
 
 
+def require_agent_or_interactive_user(
+    request: Request,
+    user: User = Depends(require_user),
+) -> User:
+    return user
+
+
+def require_human_delegated_token(
+    request: Request,
+    session: Session = Depends(get_db),
+) -> User:
+    bearer_token = _bearer_credential(request)
+    if not bearer_token:
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="HUMAN_DELEGATED_TOKEN_REQUIRED",
+            message="A human access-session token is required for delegated review",
+        )
+    if bearer_token.startswith("sipm_pat_"):
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="HUMAN_DELEGATED_TOKEN_REQUIRED",
+            message="A human access-session token is required for delegated review",
+        )
+    user, auth_session, _payload = authenticate_access_token_context(
+        session,
+        bearer_token,
+        expected_type="delegated",
+    )
+    if getattr(user, "is_service_account", False):
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="HUMAN_DELEGATED_TOKEN_REQUIRED",
+            message="A human access-session token is required for delegated review",
+        )
+    request.state.auth_method = "human_delegated_token"
+    request.state.auth_session = auth_session
+    request.state.user = user
+    return user
+
+
 def require_non_agent_write(
     request: Request,
     user: User = Depends(require_user),
@@ -207,8 +264,12 @@ def current_space(
     session: Session = Depends(get_db),
     user: User = Depends(require_user),
 ) -> SpaceContext:
-    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get("active_space_id")
-    ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get(
+        "active_space_id"
+    )
+    ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
     if requested_space_id and ctx.space_id != requested_space_id:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -231,7 +292,66 @@ def current_agent_space(
             code="FORBIDDEN_SPACE",
             message="Space is not accessible",
         )
-    ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
+    if ctx.space_id != requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
+    request.state.space_context = ctx
+    return ctx
+
+
+def current_agent_or_user_space(
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User = Depends(require_agent_or_interactive_user),
+) -> SpaceContext:
+    if getattr(request.state, "auth_method", None) == "api_token":
+        requested_space_id = request.headers.get("X-Space-Id")
+        if not requested_space_id:
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="FORBIDDEN_SPACE",
+                message="Space is not accessible",
+            )
+    else:
+        requested_space_id = request.headers.get("X-Space-Id") or request.cookies.get(
+            "active_space_id"
+        )
+    ctx = resolve_active_space_context(
+        session,
+        user,
+        requested_space_id=requested_space_id,
+    )
+    if requested_space_id and ctx.space_id != requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
+    request.state.space_context = ctx
+    return ctx
+
+
+def current_delegated_human_space(
+    request: Request,
+    session: Session = Depends(get_db),
+    user: User = Depends(require_human_delegated_token),
+) -> SpaceContext:
+    requested_space_id = request.headers.get("X-Space-Id")
+    if not requested_space_id:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_SPACE",
+            message="Space is not accessible",
+        )
+    ctx = resolve_active_space_context(
+        session, user, requested_space_id=requested_space_id
+    )
     if ctx.space_id != requested_space_id:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -282,7 +402,9 @@ def _is_lobby_work_write(request: Request | None, ctx: SpaceContext) -> bool:
     return path.startswith(_LOBBY_WORK_WRITE_PATH_PREFIXES)
 
 
-def _raise_lobby_work_write_forbidden(request: Request | None, session: Session, ctx: SpaceContext) -> None:
+def _raise_lobby_work_write_forbidden(
+    request: Request | None, session: Session, ctx: SpaceContext
+) -> None:
     user = getattr(getattr(request, "state", None), "user", None)
     if user and getattr(user, "user_id", None) and hasattr(session, "commit"):
         _audit_permission_denied(
@@ -381,18 +503,92 @@ def require_agent_space_role(min_role: str):
     return _dep
 
 
+def require_agent_or_user_space_role(min_role: str):
+    min_norm = _normalize_space_role(min_role)
+    threshold = _SPACE_ROLE_ORDER.get(min_norm)
+    if threshold is None:
+        raise ValueError(f"Unknown min_role '{min_role}'")
+
+    def _dep(
+        request: Request,
+        session: Session = Depends(get_db),
+        ctx: SpaceContext = Depends(current_agent_or_user_space),
+    ) -> SpaceContext:
+        if ctx.is_global_admin:
+            return ctx
+        current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
+        if current_rank < threshold:
+            user = getattr(request.state, "user", None)
+            if user and getattr(user, "user_id", None):
+                _audit_permission_denied(
+                    session,
+                    user_id=user.user_id,
+                    space_id=ctx.space_id,
+                    action="forbidden_space_role",
+                    reason=f"Insufficient space role for '{min_norm}'",
+                )
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="FORBIDDEN_ROLE",
+                message="Insufficient space role",
+            )
+        return ctx
+
+    return _dep
+
+
+def require_delegated_human_space_role(min_role: str):
+    min_norm = _normalize_space_role(min_role)
+    threshold = _SPACE_ROLE_ORDER.get(min_norm)
+    if threshold is None:
+        raise ValueError(f"Unknown min_role '{min_role}'")
+
+    def _dep(
+        request: Request,
+        session: Session = Depends(get_db),
+        ctx: SpaceContext = Depends(current_delegated_human_space),
+    ) -> SpaceContext:
+        if ctx.is_global_admin:
+            return ctx
+        current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)
+        if current_rank < threshold:
+            user = getattr(request.state, "user", None)
+            if user and getattr(user, "user_id", None):
+                _audit_permission_denied(
+                    session,
+                    user_id=user.user_id,
+                    space_id=ctx.space_id,
+                    action="forbidden_space_role",
+                    reason=f"Insufficient space role for '{min_norm}'",
+                )
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="FORBIDDEN_ROLE",
+                message="Insufficient space role",
+            )
+        return ctx
+
+    return _dep
+
+
 __all__ = [
     "get_db",
     "get_session",
     "require_user",
     "require_agent_service_account",
+    "require_agent_or_interactive_user",
+    "require_human_delegated_token",
     "require_interactive_user",
     "require_non_agent_write",
     "current_user",
     "current_space",
     "current_agent_space",
+    "current_agent_or_user_space",
+    "current_delegated_human_space",
     "require_space_role",
     "require_agent_space_role",
+    "require_agent_or_user_space_role",
+    "require_delegated_human_space_role",
     "require_global_admin",
     "authenticate_access_token",
     "ensure_token_not_revoked",

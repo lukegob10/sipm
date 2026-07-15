@@ -27,6 +27,7 @@ from ..services.work_items import (
     apply_solution_completion_state as _apply_solution_completion_state,
     apply_task_completion_state as _apply_task_completion_state,
     default_program as _default_program,
+    deleted_project_name as _deleted_project_name,
     ensure_program_exists as _ensure_program_exists,
     ensure_solution as _ensure_solution,
     is_project_name_conflict_integrity_error as _is_project_name_conflict_integrity_error,
@@ -48,22 +49,24 @@ from ..services.work_items import (
 from ..utils import normalize_str, parse_priority
 from ..utils.enums import SolutionStatus, TaskStatus
 
-VALID_OPS = {"create", "update"}
+VALID_OPS = {"archive", "create", "update"}
 VALID_ENTITIES = {"program", "project", "solution", "task"}
-PROGRAM_FIELDS = set(ProgramCreate.model_fields)
-PROJECT_FIELDS = set(ProjectCreate.model_fields)
-SOLUTION_FIELDS = set(SolutionCreate.model_fields)
-TASK_FIELDS = set(TaskCreate.model_fields)
-ENTITY_FIELDS = {
-    "program": PROGRAM_FIELDS,
-    "project": PROJECT_FIELDS,
-    "solution": SOLUTION_FIELDS,
-    "task": TASK_FIELDS,
+CREATE_FIELDS = {
+    "program": set(ProgramCreate.model_fields),
+    "project": set(ProjectCreate.model_fields),
+    "solution": set(SolutionCreate.model_fields),
+    "task": set(TaskCreate.model_fields),
+}
+UPDATE_FIELDS = {
+    "program": set(ProgramUpdate.model_fields),
+    "project": set(ProjectUpdate.model_fields),
+    "solution": set(SolutionUpdate.model_fields),
+    "task": set(TaskUpdate.model_fields),
 }
 PUBLISH_KEYS = {
     "program": ("programs",),
-    "project": ("projects",),
-    "solution": ("solutions",),
+    "project": ("projects", "solutions", "tasks"),
+    "solution": ("solutions", "tasks"),
     "task": ("tasks",),
 }
 
@@ -82,6 +85,7 @@ def _result(
         client_operation_id=operation.client_operation_id,
         op=operation.op,
         entity=operation.entity,
+        ref=operation.ref,
         valid=valid,
         applied=applied,
         entity_id=entity_id,
@@ -123,6 +127,17 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _comparable(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
+
+
+def _has_material_change(row: Any, update_data: dict[str, Any]) -> bool:
+    return any(
+        _comparable(getattr(row, field, None)) != _comparable(value)
+        for field, value in update_data.items()
+    )
+
+
 def _is_program_name_conflict_integrity_error(exc: Exception) -> bool:
     if not isinstance(exc, IntegrityError):
         return False
@@ -149,25 +164,41 @@ def _is_program_name_conflict_integrity_error(exc: Exception) -> bool:
     )
 
 
-def _unknown_fields(entity: str, fields: dict[str, Any]) -> list[str]:
-    allowed = ENTITY_FIELDS.get(entity, set())
-    return sorted(set(fields) - allowed)
+def _unknown_fields(operation: AgentPatchOperation) -> list[str]:
+    contracts = CREATE_FIELDS if operation.op == "create" else UPDATE_FIELDS
+    allowed = contracts.get(operation.entity, set())
+    return sorted(set(operation.fields) - allowed)
 
 
 def _validate_operation_shape(
     operation: AgentPatchOperation,
 ) -> AgentPatchOperationResult | None:
     if operation.op not in VALID_OPS:
-        return _invalid(operation, "OP_NOT_ALLOWED", "Only create and update are allowed")
+        return _invalid(operation, "OP_NOT_ALLOWED", "Only create, update, and archive are allowed")
     if operation.entity not in VALID_ENTITIES:
         return _invalid(
             operation,
             "ENTITY_NOT_ALLOWED",
             "Only program, project, solution, and task are allowed",
         )
+    if operation.ref and operation.op != "create":
+        return _invalid(operation, "REF_NOT_ALLOWED", "ref is only allowed for create")
+    if operation.op == "create" and operation.ref is not None and not normalize_str(operation.ref):
+        return _invalid(operation, "REF_REQUIRED", "ref must not be blank")
+    parent_refs = [operation.program_ref, operation.project_ref, operation.solution_ref]
+    if operation.op != "create" and any(parent_refs):
+        return _invalid(operation, "PARENT_REF_NOT_ALLOWED", "parent references are only allowed for create")
+    if operation.op == "archive":
+        if not operation.id:
+            return _invalid(operation, "ID_REQUIRED", "archive requires id")
+        if not operation.if_updated_at:
+            return _invalid(operation, "IF_UPDATED_AT_REQUIRED", "archive requires if_updated_at")
+        if operation.fields:
+            return _invalid(operation, "FIELDS_NOT_ALLOWED", "archive does not accept fields")
+        return None
     if not operation.fields:
         return _invalid(operation, "FIELDS_REQUIRED", "fields must not be empty")
-    unknown = _unknown_fields(operation.entity, operation.fields)
+    unknown = _unknown_fields(operation)
     if unknown:
         return _invalid(
             operation,
@@ -183,7 +214,19 @@ def _validate_operation_shape(
                 "IF_UPDATED_AT_REQUIRED",
                 "update requires if_updated_at",
             )
-    if operation.op == "create" and operation.entity == "solution" and not operation.project_id:
+    if operation.program_ref and operation.fields.get("program_id"):
+        return _invalid(operation, "PARENT_AMBIGUOUS", "Use program_id or program_ref, not both")
+    if operation.project_ref and operation.project_id:
+        return _invalid(operation, "PARENT_AMBIGUOUS", "Use project_id or project_ref, not both")
+    if operation.solution_ref and operation.solution_id:
+        return _invalid(operation, "PARENT_AMBIGUOUS", "Use solution_id or solution_ref, not both")
+    if operation.entity != "project" and operation.program_ref:
+        return _invalid(operation, "PARENT_REF_NOT_ALLOWED", "program_ref is only valid for projects")
+    if operation.entity != "solution" and operation.project_ref:
+        return _invalid(operation, "PARENT_REF_NOT_ALLOWED", "project_ref is only valid for solutions")
+    if operation.entity != "task" and operation.solution_ref:
+        return _invalid(operation, "PARENT_REF_NOT_ALLOWED", "solution_ref is only valid for tasks")
+    if operation.op == "create" and operation.entity == "solution" and not (operation.project_id or operation.project_ref):
         return _invalid(
             operation,
             "PROJECT_ID_REQUIRED",
@@ -192,12 +235,90 @@ def _validate_operation_shape(
     if (
         operation.op == "create"
         and operation.entity == "task"
-        and not operation.solution_id
+        and not (operation.solution_id or operation.solution_ref)
     ):
         return _invalid(
             operation,
             "SOLUTION_ID_REQUIRED",
             "create task requires solution_id",
+        )
+    return None
+
+
+def _active_entity(
+    session: Session,
+    space_ctx: SpaceContext,
+    operation: AgentPatchOperation,
+):
+    if operation.entity == "program":
+        return _program_query(session, space_ctx).filter(Program.program_id == operation.id).first()
+    if operation.entity == "project":
+        return _project_query(session, space_ctx).filter(Project.project_id == operation.id).first()
+    if operation.entity == "solution":
+        return _solution_query(session, space_ctx).filter(Solution.solution_id == operation.id).first()
+    return _task_query(session, space_ctx).filter(Task.task_id == operation.id).first()
+
+
+def _validate_archive(
+    session: Session,
+    space_ctx: SpaceContext,
+    operation: AgentPatchOperation,
+) -> AgentPatchOperationResult:
+    row = _active_entity(session, space_ctx, operation)
+    if row is None:
+        return _invalid(
+            operation,
+            f"{operation.entity.upper()}_NOT_FOUND",
+            f"{operation.entity.title()} not found",
+        )
+    if not _timestamp_matches(row.updated_at, operation.if_updated_at):
+        return _invalid(operation, "STALE_ENTITY", f"{operation.entity.title()} has changed since if_updated_at")
+    if operation.entity == "program":
+        active_projects = (
+            _project_query(session, space_ctx)
+            .filter(Project.program_id == row.program_id)
+            .count()
+        )
+        if active_projects:
+            return _invalid(
+                operation,
+                "ACTIVE_CHILDREN",
+                "Program cannot be archived while it has active projects",
+            )
+    return _result(operation, valid=True, entity_id=operation.id)
+
+
+def _validate_references(
+    operation: AgentPatchOperation,
+    prior_refs: dict[str, str],
+) -> AgentPatchOperationResult | None:
+    if operation.ref and normalize_str(operation.ref) in prior_refs:
+        return _invalid(operation, "DUPLICATE_REF", "ref values must be unique")
+    expected = (
+        (operation.program_ref, "program")
+        if operation.program_ref
+        else (operation.project_ref, "project")
+        if operation.project_ref
+        else (operation.solution_ref, "solution")
+        if operation.solution_ref
+        else None
+    )
+    if expected is None:
+        return None
+    ref_value, expected_entity = expected
+    normalized_ref = normalize_str(ref_value)
+    actual_entity = prior_refs.get(normalized_ref)
+    if actual_entity is None:
+        return _invalid(
+            operation,
+            "REFERENCE_NOT_FOUND_OR_FORWARD",
+            f"Reference '{normalized_ref}' must point to an earlier create operation",
+        )
+    if actual_entity != expected_entity:
+        return _invalid(
+            operation,
+            "REFERENCE_TYPE_MISMATCH",
+            f"Reference '{normalized_ref}' identifies {actual_entity}, not {expected_entity}",
         )
     return None
 
@@ -261,6 +382,9 @@ def _validate_program(
                     "PROGRAM_NAME_CONFLICT",
                     "Program name already exists",
                 )
+            update_data["program_name"] = program_name
+        if not _has_material_change(program, update_data):
+            return _invalid(operation, "NO_CHANGES", "Update would not change the program")
         return _result(operation, valid=True, entity_id=program.program_id)
     except ValidationError as exc:
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
@@ -329,6 +453,9 @@ def _validate_project(
                     "PROJECT_NAME_CONFLICT",
                     "Project name already exists",
                 )
+            update_data["project_name"] = project_name
+        if not _has_material_change(project, update_data):
+            return _invalid(operation, "NO_CHANGES", "Update would not change the project")
         return _result(operation, valid=True, entity_id=project.project_id)
     except ValidationError as exc:
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
@@ -342,12 +469,12 @@ def _validate_solution(
     try:
         if operation.op == "create":
             payload = SolutionCreate(**operation.fields)
-            project = (
+            project = None if operation.project_ref else (
                 _project_query(session, space_ctx)
                 .filter(Project.project_id == operation.project_id)
                 .first()
             )
-            if not project:
+            if not project and not operation.project_ref:
                 return _invalid(operation, "PROJECT_NOT_FOUND", "Project not found")
             solution_name = normalize_str(payload.solution_name)
             if not solution_name:
@@ -355,7 +482,7 @@ def _validate_solution(
                     operation, "SOLUTION_NAME_REQUIRED", "solution_name is required"
                 )
             version = normalize_str(payload.version) or "0.1.0"
-            conflict = (
+            conflict = None if operation.project_ref else (
                 _solution_query(session, space_ctx)
                 .filter(Solution.project_id == project.project_id)
                 .filter(Solution.solution_name == solution_name)
@@ -431,6 +558,14 @@ def _validate_solution(
                     "SOLUTION_CONFLICT",
                     "Solution name and version already exist for this project",
                 )
+        if "solution_name" in update_data:
+            update_data["solution_name"] = next_name
+        if "version" in update_data:
+            update_data["version"] = next_version
+        if "github_repo_url" in update_data:
+            update_data["github_repo_url"] = normalize_solution_repo_url(update_data["github_repo_url"])
+        if not _has_material_change(solution, update_data):
+            return _invalid(operation, "NO_CHANGES", "Update would not change the solution")
         return _result(operation, valid=True, entity_id=solution.solution_id)
     except ValueError as exc:
         return _invalid(operation, "VALIDATION_ERROR", str(exc))
@@ -446,12 +581,12 @@ def _validate_task(
     try:
         if operation.op == "create":
             payload = TaskCreate(**operation.fields)
-            solution = (
+            solution = None if operation.solution_ref else (
                 _task_solution_query(session, space_ctx)
                 .filter(Solution.solution_id == operation.solution_id)
                 .first()
             )
-            if not solution:
+            if not solution and not operation.solution_ref:
                 return _invalid(operation, "SOLUTION_NOT_FOUND", "Solution not found")
             name = normalize_str(payload.task_name)
             if not name:
@@ -460,7 +595,7 @@ def _validate_task(
                     "TASK_NAME_REQUIRED",
                     "task_name is required",
                 )
-            conflict = (
+            conflict = None if operation.solution_ref else (
                 _task_query(session, space_ctx)
                 .filter(Task.solution_id == solution.solution_id)
                 .filter(Task.task_name == name)
@@ -516,6 +651,12 @@ def _validate_task(
                     "TASK_CONFLICT",
                     "Task name already exists in this solution",
                 )
+            update_data["task_name"] = name
+        if "github_repo_url" in update_data:
+            update_data["github_repo_url"] = normalize_task_repo_url(update_data["github_repo_url"])
+        clears_blocker = update_data.get("blocked") is False and task.blocker_note is not None
+        if not clears_blocker and not _has_material_change(task, update_data):
+            return _invalid(operation, "NO_CHANGES", "Update would not change the task")
         return _result(operation, valid=True, entity_id=task.task_id)
     except ValueError as exc:
         return _invalid(operation, "VALIDATION_ERROR", str(exc))
@@ -532,6 +673,7 @@ def validate_patch_plan(
 ) -> AgentPatchResponse:
     results: list[AgentPatchOperationResult] = []
     seen_ids: set[str] = set()
+    prior_refs: dict[str, str] = {}
     if for_apply:
         if payload.dry_run is not False:
             synthetic = payload.operations[0]
@@ -572,14 +714,24 @@ def validate_patch_plan(
         if shape_error:
             results.append(shape_error)
             continue
-        if operation.entity == "program":
-            results.append(_validate_program(session, space_ctx, operation))
+        reference_error = _validate_references(operation, prior_refs)
+        if reference_error:
+            results.append(reference_error)
+            continue
+        result: AgentPatchOperationResult
+        if operation.op == "archive":
+            result = _validate_archive(session, space_ctx, operation)
+        elif operation.entity == "program":
+            result = _validate_program(session, space_ctx, operation)
         elif operation.entity == "project":
-            results.append(_validate_project(session, space_ctx, operation))
+            result = _validate_project(session, space_ctx, operation)
         elif operation.entity == "solution":
-            results.append(_validate_solution(session, space_ctx, operation))
+            result = _validate_solution(session, space_ctx, operation)
         elif operation.entity == "task":
-            results.append(_validate_task(session, space_ctx, operation))
+            result = _validate_task(session, space_ctx, operation)
+        results.append(result)
+        if result.valid and operation.ref:
+            prior_refs[normalize_str(operation.ref)] = operation.entity
 
     valid = all(result.valid for result in results)
     return AgentPatchResponse(
@@ -966,6 +1118,51 @@ def _apply_task(
     return task.task_id, task.updated_at
 
 
+def _resolve_operation_references(
+    operation: AgentPatchOperation,
+    resolved_refs: dict[str, str],
+) -> AgentPatchOperation:
+    updates: dict[str, Any] = {}
+    if operation.program_ref:
+        updates["fields"] = {
+            **operation.fields,
+            "program_id": resolved_refs[normalize_str(operation.program_ref)],
+        }
+    if operation.project_ref:
+        updates["project_id"] = resolved_refs[normalize_str(operation.project_ref)]
+    if operation.solution_ref:
+        updates["solution_id"] = resolved_refs[normalize_str(operation.solution_ref)]
+    return operation.model_copy(update=updates) if updates else operation
+
+
+def _apply_archive(
+    session: Session,
+    space_ctx: SpaceContext,
+    current_user: User,
+    operation: AgentPatchOperation,
+) -> tuple[str, datetime]:
+    row = _active_entity(session, space_ctx, operation)
+    now = _now()
+    changes: dict[str, tuple[Any, Any]] = {"deleted_at": (None, now)}
+    if operation.entity == "project":
+        previous_name = row.project_name
+        row.project_name = _deleted_project_name(previous_name, row.project_id, now)
+        changes["project_name"] = (previous_name, row.project_name)
+    row.deleted_at = now
+    row.updated_at = now
+    session.add(row)
+    safe_log_changes(
+        session,
+        entity_type=operation.entity,
+        entity_id=operation.id,
+        user_id=current_user.user_id,
+        action="delete",
+        space_id=space_ctx.space_id,
+        changes=changes,
+    )
+    return operation.id, row.updated_at
+
+
 def apply_patch_plan(
     session: Session,
     space_ctx: SpaceContext,
@@ -978,24 +1175,32 @@ def apply_patch_plan(
 
     results: list[AgentPatchOperationResult] = []
     publish_keys: set[str] = set()
+    resolved_refs: dict[str, str] = {}
     try:
         for operation in payload.operations:
-            if operation.entity == "program":
+            effective_operation = _resolve_operation_references(operation, resolved_refs)
+            if effective_operation.op == "archive":
+                entity_id, updated_at = _apply_archive(
+                    session, space_ctx, current_user, effective_operation
+                )
+            elif effective_operation.entity == "program":
                 entity_id, updated_at = _apply_program(
-                    session, space_ctx, current_user, operation
+                    session, space_ctx, current_user, effective_operation
                 )
-            elif operation.entity == "project":
+            elif effective_operation.entity == "project":
                 entity_id, updated_at = _apply_project(
-                    session, space_ctx, current_user, operation
+                    session, space_ctx, current_user, effective_operation
                 )
-            elif operation.entity == "solution":
+            elif effective_operation.entity == "solution":
                 entity_id, updated_at = _apply_solution(
-                    session, space_ctx, current_user, operation
+                    session, space_ctx, current_user, effective_operation
                 )
             else:
                 entity_id, updated_at = _apply_task(
-                    session, space_ctx, current_user, operation
+                    session, space_ctx, current_user, effective_operation
                 )
+            if operation.ref:
+                resolved_refs[normalize_str(operation.ref)] = entity_id
             publish_keys.update(PUBLISH_KEYS[operation.entity])
             if (
                 operation.entity == "program"

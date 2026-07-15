@@ -527,6 +527,17 @@
   gap: 12px;
 }
 
+.agent-proposal-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.agent-proposal-selection-actions button {
+  min-width: 120px;
+}
+
 .agent-proposal-modal-actions {
   justify-content: flex-end;
   margin-top: 16px;
@@ -543,12 +554,29 @@
   margin-bottom: 12px;
 }
 
+.agent-diff-card.is-selected {
+  border-color: var(--accent);
+  background: var(--selected-row-bg);
+}
+
 .agent-diff-card-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.agent-diff-card-selector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  cursor: pointer;
+}
+
+.agent-diff-card-selector input {
+  flex: 0 0 auto;
 }
 
 .compact-table table {

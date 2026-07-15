@@ -10,6 +10,7 @@ from .agent import (
     AgentChangeRequestBulkReviewResult,
     AgentChangeRequestDiffItem,
     AgentChangeRequestListRead,
+    AgentChangeRequestOperationReview,
     AgentChangeRequestRead,
     AgentChangeRequestReview,
     AgentManifestRead,
@@ -41,24 +42,6 @@ from .analytics import (
     TelemetryIngestResultRead,
     UsageEventIn,
 )
-from .planning import (
-    WorkAllocationAssignmentCreate,
-    WorkAllocationAssignmentRead,
-    WorkAllocationAssignmentUpdate,
-    WorkAllocationBoardRead,
-    WorkAllocationPersonCreate,
-    WorkAllocationPersonRead,
-    WorkAllocationPersonUpdate,
-    WorkAllocationProjectRead,
-    WorkAllocationSolutionRead,
-    WorkAllocationTaskCreate,
-    WorkAllocationTaskRead,
-    WorkAllocationTaskUpdate,
-    WorkAllocationTeamCreate,
-    WorkAllocationTeamRead,
-    WorkAllocationTeamUpdate,
-)
-
 __all__ = [
     "AnalyticsDailyPointRead",
     "AnalyticsDashboardRead",
@@ -66,6 +49,7 @@ __all__ = [
     "AgentChangeRequestBulkReviewResult",
     "AgentChangeRequestDiffItem",
     "AgentChangeRequestListRead",
+    "AgentChangeRequestOperationReview",
     "AgentChangeRequestRead",
     "AgentChangeRequestReview",
     "AgentManifestRead",
@@ -97,21 +81,6 @@ __all__ = [
     "TelemetryBatchIn",
     "TelemetryIngestResultRead",
     "UsageEventIn",
-    "WorkAllocationAssignmentCreate",
-    "WorkAllocationAssignmentRead",
-    "WorkAllocationAssignmentUpdate",
-    "WorkAllocationBoardRead",
-    "WorkAllocationPersonCreate",
-    "WorkAllocationPersonRead",
-    "WorkAllocationPersonUpdate",
-    "WorkAllocationProjectRead",
-    "WorkAllocationSolutionRead",
-    "WorkAllocationTaskCreate",
-    "WorkAllocationTaskRead",
-    "WorkAllocationTaskUpdate",
-    "WorkAllocationTeamCreate",
-    "WorkAllocationTeamRead",
-    "WorkAllocationTeamUpdate",
 ]
 
 class TextLikeReadModel(BaseModel):
@@ -191,6 +160,16 @@ class UserRead(BaseModel):
     last_login_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+
+class SessionPolicyRead(BaseModel):
+    idle_timeout_seconds: int
+    warning_seconds: int
+    activity_heartbeat_seconds: int
+
+
+class SessionActivityRead(BaseModel):
+    idle_expires_at: datetime
 
 
 class UserUpdate(BaseModel):
@@ -679,76 +658,3 @@ class TeamRead(BaseModel):
   created_at: datetime
   updated_at: datetime
   members: list[TeamMemberRead] = []
-
-
-class PlanningWindowBase(BaseModel):
-  name: Optional[str] = None
-  start_date: Optional[date] = None
-  end_date: Optional[date] = None
-
-
-class PlanningWindowCreate(PlanningWindowBase):
-  name: str
-  start_date: date
-  end_date: date
-
-
-class PlanningWindowUpdate(PlanningWindowBase):
-  pass
-
-
-class PlanningWindowRead(BaseModel):
-  model_config = ConfigDict(from_attributes=True)
-
-  window_id: str
-  name: str
-  start_date: date
-  end_date: date
-  created_at: datetime
-  updated_at: datetime
-
-
-class ResourceAllocationBase(BaseModel):
-  work_item_type: Optional[str] = None  # project|solution|task
-  work_item_id: Optional[str] = None
-  assignee: Optional[str] = None
-  assignee_user_soeid: Optional[str] = None
-  team_id: Optional[str] = None
-  month_start: Optional[date] = None
-  fte_months: Optional[float] = None
-  week_start: Optional[date] = None
-  hours: Optional[int] = None
-  window_id: Optional[str] = None
-
-
-class ResourceAllocationCreate(ResourceAllocationBase):
-  work_item_type: str
-  work_item_id: str
-  assignee_user_soeid: Optional[str] = None
-  month_start: Optional[date] = None
-  fte_months: Optional[float] = None
-  week_start: Optional[date] = None
-  hours: Optional[int] = None
-
-
-class ResourceAllocationUpdate(ResourceAllocationBase):
-  pass
-
-
-class ResourceAllocationRead(BaseModel):
-  model_config = ConfigDict(from_attributes=True)
-
-  allocation_id: str
-  work_item_type: str
-  work_item_id: str
-  assignee: Optional[str] = None
-  assignee_user_soeid: Optional[str] = None
-  team_id: Optional[str] = None
-  month_start: Optional[date] = None
-  fte_months: float = 0.0
-  week_start: Optional[date] = None
-  hours: int = 0
-  window_id: Optional[str] = None
-  created_at: datetime
-  updated_at: datetime
-

@@ -13,14 +13,12 @@ from backend.app import deps as deps_module
 from backend.app.auth import auth as auth_module
 from backend.app.routes import auth as auth_routes_module
 from backend.app.auth.auth import (
-    clear_auth_cookies,
     create_token,
     decode_token,
     hash_password,
-    set_auth_cookies,
     verify_password,
 )
-from backend.app.models import ApiToken, Space, SpaceMembership, User
+from backend.app.models import ApiToken, AuthSession, Space, SpaceMembership, User
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -510,6 +508,65 @@ async def test_local_login_sets_session_cookies_and_supports_register_refresh_lo
         json={"soeid": "newlocal1", "display_name": "New Local", "password": "Password123"},
     )
     assert registered.status_code == 201, registered.text
+
+
+@pytest.mark.anyio
+async def test_interactive_session_policy_activity_refresh_and_logout(
+    auth_client,
+    db_sessionmaker,
+):
+    await _login_local_session(auth_client, db_sessionmaker, soeid="idle1")
+    access_payload = decode_token(auth_client.cookies.get("access_token"), expected_type="access")
+    refresh_payload = decode_token(auth_client.cookies.get("refresh_token"), expected_type="refresh")
+    assert access_payload["sid"] == refresh_payload["sid"]
+
+    policy = await auth_client.get("/project-manager/api/auth/session-policy")
+    assert policy.status_code == 200
+    assert policy.json() == {
+        "idle_timeout_seconds": 1800,
+        "warning_seconds": 60,
+        "activity_heartbeat_seconds": 15,
+    }
+
+    with db_sessionmaker() as session:
+        auth_session = session.query(AuthSession).filter_by(session_id=access_payload["sid"]).one()
+        initial_activity = auth_session.last_activity_at
+
+    refresh = await auth_client.post("/project-manager/api/auth/refresh")
+    assert refresh.status_code == 200
+    with db_sessionmaker() as session:
+        unchanged = session.query(AuthSession).filter_by(session_id=access_payload["sid"]).one()
+        assert unchanged.last_activity_at == initial_activity
+
+    activity = await auth_client.post("/project-manager/api/auth/activity")
+    assert activity.status_code == 200
+    assert datetime.fromisoformat(activity.json()["idle_expires_at"]) > initial_activity
+
+    logout = await auth_client.post("/project-manager/api/auth/logout")
+    assert logout.status_code == 204
+    with db_sessionmaker() as session:
+        revoked = session.query(AuthSession).filter_by(session_id=access_payload["sid"]).one()
+        assert revoked.revoked_at is not None
+
+
+@pytest.mark.anyio
+async def test_idle_expired_and_legacy_sessions_are_rejected(auth_client, db_sessionmaker):
+    await _login_local_session(auth_client, db_sessionmaker, soeid="idle2")
+    payload = decode_token(auth_client.cookies.get("access_token"), expected_type="access")
+    with db_sessionmaker() as session:
+        auth_session = session.query(AuthSession).filter_by(session_id=payload["sid"]).one()
+        auth_session.last_activity_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=31)
+        session.commit()
+
+    expired = await auth_client.get("/project-manager/api/auth/me")
+    assert expired.status_code == 401
+    assert expired.headers["X-Error-Code"] == "SESSION_IDLE_EXPIRED"
+
+    legacy = create_token(payload["sub"], payload["role"], "access")
+    auth_client.cookies.set("access_token", legacy, path="/project-manager")
+    legacy_response = await auth_client.get("/project-manager/api/auth/me")
+    assert legacy_response.status_code == 401
+    assert legacy_response.headers["X-Error-Code"] == "SESSION_REQUIRED"
 
 
 @pytest.mark.anyio

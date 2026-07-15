@@ -2,16 +2,16 @@
   background: var(--tone-danger-bg);
 }
 
-.planning-kpis {
+.capacity-kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 10px;
   margin-bottom: 10px;
 }
-.planning-kpis .kpi-card {
+.capacity-kpis .kpi-card {
   min-height: 86px;
 }
-.planning-kpis .kpi-value {
+.capacity-kpis .kpi-value {
   font-size: var(--font-size-display);
 }
 
@@ -102,7 +102,7 @@
   padding: 8px 12px;
 }
 
-#capacity-user-list .panel-toolbar.compact + .planning-kpis {
+#capacity-user-list .panel-toolbar.compact + .capacity-kpis {
   margin-top: 12px;
 }
 

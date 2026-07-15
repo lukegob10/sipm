@@ -16,6 +16,7 @@ function createHarness() {
     agentChangeRequestPendingCount: 1,
     agentChangeRequestFailedCount: 0,
     agentChangeRequestSelectedIds: new Set(),
+    agentChangeRequestSelectedOperationIds: {},
     agentChangeRequestActiveId: "cr-1",
     agentChangeRequestModalId: "",
     agentChangeRequests: [
@@ -26,6 +27,15 @@ function createHarness() {
         proposed_by_label: "Scheduler",
         created_at: "2026-05-28T10:00:00Z",
         operation_count: 1,
+        operations: [
+          {
+            client_operation_id: "op-1",
+            op: "update",
+            entity: "project",
+            id: "project-1",
+            fields: { status: "complete" },
+          },
+        ],
         diff: [
           {
             client_operation_id: "op-1",
@@ -149,7 +159,7 @@ describe("agent approvals governance UI", () => {
     expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).toBeNull();
   });
 
-  it("approves the current modal proposal through the bulk endpoint", async () => {
+  it("approves the selected operations in the current proposal", async () => {
     const { api, els, renderGovernanceHub } = createHarness();
 
     renderGovernanceHub();
@@ -162,13 +172,57 @@ describe("agent approvals governance UI", () => {
 
     await vi.waitFor(() => {
       expect(api).toHaveBeenCalledWith(
-        "/agent/change-requests/actions/approve-selected",
+        "/agent/change-requests/cr-1/approve-selected-operations",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({ change_request_ids: ["cr-1"] }),
+          body: JSON.stringify({ client_operation_ids: ["op-1"] }),
         })
       );
     });
+  });
+
+  it("lets reviewers clear individual changes and select all again", () => {
+    const { els, renderGovernanceHub, state } = createHarness();
+    state.agentChangeRequests[0].operation_count = 2;
+    state.agentChangeRequests[0].operations.push({
+      client_operation_id: "op-2",
+      op: "update",
+      entity: "project",
+      id: "project-2",
+      fields: { status: "active" },
+    });
+    state.agentChangeRequests[0].diff.push({
+      client_operation_id: "op-2",
+      op: "update",
+      entity: "project",
+      entity_id: "project-2",
+      entity_label: "Project Two",
+      fields: { status: { old: "paused", new: "active" } },
+    });
+
+    renderGovernanceHub();
+    els.spaceGovernanceShell
+      .querySelector("[data-space-action='open-agent-change-request']")
+      .click();
+
+    const operationCheckboxes = els.spaceGovernanceShell.querySelectorAll(
+      "[data-agent-change-operation-checkbox]"
+    );
+    expect(operationCheckboxes).toHaveLength(2);
+    expect([...operationCheckboxes].every((checkbox) => checkbox.checked)).toBe(true);
+
+    operationCheckboxes[1].checked = false;
+    operationCheckboxes[1].dispatchEvent(new Event("change", { bubbles: true }));
+    expect(state.agentChangeRequestSelectedOperationIds["cr-1"]).toEqual(new Set(["op-1"]));
+    expect(els.spaceGovernanceShell.textContent).toContain("Approve selected (1)");
+
+    els.spaceGovernanceShell
+      .querySelector("[data-space-action='select-all-agent-change-request-operations']")
+      .click();
+    expect(state.agentChangeRequestSelectedOperationIds["cr-1"]).toEqual(
+      new Set(["op-1", "op-2"])
+    );
+    expect(els.spaceGovernanceShell.textContent).toContain("Approve selected (2)");
   });
 
   it("rejects the current modal proposal through the bulk endpoint", async () => {

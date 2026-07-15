@@ -1,9 +1,12 @@
 import inspect
+from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 
 from backend.app.services import program_dashboard_report_pdf
 from backend.app.services.program_dashboard_report_pdf import build_program_dashboard_report_pdf
+from backend.app.services.program_dashboard_report_xlsx import build_program_dashboard_report_xlsx
 
 
 def test_program_dashboard_report_layout_prioritizes_escalation_column():
@@ -83,6 +86,55 @@ def test_build_program_dashboard_report_pdf_includes_solution_escalation():
 
     assert b"Escalation" in pdf_bytes
     assert b"Needs help" in pdf_bytes
+
+
+def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakeholder():
+    xlsx_bytes = build_program_dashboard_report_xlsx(
+        space_name="Main",
+        selected_program_label="Report Program",
+        programs=[{"program_id": "program-1", "program_name": "Report Program"}],
+        projects=[{
+            "project_id": "project-1",
+            "program_id": "program-1",
+            "project_name": "Visible Project",
+            "status": "active",
+            "sponsor": "Visible Sponsor",
+        }],
+        solutions=[{
+            "solution_id": "solution-1",
+            "project_id": "project-1",
+            "solution_name": "Visible Solution",
+            "status": "active",
+            "owner": "=1+1",
+            "key_stakeholder": "Executive Stakeholder",
+            "current_phase": "go_live",
+            "escalation": "Needs help",
+        }],
+        phases=[{"phase_id": "go_live", "phase_name": "Go Live", "sequence": 1}],
+        collapsed_program_ids=set(),
+        collapsed_project_ids=set(),
+    )
+
+    assert xlsx_bytes.startswith(b"PK")
+    with ZipFile(BytesIO(xlsx_bytes)) as archive:
+        shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+        styles = archive.read("xl/styles.xml").decode("utf-8")
+        worksheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+
+    assert "Program Dashboard Report" in shared_strings
+    assert "Stakeholder" in shared_strings
+    assert "Entity Type" in shared_strings
+    assert "Program" in shared_strings
+    assert "Project" in shared_strings
+    assert "Solution" in shared_strings
+    assert "Executive Stakeholder" in shared_strings
+    assert "=1+1" in shared_strings
+    assert "Visible Solution" in shared_strings
+    assert "Needs help" in shared_strings
+    assert "<f>" not in worksheet
+    assert "autoFilter" in worksheet
+    assert "conditionalFormatting" not in worksheet
+    assert "fills count=" in styles
 
 
 def test_program_dashboard_report_progress_counts_current_phase_as_in_progress():
@@ -266,6 +318,48 @@ async def test_program_dashboard_report_download_returns_visible_pdf_rows(client
     assert b"Hidden Collapsed Solution" not in response.content
     assert b"Hidden Program Project" not in response.content
     assert b"Hidden Program Solution" not in response.content
+
+
+@pytest.mark.anyio
+async def test_program_dashboard_report_download_returns_excel_with_solution_stakeholder(client):
+    program = (
+        await client.post("/project-manager/api/programs", json={"program_name": "Excel Report Program"})
+    ).json()
+    project = (
+        await client.post(
+            "/project-manager/api/projects",
+            json={"program_id": program["program_id"], "project_name": "Excel Project"},
+        )
+    ).json()
+    await client.post(
+        f"/project-manager/api/projects/{project['project_id']}/solutions",
+        json={
+            "solution_name": "Excel Solution",
+            "owner": "Excel Owner",
+            "key_stakeholder": "Excel Stakeholder",
+            "escalation": "Excel escalation",
+        },
+    )
+
+    response = await client.post(
+        "/project-manager/api/programs/dashboard/report.xlsx",
+        json={
+            "selected_program_ids": [program["program_id"]],
+            "collapsed_program_ids": [],
+            "collapsed_project_ids": [],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.headers.get("content-type", "").startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert response.headers.get("content-disposition", "").endswith('.xlsx"')
+    with ZipFile(BytesIO(response.content)) as archive:
+        shared_strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+    assert "Stakeholder" in shared_strings
+    assert "Excel Stakeholder" in shared_strings
+    assert "Excel Solution" in shared_strings
 
 
 @pytest.mark.anyio

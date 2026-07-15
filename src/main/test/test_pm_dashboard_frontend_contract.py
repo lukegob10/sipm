@@ -33,22 +33,20 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     assert "function renderPMDashboardProjectLink(label, projectId) {" in analytics_text
     assert "function renderPMDashboardSolutionLink(label, solutionId) {" in analytics_text
     assert "function renderPMDashboardTimelineLink(row) {" in analytics_text
-    assert "function renderPMDashboardCapacityLink(row) {" in analytics_text
+    assert "function renderPMDashboardCapacityLink(row) {" not in analytics_text
     assert 'return ownerDirectory?.uniqueDisplayNameToKey?.get(labelToken) || "";' in analytics_text
-    assert 'if (!resolvedKey || resolvedKey === "unassigned") return esc(ownerLabel);' in analytics_text
-    assert 'renderPMDashboardRowLink(ownerLabel, "open-capacity-allocations"' in analytics_text
     assert 'renderPMDashboardRowLink(label, "open-project"' in analytics_text
     assert 'renderPMDashboardRowLink(label, "open-solution"' in analytics_text
     assert 'renderPMDashboardRowLink(row.name, "open-task"' in analytics_text
-    assert 'renderPMDashboardRowLink(row.label, "open-capacity-allocations"' in analytics_text
     assert 'from "./sections.js";' in render_text
     assert "renderPMDashboardProjectLink(summary.projectName, summary.projectId)" in sections_text
     assert "renderPMDashboardSolutionLink(row.solutionName, row.solutionId)" in sections_text
     assert "renderPMDashboardTimelineLink(row)" in sections_text
-    assert "renderPMDashboardCapacityLink(row)" in sections_text
+    assert "renderPMDashboardCapacityLink(row)" not in sections_text
     assert "renderPMDashboardOwnerLink(row.owner, row.ownerAssigneeKey)" in sections_text
     assert "const ownerDirectory = buildPMDashboardOwnerDirectory(users);" in render_text
-    assert 'if (!assigneeKey || assigneeKey === "unassigned") return `<strong>${esc(label)}</strong>`;' in analytics_text
+    assert "renderPMDashboardOwnerLink(label, assigneeKey)" in analytics_text
+    assert 'return esc(ownerLabel);' in analytics_text
     assert "projectId: project.project_id" in render_text
     assert 'itemKind: "solution"' in render_text
     assert 'itemKind: "task"' in render_text
@@ -56,8 +54,8 @@ def test_pm_dashboard_route_renders_title_drilldowns_for_project_risk_timeline_a
     assert "taskId: task.task_id" in render_text
     assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(solution.owner_user_soeid, solution.owner, ownerDirectory)," in render_text
     assert "ownerAssigneeKey: resolvePMDashboardOwnerAssigneeKey(" in render_text
-    assert "allocations: rowAllocations" in render_text
-    assert "pmDashboardState.capacityDrilldowns = new Map(capacityRows.map((row) => [row.key, row]));" in render_text
+    assert "allocations: rowAllocations" not in render_text
+    assert "capacityDrilldowns" not in render_text
 
 
 def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown_actions():
@@ -75,9 +73,8 @@ def test_pm_dashboard_route_handles_project_solution_task_and_capacity_drilldown
     assert "pmDashboardState.ctx?.openPMDashboardSolutionDrilldown" in interactions_text
     assert 'if (action === "open-task") {' in interactions_text
     assert "pmDashboardState.ctx?.openPMDashboardTaskDrilldown" in interactions_text
-    assert 'if (action === "open-capacity-allocations") {' in interactions_text
-    assert 'const detail = pmDashboardState.capacityDrilldowns.get(assigneeKey);' in interactions_text
-    assert "pmDashboardState.ctx?.openPMDashboardCapacityDrilldown" in interactions_text
+    assert 'open-capacity-allocations' not in interactions_text
+    assert "pmDashboardState.ctx?.openPMDashboardCapacityDrilldown" not in interactions_text
     assert 'if (action !== "set-capacity-month") return;' in interactions_text
     assert 'persistCapacityMonth(pmDashboardState.capacitySpaceId, nextMonth);' in interactions_text
     assert "rerender();" in interactions_text
@@ -116,36 +113,6 @@ def test_pm_dashboard_uses_focus_sections_with_persisted_default_action_view():
     assert ".pm-dashboard-card.active {" in styles_text
     assert "#pm-focus-health:checked ~ .pm-focus-pane #pm-dashboard-health" not in styles_text
 
-
-def test_pm_dashboard_drilldown_helpers_reuse_existing_project_solution_task_and_capacity_surfaces():
-    text = APP_JS.read_text(encoding="utf-8")
-    pm_render_context = text[text.index("mod.renderPMDashboard({"):text.index("function openPMDashboardProjectDrilldown")]
-    assert "function closePlanningModal()" in text
-    assert "function openPlanningModal(title, bodyHtml)" in text
-    assert "function openPMDashboardProjectDrilldown(projectId)" in text
-    assert "function openPMDashboardCapacityDrilldown(detail)" in text
-    assert "function openPMDashboardSolutionDrilldown(solutionId)" in text
-    assert "function openPMDashboardTaskDrilldown(taskId)" in text
-    assert "function openAllocationWorkItemDrilldown(allocationId)" in text
-    assert 'openPMDashboardCapacityDrilldown,' in text
-    assert 'openPMDashboardProjectDrilldown,' in text
-    assert 'openPMDashboardSolutionDrilldown,' in text
-    assert 'openPMDashboardTaskDrilldown,' in text
-    assert "apiBase: API_BASE," in pm_render_context
-    assert "setStatus," in pm_render_context
-    assert 'data-planning-modal-action="open-allocation-work-item"' in text
-    assert 'openPlanningModal(`${assigneeLabel} Allocation Detail`, bodyHtml);' in text
-    assert 'type === "solution" ? "Open Workstream"' in text
-    assert 'type === "task" ? "Open Deliverable"' in text
-    assert 'type === "solution" ? "Workstream"' in text
-    assert 'type === "task" ? "Deliverable"' in text
-    assert "The linked workstream is unavailable." in text
-    assert "The linked deliverable is unavailable." in text
-    assert "No allocations in this scope." in text
-    assert "openProjectForm(project)" in text
-    assert 'openSolutionModal(solution, "details")' in text
-    assert 'openSolutionModal(solution, "tasks")' in text
-    assert "fillTaskForm(task)" in text
 
 
 def test_pm_dashboard_uses_pm_row_link_style_for_dense_title_actions():
@@ -213,7 +180,7 @@ def test_pm_dashboard_uses_business_led_workstream_and_deliverable_language():
     assert "Deliverables by Status" in sections_text
     assert "Active Workstream RAG Mix" in sections_text
     assert "Work List" in sections_text
-    assert "Planning deliverable assignments only." in sections_text
+    assert "Configured team capacity" in sections_text
     assert "No elevated workstream risks detected." in sections_text
     assert 'kind: "Solution"' in render_text
     assert 'kind: "Task"' in render_text

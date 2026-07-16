@@ -1,6 +1,6 @@
 ---
 name: sipm-agent
-description: Operate SIPM through its scoped, approval-gated Agent API. Use when Codex needs to discover SIPM spaces, locate or inspect programs/projects/solutions/tasks, understand bounded work context, validate and submit atomic change proposals, poll or cancel owned requests, perform explicitly authenticated human-delegated review, or verify results through the audit feed.
+description: Operate SIPM through its scoped, approval-gated Agent API. Use to discover SIPM spaces, locate or inspect programs/projects/solutions/tasks, understand bounded work context, validate and submit atomic change proposals, poll or cancel owned requests, perform explicitly authenticated human-delegated review, or verify results through the audit feed.
 ---
 
 # SIPM Agent

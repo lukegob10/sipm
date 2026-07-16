@@ -1,4 +1,0 @@
-interface:
-  display_name: "SIPM Agent"
-  short_description: "Run complete, scoped SIPM workflows safely."
-  default_prompt: "Use $sipm-agent to locate scoped work, propose approval-gated changes, track review, and verify the result."

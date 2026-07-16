@@ -148,7 +148,7 @@ startup. For a new database, run the SQL artifacts in this order:
 3. `docs/sql/first_time_global_admin.sql`, after the first user row exists
 
 `first_deploy_reference_data.sql` seeds the canonical phase catalog required by
-the planning and solution phase workflows. It is idempotent and can be rerun if
+the solution phase workflows. It is idempotent and can be rerun if
 an environment is missing phase rows.
 
 ## Oracle Migration Repairs

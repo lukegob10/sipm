@@ -25,3 +25,12 @@ exclude_lines = [
 
 [tool.coverage.xml]
 output = "coverage/backend-coverage.xml"
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/main/test/conftest.py" = ["E402"]

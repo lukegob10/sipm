@@ -86,7 +86,6 @@ def test_protected_routes_require_space_or_global_admin_dependency():
         key = (relative_path, fn.name)
         if key in ALLOWED_NO_SPACE_DEP:
             continue
-        args = fn.args.args or []
         defaults = fn.args.defaults or []
         dep_targets = []
         for default_expr in defaults:

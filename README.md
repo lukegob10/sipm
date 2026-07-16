@@ -45,6 +45,8 @@ npm run test:coverage
 Repo quality helpers:
 ```bash
 python scripts/check_route_module_test_mapping.py
+npm run lint
+npm run audit
 ```
 
 ## Review And Operations

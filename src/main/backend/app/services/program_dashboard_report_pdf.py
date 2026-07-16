@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from .pdf_utils import _SimplePdfDoc, _TopPdfPainter, _estimate_pdf_text_width, _wrap_pdf_text
 

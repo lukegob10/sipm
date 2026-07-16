@@ -15,7 +15,6 @@ from ..schemas import PhaseRead, ProgramDashboardReportRequest, ProgramRead
 from ..services.program_dashboard_report_pdf import build_program_dashboard_report_pdf
 from ..services.program_dashboard_report_data import load_program_dashboard_report_data
 from ..services.program_dashboard_report_xlsx import build_program_dashboard_report_xlsx
-from ..services.spaces import SpaceContext
 
 router = APIRouter(prefix="/public")
 
@@ -32,8 +31,8 @@ def _public_dashboard_space_or_404(space_slug: str, session: Session) -> Space:
         session.query(Space)
         .filter(Space.slug == slug)
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
-        .filter(Space.public_program_dashboard_enabled == True)
+        .filter(Space.is_active)
+        .filter(Space.public_program_dashboard_enabled)
         .first()
     )
     if not space:

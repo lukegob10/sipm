@@ -19,6 +19,12 @@ from ..schemas.agent import (
     AgentPatchResponse,
 )
 from ..services.audit_log import log_changes, safe_log_changes
+from ..services.github_repo_urls import (
+    normalize_github_repo_url as normalize_solution_repo_url,
+)
+from ..services.github_repo_urls import (
+    normalize_github_repo_url as normalize_task_repo_url,
+)
 from ..services.mutations import publish_space_mutation
 from ..services.programs import program_query as _program_query
 from ..services.spaces import SpaceContext
@@ -31,8 +37,6 @@ from ..services.work_items import (
     ensure_program_exists as _ensure_program_exists,
     ensure_solution as _ensure_solution,
     is_project_name_conflict_integrity_error as _is_project_name_conflict_integrity_error,
-    normalize_github_repo_url as normalize_solution_repo_url,
-    normalize_github_repo_url as normalize_task_repo_url,
     project_change_set as _project_change_set,
     project_create_changes as _project_create_changes,
     project_query as _project_query,

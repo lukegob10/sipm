@@ -7,7 +7,6 @@ from .pdf_utils import (
     _SimplePdfDoc,
     _TopPdfPainter,
     _draw_report_card,
-    _estimate_pdf_text_width,
     _wrap_pdf_text,
 )
 

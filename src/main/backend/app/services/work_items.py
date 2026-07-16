@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from ..models import Phase, Program, Project, Solution, SolutionPhase, Task
 from ..schemas import ProjectRead, SolutionRead, TaskRead
-from ..utils import enable_all_phases, normalize_str, read_text_value
+from ..utils import enable_all_phases, normalize_str
 from ..utils.enums import RagStatus, TaskStatus
-from .github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
+from .github_repo_urls import resolve_effective_github_repo_url
 from .mutations import publish_space_mutation
 from .programs import ensure_default_program
 from .realtime import schedule_broadcast
@@ -308,7 +308,7 @@ def enabled_phase_ids(session: Session, solution_id: str) -> set[str]:
     rows = (
         session.query(SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled == True)
+        .filter(SolutionPhase.is_enabled)
         .all()
     )
     return {r[0] for r in rows}
@@ -320,7 +320,7 @@ def last_enabled_phase_id(session: Session, solution_id: str) -> Optional[str]:
         session.query(SolutionPhase.phase_id)
         .join(Phase, Phase.phase_id == SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
-        .filter(SolutionPhase.is_enabled == True)
+        .filter(SolutionPhase.is_enabled)
         .order_by(sort_key.desc(), Phase.sequence.desc(), SolutionPhase.solution_phase_id.desc())
         .first()
     )

@@ -1,63 +1,166 @@
-# Python cache and virtualenvs
+# Dependencies and package-manager caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/cache/
+.yarn/install-state.gz
+.yarn/unplugged/
+.yarn/build-state.yml
+.venv/
+env/
+venv/
+ENV/
+__pypackages__/
+
+# Build, coverage, and test output
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+.vite/
+parcel-cache/
+storybook-static/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+coverage/
+htmlcov/
+coverage.xml
+coverage.json
+coverage-final.json
+coverage-summary.json
+.coverage*
+!.coveragerc
+*.tsbuildinfo
+*.tgz
+
+# Python caches and tooling
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .pyre/
+.pyright/
+.pytype/
 .tox/
 .nox/
 .hypothesis/
 .ipynb_checkpoints/
-.venv/
-env/
-venv/
-.coverage*
-!.coveragerc
-coverage.xml
-coverage/
-htmlcov/
+.dmypy.json
+dmypy.json
 .tmp/
 tmp/
-*.egg-info/
-.eggs/
-pip-wheel-metadata/
-__pypackages__/
+*.tmp
+*.temp
 
-# Local database files
+# Logs and diagnostics
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+pytestdebug.log
+debug/
+logs/
+
+# Databases and local service state
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+.terraform/
+.terraform.lock.hcl.local
+*.tfstate
+*.tfstate.*
+.serverless/
+.aws/
+.azure/
+.gcloud/
+crash.log
+crash.*.log
 
-# OS / editor files
-.DS_Store
-Thumbs.db
-Desktop.ini
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Node modules or build artifacts (if added later)
-node_modules/
-dist/
-build/
-test-results/
-playwright-report/
-
-# Local environment / secret files
+# Environment files, credentials, and certificates
 .env
 .env.*
 **/.env
 **/.env.*
 !.env.example
 !env.example
+*.secret
+*.secrets
+*.credentials
+*.credential
+*.pem
+*.key
+*.keytab
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+*.der
+*.mobileprovision
+credentials.json
+client_secrets.json
+service-account*.json
 
-# Local enhancement artifacts
+# Editors, operating systems, and local AI tooling
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
+.codex/
+.code-quality-bug-scan/
+.maintainability-review/
+.claude/
+.cursor/
+.windsurf/
+.aider*
+
+# Local container and deployment overrides
+.docker/
+docker-compose.override.yml
+compose.override.yml
+
+# Packages and release artifacts
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.whl
+*.egg
+*.msi
+*.deb
+*.rpm
+*.dmg
+*.iso
+release/
+releases/
+
+# Local documentation and enhancement artifacts
 docs/enhancements/
 docs/specs/
-
 
 # Skill artifacts
 .auto-research/*

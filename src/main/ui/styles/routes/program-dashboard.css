@@ -38,8 +38,6 @@
 
 .program-dashboard-stage {
   --program-accent: var(--calendar-task-border);
-  --program-positive: var(--tone-positive-border);
-  --program-warning: var(--tone-warn-border);
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
@@ -687,8 +685,6 @@
 
 .theme-light .program-dashboard-stage {
   --program-accent: var(--calendar-task-border);
-  --program-positive: var(--tone-positive-border);
-  --program-warning: var(--tone-warn-border);
 }
 
 .theme-light .program-dashboard-summary span + span::before {

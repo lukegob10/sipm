@@ -3,6 +3,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "audit": "npm run audit:python && npm run audit:ui",
+    "audit:python": "uvx pip-audit==2.10.1 -r requirements.txt",
+    "audit:ui": "npm audit --audit-level=high",
+    "lint": "npm run lint:python && npm run lint:ui",
+    "lint:python": "uvx ruff==0.15.21 check src/main/backend src/main/test scripts deployment/mock-packages/treasury_analytics/src",
     "lint:ui": "eslint src/main/ui/js src/main/ui/test playwright.config.js",
     "test": "npm run test:backend && npm run test:ui",
     "test:coverage": "npm run test:backend:coverage && npm run test:ui:coverage",

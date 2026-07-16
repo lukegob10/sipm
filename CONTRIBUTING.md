@@ -2,7 +2,7 @@
 
 ## Working Rules
 - Preserve public API paths, schema contracts, UI routes, and DOM IDs by default.
-- Keep production-review changes behavior-preserving unless `docs/stepwise-production-review-process.md` explicitly records a different decision.
+- Keep production-review changes behavior-preserving unless the relevant review document under `docs/` explicitly records a different decision.
 - Prefer small PRs that close one logical issue set at a time.
 - Do not move code out of a hotspot by creating a new oversized hotspot.
 
@@ -21,11 +21,10 @@
   - `python scripts/check_requirements_lock.py`
 
 ## Production-Review Workspace Expectations
-- `docs/stepwise-production-review-process.md` is the active production-readiness review ledger.
-- New production-readiness passes should add a completion ledger with findings, implementation notes, validation, and migration status.
+- Production-readiness reviews should record findings, implementation notes, validation, and migration status in the relevant document under `docs/`.
 - Do not mark a section complete unless the relevant focused tests and full smoke path have been run or the skipped validation is explicitly recorded.
 
 ## Ownership Defaults
 - Runtime, API, or operator-flow changes should update `src/main/README.md` when they materially alter deployment, readiness, or validation expectations.
-- Any temporary exception to the quality bar must be recorded in `docs/stepwise-production-review-process.md`.
+- Any temporary exception to the quality bar must be recorded in the relevant review document under `docs/`.
 - If a change adds a new recurring operator expectation, update `src/main/README.md` and the relevant SQL or deployment docs.

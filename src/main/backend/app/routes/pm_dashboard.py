@@ -22,7 +22,7 @@ def active_space_user_query(session: Session, space_ctx: SpaceContext):
         .filter(SpaceMembership.space_id == space_ctx.space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active)
     )
 
 
@@ -65,7 +65,6 @@ def download_pm_command_report_pdf(
             .order_by(Task.priority.asc(), Task.task_name.asc())
             .all()
         )
-    task_ids = [row.task_id for row in task_rows]
     user_rows = (
         active_space_user_query(session, space_ctx)
         .order_by(User.display_name.asc())

@@ -31,10 +31,6 @@
   margin-bottom: 0;
 }
 
-#view-dashboard .view-route-hint {
-  display: none;
-}
-
 #view-dashboard > .panel .panel-header h2 {
   margin: 0;
 }

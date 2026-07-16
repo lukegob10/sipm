@@ -54,8 +54,6 @@ def test_dark_mode_tokens_exist_and_light_theme_values_remain_pinned():
 
 def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hacks():
     text = read_ui_styles(STYLES_CSS)
-    compact = "".join(text.split())
-
     assert "body:not(.theme-light)" not in text
 
     shared_token_snippets = [

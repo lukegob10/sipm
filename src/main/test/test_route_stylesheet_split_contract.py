@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from ui_style_contract import read_ui_styles
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

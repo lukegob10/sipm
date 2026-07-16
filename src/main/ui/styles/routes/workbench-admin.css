@@ -341,13 +341,6 @@
   box-shadow: none;
 }
 
-#view-master #master-table .deliverables-table .pill-project,
-#view-master #master-table .deliverables-table .pill-solution {
-  min-width: 0;
-  width: 100%;
-  text-transform: uppercase;
-}
-
 #view-master #master-table .deliverables-table .pill.positive,
 #view-master #master-table .deliverables-table .rag-pill.rag-green {
   border-color: var(--tone-positive-border);
@@ -824,10 +817,6 @@
 
   #view-master #master-table {
     max-height: none;
-  }
-
-  #view-master .view-route-hint {
-    display: none;
   }
 
   #view-master .view-breadcrumb {

@@ -90,7 +90,7 @@ def _count_active_space_admins(session: Session, space_id: str, exclude_membersh
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active)
         .filter(normalized_role == "space_admin")
     )
     if exclude_membership_id:
@@ -357,7 +357,7 @@ def list_requestable_spaces(
     return (
         session.query(Space)
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active)
         .filter(Space.space_kind == SPACE_KIND_COLLABORATION)
         .filter(~Space.space_id.in_(active_membership_space_ids) if active_membership_space_ids else True)
         .order_by(Space.name.asc())
@@ -460,7 +460,7 @@ def list_reviewable_space_access_requests(
         .join(Space, Space.space_id == SpaceAccessRequest.space_id)
         .filter(SpaceAccessRequest.status == "pending")
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active)
         .filter(Space.space_kind == SPACE_KIND_COLLABORATION)
     )
     if not ctx.is_global_admin:

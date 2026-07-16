@@ -4,7 +4,7 @@ import re
 from types import SimpleNamespace
 
 import backend.app.models as models
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy import LargeBinary, Text
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects import oracle
@@ -157,6 +157,14 @@ def test_oracle_task_repo_url_column_uses_documented_length():
     tasks = Base.metadata.tables[physical_table_name("tasks")]
     ddl = str(CreateTable(tasks).compile(dialect=oracle.dialect()))
     assert "github_repo_url VARCHAR2(1024 CHAR)" in ddl
+
+
+def test_oracle_boolean_predicates_use_equality_not_is_numeric_literal():
+    statement = select(models.Space).where(models.Space.is_active)
+    sql = str(statement.compile(dialect=oracle.dialect(), compile_kwargs={"literal_binds": True}))
+
+    assert "is_active = 1" in sql
+    assert "is_active IS 1" not in sql
 
 
 def test_change_log_value_fields_use_text_type():

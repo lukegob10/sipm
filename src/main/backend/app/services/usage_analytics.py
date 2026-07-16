@@ -258,7 +258,7 @@ def validate_requested_analytics_space(session, *, scope_space_id: str | None) -
         session.query(Space.space_id)
         .filter(Space.space_id == scope_space_id)
         .filter(Space.deleted_at.is_(None))
-        .filter(Space.is_active == True)
+        .filter(Space.is_active)
         .first()
     )
     if exists:

@@ -1,11 +1,4 @@
-function textValue(value) {
-  return String(value ?? "").trim();
-}
-
-function nullableTextValue(value) {
-  const text = textValue(value);
-  return text || null;
-}
+import { nullableTextValue, textValue } from "../utils/form-values.js";
 
 export function buildProgramPayload(data) {
   return {

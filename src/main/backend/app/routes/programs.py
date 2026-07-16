@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse

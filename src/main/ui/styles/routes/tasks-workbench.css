@@ -456,7 +456,6 @@
     max-height: 60vh;
   }
 
-  #view-tasks-workbench .view-route-hint,
   #view-tasks-workbench .view-breadcrumb {
     display: none;
   }

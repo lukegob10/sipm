@@ -12,7 +12,7 @@ uvicorn backend.main:app --reload
 
 Then open `http://127.0.0.1:8000/project-manager/`.
 
-Use the repo-root [.env](/mnt/f/vault/projects/sipm/.env) or `.env.local` as the runtime source of truth. The nested [src/main/.env](/mnt/f/vault/projects/sipm/src/main/.env) file is deprecated and only exists as a legacy fallback if the repo-root env files are missing.
+Use the repo-root `.env` or `.env.local` as the runtime source of truth. The nested `src/main/.env` file is deprecated and exists only as a legacy fallback when the repo-root environment files are missing. Start from the committed `.env.example` template; never commit real secrets.
 
 Auth is application-managed. Users sign in with SOEID and password against the SIPM `users` table. SIPM stores bcrypt password hashes and mints its own HTTP-only access, refresh, and active-space cookies after local login.
 Interactive browser sessions are also server-tracked and expire after 30 minutes without genuine user activity. Configure this independently with `SIPM_SESSION_IDLE_MINUTES`; access-token, refresh-token, and WebSocket idle durations do not replace this policy.
@@ -42,12 +42,12 @@ No sample teams, people, or tasks are auto-created.
 - Database pool tuning is controlled by `SIPM_DB_POOL_SIZE`, `SIPM_DB_MAX_OVERFLOW`, `SIPM_DB_POOL_TIMEOUT_SECONDS`, `SIPM_DB_POOL_RECYCLE_SECONDS`, `SIPM_DB_POOL_PRE_PING`, and `SIPM_DB_POOL_USE_LIFO`.
 - Optional startup pool warming is controlled by `SIPM_DB_PREWARM_ON_STARTUP=true` and `SIPM_DB_PREWARM_CONNECTIONS`; optional background keepalive is controlled by `SIPM_DB_KEEPWARM_INTERVAL_SECONDS`.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
-- When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
-- Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql).
+- When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
+- Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql).
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
-- Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
-- First-deploy reference data SQL lives in [`docs/sql/first_deploy_reference_data.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_deploy_reference_data.sql). Run it after the canonical schema is created so required phase rows exist.
-- First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](/mnt/f/vault/projects/the-eco-system/sipm/docs/sql/first_time_global_admin.sql).
+- Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
+- First-deploy reference data SQL lives in [`docs/sql/first_deploy_reference_data.sql`](../../docs/sql/first_deploy_reference_data.sql). Run it after the canonical schema is created so required phase rows exist.
+- First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](../../docs/sql/first_time_global_admin.sql).
 - CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 
 ## Frontend Validation
@@ -63,4 +63,4 @@ npm run test:ui:smoke
 - `lint:ui` runs the repo ESLint gate over `src/main/ui/js` and the browser test files.
 - `test:ui` runs the Vitest/jsdom unit suite for router and live-sync behavior.
 - `test:ui:coverage` runs the Vitest/jsdom unit suite with coverage over modular UI source. The current gate excludes the legacy `src/main/ui/js/app.js` monolith and should be raised as route modules gain focused unit tests.
-- `test:ui:smoke` runs Playwright against `scripts/run_ui_smoke_app.py`, which boots the app on a temporary SQLite database instead of the Oracle runtime.
+- `test:ui:smoke` runs Playwright on dedicated port `8765` against `scripts/run_ui_smoke_app.py`, which boots the app on a temporary SQLite database instead of the Oracle runtime. Set `SIPM_UI_SMOKE_PORT` to choose another isolated port. Reusing an existing server is disabled unless `SIPM_UI_SMOKE_REUSE_SERVER=true` is set explicitly.

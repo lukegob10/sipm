@@ -103,7 +103,9 @@ async def upload_solution_document(
 ):
     _get_solution_or_404(session, solution_id, space_ctx)
     filename = normalize_str(file.filename) or "document"
-    content = await file.read()
+    # Read at most one byte beyond the limit so oversized uploads cannot be
+    # fully materialized in application memory before they are rejected.
+    content = await file.read(MAX_SOLUTION_DOCUMENT_BYTES + 1)
     size_bytes = len(content)
     if size_bytes > MAX_SOLUTION_DOCUMENT_BYTES:
         raise HTTPException(

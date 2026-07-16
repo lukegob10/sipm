@@ -23,8 +23,6 @@ function createHarness(apiImpl, overrides = {}) {
     tasks: [],
     teams: [],
     users: [],
-    allocations: [],
-    planningWindows: [],
     capacitySelectedSoeid: "",
     teamCapacity: {},
     tasksWorkbench: null,
@@ -49,8 +47,8 @@ function createHarness(apiImpl, overrides = {}) {
     handleAuthError: vi.fn(() => false),
     loadTeamCapacityData: vi.fn(),
     entitiesForView: overrides.entitiesForView || vi.fn(() => ["projects", "solutions"]),
-    isKnownEntity: (entity) => ["phases", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"].includes(entity),
-    dataEntities: ["phases", "projects", "solutions", "tasks", "teams", "users", "allocations", "windows"],
+    isKnownEntity: (entity) => ["phases", "projects", "solutions", "tasks", "teams", "users"].includes(entity),
+    dataEntities: ["phases", "projects", "solutions", "tasks", "teams", "users"],
     viewPrefetchTarget: overrides.viewPrefetchTarget || {},
   });
   return { controller, state, setStatus, renderActiveView, populateSelects, restoreSelections };

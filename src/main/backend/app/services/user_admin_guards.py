@@ -36,7 +36,7 @@ def normalized_space_admin_role_expr():
 def count_active_global_admins(session: Session) -> int:
     return (
         session.query(User)
-        .filter(User.is_active == True)
+        .filter(User.is_active)
         .filter(normalized_global_role_expr() == "global_admin")
         .count()
     )
@@ -49,7 +49,7 @@ def _count_other_active_space_admins(session: Session, *, space_id: str, exclude
         .filter(SpaceMembership.space_id == space_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(SpaceMembership.status == "active")
-        .filter(User.is_active == True)
+        .filter(User.is_active)
         .filter(SpaceMembership.user_id != exclude_user_id)
         .filter(normalized_space_admin_role_expr() == "space_admin")
         .count()

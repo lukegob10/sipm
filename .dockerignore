@@ -1,28 +1,68 @@
-.git
-.github
-.pytest_cache
-.venv
-.tmp
-htmlcov
-node_modules
-test-results
+# Version control and repository metadata
+.git/
+.github/
+.gitignore
 
+# Local environments and secrets
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!.env.example
 
-__pycache__
+# Dependencies and package-manager caches
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.venv/
+env/
+venv/
+ENV/
+__pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.sqlite
-*.db
-*.log
 
+# Build, coverage, and test output
+dist/
+build/
+coverage/
+coverage.xml
+.coverage*
+htmlcov/
+.pytest_cache/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Logs, temporary files, and local databases
+*.log
+*.log.*
+debug/
+logs/
+.tmp/
+tmp/
+*.tmp
+*.temp
+*.db
+*.sqlite*
+
+# Editors and operating-system files
+.vscode/
+.idea/
 .DS_Store
 Thumbs.db
+*.swp
+*.swo
+*~
 
-coverage.xml
-.coverage
-dist
-build
+# Local tooling and deployment overrides
+.codex/
+.claude/
+.cursor/
+.windsurf/
+.aider*
+.docker/
+docker-compose.override.yml
+compose.override.yml

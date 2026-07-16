@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.auth import hash_bootstrap_password
@@ -30,7 +29,7 @@ from ..schemas import (
 from ..services.audit_log import log_changes
 from ..services.api_tokens import api_token_is_active, create_api_token
 from ..services.password_reset import issue_temp_password
-from ..services.spaces import SpaceContext, is_global_admin_role
+from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..services.user_admin_guards import (
     count_active_global_admins as _count_active_global_admins,
@@ -220,7 +219,7 @@ def list_users(
     def _load():
         query = _active_space_user_query(session, space_ctx)
         if active_only:
-            query = query.filter(User.is_active == True)
+            query = query.filter(User.is_active)
         if team_tag_norm:
             query = query.filter(User.team_tag == team_tag_norm)
         return [UserRead.model_validate(user).model_dump(mode="json") for user in query.order_by(User.display_name.asc()).all()]
@@ -245,7 +244,7 @@ def list_global_admin_users(
 ) -> List[UserRead]:
     query = session.query(User).filter(_normalized_global_role_expr() == "global_admin")
     if active_only:
-        query = query.filter(User.is_active == True)
+        query = query.filter(User.is_active)
     return query.order_by(User.display_name.asc()).all()
 
 
@@ -621,7 +620,7 @@ def export_users(
     def _load():
         users = (
             _active_space_user_query(session, space_ctx)
-            .filter(User.is_active == True)
+            .filter(User.is_active)
             .order_by(User.display_name.asc())
             .all()
         )

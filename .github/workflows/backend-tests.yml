@@ -47,6 +47,9 @@ jobs:
       - name: Verify dependency lock file
         run: python scripts/check_requirements_lock.py
 
+      - name: Audit dependency locks
+        run: npm run audit
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -64,6 +67,9 @@ jobs:
 
       - name: Route module test mapping gate
         run: python scripts/check_route_module_test_mapping.py
+
+      - name: Lint Python
+        run: npm run lint:python
 
       - name: Run backend tests
         env:

@@ -210,7 +210,7 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     )
     assert accepted.status_code == 200, accepted.text
     manifest = accepted.json()
-    assert manifest["version"] == "1.2"
+    assert manifest["version"] == "1.3"
     assert manifest["capabilities"] == [
         "read_programs",
         "read_spaces",
@@ -220,6 +220,7 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
         "search_work_items",
         "read_own_change_requests",
         "cancel_own_change_request",
+        "update_own_pending_change_request",
         "archive_work_items",
         "human_delegated_review",
         "read_audit_feed",
@@ -1574,6 +1575,108 @@ async def test_service_account_can_cancel_only_its_pending_request_and_replace_i
         assert len(audit_rows) == 1
         assert audit_rows[0].old_value == "pending"
         assert audit_rows[0].new_value == "cancelled"
+
+
+@pytest.mark.anyio
+async def test_service_account_can_update_its_pending_request_in_place(
+    agent_client, db_sessionmaker
+):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    other_token = _seed_additional_agent_token(
+        db_sessionmaker,
+        space_id=space_id,
+        user_id="update-other-agent",
+    )
+    original = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "create the original project",
+            "idempotency_key": "update-in-place",
+            "operations": [
+                {
+                    "client_operation_id": "create-project",
+                    "op": "create",
+                    "entity": "project",
+                    "fields": {"project_name": "Original Project"},
+                }
+            ],
+        },
+    )
+    assert original.status_code == 201, original.text
+    original_value = original.json()
+    request_id = original_value["change_request_id"]
+    replacement_body = {
+        "if_request_updated_at": original_value["updated_at"],
+        "reason": "create the corrected project",
+        "operations": [
+            {
+                "client_operation_id": "create-project",
+                "op": "create",
+                "entity": "project",
+                "fields": {"project_name": "Corrected Project"},
+            }
+        ],
+    }
+
+    hidden = await agent_client.put(
+        f"/project-manager/api/agent/change-requests/{request_id}",
+        headers=_auth_headers(other_token, space_id),
+        json=replacement_body,
+    )
+    assert hidden.status_code == 404
+    assert hidden.json()["code"] == "CHANGE_REQUEST_NOT_FOUND"
+
+    updated = await agent_client.put(
+        f"/project-manager/api/agent/change-requests/{request_id}",
+        headers=_auth_headers(token, space_id),
+        json=replacement_body,
+    )
+    assert updated.status_code == 200, updated.text
+    updated_value = updated.json()
+    assert updated_value["change_request_id"] == request_id
+    assert updated_value["idempotency_key"] == "update-in-place"
+    assert updated_value["reason"] == "create the corrected project"
+    assert updated_value["operations"][0]["fields"]["project_name"] == "Corrected Project"
+    assert updated_value["diff"][0]["fields"]["project_name"]["new"] == "Corrected Project"
+
+    stale = await agent_client.put(
+        f"/project-manager/api/agent/change-requests/{request_id}",
+        headers=_auth_headers(token, space_id),
+        json=replacement_body,
+    )
+    assert stale.status_code == 409
+    assert stale.json()["code"] == "CHANGE_REQUEST_CHANGED"
+
+    with db_sessionmaker() as session:
+        assert session.query(AgentChangeRequest).count() == 1
+        replacement_audit = (
+            session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "agent_change_request")
+            .filter(ChangeLog.entity_id == request_id)
+            .filter(ChangeLog.action == "update")
+            .filter(ChangeLog.field == "proposal")
+            .one()
+        )
+        assert replacement_audit.old_value == "previous"
+        assert replacement_audit.new_value == "replaced"
+
+    cancelled = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/cancel",
+        headers=_auth_headers(token, space_id),
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    terminal_update = await agent_client.put(
+        f"/project-manager/api/agent/change-requests/{request_id}",
+        headers=_auth_headers(token, space_id),
+        json={
+            **replacement_body,
+            "if_request_updated_at": cancelled.json()["updated_at"],
+        },
+    )
+    assert terminal_update.status_code == 409
+    assert terminal_update.json()["code"] == "CHANGE_REQUEST_NOT_PENDING"
 
 
 @pytest.mark.anyio

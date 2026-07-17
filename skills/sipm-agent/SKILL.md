@@ -31,8 +31,8 @@ Translate each user turn into the narrowest stage that satisfies it:
 4. **Understand context** — use a bounded summary graph only when relationships matter; request `full` only when genuinely needed.
 5. **Validate** — validate complex or multi-operation patches before submission.
 6. **Propose** — submit one coherent user intent with a reason and idempotency key.
-7. **Track** — retrieve, poll, cancel, or replace the pending request; do not silently submit duplicates.
-8. **Review** — service accounts cannot approve. Human-delegated review requires a human access-session token, an inspected immutable diff, and explicit user confirmation bound to its ID and `updated_at`.
+7. **Track** — retrieve, poll, cancel, or replace the pending request in place; do not silently submit duplicates.
+8. **Review** — service accounts cannot approve. Human-delegated review requires a human access-session token, an inspected diff, and explicit user confirmation bound to its ID and `updated_at`.
 9. **Verify** — use the returned entity IDs and audit feed instead of reloading an entire space.
 
 Do not combine unrelated user intentions merely because a patch can contain 25 operations. A hierarchy created for one outcome is coherent; unrelated housekeeping is not.
@@ -89,11 +89,12 @@ After the validation result is clean, run the same command without `--validate-o
 ```bash
 python skills/sipm-agent/scripts/sipm_agent.py list-change-requests --space main --status pending
 python skills/sipm-agent/scripts/sipm_agent.py get-change-request --space main --request-id <id>
+python skills/sipm-agent/scripts/sipm_agent.py replace-change-request --space main --request-id <id> --patch-file corrected-patch.json
 python skills/sipm-agent/scripts/sipm_agent.py poll-change-request --space main --request-id <id>
 python skills/sipm-agent/scripts/sipm_agent.py cancel-change-request --space main --request-id <id>
 ```
 
-On a stale entity, refetch the direct detail, explain the conflict, and create a fresh proposal with a fresh idempotency key. Never rewrite the stored request.
+When a pending proposal still represents the same user intent, replace it in place so its request ID and queue position remain stable. Replacement revalidates the complete proposal and uses `updated_at` to prevent overwriting a request that changed after retrieval. If the request is terminal or the intent is unrelated, submit a new request instead.
 
 ## Human-Delegated Review
 

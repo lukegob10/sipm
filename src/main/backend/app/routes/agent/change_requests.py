@@ -27,6 +27,7 @@ from ...schemas.agent import (
     AgentChangeRequestOperationReview,
     AgentChangeRequestRead,
     AgentChangeRequestReview,
+    AgentChangeRequestUpdate,
     AgentDelegatedChangeRequestReview,
     AgentPatchRequest,
 )
@@ -40,6 +41,7 @@ from ...services.agent_change_requests import (
     list_change_requests,
     reject_change_request,
     reject_selected_change_requests,
+    update_change_request,
     verify_delegated_review_confirmation,
 )
 from ...services.spaces import SpaceContext
@@ -126,6 +128,28 @@ def get_agent_change_request(
         space_ctx,
         change_request_id,
         proposed_by_user_id=proposed_by_user_id,
+    )
+
+
+@router.put(
+    "/{change_request_id}",
+    response_model=AgentChangeRequestRead,
+    operation_id="agent_update_change_request",
+    summary="Replace an owned pending agent change request in place",
+)
+def update_agent_change_request(
+    change_request_id: str,
+    payload: AgentChangeRequestUpdate,
+    session: Session = Depends(get_db),
+    current_user: User = Depends(require_agent_service_account),
+    space_ctx: SpaceContext = Depends(current_agent_space),
+):
+    return update_change_request(
+        session,
+        space_ctx,
+        current_user,
+        change_request_id,
+        payload,
     )
 
 

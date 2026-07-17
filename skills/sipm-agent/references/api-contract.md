@@ -57,11 +57,13 @@ Application is transactional. Results map `ref` and `client_operation_id` to per
 ## Validation And Submission
 
 - `POST /agent/patches/validate` validates without persistence.
-- `POST /agent/change-requests` stores an immutable pending proposal and diff; it does not mutate work data.
+- `POST /agent/change-requests` stores a pending proposal and diff; it does not mutate work data.
 - `GET /agent/change-requests` and `/{id}` list/get only the service account's own requests.
+- `PUT /agent/change-requests/{id}` replaces an owned pending proposal in place. It requires `if_request_updated_at`, `reason`, and the complete `operations` list; the request ID and original idempotency key remain stable.
 - `POST /agent/change-requests/{id}/cancel` idempotently cancels an owned pending request.
 
-Submitting the same idempotency key with the same immutable payload returns the existing request. A different payload under the key conflicts.
+Submitting the same idempotency key with the same original payload returns the existing request. A different payload under the key conflicts; use the in-place update endpoint for a pending correction.
+Pending replacement is concurrency-safe: a stale `if_request_updated_at` conflicts, replacement revalidates and rebuilds the diff, and terminal requests cannot be changed.
 
 ## Review
 

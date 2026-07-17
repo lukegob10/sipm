@@ -392,6 +392,14 @@ class AgentPatchRequest(BaseModel):
     operations: list[AgentPatchOperation] = Field(min_length=1, max_length=25)
 
 
+class AgentChangeRequestUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    if_request_updated_at: datetime
+    reason: str = Field(min_length=1)
+    operations: list[AgentPatchOperation] = Field(min_length=1, max_length=25)
+
+
 class AgentPatchOperationResult(BaseModel):
     client_operation_id: str
     op: str

@@ -40,7 +40,7 @@ The completed Agent API should support this end-to-end workflow:
 3. Discover and select an accessible space.
 4. Search or retrieve complete work state using stable IDs.
 5. Validate a proposed, bounded set of mutations.
-6. Submit an immutable change request for approval.
+6. Submit a change request for approval, replacing the same pending request in place when correcting that intent.
 7. Retrieve and monitor the request through a terminal state.
 8. Let a real human approve or reject through the UI or an explicitly delegated agent interaction.
 9. Return created entity IDs and final per-operation results.
@@ -68,17 +68,11 @@ No step should require loading frontend JavaScript, scraping UI state, guessing 
 - Approval authorization must be based on the acting human's space role and future permission model.
 - Every approval, rejection, cancellation, and failed apply remains attributable in the audit history.
 
-### Submitted Requests Are Immutable
+### Pending Requests Have One Stable Identity
 
-A submitted request represents exactly what a reviewer was asked to evaluate. Its operations, reason, and diff should not be edited in place.
+A proposer may replace its own pending request in place so one user intent remains one queue item and one database row. Replacement keeps the request ID and original idempotency key stable, revalidates the complete operation set, rebuilds the diff, advances `updated_at`, and writes an audit event.
 
-To change a pending proposal:
-
-- Cancel the old request.
-- Submit a new request with a new idempotency key.
-- Optionally link it as a replacement when durable replacement linkage is approved.
-
-This preserves review integrity and makes retries, audit, and incident analysis understandable.
+Review integrity is preserved by binding delegated confirmation to both the request ID and the observed `updated_at`. A replacement invalidates an older confirmation. Approved, rejected, failed, and cancelled requests remain immutable.
 
 ### Scale Is A Contract Requirement
 
@@ -317,13 +311,7 @@ Exact global counts should not be calculated on every list request. If counts ar
 
 #### Replacement Behavior
 
-Initial no-database behavior:
-
-1. Cancel the old request.
-2. Submit a new request with a new idempotency key.
-3. Return both identifiers to the client workflow.
-
-Do not add durable `supersedes_change_request_id` until the database change gate is approved.
+Replace the owned pending row through `PUT /api/agent/change-requests/{change_request_id}` with the last observed `updated_at`, a reason, and the complete operation set. Keep the request ID and idempotency key stable. Reject stale, non-owned, or terminal requests. This needs no replacement-link column because it does not create a second request.
 
 ### CLI And Skill Changes
 
@@ -588,7 +576,7 @@ The existing review routes may be retained, but their authentication dependency 
 
 Before a delegated approval:
 
-- Retrieve and present the immutable diff.
+- Retrieve and present the current diff together with its `updated_at` version.
 - Obtain explicit confirmation for that request ID.
 - Verify that the request is still pending.
 - Revalidate optimistic concurrency.
@@ -617,7 +605,7 @@ If token scopes, consent grants, or one-time approval records are required, stop
 
 - A user can approve or reject from an agent interaction using a verified human identity.
 - A service account cannot approve, even if it proposed the request.
-- The approval is bound to the reviewed immutable request.
+- The approval is bound to the reviewed request ID and exact `updated_at` version.
 - Space-role and cross-space tests pass.
 - Security review signs off on the credential and confirmation model.
 

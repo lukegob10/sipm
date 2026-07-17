@@ -353,6 +353,13 @@ def main() -> int:
     get_request = sub.add_parser("get-change-request", help="Get one owned request")
     add_space(get_request)
     get_request.add_argument("--request-id", required=True)
+    replace_request = sub.add_parser(
+        "replace-change-request",
+        help="Replace one owned pending request while keeping its ID",
+    )
+    add_space(replace_request)
+    replace_request.add_argument("--request-id", required=True)
+    replace_request.add_argument("--patch-file", required=True)
     cancel = sub.add_parser(
         "cancel-change-request", help="Cancel one owned pending request"
     )
@@ -545,6 +552,24 @@ def main() -> int:
         json_out(
             client.request(
                 "GET", f"/agent/change-requests/{args.request_id}", space_id=space_id
+            )
+        )
+        return 0
+    if args.command == "replace-change-request":
+        current = client.request(
+            "GET", f"/agent/change-requests/{args.request_id}", space_id=space_id
+        )
+        patch = load_json(args.patch_file)
+        json_out(
+            client.request(
+                "PUT",
+                f"/agent/change-requests/{args.request_id}",
+                space_id=space_id,
+                body={
+                    "if_request_updated_at": current["updated_at"],
+                    "reason": patch.get("reason"),
+                    "operations": patch.get("operations"),
+                },
             )
         )
         return 0

@@ -14,6 +14,7 @@ from ..schemas.agent import (
     AgentChangeRequestDiffItem,
     AgentChangeRequestListRead,
     AgentChangeRequestRead,
+    AgentChangeRequestUpdate,
     AgentPatchOperation,
     AgentPatchRequest,
     AgentPatchResponse,
@@ -445,6 +446,100 @@ def get_change_request(
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
 
+def _naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def update_change_request(
+    session: Session,
+    space_ctx: SpaceContext,
+    proposer: User,
+    change_request_id: str,
+    payload: AgentChangeRequestUpdate,
+) -> AgentChangeRequestRead:
+    row = (
+        session.query(AgentChangeRequest)
+        .filter(AgentChangeRequest.space_id == space_ctx.space_id)
+        .filter(AgentChangeRequest.proposed_by_user_id == proposer.user_id)
+        .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
+        .first()
+    )
+    if row is None:
+        raise security_http_exception(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="CHANGE_REQUEST_NOT_FOUND",
+            message="Agent change request not found",
+        )
+    if row.status != "pending":
+        raise security_http_exception(
+            status_code=status.HTTP_409_CONFLICT,
+            code="CHANGE_REQUEST_NOT_PENDING",
+            message="Only pending change requests can be updated",
+        )
+    if _naive_utc(row.updated_at) != _naive_utc(payload.if_request_updated_at):
+        raise security_http_exception(
+            status_code=status.HTTP_409_CONFLICT,
+            code="CHANGE_REQUEST_CHANGED",
+            message="Change request changed after it was retrieved",
+        )
+
+    reason = normalize_str(payload.reason)
+    if not reason:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="reason is required",
+        )
+    effective_payload = AgentPatchRequest(
+        dry_run=False,
+        reason=reason,
+        idempotency_key=row.idempotency_key,
+        operations=payload.operations,
+    )
+    operations_json = _dumps(_operation_payloads(effective_payload))
+    if _same_idempotent_request(
+        row,
+        reason=reason,
+        operations_json=operations_json,
+    ):
+        return _row_to_read(row, users_by_id={proposer.user_id: proposer})
+
+    validation = validate_patch_plan(session, space_ctx, effective_payload)
+    if not validation.valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=validation.model_dump(mode="json"),
+        )
+
+    previous_reason = row.reason
+    previous_operation_count = len(_loads(row.operations_json, []))
+    row.reason = reason
+    row.operations_json = operations_json
+    row.validation_json = validation.model_dump_json()
+    row.diff_json = _dumps(build_patch_diff(session, space_ctx, effective_payload))
+    row.updated_at = _utc_now_naive()
+    session.add(row)
+    log_changes(
+        session,
+        entity_type="agent_change_request",
+        entity_id=row.change_request_id,
+        user_id=proposer.user_id,
+        action="update",
+        changes={
+            "reason": (previous_reason, row.reason),
+            "operation_count": (previous_operation_count, len(payload.operations)),
+            "proposal": ("previous", "replaced"),
+        },
+        space_id=space_ctx.space_id,
+    )
+    session.commit()
+    session.refresh(row)
+    _publish_change_requests(space_ctx.space_id)
+    return _row_to_read(row, users_by_id={proposer.user_id: proposer})
+
+
 def approve_change_request(
     session: Session,
     space_ctx: SpaceContext,
@@ -457,6 +552,7 @@ def approve_change_request(
         session.query(AgentChangeRequest)
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
         .first()
     )
     if not row:
@@ -515,6 +611,7 @@ def verify_delegated_review_confirmation(
         session.query(AgentChangeRequest)
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
         .first()
     )
     if row is None:
@@ -523,13 +620,7 @@ def verify_delegated_review_confirmation(
             code="CHANGE_REQUEST_NOT_FOUND",
             message="Agent change request not found",
         )
-    current = row.updated_at
-    expected = if_request_updated_at
-    if current.tzinfo is not None:
-        current = current.astimezone(timezone.utc).replace(tzinfo=None)
-    if expected.tzinfo is not None:
-        expected = expected.astimezone(timezone.utc).replace(tzinfo=None)
-    if current != expected:
+    if _naive_utc(row.updated_at) != _naive_utc(if_request_updated_at):
         raise security_http_exception(
             status_code=status.HTTP_409_CONFLICT,
             code="CHANGE_REQUEST_CHANGED",
@@ -602,6 +693,7 @@ def approve_change_request_operations(
         session.query(AgentChangeRequest)
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
         .first()
     )
     if not row:

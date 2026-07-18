@@ -468,123 +468,688 @@
   gap: 12px;
 }
 
-.agent-approval-table-panel {
-  overflow: hidden;
-}
-
-.agent-approval-table {
-  min-width: 860px;
-}
-
-.agent-approval-table th,
-.agent-approval-table td {
-  vertical-align: middle;
-}
-
-.agent-approval-table th:first-child,
-.agent-approval-table td:first-child {
-  width: 42px;
-  text-align: center;
-}
-
-.agent-approval-table th:nth-child(5),
-.agent-approval-table td:nth-child(5) {
-  text-align: center;
-}
-
-.agent-proposal-link {
-  max-width: min(52vw, 560px);
-  text-align: left;
-  white-space: normal;
-}
-
-.agent-proposal-modal-content {
-  width: min(1040px, calc(100vw - 32px));
-  max-height: min(88vh, 860px);
-  overflow: auto;
-}
-
-.agent-proposal-modal .modal-backdrop {
-  appearance: none;
-  position: fixed;
-  inset: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: var(--modal-scrim);
-  box-shadow: none;
-}
-
-.agent-proposal-modal-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.agent-proposal-modal-body {
-  display: grid;
+.agent-approval-section {
   gap: 12px;
 }
 
-.agent-proposal-selection-actions {
+.agent-approval-heading {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.agent-proposal-selection-actions button {
-  min-width: 120px;
-}
-
-.agent-proposal-modal-actions {
-  justify-content: flex-end;
-  margin-top: 16px;
-}
-
-.agent-proposal-modal-actions button {
-  flex: 0 0 150px;
-}
-
-.agent-diff-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  margin-bottom: 12px;
-}
-
-.agent-diff-card.is-selected {
-  border-color: var(--accent);
-  background: var(--selected-row-bg);
-}
-
-.agent-diff-card-head {
-  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 10px;
+  gap: 18px;
+  padding: 4px 2px;
 }
 
-.agent-diff-card-selector {
+.agent-approval-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.agent-approval-heading h3,
+.agent-approval-heading p,
+.agent-review-heading h3,
+.agent-review-toolbar p,
+.agent-review-empty h3,
+.agent-review-empty p {
+  margin: 0;
+}
+
+.agent-approval-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  cursor: pointer;
+  gap: 9px;
 }
 
-.agent-diff-card-selector input {
+.agent-pending-count,
+.agent-operation-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--info-border);
+  border-radius: 999px;
+  background: var(--info-soft);
+  color: var(--text-strong);
+  font-size: var(--font-size-chip);
+  font-weight: 800;
+}
+
+.agent-approval-health {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-approval-health > span {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+}
+
+.agent-approval-health strong {
+  color: var(--text-strong);
+}
+
+.agent-approval-health .is-danger {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+}
+
+.agent-approval-workbench {
+  display: grid;
+  grid-template-columns: minmax(270px, 0.82fr) minmax(0, 1.55fr);
+  height: clamp(400px, calc(100vh - 320px), 720px);
+  min-height: 400px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-sunken);
+  box-shadow: var(--shadow-low);
+}
+
+.agent-approval-queue {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 88%, var(--surface-sunken));
+}
+
+.agent-queue-header,
+.agent-review-header,
+.agent-review-toolbar,
+.agent-proposal-review-actions,
+.agent-bulk-actions {
   flex: 0 0 auto;
 }
 
-.compact-table table {
+.agent-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 68px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-queue-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-queue-header p {
+  margin: 0;
+}
+
+.agent-queue-header button {
+  min-height: 30px;
+  padding: 6px 9px;
+}
+
+.agent-queue-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.agent-queue-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: start;
+  margin-bottom: 6px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.agent-queue-item:hover {
+  border-color: var(--hover-border);
+  background: var(--hover);
+}
+
+.agent-queue-item.is-active {
+  border-color: var(--tab-active-border);
+  background: var(--selected-row-bg);
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+}
+
+.agent-queue-item.is-selected:not(.is-active) {
+  background: var(--accent-hover-soft);
+}
+
+.agent-queue-checkbox {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  padding: 15px 0 0 4px;
+  cursor: pointer;
+}
+
+.agent-queue-checkbox input,
+.agent-diff-card-head input {
+  margin: 0;
+  accent-color: var(--accent-strong);
+}
+
+.agent-queue-item-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px 11px 11px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.agent-queue-item-main:hover {
+  background: transparent;
+}
+
+.agent-queue-item-topline {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-queue-item-topline strong {
+  min-width: 0;
+  color: var(--text-strong);
+  line-height: 1.35;
+}
+
+.agent-operation-count {
+  flex: 0 0 auto;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 6px;
+  border-color: var(--border);
+  background: var(--panel-soft);
+}
+
+.agent-queue-summary {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.agent-queue-meta,
+.agent-review-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+}
+
+.agent-queue-meta time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--info-border);
+  border-radius: 10px;
+  background: var(--info-soft);
+  color: var(--accent-2);
+  font-size: var(--font-size-chip);
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.agent-avatar-small {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  font-size: 9px;
+}
+
+.agent-queue-empty {
+  min-height: 230px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+}
+
+.agent-queue-empty > span,
+.agent-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 5px;
+  border: 1px solid var(--success-border);
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--positive);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.agent-bulk-actions {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+}
+
+.agent-bulk-actions.is-active {
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--panel));
+}
+
+.agent-bulk-actions > div {
+  display: flex;
+  gap: 6px;
+}
+
+.agent-bulk-actions button {
+  min-height: 32px;
+  padding: 7px 9px;
+}
+
+.agent-approval-review {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.agent-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--accent-soft), transparent 55%);
+}
+
+.agent-review-heading {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+}
+
+.agent-review-heading h3 {
+  color: var(--text-strong);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.agent-review-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+}
+
+.agent-review-eyebrow .pill {
+  padding: 4px 8px;
+  text-transform: capitalize;
+}
+
+.agent-review-author > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-review-author strong {
+  color: var(--text);
+}
+
+.agent-review-author small {
+  color: var(--muted);
+}
+
+.agent-review-selection {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--info-border);
+  border-radius: 12px;
+  background: var(--info-soft);
+  text-align: right;
+}
+
+.agent-review-selection strong {
+  color: var(--text-strong);
+  font-size: var(--font-size-display-compact);
+}
+
+.agent-review-selection span {
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+}
+
+.agent-review-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+
+.agent-review-toolbar p {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-proposal-selection-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+}
+
+.agent-proposal-selection-actions button {
+  min-height: 30px;
+  padding: 6px 9px;
+}
+
+.agent-review-warning {
+  display: flex;
+  gap: 10px;
+  margin: 12px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-soft);
+}
+
+.agent-review-warning > span {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--warning-border);
+  color: var(--surface-0);
+  font-weight: 900;
+}
+
+.agent-review-warning > div {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-review-warning small {
+  color: var(--muted);
+}
+
+.agent-proposal-review-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 18px 18px;
+}
+
+.agent-diff-card {
+  overflow: hidden;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  opacity: 0.68;
+  transition: opacity 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.agent-diff-card.is-selected {
+  border-color: var(--info-border);
+  background: var(--panel-soft);
+  box-shadow: var(--selected-ring);
+  opacity: 1;
+}
+
+.agent-diff-card-head {
+  display: grid;
+  grid-template-columns: 18px 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.agent-operation-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  font-weight: 800;
+}
+
+.agent-diff-card-title {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.agent-diff-card-title > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.agent-diff-card-title .pill {
+  padding: 3px 7px;
+  text-transform: capitalize;
+}
+
+.agent-diff-card-title strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-entity-label,
+.agent-operation-selection {
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  text-transform: capitalize;
+}
+
+.agent-operation-selection {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+}
+
+.agent-diff-card:not(.is-selected) .agent-operation-selection {
+  color: var(--danger);
+}
+
+.agent-field-diff-list {
+  display: grid;
+}
+
+.agent-field-diff {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.7fr) minmax(0, 1fr) 22px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.agent-field-diff:last-child {
+  border-bottom: 0;
+}
+
+.agent-field-name {
+  align-self: center;
+  color: var(--text);
   font-size: var(--font-size-table);
 }
 
-tr.is-selected {
-  background: var(--selected-row-bg);
+.agent-field-value {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.agent-field-value > span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent-field-value > div {
+  overflow-wrap: anywhere;
+}
+
+.agent-field-current {
+  border-color: color-mix(in srgb, var(--danger-border) 55%, var(--border));
+  background: color-mix(in srgb, var(--danger-soft) 36%, var(--panel));
+}
+
+.agent-field-proposed {
+  border-color: color-mix(in srgb, var(--success-border) 62%, var(--border));
+  background: color-mix(in srgb, var(--success-soft) 52%, var(--panel));
+}
+
+.agent-field-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-2);
+  font-weight: 900;
+}
+
+.agent-diff-empty-value {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.agent-proposal-review-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: 0 -12px 28px rgba(4, 8, 13, 0.16);
+}
+
+.agent-proposal-review-actions > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.agent-proposal-review-actions .form-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+}
+
+.agent-proposal-review-actions button {
+  flex: 0 0 auto;
+  min-width: 92px;
+}
+
+.agent-review-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 300px;
+  padding: 28px;
+  text-align: center;
+}
+
+.agent-review-empty-compact {
+  min-height: 180px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.agent-approval-loading {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+
+.agent-loading-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 5px var(--accent-soft);
+  animation: agent-loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes agent-loading-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.8);
+  }
 }
 
 .platform-reset-grid {
@@ -666,5 +1231,69 @@ tr.is-selected {
   .space-directory-preview-hero {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .agent-approval-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .agent-approval-queue {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .agent-queue-list {
+    max-height: 340px;
+  }
+
+  .agent-approval-review {
+    min-height: 560px;
+  }
+}
+
+@media (max-width: 600px) {
+  .agent-approval-heading,
+  .agent-review-header,
+  .agent-review-toolbar,
+  .agent-proposal-review-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .agent-approval-health {
+    align-self: stretch;
+  }
+
+  .agent-review-selection {
+    text-align: left;
+  }
+
+  .agent-review-toolbar p {
+    white-space: normal;
+  }
+
+  .agent-field-diff {
+    grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr);
+  }
+
+  .agent-field-name {
+    grid-column: 1 / -1;
+  }
+
+  .agent-proposal-review-actions .form-actions {
+    width: 100%;
+  }
+
+  .agent-proposal-review-actions button {
+    flex: 1 1 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-loading-dot {
+    animation: none;
   }
 }

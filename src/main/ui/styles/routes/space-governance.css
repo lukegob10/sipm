@@ -285,9 +285,8 @@
   padding: 18px;
   border: 1px solid var(--border-soft);
   border-radius: 16px;
-  background:
-    linear-gradient(135deg, rgba(79, 127, 196, 0.1), transparent 52%),
-    var(--hero-surface);
+  background: var(--hero-surface);
+  background-image: linear-gradient(135deg, rgba(79, 127, 196, 0.1), transparent 52%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 

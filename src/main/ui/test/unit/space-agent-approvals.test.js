@@ -66,6 +66,7 @@ function createHarness() {
     }
     return Promise.resolve({});
   });
+  const showConfirmModal = vi.fn().mockResolvedValue(true);
   let renderer;
   const renderCalls = [];
   const renderGovernanceHub = (section = "agent-approvals") => {
@@ -92,7 +93,7 @@ function createHarness() {
     refreshSpaceContext: vi.fn(),
     refreshFromServer: vi.fn().mockResolvedValue(undefined),
     switchActiveSpace: vi.fn(),
-    showConfirmModal: vi.fn().mockResolvedValue(true),
+    showConfirmModal,
     copyText: vi.fn(),
     buildResetPageUrl: vi.fn(),
   });
@@ -119,12 +120,12 @@ function createHarness() {
     setSpaceGovernanceNotice: vi.fn(),
   });
   controller.bindSpaceAdminControls();
-  return { api, controller, els, renderCalls, state, renderGovernanceHub };
+  return { api, controller, els, renderCalls, showConfirmModal, state, renderGovernanceHub };
 }
 
 
 describe("agent approvals governance UI", () => {
-  it("renders pending requests in a full-width table without inline field diffs", () => {
+  it("renders the queue and proposal details together in a review workbench", () => {
     const { els, renderGovernanceHub } = createHarness();
 
     renderGovernanceHub();
@@ -133,39 +134,37 @@ describe("agent approvals governance UI", () => {
     expect(els.spaceGovernanceShell.textContent).toContain("Update delivery status");
     expect(els.spaceGovernanceShell.textContent).not.toContain("cr-1");
     expect(els.spaceGovernanceShell.textContent).toContain("1 change across Project One");
-    expect(els.spaceGovernanceShell.textContent).not.toContain("complete");
-    expect(els.spaceGovernanceShell.querySelector(".agent-approval-layout")).toBeNull();
-    expect(els.spaceGovernanceShell.querySelector(".agent-approval-table")).not.toBeNull();
+    expect(els.spaceGovernanceShell.textContent).toContain("active");
+    expect(els.spaceGovernanceShell.textContent).toContain("complete");
+    expect(els.spaceGovernanceShell.querySelector(".agent-approval-workbench")).not.toBeNull();
+    expect(els.spaceGovernanceShell.querySelector(".agent-approval-queue")).not.toBeNull();
+    expect(els.spaceGovernanceShell.querySelector(".agent-approval-review")).not.toBeNull();
+    expect(els.spaceGovernanceShell.querySelector(".agent-approval-table")).toBeNull();
+    expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).toBeNull();
     expect(els.spaceGovernanceShell.querySelector("[data-agent-change-request-checkbox]")).not.toBeNull();
   });
 
-  it("opens and closes proposal details in a modal", () => {
+  it("keeps proposal selection in context without opening a modal", () => {
     const { els, renderGovernanceHub, state } = createHarness();
+    state.agentChangeRequestActiveId = "";
 
     renderGovernanceHub();
+    expect(els.spaceGovernanceShell.querySelector(".agent-queue-item.is-active")).not.toBeNull();
     els.spaceGovernanceShell
       .querySelector("[data-space-action='open-agent-change-request']")
       .click();
 
-    expect(state.agentChangeRequestModalId).toBe("cr-1");
-    expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).not.toBeNull();
+    expect(state.agentChangeRequestActiveId).toBe("cr-1");
+    expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).toBeNull();
     expect(els.spaceGovernanceShell.textContent).toContain("Project One");
     expect(els.spaceGovernanceShell.textContent).toContain("active");
     expect(els.spaceGovernanceShell.textContent).toContain("complete");
-
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-
-    expect(state.agentChangeRequestModalId).toBe("");
-    expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).toBeNull();
   });
 
   it("approves the selected operations in the current proposal", async () => {
-    const { api, els, renderGovernanceHub } = createHarness();
+    const { api, els, renderGovernanceHub, showConfirmModal } = createHarness();
 
     renderGovernanceHub();
-    els.spaceGovernanceShell
-      .querySelector("[data-space-action='open-agent-change-request']")
-      .click();
     els.spaceGovernanceShell
       .querySelector("[data-space-action='approve-agent-change-request']")
       .click();
@@ -179,6 +178,7 @@ describe("agent approvals governance UI", () => {
         })
       );
     });
+    expect(showConfirmModal).not.toHaveBeenCalled();
   });
 
   it("lets reviewers clear individual changes and select all again", () => {
@@ -201,9 +201,6 @@ describe("agent approvals governance UI", () => {
     });
 
     renderGovernanceHub();
-    els.spaceGovernanceShell
-      .querySelector("[data-space-action='open-agent-change-request']")
-      .click();
 
     const operationCheckboxes = els.spaceGovernanceShell.querySelectorAll(
       "[data-agent-change-operation-checkbox]"
@@ -222,21 +219,64 @@ describe("agent approvals governance UI", () => {
     expect(state.agentChangeRequestSelectedOperationIds["cr-1"]).toEqual(
       new Set(["op-1", "op-2"])
     );
-    expect(els.spaceGovernanceShell.textContent).toContain("Approve selected (2)");
+    expect(els.spaceGovernanceShell.textContent).toContain("Approve proposal");
   });
 
-  it("rejects the current modal proposal through the bulk endpoint", async () => {
-    const { api, els, renderGovernanceHub } = createHarness();
+  it("confirms a partial approval before applying only the included changes", async () => {
+    const { api, els, renderGovernanceHub, showConfirmModal, state } = createHarness();
+    state.agentChangeRequests[0].operation_count = 2;
+    state.agentChangeRequests[0].operations.push({
+      client_operation_id: "op-2",
+      op: "update",
+      entity: "project",
+      id: "project-2",
+      fields: { status: "active" },
+    });
+    state.agentChangeRequests[0].diff.push({
+      client_operation_id: "op-2",
+      op: "update",
+      entity: "project",
+      entity_id: "project-2",
+      entity_label: "Project Two",
+      fields: { status: { old: "paused", new: "active" } },
+    });
 
     renderGovernanceHub();
+    const operationCheckboxes = els.spaceGovernanceShell.querySelectorAll(
+      "[data-agent-change-operation-checkbox]"
+    );
+    operationCheckboxes[1].checked = false;
+    operationCheckboxes[1].dispatchEvent(new Event("change", { bubbles: true }));
     els.spaceGovernanceShell
-      .querySelector("[data-space-action='open-agent-change-request']")
+      .querySelector("[data-space-action='approve-agent-change-request']")
       .click();
+
+    await vi.waitFor(() => {
+      expect(showConfirmModal).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Approve Selected Changes" })
+      );
+      expect(api).toHaveBeenCalledWith(
+        "/agent/change-requests/cr-1/approve-selected-operations",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ client_operation_ids: ["op-1"] }),
+        })
+      );
+    });
+  });
+
+  it("rejects the current proposal through the bulk endpoint", async () => {
+    const { api, els, renderGovernanceHub, showConfirmModal } = createHarness();
+
+    renderGovernanceHub();
     els.spaceGovernanceShell
       .querySelector("[data-space-action='reject-agent-change-request']")
       .click();
 
     await vi.waitFor(() => {
+      expect(showConfirmModal).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Reject Agent Proposal" })
+      );
       expect(api).toHaveBeenCalledWith(
         "/agent/change-requests/actions/reject-selected",
         expect.objectContaining({
@@ -245,6 +285,25 @@ describe("agent approvals governance UI", () => {
         })
       );
     });
+  });
+
+  it("selects and clears the full queue from the queue header", () => {
+    const { els, renderGovernanceHub, state } = createHarness();
+
+    renderGovernanceHub();
+    els.spaceGovernanceShell
+      .querySelector("[data-space-action='toggle-agent-change-request-selection']")
+      .click();
+
+    expect(state.agentChangeRequestSelectedIds).toEqual(new Set(["cr-1"]));
+    expect(els.spaceGovernanceShell.textContent).toContain("Clear all");
+
+    els.spaceGovernanceShell
+      .querySelector("[data-space-action='toggle-agent-change-request-selection']")
+      .click();
+
+    expect(state.agentChangeRequestSelectedIds).toEqual(new Set());
+    expect(els.spaceGovernanceShell.textContent).toContain("Select all");
   });
 
   it("approves selected requests through the bulk endpoint", async () => {

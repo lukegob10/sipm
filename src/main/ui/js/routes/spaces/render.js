@@ -676,32 +676,74 @@ export function createSpaceGovernanceRenderer({
 
   function renderAgentDiff(request, selectedOperationIds) {
     const items = request?.diff || [];
-    if (!items.length) return "<p class='muted'>No field-level diff available.</p>";
-    return items.map((item) => {
-      const checked = selectedOperationIds.has(item.client_operation_id);
-      const fields = Object.entries(item.fields || {}).map(([field, values]) => `
-        <tr>
-          <td>${esc(field)}</td>
-          <td>${esc(values?.old ?? "")}</td>
-          <td>${esc(values?.new ?? "")}</td>
-        </tr>
-      `).join("");
+    if (!items.length) {
       return `
-        <div class="agent-diff-card ${checked ? "is-selected" : ""}">
-          <div class="agent-diff-card-head">
-            <label class="agent-diff-card-selector">
-              <input type="checkbox" data-agent-change-operation-checkbox data-client-operation-id="${escapeAttr(item.client_operation_id)}" ${checked ? "checked" : ""} />
-              <span class="pill">${esc(item.op)} ${esc(item.entity)}</span>
-              <strong>${esc(item.entity_label || "New item")}</strong>
-            </label>
-          </div>
-          <div class="table compact-table">
-            <table>
-              <thead><tr><th>Field</th><th>Current</th><th>Proposed</th></tr></thead>
-              <tbody>${fields || "<tr><td colspan='3' class='muted'>No changed fields</td></tr>"}</tbody>
-            </table>
-          </div>
+        <div class="agent-review-empty agent-review-empty-compact">
+          <strong>No field-level diff is available</strong>
+          <span class="muted">The proposal can still be reviewed from its operation summary.</span>
         </div>
+      `;
+    }
+    return items.map((item, index) => {
+      const checked = selectedOperationIds.has(item.client_operation_id);
+      const operation = normalize(item.op || "update");
+      const operationTone = operation === "create"
+        ? "positive"
+        : operation === "archive"
+        ? "danger"
+        : "info";
+      const itemLabel = item.entity_label || "New item";
+      const fields = Object.entries(item.fields || {}).map(([field, values]) => {
+        const displayValue = (value) => {
+          if (value === null || value === undefined || value === "") {
+            return '<span class="agent-diff-empty-value">Not set</span>';
+          }
+          if (typeof value === "boolean") return esc(value ? "Yes" : "No");
+          if (typeof value === "object") return esc(JSON.stringify(value));
+          return esc(value);
+        };
+        const fieldLabel = String(field || "Field")
+          .replace(/[_-]+/g, " ")
+          .replace(/\b\w/g, (letter) => letter.toUpperCase());
+        return `
+          <div class="agent-field-diff">
+            <strong class="agent-field-name">${esc(fieldLabel)}</strong>
+            <div class="agent-field-value agent-field-current">
+              <span>Current</span>
+              <div>${displayValue(values?.old)}</div>
+            </div>
+            <div class="agent-field-arrow" aria-hidden="true">→</div>
+            <div class="agent-field-value agent-field-proposed">
+              <span>Proposed</span>
+              <div>${displayValue(values?.new)}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+      return `
+        <article class="agent-diff-card ${checked ? "is-selected" : ""}">
+          <label class="agent-diff-card-head">
+            <input
+              type="checkbox"
+              data-agent-change-operation-checkbox
+              data-client-operation-id="${escapeAttr(item.client_operation_id)}"
+              aria-label="Include ${escapeAttr(itemLabel)} in this approval"
+              ${checked ? "checked" : ""}
+            />
+            <span class="agent-operation-index" aria-hidden="true">${esc(index + 1)}</span>
+            <span class="agent-diff-card-title">
+              <span>
+                <span class="pill ${operationTone}">${esc(operation)}</span>
+                <span class="agent-entity-label">${esc(item.entity || "item")}</span>
+              </span>
+              <strong>${esc(itemLabel)}</strong>
+            </span>
+            <span class="agent-operation-selection">${checked ? "Included" : "Excluded"}</span>
+          </label>
+          <div class="agent-field-diff-list">
+            ${fields || '<p class="muted">No changed fields</p>'}
+          </div>
+        </article>
       `;
     }).join("");
   }
@@ -720,8 +762,16 @@ export function createSpaceGovernanceRenderer({
     return `${diff.length} change${diff.length === 1 ? "" : "s"} across ${visibleLabels || "work items"}${remaining}`;
   }
 
-  function renderAgentProposalModal(request) {
-    if (!request) return "";
+  function renderAgentProposalReview(request) {
+    if (!request) {
+      return `
+        <section class="agent-approval-review agent-review-empty" aria-label="Proposal review">
+          <span class="agent-empty-icon" aria-hidden="true">✓</span>
+          <h3>Queue cleared</h3>
+          <p class="muted">There are no agent proposals waiting for review in this space.</p>
+        </section>
+      `;
+    }
     const operationCount = Number(request.operation_count || 0);
     const storedSelection = state.agentChangeRequestSelectedOperationIds?.[request.change_request_id];
     const selectedOperationIds = storedSelection instanceof Set
@@ -729,44 +779,112 @@ export function createSpaceGovernanceRenderer({
       : new Set((request.operations || []).map((operation) => operation.client_operation_id));
     const selectedCount = selectedOperationIds.size;
     const allSelected = operationCount > 0 && selectedCount === operationCount;
+    const proposer = request.proposed_by_label || request.proposed_by_user_id || "Service account";
+    const proposerInitials = String(proposer)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "AI";
+    const destructiveCount = (request.operations || []).filter(
+      (operation) => normalize(operation?.op) === "archive"
+    ).length;
     return `
-      <div class="modal agent-proposal-modal" role="dialog" aria-modal="true" aria-labelledby="agent-proposal-modal-title">
-        <button type="button" class="modal-backdrop" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review"></button>
-        <div class="modal-content wide agent-proposal-modal-content">
-          <div class="modal-header">
-            <div>
-              <p class="space-card-kicker">Agent proposal</p>
-              <h3 id="agent-proposal-modal-title">${esc(request.reason || "Agent proposal")}</h3>
-              <p class="muted">${esc(request.proposed_by_label || request.proposed_by_user_id || "Service account")} - ${esc(formatDateTime(request.created_at) || "No date")} - ${esc(operationCount)} proposed operation${operationCount === 1 ? "" : "s"}</p>
+      <section class="agent-approval-review" aria-labelledby="agent-proposal-review-title">
+        <div class="agent-review-header">
+          <div class="agent-review-heading">
+            <div class="agent-review-eyebrow">
+              <span class="pill ${normalize(request.status) === "failed" ? "danger" : "info"}">${esc(request.status || "pending")}</span>
+              <span>${esc(operationCount)} change${operationCount === 1 ? "" : "s"}</span>
             </div>
-            <button type="button" class="secondary modal-close-x" data-space-action="close-agent-change-request-modal" aria-label="Close proposal review" title="Close" data-tooltip="Close">
-              <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12"></path><path d="M18 6L6 18"></path></svg>
-            </button>
+            <h3 id="agent-proposal-review-title">${esc(request.reason || "Agent proposal")}</h3>
+            <div class="agent-review-author">
+              <span class="agent-avatar" aria-hidden="true">${esc(proposerInitials)}</span>
+              <span><strong>${esc(proposer)}</strong><small>${esc(formatDateTime(request.created_at) || "No date")}</small></span>
+            </div>
           </div>
-          <div class="agent-proposal-modal-meta">
-            <span class="pill">${esc(request.status || "pending")}</span>
-            <span class="pill muted">${esc(agentProposalSummary(request))}</span>
-            <span class="pill muted">${esc(selectedCount)} selected</span>
-          </div>
-          <div class="agent-proposal-selection-actions" role="group" aria-label="Proposal change selection">
-            <button type="button" class="secondary" data-space-action="select-all-agent-change-request-operations" ${allSelected ? "disabled" : ""}>Select all</button>
-            <button type="button" class="secondary" data-space-action="clear-agent-change-request-operations" ${selectedCount ? "" : "disabled"}>Clear selection</button>
-          </div>
-          <div class="agent-proposal-modal-body">
-            ${renderAgentDiff(request, selectedOperationIds)}
-          </div>
-          <div class="form-actions agent-proposal-modal-actions">
-            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}"${disabledReasonAttr(!selectedCount, "Select at least one change before approving.")}>Approve selected (${esc(selectedCount)})</button>
-            <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject proposal</button>
-            <button type="button" class="secondary" data-space-action="close-agent-change-request-modal">Close</button>
+          <div class="agent-review-selection">
+            <strong>${esc(selectedCount)} of ${esc(operationCount)}</strong>
+            <span>changes included</span>
           </div>
         </div>
-      </div>
+        <div class="agent-review-toolbar">
+          <p>${esc(agentProposalSummary(request))}</p>
+          <div class="agent-proposal-selection-actions" role="group" aria-label="Proposal change selection">
+            <button type="button" class="secondary" data-space-action="select-all-agent-change-request-operations" ${allSelected ? "disabled" : ""}>Select all</button>
+            <button type="button" class="secondary" data-space-action="clear-agent-change-request-operations" ${selectedCount ? "" : "disabled"}>Clear</button>
+          </div>
+        </div>
+        ${destructiveCount ? `
+          <div class="agent-review-warning" role="note">
+            <span aria-hidden="true">!</span>
+            <div><strong>Includes ${esc(destructiveCount)} archive operation${destructiveCount === 1 ? "" : "s"}</strong><small>Archived work and its descendants may no longer be accessible.</small></div>
+          </div>
+        ` : ""}
+        <div class="agent-proposal-review-body">
+          ${renderAgentDiff(request, selectedOperationIds)}
+        </div>
+        <div class="agent-proposal-review-actions">
+          <div>
+            <strong>${allSelected ? "Ready to approve this proposal" : `${esc(selectedCount)} selected change${selectedCount === 1 ? "" : "s"}`}</strong>
+            <span class="muted">${allSelected ? "All proposed changes will be applied." : "Unselected changes will not be applied."}</span>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject</button>
+            <button type="button" class="primary" data-space-action="approve-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}"${disabledReasonAttr(!selectedCount, "Select at least one change before approving.")}>${allSelected ? "Approve proposal" : `Approve selected (${esc(selectedCount)})`}</button>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderAgentQueueItem(row, activeId, selectedIds) {
+    const isActive = row.change_request_id === activeId;
+    const isSelected = selectedIds.has(row.change_request_id);
+    const proposer = row.proposed_by_label || row.proposed_by_user_id || "Service account";
+    const proposerInitials = String(proposer)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("") || "AI";
+    return `
+      <article class="agent-queue-item ${isActive ? "is-active" : ""} ${isSelected ? "is-selected" : ""}">
+        <label class="agent-queue-checkbox" title="Select for bulk review">
+          <input
+            type="checkbox"
+            data-agent-change-request-checkbox
+            data-change-request-id="${escapeAttr(row.change_request_id)}"
+            aria-label="Select ${escapeAttr(row.reason || "agent proposal")} for bulk review"
+            ${isSelected ? "checked" : ""}
+          />
+        </label>
+        <button
+          type="button"
+          class="agent-queue-item-main"
+          data-space-action="open-agent-change-request"
+          data-change-request-id="${escapeAttr(row.change_request_id)}"
+          aria-pressed="${isActive ? "true" : "false"}"
+        >
+          <span class="agent-queue-item-topline">
+            <strong>${esc(row.reason || "Agent proposal")}</strong>
+            <span class="agent-operation-count">${esc(row.operation_count || 0)}</span>
+          </span>
+          <span class="agent-queue-summary">${esc(agentProposalSummary(row))}</span>
+          <span class="agent-queue-meta">
+            <span class="agent-avatar agent-avatar-small" aria-hidden="true">${esc(proposerInitials)}</span>
+            <span>${esc(proposer)}</span>
+            <span aria-hidden="true">·</span>
+            <time>${esc(formatDateTime(row.created_at) || "")}</time>
+          </span>
+        </button>
+      </article>
     `;
   }
 
   function renderAgentApprovalsSection() {
-    if (!state.agentChangeRequestsLoaded) {
+    const isLoading = !state.agentChangeRequestsLoaded;
+    if (isLoading) {
       refreshAgentChangeRequests({ force: true }).catch((err) => {
         console.warn("Failed to load agent approvals", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load agent approvals.", "error", 7000);
@@ -774,53 +892,66 @@ export function createSpaceGovernanceRenderer({
     }
     const rows = state.agentChangeRequests || [];
     const selected = state.agentChangeRequestSelectedIds || new Set();
-    const modalProposal = rows.find((row) => row.change_request_id === state.agentChangeRequestModalId) || null;
-    const newest = rows[0]?.created_at ? formatDateTime(rows[0].created_at) : "None";
-    const tableRows = rows.length
-      ? rows.map((row) => {
-        const checked = selected.has(row.change_request_id);
-        const isOpen = modalProposal?.change_request_id === row.change_request_id;
-        return `<tr class="${isOpen ? "is-selected" : ""}">
-          <td><input type="checkbox" data-agent-change-request-checkbox data-change-request-id="${escapeAttr(row.change_request_id)}" ${checked ? "checked" : ""} /></td>
-          <td>
-            <button type="button" class="text-link agent-proposal-link" data-space-action="open-agent-change-request" data-change-request-id="${escapeAttr(row.change_request_id)}">${esc(row.reason || "Agent proposal")}</button>
-            <div class="muted">${esc(agentProposalSummary(row))}</div>
-          </td>
-          <td>${esc(row.proposed_by_label || row.proposed_by_user_id || "Service account")}</td>
-          <td>${esc(formatDateTime(row.created_at) || "")}</td>
-          <td>${esc(row.operation_count || 0)}</td>
-          <td><span class="pill">${esc(row.status)}</span></td>
-        </tr>`;
-      }).join("")
-      : "<tr><td colspan='6' class='muted'>No pending agent proposals.</td></tr>";
+    const activeId = rows.some((row) => row.change_request_id === state.agentChangeRequestActiveId)
+      ? state.agentChangeRequestActiveId
+      : rows[0]?.change_request_id || "";
+    state.agentChangeRequestActiveId = activeId;
+    const activeProposal = rows.find((row) => row.change_request_id === activeId) || null;
+    const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.change_request_id));
+    const queueItems = rows.map((row) => renderAgentQueueItem(row, activeId, selected)).join("");
     return `
-      <div class="space-section-stack">
-        <div class="space-hero-card">
+      <div class="space-section-stack agent-approval-section">
+        <div class="agent-approval-heading">
           <div>
             <p class="space-card-kicker">Controlled automation</p>
-            <h3>Agent Approvals</h3>
-            <p class="muted">Review proposed agent changes before they update work data in this space.</p>
+            <div class="agent-approval-title-row">
+              <h3>Agent approvals</h3>
+              <span class="agent-pending-count">${esc(state.agentChangeRequestPendingCount || 0)}</span>
+            </div>
+            <p class="muted">Review what the agent wants to change, keep the safe edits, and apply them with confidence.</p>
           </div>
-          <div class="space-hero-actions">
-            <button type="button" class="primary" data-space-action="approve-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before approving.")}>Approve selected</button>
-            <button type="button" class="secondary danger" data-space-action="reject-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before rejecting.")}>Reject selected</button>
-          </div>
-        </div>
-        <div class="space-summary-grid">
-          <div class="panel soft space-summary-card"><span class="muted">Pending</span><strong>${state.agentChangeRequestPendingCount || 0}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Failed</span><strong>${state.agentChangeRequestFailedCount || 0}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Selected</span><strong>${selected.size}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Newest</span><strong>${esc(newest)}</strong></div>
-        </div>
-        <div class="panel soft agent-approval-table-panel">
-          <div class="table">
-            <table class="agent-approval-table">
-                <thead><tr><th></th><th>Proposal</th><th>Proposed By</th><th>Created</th><th>Ops</th><th>Status</th></tr></thead>
-                <tbody>${tableRows}</tbody>
-            </table>
+          <div class="agent-approval-health" aria-label="Approval queue status">
+            <span><strong>${esc(state.agentChangeRequestPendingCount || 0)}</strong> pending</span>
+            ${state.agentChangeRequestFailedCount ? `<span class="is-danger"><strong>${esc(state.agentChangeRequestFailedCount)}</strong> failed</span>` : ""}
           </div>
         </div>
-        ${renderAgentProposalModal(modalProposal)}
+        ${isLoading && !rows.length ? `
+          <div class="agent-approval-loading" role="status">
+            <span class="agent-loading-dot"></span>
+            <span>Loading approval queue…</span>
+          </div>
+        ` : `
+          <div class="agent-approval-workbench">
+            <aside class="agent-approval-queue" aria-label="Pending agent proposals">
+              <div class="agent-queue-header">
+                <div>
+                  <p class="space-card-kicker">Review queue</p>
+                  <strong>${esc(rows.length)} proposal${rows.length === 1 ? "" : "s"}</strong>
+                </div>
+                ${rows.length ? `<button type="button" class="secondary" data-space-action="toggle-agent-change-request-selection">${allSelected ? "Clear all" : "Select all"}</button>` : ""}
+              </div>
+              <div class="agent-queue-list">
+                ${queueItems || `
+                  <div class="agent-queue-empty">
+                    <span aria-hidden="true">✓</span>
+                    <strong>Nothing waiting</strong>
+                    <small class="muted">New proposals will appear here.</small>
+                  </div>
+                `}
+              </div>
+              ${rows.length ? `
+                <div class="agent-bulk-actions ${selected.size ? "is-active" : ""}">
+                  <span>${selected.size ? `<strong>${esc(selected.size)}</strong> selected` : "Select proposals for bulk review"}</span>
+                  <div>
+                    <button type="button" class="secondary danger" data-space-action="reject-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before rejecting.")}>Reject</button>
+                    <button type="button" class="primary" data-space-action="approve-agent-change-requests"${disabledReasonAttr(!selected.size, "Select at least one pending proposal before approving.")}>Approve${selected.size ? ` ${esc(selected.size)}` : ""}</button>
+                  </div>
+                </div>
+              ` : ""}
+            </aside>
+            ${renderAgentProposalReview(activeProposal)}
+          </div>
+        `}
       </div>
     `;
   }
@@ -1094,18 +1225,23 @@ export function createSpaceGovernanceRenderer({
     const introCopy = activeSection === "platform-access"
       ? "Manage platform-wide admins without leaving the same governance hub."
       : "Switch spaces quickly, stay oriented, and handle access work without leaving the current admin context.";
+    const governanceHeader = activeSection === "agent-approvals"
+      ? ""
+      : `
+        <div class="space-governance-header">
+          <div>
+            <p class="space-card-kicker">Unified admin hub</p>
+            <h3>Manage Current Space, Directory, and Platform Access</h3>
+            <p class="muted">${esc(introCopy)}</p>
+          </div>
+          <div class="space-governance-header-actions">
+            ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) && state.activeSpace?.space_kind !== "personal" ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
+            ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
+          </div>
+        </div>
+      `;
     els.spaceGovernanceShell.innerHTML = `
-      <div class="space-governance-header">
-        <div>
-          <p class="space-card-kicker">Unified admin hub</p>
-          <h3>Manage Current Space, Directory, and Platform Access</h3>
-          <p class="muted">${esc(introCopy)}</p>
-        </div>
-        <div class="space-governance-header-actions">
-          ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) && state.activeSpace?.space_kind !== "personal" ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
-          ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
-        </div>
-      </div>
+      ${governanceHeader}
       <div class="space-governance-tabs">${sectionTabs}</div>
       ${renderGovernanceNotice()}
       <div class="space-governance-body">${body}</div>

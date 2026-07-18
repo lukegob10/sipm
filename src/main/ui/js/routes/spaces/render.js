@@ -1112,77 +1112,161 @@ export function createSpaceGovernanceRenderer({
         </tr>`;
       }).join("")
       : "<tr><td colspan='4' class='muted'>Loading global admins...</td></tr>";
+    const tools = [
+      {
+        id: "administrators",
+        label: "Administrators",
+        description: "Grant and review global access",
+        count: state.globalAdminsLoaded ? (state.globalAdmins || []).length : "…",
+      },
+      {
+        id: "password-resets",
+        label: "Password Resets",
+        description: "Issue temporary credentials",
+        count: "Secure",
+      },
+      {
+        id: "api-tokens",
+        label: "API Tokens",
+        description: "Manage automation access",
+        count: (state.users || []).filter((user) => user.is_service_account).length,
+      },
+      {
+        id: "users",
+        label: "User Directory",
+        description: "Review every local account",
+        count: (state.users || []).length,
+      },
+    ];
+    const allowedTools = new Set(tools.map((tool) => tool.id));
+    const activeTool = allowedTools.has(state.platformAccessPanel)
+      ? state.platformAccessPanel
+      : "administrators";
+    state.platformAccessPanel = activeTool;
+    const toolNav = tools.map((tool, index) => `
+      <button
+        type="button"
+        class="platform-tool-tab${activeTool === tool.id ? " active" : ""}"
+        data-space-action="select-platform-tool"
+        data-platform-tool="${escapeAttr(tool.id)}"
+        role="tab"
+        aria-selected="${activeTool === tool.id ? "true" : "false"}"
+      >
+        <span class="platform-tool-index" aria-hidden="true">0${index + 1}</span>
+        <span class="platform-tool-tab-copy">
+          <strong>${esc(tool.label)}</strong>
+          <small>${esc(tool.description)}</small>
+        </span>
+        <span class="platform-tool-count">${esc(String(tool.count))}</span>
+      </button>
+    `).join("");
+    let toolBody = "";
+    if (activeTool === "administrators") {
+      toolBody = `
+        <section class="platform-tool-surface" aria-labelledby="platform-administrators-title">
+          <div class="platform-tool-heading">
+            <div>
+              <p class="space-card-kicker">Platform-wide access</p>
+              <h3 id="platform-administrators-title">Global Administrators</h3>
+              <p class="muted">Grant platform-wide access and review the people who currently hold it.</p>
+            </div>
+          </div>
+          <div class="panel soft platform-command-card">
+            <form id="space-platform-access-form" class="form compact inline-form">
+              <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+              <div class="form-actions full-span platform-command-actions">
+                <button type="submit">Grant Global Admin</button>
+              </div>
+            </form>
+          </div>
+          <div class="panel soft">
+            <div class="table">
+              <table class="space-governance-table platform-admin-table">
+                <thead><tr><th>Name</th><th>SOEID</th><th>Status</th><th>Actions</th></tr></thead>
+                <tbody>${rows || "<tr><td colspan='4' class='muted'>No global admins found</td></tr>"}</tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      `;
+    }
+    if (activeTool === "password-resets") {
+      toolBody = `
+        <section class="platform-tool-surface" aria-labelledby="platform-password-reset-title">
+          <div class="platform-tool-heading">
+            <div>
+              <p class="space-card-kicker">Account recovery</p>
+              <h3 id="platform-password-reset-title">Password Resets</h3>
+              <p class="muted">Issue a time-limited temporary password and invalidate the user's active sessions.</p>
+            </div>
+          </div>
+          <div class="panel soft platform-command-card">
+            <form id="space-password-reset-form" class="form compact inline-form">
+              <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
+              <label>Expires in minutes <input type="number" name="expires_minutes" min="5" max="1440" placeholder="30" /></label>
+              <p class="muted full-span">The user will be signed out and required to choose a new password from the reset page.</p>
+              <div class="form-actions full-span platform-command-actions">
+                <button type="submit">Issue Password Reset</button>
+              </div>
+            </form>
+          </div>
+          ${renderPlatformPasswordResetResult()}
+        </section>
+      `;
+    }
+    if (activeTool === "api-tokens") {
+      toolBody = `
+        <section class="platform-tool-surface" aria-labelledby="platform-api-token-title">
+          <div class="platform-tool-heading">
+            <div>
+              <p class="space-card-kicker">Automation access</p>
+              <h3 id="platform-api-token-title">Service Account API Tokens</h3>
+              <p class="muted">Issue and revoke bearer tokens for accounts explicitly used by automations.</p>
+            </div>
+          </div>
+          ${renderServiceAccountTokens()}
+        </section>
+      `;
+    }
+    if (activeTool === "users") {
+      toolBody = `
+        <section class="platform-tool-surface" aria-labelledby="platform-user-directory-title">
+          <div class="platform-tool-heading">
+            <div>
+              <p class="space-card-kicker">Local accounts</p>
+              <h3 id="platform-user-directory-title">User Directory</h3>
+              <p class="muted">Review account state, authentication type, and administrative access in one place.</p>
+            </div>
+          </div>
+          <div class="panel soft">
+            <div class="table">
+              <table class="space-governance-table platform-user-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>SOEID</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Account Type</th>
+                    <th>Team</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>${renderUserDirectoryRows()}</tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      `;
+    }
     return `
-      <div class="space-section-stack">
-        <div class="space-hero-card">
-          <div>
-            <p class="space-card-kicker">Platform-wide access</p>
-            <h3>Global Admins</h3>
-            <p class="muted">Grant platform-wide access and revoke it when needed without leaving the governance hub.</p>
-          </div>
+      <div class="space-section-stack platform-access-workspace">
+        <div class="platform-tool-tabs" role="tablist" aria-label="Platform access tools">
+          ${toolNav}
         </div>
-        <div class="panel soft">
-          <form id="space-platform-access-form" class="form compact inline-form">
-            <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-            <div class="form-actions full-span platform-command-actions">
-              <button type="submit">Grant Global Admin</button>
-            </div>
-          </form>
-        </div>
-        <div class="panel soft">
-          <form id="space-password-reset-form" class="form compact inline-form">
-            <label class="wide">User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
-            <label>Expires in minutes <input type="number" name="expires_minutes" min="5" max="1440" placeholder="30" /></label>
-            <p class="muted full-span">Issuing a reset signs the user out, generates a temporary password on this screen, and requires them to choose a new password on the reset page.</p>
-            <div class="form-actions full-span platform-command-actions">
-              <button type="submit">Issue Password Reset</button>
-            </div>
-          </form>
-        </div>
-        ${renderPlatformPasswordResetResult()}
-        <div class="space-hero-card">
-          <div>
-            <p class="space-card-kicker">Automation access</p>
-            <h3>Service Account API Tokens</h3>
-            <p class="muted">Issue bearer tokens only for accounts explicitly marked as service accounts.</p>
-          </div>
-        </div>
-        ${renderServiceAccountTokens()}
-        <div class="space-hero-card">
-          <div>
-            <p class="space-card-kicker">Local user table</p>
-            <h3>Users</h3>
-            <p class="muted">Review local-auth users, issue temporary password resets, and manage platform admin access.</p>
-          </div>
-        </div>
-        <div class="panel soft">
-          <div class="table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>SOEID</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th>Account Type</th>
-                  <th>Team</th>
-                  <th>Last Login</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>${renderUserDirectoryRows()}</tbody>
-            </table>
-          </div>
-        </div>
-        <div class="panel soft">
-          <div class="table">
-            <table>
-              <thead><tr><th>Name</th><th>SOEID</th><th>Status</th><th>Actions</th></tr></thead>
-              <tbody>${rows || "<tr><td colspan='4' class='muted'>No global admins found</td></tr>"}</tbody>
-            </table>
-          </div>
-        </div>
+        ${toolBody}
       </div>
     `;
   }
@@ -1207,44 +1291,97 @@ export function createSpaceGovernanceRenderer({
     const activeSection = resolveGovernanceSection(
       preferredSection || (state.currentView === "access" ? "platform-access" : state.spaceAdminSection || "current-space")
     );
+    const sectionDetails = {
+      "agent-approvals": {
+        label: "Agent Approvals",
+        description: "Review proposed changes before they reach the workspace.",
+        navDescription: "Review queued changes",
+        marker: "01",
+      },
+      "current-space": {
+        label: "Current Space",
+        description: "Manage the people, roles, and access requests for the workspace you are in.",
+        navDescription: "Members and access",
+        marker: "02",
+      },
+      "space-directory": {
+        label: "Space Directory",
+        description: "Find, inspect, create, and move between every workspace available to you.",
+        navDescription: "Browse all spaces",
+        marker: "03",
+      },
+      "platform-access": {
+        label: "Platform Access",
+        description: "Control global administrators, local accounts, password resets, and service tokens.",
+        navDescription: "Users and credentials",
+        marker: "04",
+      },
+    };
+    const activeSectionDetails = sectionDetails[activeSection] || sectionDetails["current-space"];
     const sectionTabs = governanceSections()
-      .map((section) => `
+      .map((section) => {
+        const detail = sectionDetails[section.id] || {
+          label: section.label,
+          description: "Open governance tools",
+          navDescription: "Governance tools",
+          marker: "",
+        };
+        const pendingCount = section.id === "agent-approvals" ? state.agentChangeRequestPendingCount : 0;
+        return `
         <button
           type="button"
-          class="secondary${activeSection === section.id ? " active" : ""}"
+          class="space-governance-nav-item${activeSection === section.id ? " active" : ""}"
           data-space-action="select-section"
           data-section="${escapeAttr(section.id)}"
-        >${esc(section.label)}</button>
-      `)
+          ${activeSection === section.id ? 'aria-current="page"' : ""}
+        >
+          <span class="space-governance-nav-marker" aria-hidden="true">${esc(detail.marker)}</span>
+          <span class="space-governance-nav-copy">
+            <strong>${esc(detail.label)}</strong>
+            <small>${esc(detail.navDescription)}</small>
+          </span>
+          ${pendingCount ? `<span class="space-governance-nav-count" aria-label="${pendingCount} pending">${pendingCount}</span>` : '<span class="space-governance-nav-arrow" aria-hidden="true">&rsaquo;</span>'}
+        </button>
+      `;
+      })
       .join("");
     let body = "";
     if (activeSection === "agent-approvals") body = renderAgentApprovalsSection();
     if (activeSection === "current-space") body = renderCurrentSpaceSection();
     if (activeSection === "space-directory") body = renderDirectorySection();
     if (activeSection === "platform-access") body = renderPlatformAccessSection();
-    const introCopy = activeSection === "platform-access"
-      ? "Manage platform-wide admins without leaving the same governance hub."
-      : "Switch spaces quickly, stay oriented, and handle access work without leaving the current admin context.";
-    const governanceHeader = activeSection === "agent-approvals"
-      ? ""
-      : `
-        <div class="space-governance-header">
-          <div>
-            <p class="space-card-kicker">Unified admin hub</p>
-            <h3>Manage Current Space, Directory, and Platform Access</h3>
-            <p class="muted">${esc(introCopy)}</p>
-          </div>
-          <div class="space-governance-header-actions">
-            ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) && state.activeSpace?.space_kind !== "personal" ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
-            ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
-          </div>
-        </div>
-      `;
+    const activeSpaceName = state.activeSpace?.space_kind === "personal"
+      ? "Personal"
+      : (state.activeSpace?.space_name || activeSpaceId() || "No active space");
     els.spaceGovernanceShell.innerHTML = `
-      ${governanceHeader}
-      <div class="space-governance-tabs">${sectionTabs}</div>
-      ${renderGovernanceNotice()}
-      <div class="space-governance-body">${body}</div>
+      <div class="space-governance-layout">
+        <aside class="space-governance-sidebar" aria-label="Space governance navigation">
+          <div class="space-governance-context">
+            <span class="space-governance-context-mark" aria-hidden="true">SG</span>
+            <div>
+              <span>Governing</span>
+              <strong title="${escapeAttr(activeSpaceName)}">${esc(activeSpaceName)}</strong>
+            </div>
+          </div>
+          <nav class="space-governance-tabs" aria-label="Governance sections">${sectionTabs}</nav>
+          <p class="space-governance-nav-help">Changes here affect workspace access and administration.</p>
+        </aside>
+        <div class="space-governance-main">
+          <div class="space-governance-header">
+            <div>
+              <p class="space-card-kicker">Space governance</p>
+              <h3>${esc(activeSectionDetails.label)}</h3>
+              <p class="muted">${esc(activeSectionDetails.description)}</p>
+            </div>
+            <div class="space-governance-header-actions">
+              ${activeSection !== "current-space" && canManageSpaceMembership(activeSpaceId()) && state.activeSpace?.space_kind !== "personal" ? `<button type="button" class="primary" data-space-action="open-member-modal" data-space-id="${escapeAttr(activeSpaceId())}">Add Member</button>` : ""}
+              ${activeSection !== "space-directory" && userIsGlobalAdmin() ? `<button type="button" class="secondary" data-space-action="open-create-space-modal">Create Space</button>` : ""}
+            </div>
+          </div>
+          ${renderGovernanceNotice()}
+          <div class="space-governance-body">${body}</div>
+        </div>
+      </div>
       ${renderIssuedApiToken()}
     `;
     if (activeSection !== "space-directory") {

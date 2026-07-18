@@ -157,7 +157,11 @@ def test_space_governance_styles_cover_compact_switcher_and_hub():
         ".space-switcher-trigger-caret",
         ".space-switcher-panel",
         ".space-governance-shell",
+        ".space-governance-layout",
+        ".space-governance-sidebar",
         ".space-governance-tabs",
+        ".space-governance-nav-item",
+        ".space-governance-main",
         ".space-directory-layout",
         ".space-directory-overview",
         ".space-directory-stat",
@@ -170,5 +174,10 @@ def test_space_governance_styles_cover_compact_switcher_and_hub():
         ".space-directory-preview-hero",
         ".platform-reset-grid",
         ".platform-access-actions",
+        ".platform-tool-tabs",
+        ".platform-tool-tab",
+        ".platform-tool-surface",
     ]:
         assert selector in css
+    assert 'data-space-action="select-platform-tool"' in SPACES_RENDER.read_text(encoding="utf-8")
+    assert 'action === "select-platform-tool"' in SPACES_INTERACTIONS.read_text(encoding="utf-8")

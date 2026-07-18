@@ -282,6 +282,11 @@ export function createSpaceGovernanceController({
       renderGovernanceHub();
       return true;
     }
+    if (action === "select-platform-tool" && userIsGlobalAdmin()) {
+      state.platformAccessPanel = button.getAttribute("data-platform-tool") || "administrators";
+      renderGovernanceHub("platform-access");
+      return true;
+    }
     if (action === "open-agent-change-request") {
       state.agentChangeRequestActiveId = button.getAttribute("data-change-request-id") || "";
       const request = (state.agentChangeRequests || []).find(

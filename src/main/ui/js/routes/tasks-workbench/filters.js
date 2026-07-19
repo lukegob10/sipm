@@ -1,3 +1,5 @@
+import { sortTasksByName } from "../../utils/task-sort.js";
+
 export const VALID_TASKS_WORKBENCH_PRESETS = new Set([
   "all",
   "my",
@@ -114,8 +116,9 @@ export function tasksWorkbenchRows(ctx) {
     return String(a.task_name || "").localeCompare(String(b.task_name || ""));
   });
 
-  wb.visibleIds = visible.map((row) => row.task_id);
-  return { allRows: rows, visibleRows: visible };
+  const sortedVisible = sortTasksByName(visible, wb.sort);
+  wb.visibleIds = sortedVisible.map((row) => row.task_id);
+  return { allRows: rows, visibleRows: sortedVisible };
 }
 
 export function tasksWorkbenchSummary(ctx, allRows, visibleRows) {
@@ -250,6 +253,10 @@ export function normalizeTasksWorkbenchUiState(ctx, { persist = false } = {}) {
   let changed = false;
   if (!VALID_TASKS_WORKBENCH_PRESETS.has(String(wb.preset || "all"))) {
     wb.preset = "all";
+    changed = true;
+  }
+  if (!["default", "name-asc", "name-desc"].includes(String(wb.sort || "default"))) {
+    wb.sort = "default";
     changed = true;
   }
   const normalized = normalizeTasksWorkbenchFilters(ctx, wb.filters);

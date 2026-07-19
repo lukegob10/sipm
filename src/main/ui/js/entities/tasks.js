@@ -65,6 +65,34 @@ export function createTaskEntityController({
     }
   }
 
+  function hideTaskForm() {
+    if (!els.taskForm) return;
+    const taskId = els.taskForm.querySelector('[name="task_id"]')?.value || "";
+    setTaskFormVisibility(false);
+    clearDeliverableFormNotice(els.taskFormStatus);
+
+    const restoreListContext = () => {
+      const taskRow = Array.from(els.solutionTaskTable?.querySelectorAll("[data-id]") || [])
+        .find((row) => row.getAttribute("data-id") === taskId);
+      if (taskRow && typeof taskRow.scrollIntoView === "function") {
+        taskRow.scrollIntoView({ block: "nearest" });
+      }
+      const focusTarget = taskRow?.querySelector(".edit-task-btn") || els.showTaskFormBtn;
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        try {
+          focusTarget.focus({ preventScroll: true });
+        } catch {
+          focusTarget.focus();
+        }
+      }
+    };
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(restoreListContext);
+    } else {
+      restoreListContext();
+    }
+  }
+
   function prepareTaskCreateForm(solution, options = {}) {
     if (!els.taskForm) return;
     const { resetForm = true } = options;
@@ -145,9 +173,13 @@ export function createTaskEntityController({
           const solution = state.solutions.find((s) => s.solution_id === solutionId);
           showTaskForm(solution);
         } else {
-          setTaskFormVisibility(false);
+          hideTaskForm();
         }
       };
+    }
+    if (els.taskBackToListBtn && !els.taskBackToListBtn._bound) {
+      els.taskBackToListBtn.addEventListener("click", hideTaskForm);
+      els.taskBackToListBtn._bound = true;
     }
     els.taskForm.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -269,6 +301,7 @@ export function createTaskEntityController({
   return {
     bindTaskForm,
     fillTaskForm,
+    hideTaskForm,
     setTaskActionButtonLabel,
     setTaskFormVisibility,
     showTaskForm,

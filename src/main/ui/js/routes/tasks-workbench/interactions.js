@@ -1,4 +1,5 @@
 import { bindTasksWorkbenchSavedViewControls } from "./saved-views.js";
+import { nextTaskNameSort } from "../../utils/task-sort.js";
 import {
   closeTasksWorkbenchDrawer,
   deleteActiveTasksWorkbenchItem,
@@ -155,7 +156,16 @@ export function bindTasksWorkbenchControls(ctx) {
         renderTasksWorkbench();
       }
     });
-    els.tasksWorkbenchTable.addEventListener("click", (event) => handleTasksWorkbenchTableClick(ctx, event));
+    els.tasksWorkbenchTable.addEventListener("click", (event) => {
+      const sortButton = event.target.closest("[data-twb-task-sort]");
+      if (sortButton) {
+        wb.sort = nextTaskNameSort(wb.sort);
+        persistTasksWorkbenchUiState();
+        renderTasksWorkbench();
+        return;
+      }
+      handleTasksWorkbenchTableClick(ctx, event);
+    });
     els.tasksWorkbenchTable._bound = true;
   }
 

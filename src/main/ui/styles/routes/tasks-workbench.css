@@ -149,6 +149,10 @@
   width: 12%;
 }
 
+.task-workbench-name-sort-button {
+  justify-content: center;
+}
+
 .task-workbench-context {
   display: block;
   margin-top: 1px;

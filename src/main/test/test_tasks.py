@@ -72,6 +72,8 @@ async def test_create_and_list_tasks(client, db_sessionmaker):
         f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
         json={
             "task_name": "Define RBAC roles",
+            "description": "Define the roles and their permissions.",
+            "acceptance_criteria": "Each role has an approved permission set.",
             "priority": 1,
             "due_date": date.today().isoformat(),
             "assignee": "Engineer A",
@@ -80,6 +82,9 @@ async def test_create_and_list_tasks(client, db_sessionmaker):
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["task_name"] == "Define RBAC roles"
+    assert data["description"] == "Define the roles and their permissions."
+    assert data["acceptance_criteria"] == "Each role has an approved permission set."
+    assert data["done_criteria"] == "Each role has an approved permission set."
     assert data["priority"] == 1
     assert data["assignee"] == "Engineer A"
 
@@ -88,6 +93,22 @@ async def test_create_and_list_tasks(client, db_sessionmaker):
     items = list_resp.json()
     assert len(items) == 1
     assert items[0]["assignee"] == "Engineer A"
+    assert items[0]["description"] == "Define the roles and their permissions."
+
+
+@pytest.mark.anyio
+async def test_task_accepts_legacy_done_criteria_input(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+
+    response = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+        json={"task_name": "Legacy Criteria", "done_criteria": "Legacy client value"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["acceptance_criteria"] == "Legacy client value"
+    assert response.json()["done_criteria"] == "Legacy client value"
 
 
 @pytest.mark.anyio

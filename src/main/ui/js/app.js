@@ -2768,8 +2768,8 @@ function csvKindConfig(kind) {
       label: "Tasks",
       filename: "tasks-template.csv",
       templateContent: [
-        "project_name,solution_name,version,task_name,status,priority,due_date,assignee,assignee_user_soeid,github_repo_url,estimate_hours,blocked,blocker_note,done_criteria,completed_at",
-        "Example Project,Example Solution,0.1.0,Example Task,not_started,3,2026-07-31,Example Owner,,https://github.com/example-org/example-repo,8,false,Waiting on vendor,Acceptance criteria met,",
+        "project_name,solution_name,version,task_name,description,status,priority,due_date,assignee,assignee_user_soeid,github_repo_url,estimate_hours,blocked,blocker_note,acceptance_criteria,completed_at",
+        "Example Project,Example Solution,0.1.0,Example Task,Describe the expected work,to_do,3,2026-07-31,Example Owner,,https://github.com/example-org/example-repo,8,false,Waiting on vendor,Acceptance criteria met,",
       ].join("\n"),
     },
   };

@@ -466,6 +466,7 @@ CREATE TABLE "TB_TA_PM_TASKS" (
 	estimate_hours INTEGER,
 	blocked SMALLINT NOT NULL,
 	blocker_note CLOB,
+	description CLOB,
 	done_criteria CLOB,
 	capacity_hours INTEGER NOT NULL,
 	created_at DATE NOT NULL,

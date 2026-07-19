@@ -13,6 +13,7 @@ export function buildTaskPayload(
   const blocked = !!data.get("blocked");
   return {
     task_name: textValue(data.get("task_name")),
+    description: nullableTextValue(data.get("description")),
     github_repo_url: nullableTextValue(data.get("github_repo_url")),
     status: data.get("status"),
     priority: Number(data.get("priority") || 3),
@@ -22,7 +23,7 @@ export function buildTaskPayload(
     estimate_hours: hoursFromNullableFteInput(data.get("estimate_hours")),
     blocked,
     blocker_note: blocked ? nullableTextValue(data.get("blocker_note")) : null,
-    done_criteria: nullableTextValue(data.get("done_criteria")),
+    acceptance_criteria: nullableTextValue(data.get("acceptance_criteria")),
     capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
   };
 }
@@ -99,6 +100,7 @@ export function createTaskEntityController({
     els.taskForm.querySelector('[name="project_id"]').value = task.project_id;
     els.taskForm.querySelector('[name="solution_id"]').value = task.solution_id;
     els.taskForm.querySelector('[name="task_name"]').value = task.task_name || "";
+    els.taskForm.querySelector('[name="description"]').value = task.description || "";
     els.taskForm.querySelector('[name="github_repo_url"]').value = task.github_repo_url || "";
     els.taskForm.querySelector('[name="priority"]').value = task.priority ?? "";
     els.taskForm.querySelector('[name="due_date"]').value = task.due_date || "";
@@ -109,7 +111,8 @@ export function createTaskEntityController({
       task.estimate_hours != null ? fteFromHoursForInput(task.estimate_hours, 0) : "";
     els.taskForm.querySelector('[name="blocked"]').checked = !!task.blocked;
     els.taskForm.querySelector('[name="blocker_note"]').value = task.blocker_note || "";
-    els.taskForm.querySelector('[name="done_criteria"]').value = task.done_criteria || "";
+    els.taskForm.querySelector('[name="acceptance_criteria"]').value =
+      task.acceptance_criteria || task.done_criteria || "";
     els.taskForm.querySelector('[name="capacity_hours"]').value = fteFromHoursForInput(task.capacity_hours, 0);
     updateTaskRepoPreview(task.solution_id, task.github_repo_url || "");
     if (els.deleteTaskBtn) {

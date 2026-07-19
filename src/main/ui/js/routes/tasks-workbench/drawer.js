@@ -214,6 +214,8 @@ export function fillTasksWorkbenchForm(ctx, task) {
   if (deleteButton) deleteButton.disabled = !currentId;
   if (idInput) idInput.value = task.task_id || "";
   setValue("task_name", task.task_name || "");
+  setValue("description", task.description || "");
+  setValue("acceptance_criteria", task.acceptance_criteria || task.done_criteria || "");
   setValue("status", task.status || "to_do");
   setValue("priority", task.priority ?? "");
   setValue("due_date", task.due_date || "");
@@ -312,6 +314,8 @@ export async function saveTasksWorkbenchForm(ctx) {
   const assigneeUser = findUserBySoeid(assigneeUserId);
   const payload = {
     task_name: data.get("task_name") || "",
+    description: data.get("description") || null,
+    acceptance_criteria: data.get("acceptance_criteria") || null,
     status: data.get("status") || "to_do",
     priority: Number(data.get("priority") || 3),
     due_date: data.get("due_date") || null,

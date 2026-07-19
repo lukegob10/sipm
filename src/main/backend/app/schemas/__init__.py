@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field, constr, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, constr, field_validator
 
 from ..utils import read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, TaskStatus
@@ -95,6 +95,7 @@ class TextLikeReadModel(BaseModel):
         "blockers",
         "risks",
         "blocker_note",
+        "acceptance_criteria",
         "done_criteria",
         mode="before",
         check_fields=False,
@@ -523,6 +524,7 @@ class SolutionPhaseRead(BaseModel):
 
 class TaskBase(BaseModel):
     task_name: Optional[str] = None
+    description: Optional[str] = None
     github_repo_url: Optional[str] = None
     status: Optional[TaskStatus] = None
     priority: Optional[int] = None
@@ -532,7 +534,10 @@ class TaskBase(BaseModel):
     estimate_hours: Optional[int] = None
     blocked: Optional[bool] = None
     blocker_note: Optional[str] = None
-    done_criteria: Optional[str] = None
+    acceptance_criteria: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("acceptance_criteria", "done_criteria"),
+    )
     capacity_hours: Optional[int] = None
 
 
@@ -566,6 +571,7 @@ class TaskRead(TextLikeReadModel):
     project_id: str
     solution_id: str
     task_name: str
+    description: Optional[str] = None
     github_repo_url: Optional[str] = None
     effective_github_repo_url: Optional[str] = None
     repo_source: str = "none"
@@ -577,6 +583,7 @@ class TaskRead(TextLikeReadModel):
     estimate_hours: Optional[int] = None
     blocked: Optional[bool] = None
     blocker_note: Optional[str] = None
+    acceptance_criteria: Optional[str] = None
     done_criteria: Optional[str] = None
     completed_at: Optional[datetime] = None
     capacity_hours: Optional[int] = None

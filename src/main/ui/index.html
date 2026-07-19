@@ -434,6 +434,12 @@
                     <label class="full-span">Task
                       <input type="text" name="task_name" required />
                     </label>
+                    <label class="full-span">Description
+                      <textarea name="description" rows="4" placeholder="Summarize the work, context, and expected scope."></textarea>
+                    </label>
+                    <label class="full-span">Acceptance Criteria
+                      <textarea name="acceptance_criteria" rows="4" placeholder="List the observable conditions that must be true for this task to be accepted."></textarea>
+                    </label>
                     <label>Status
                       <select name="status">
                         <option value="to_do">To do</option>
@@ -783,6 +789,9 @@
                   <input type="hidden" name="project_id" />
                   <input type="hidden" name="solution_id" />
                   <label class="full-span"><span class="field-label">Task<span class="required-marker" aria-hidden="true">*</span></span><input name="task_name" required /></label>
+                  <label class="full-span">Description
+                    <textarea name="description" placeholder="Summarize the work, context, and expected scope."></textarea>
+                  </label>
                   <label class="full-span">GitHub Repo Override
                     <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
                   </label>
@@ -809,7 +818,9 @@
                   <label>Estimate (FTE-Months) <input type="number" name="estimate_hours" min="0" step="0.05" /></label>
                   <label class="checkbox-row"><input type="checkbox" name="blocked" /> Blocked</label>
                   <label class="full-span">Blocker Note <textarea name="blocker_note" placeholder="What's blocking?"></textarea></label>
-                  <label class="full-span">Done Criteria <textarea name="done_criteria" placeholder="Definition of done"></textarea></label>
+                  <label class="full-span">Acceptance Criteria
+                    <textarea name="acceptance_criteria" placeholder="List the observable conditions that must be true for this task to be accepted."></textarea>
+                  </label>
                 </form>
               </div>
               <div id="task-form-footer" class="modal-form-footer full-span hidden">

@@ -65,6 +65,9 @@ export function tasksWorkbenchRows(ctx) {
         row.solution_name,
         row.assignee,
         row.status,
+        row.description,
+        row.acceptance_criteria,
+        row.done_criteria,
       ]
         .map((value) => normalize(value))
         .join(" ");

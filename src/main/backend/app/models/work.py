@@ -241,8 +241,18 @@ class Task(TimestampMixin, SoftDeleteMixin, Base):
     estimate_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     blocker_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     done_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    @property
+    def acceptance_criteria(self) -> Optional[str]:
+        """Product-facing alias for the legacy done_criteria column."""
+        return self.done_criteria
+
+    @acceptance_criteria.setter
+    def acceptance_criteria(self, value: Optional[str]) -> None:
+        self.done_criteria = value
 
 
 __all__ = [

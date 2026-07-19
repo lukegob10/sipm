@@ -21,6 +21,7 @@ TASK_REPAIR_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_
 SOLUTION_DOCUMENTS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260610_solution_documents_v1.sql"
 PUBLIC_PROGRAM_DASHBOARD_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260622_public_program_dashboard_v1.sql"
 AUTH_SESSIONS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260715_auth_sessions_v1.sql"
+TASK_DESCRIPTION_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260718_task_description_v1.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -136,7 +137,17 @@ def test_solution_long_text_fields_use_text_type():
 
 def test_task_long_text_fields_use_text_type():
     assert isinstance(Task.__table__.c.blocker_note.type, Text)
+    assert isinstance(Task.__table__.c.description.type, Text)
     assert isinstance(Task.__table__.c.done_criteria.type, Text)
+
+
+def test_task_description_migration_is_rerunnable_and_matches_metadata():
+    sql = TASK_DESCRIPTION_SQL_PATH.read_text(encoding="utf-8")
+
+    assert "ALTER TABLE \"TB_TA_PM_TASKS\" ADD (description CLOB)" in sql
+    assert "WHERE table_name = 'TB_TA_PM_TASKS'" in sql
+    assert "AND column_name = 'DESCRIPTION'" in sql
+    assert isinstance(Task.__table__.c.description.type, Text)
 
 
 def test_solution_document_content_uses_binary_type():
@@ -350,6 +361,7 @@ def test_long_text_read_schemas_coerce_lob_values():
             project_id="project-1",
             solution_id="solution-1",
             task_name="Task",
+            description=FakeLob("task description"),
             status=TaskStatus.to_do,
             priority=3,
             assignee="Assignee",
@@ -357,11 +369,14 @@ def test_long_text_read_schemas_coerce_lob_values():
             blocked=True,
             blocker_note=FakeLob("task blocker"),
             done_criteria=FakeLob("task done"),
+            acceptance_criteria=FakeLob("task acceptance"),
             created_at=now,
             updated_at=now,
         )
     )
     assert task.blocker_note == "task blocker"
+    assert task.description == "task description"
+    assert task.acceptance_criteria == "task acceptance"
     assert task.done_criteria == "task done"
 
     change = ChangeLogRead.model_validate(

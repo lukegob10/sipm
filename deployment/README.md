@@ -153,6 +153,14 @@ an environment is missing phase rows.
 
 ## Oracle Migration Repairs
 
+Before deploying task descriptions to an existing database, run:
+
+1. `docs/sql/20260718_task_description_v1.sql`
+
+The migration is idempotent and adds the nullable task `description` CLOB. The
+existing `done_criteria` CLOB remains the physical storage for the
+product-facing Acceptance Criteria field.
+
 After deploying the server-enforced inactivity-session feature to an existing
 database, run:
 

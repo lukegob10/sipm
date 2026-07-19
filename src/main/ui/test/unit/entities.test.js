@@ -84,6 +84,7 @@ function taskEls() {
       <input name="project_id" />
       <input name="solution_id" />
       <input name="task_name" />
+      <textarea name="description"></textarea>
       <input name="github_repo_url" />
       <input name="priority" />
       <input name="due_date" />
@@ -93,7 +94,7 @@ function taskEls() {
       <input name="estimate_hours" />
       <input name="blocked" type="checkbox" />
       <input name="blocker_note" />
-      <input name="done_criteria" />
+      <textarea name="acceptance_criteria"></textarea>
       <input name="capacity_hours" />
     </form>
     <div id="task-form-footer" class="hidden"></div>
@@ -234,6 +235,7 @@ describe("entity payload builders", () => {
     const blocked = buildTaskPayload(
       formData({
         task_name: "  Task One  ",
+        description: " Explain the expected work ",
         github_repo_url: " https://github.com/org/task ",
         status: "in_progress",
         priority: "2",
@@ -241,13 +243,15 @@ describe("entity payload builders", () => {
         estimate_hours: "0.25",
         blocked: "on",
         blocker_note: " Waiting on access ",
-        done_criteria: " Ship it ",
+        acceptance_criteria: " Ship it ",
         capacity_hours: "0.5",
       }),
       commonDeps
     );
 
     expect(blocked.task_name).toBe("Task One");
+    expect(blocked.description).toBe("Explain the expected work");
+    expect(blocked.acceptance_criteria).toBe("Ship it");
     expect(blocked.github_repo_url).toBe("https://github.com/org/task");
     expect(blocked.assignee).toBe("Engineer One");
     expect(blocked.assignee_user_soeid).toBe("eng123");
@@ -292,6 +296,7 @@ describe("task entity controller", () => {
       project_id: "project-1",
       solution_id: "solution-1",
       task_name: "Draft Task",
+      description: "Explain the work",
       github_repo_url: "https://github.com/org/repo",
       priority: 2,
       due_date: "2026-04-01",
@@ -301,12 +306,13 @@ describe("task entity controller", () => {
       estimate_hours: 40,
       blocked: true,
       blocker_note: "Waiting",
-      done_criteria: "Complete",
+      acceptance_criteria: "Complete",
       capacity_hours: 80,
     });
 
     expect(deps.els.taskForm.querySelector("[name='task_id']").value).toBe("task-1");
     expect(deps.els.taskForm.querySelector("[name='task_name']").value).toBe("Draft Task");
+    expect(deps.els.taskForm.querySelector("[name='description']").value).toBe("Explain the work");
     expect(deps.els.taskForm.querySelector("[name='github_repo_url']").value).toBe("https://github.com/org/repo");
     expect(deps.els.taskForm.querySelector("[name='priority']").value).toBe("2");
     expect(deps.els.taskForm.querySelector("[name='due_date']").value).toBe("2026-04-01");
@@ -315,7 +321,7 @@ describe("task entity controller", () => {
     expect(deps.els.taskForm.querySelector("[name='estimate_hours']").value).toBe("0.25");
     expect(deps.els.taskForm.querySelector("[name='blocked']").checked).toBe(true);
     expect(deps.els.taskForm.querySelector("[name='blocker_note']").value).toBe("Waiting");
-    expect(deps.els.taskForm.querySelector("[name='done_criteria']").value).toBe("Complete");
+    expect(deps.els.taskForm.querySelector("[name='acceptance_criteria']").value).toBe("Complete");
     expect(deps.els.taskForm.querySelector("[name='capacity_hours']").value).toBe("0.5");
     expect(deps.els.deleteTaskBtn.disabled).toBe(false);
     expect(deps.els.taskSubmitBtn.textContent).toBe("Save Changes");

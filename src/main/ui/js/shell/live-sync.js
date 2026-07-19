@@ -21,8 +21,10 @@ export function createLiveSyncController({
   clearDataState,
 }) {
   const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
+  const LIVE_SYNC_HEARTBEAT_MS = 60000;
   let liveSyncSocket = null;
   let liveSyncRetryTimer = null;
+  let liveSyncHeartbeatTimer = null;
   let liveSyncRecoveryPromise = null;
   let liveSyncReconnectAttempt = 0;
   let liveSyncAuthRecoveryUsed = false;
@@ -55,6 +57,25 @@ export function createLiveSyncController({
     }
   }
 
+  function clearLiveSyncHeartbeat() {
+    if (liveSyncHeartbeatTimer) {
+      window.clearInterval(liveSyncHeartbeatTimer);
+      liveSyncHeartbeatTimer = null;
+    }
+  }
+
+  function startLiveSyncHeartbeat(socket) {
+    clearLiveSyncHeartbeat();
+    liveSyncHeartbeatTimer = window.setInterval(() => {
+      if (socket !== liveSyncSocket || socket.readyState !== WebSocket.OPEN) return;
+      try {
+        socket.send(JSON.stringify({ type: "ping" }));
+      } catch (err) {
+        console.warn("Live sync heartbeat failed", err);
+      }
+    }, LIVE_SYNC_HEARTBEAT_MS);
+  }
+
   function resetLiveSyncRecoveryFlags() {
     liveSyncReconnectAttempt = 0;
     liveSyncAuthRecoveryUsed = false;
@@ -65,6 +86,7 @@ export function createLiveSyncController({
     const socket = liveSyncSocket;
     liveSyncSocket = null;
     state.liveSync.socketSpaceId = "";
+    clearLiveSyncHeartbeat();
     if (!socket) return;
     try {
       if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
@@ -73,6 +95,21 @@ export function createLiveSyncController({
     } catch (err) {
       console.warn("Live sync close failed", err);
     }
+  }
+
+  async function catchUpLiveSync() {
+    const requests = [
+      reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false }),
+    ];
+    if (typeof refreshAgentChangeRequests === "function") {
+      requests.push(refreshAgentChangeRequests({ force: true }));
+    }
+    const results = await Promise.allSettled(requests);
+    results.forEach((result) => {
+      if (result.status === "rejected") {
+        console.warn("Live sync catch-up refresh failed", result.reason);
+      }
+    });
   }
 
   function stopLiveSync(options = {}) {
@@ -264,7 +301,9 @@ export function createLiveSyncController({
     socket.addEventListener("open", () => {
       if (socket !== liveSyncSocket) return;
       resetLiveSyncRecoveryFlags();
+      startLiveSyncHeartbeat(socket);
       setLiveSyncPhase("live");
+      void catchUpLiveSync();
     });
 
     socket.addEventListener("message", (event) => {
@@ -293,6 +332,7 @@ export function createLiveSyncController({
 
     socket.addEventListener("close", (event) => {
       if (socket !== liveSyncSocket) return;
+      clearLiveSyncHeartbeat();
       liveSyncSocket = null;
       state.liveSync.socketSpaceId = "";
       void handleLiveSyncClose(event);

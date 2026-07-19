@@ -845,6 +845,16 @@
   gap: 8px;
 }
 
+.agent-approval-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agent-approval-heading-actions > button {
+  min-height: 34px;
+}
+
 .agent-approval-health > span {
   padding: 7px 10px;
   border: 1px solid var(--border);
@@ -1650,6 +1660,11 @@
 
   .agent-approval-health {
     align-self: stretch;
+  }
+
+  .agent-approval-heading-actions {
+    width: 100%;
+    align-items: stretch;
   }
 
   .agent-review-selection {

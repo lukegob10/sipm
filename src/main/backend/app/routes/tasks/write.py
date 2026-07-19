@@ -89,6 +89,7 @@ def create_task(
         project_id=solution.project_id,
         solution_id=solution_id,
         task_name=task_name,
+        description=payload.description,
         status=payload.status,
         priority=payload.priority,
         due_date=payload.due_date,
@@ -99,7 +100,7 @@ def create_task(
         estimate_hours=payload.estimate_hours,
         blocked=blocked,
         blocker_note=payload.blocker_note if blocked else None,
-        done_criteria=payload.done_criteria,
+        done_criteria=payload.acceptance_criteria,
         capacity_hours=payload.capacity_hours or 0,
         created_at=now,
         updated_at=now,
@@ -115,6 +116,7 @@ def create_task(
         space_id=space_ctx.space_id,
         changes={
             "task_name": (None, task.task_name),
+            "description": (None, task.description),
             "status": (None, task.status),
             "priority": (None, task.priority),
             "due_date": (None, task.due_date),
@@ -124,7 +126,7 @@ def create_task(
             "estimate_hours": (None, task.estimate_hours),
             "blocked": (None, task.blocked),
             "blocker_note": (None, task.blocker_note),
-            "done_criteria": (None, task.done_criteria),
+            "acceptance_criteria": (None, task.acceptance_criteria),
             "completed_at": (None, task.completed_at),
         },
     )

@@ -187,8 +187,8 @@ def test_csv_upload_modal_is_configured_for_task_csv_templates():
     assert 'label: "Tasks"' in app_text
     assert 'filename: "tasks-template.csv"' in app_text
     assert (
-        "project_name,solution_name,version,task_name,status,priority,due_date,assignee,"
-        "assignee_user_soeid,github_repo_url,estimate_hours,blocked,blocker_note,done_criteria,completed_at"
+        "project_name,solution_name,version,task_name,description,status,priority,due_date,assignee,"
+        "assignee_user_soeid,github_repo_url,estimate_hours,blocked,blocker_note,acceptance_criteria,completed_at"
     ) in app_text
     assert 'els.csvUploadTitle.textContent = `Upload ${config.label} CSV`;' in app_text
     assert 'els.csvUploadDescription.textContent = `Upload a ${config.label} CSV. Use the template if you need the expected columns.`;' in app_text

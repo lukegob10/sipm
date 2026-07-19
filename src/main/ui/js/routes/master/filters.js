@@ -129,6 +129,8 @@ function taskHaystack(ctx, tasks) {
       task?.due_date,
       task?.github_repo_url,
       task?.blocker_note,
+      task?.description,
+      task?.acceptance_criteria,
       task?.done_criteria,
     ]);
 }

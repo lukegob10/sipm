@@ -69,12 +69,17 @@ def import_tasks(
         project_name = normalize_str(row.get("project_name"))
         solution_name = normalize_str(row.get("solution_name"))
         task_name = normalize_str(row.get("task_name"))
+        description = normalize_str(row.get("description")) or None
         version_raw = normalize_str(row.get("version")) or "0.1.0"
         solution_owner_val = normalize_str(row.get("solution_owner")) or normalize_str(row.get("owner"))
         assignee_input = normalize_str(row.get("assignee"))
         assignee_user_soeid = normalize_str(row.get("assignee_user_soeid")) or None
         blocker_note = normalize_str(row.get("blocker_note")) or None
-        done_criteria = normalize_str(row.get("done_criteria")) or None
+        acceptance_criteria = (
+            normalize_str(row.get("acceptance_criteria"))
+            or normalize_str(row.get("done_criteria"))
+            or None
+        )
         try:
             github_repo_url = normalize_github_repo_url(row.get("github_repo_url"))
         except ValueError as exc:
@@ -256,6 +261,7 @@ def import_tasks(
                     resolved_assignee = existing.assignee
                     resolved_assignee_user_soeid = existing.assignee_user_soeid
                 before = {
+                    "description": existing.description,
                     "status": existing.status,
                     "priority": existing.priority,
                     "due_date": existing.due_date,
@@ -265,10 +271,11 @@ def import_tasks(
                     "estimate_hours": existing.estimate_hours,
                     "blocked": existing.blocked,
                     "blocker_note": existing.blocker_note,
-                    "done_criteria": existing.done_criteria,
+                    "acceptance_criteria": existing.acceptance_criteria,
                     "completed_at": existing.completed_at,
                 }
                 existing.status = status_enum
+                existing.description = description
                 existing.priority = priority_val
                 existing.due_date = due_val
                 existing.assignee = resolved_assignee
@@ -277,7 +284,7 @@ def import_tasks(
                 existing.estimate_hours = estimate_hours
                 existing.blocked = blocked_val
                 existing.blocker_note = blocker_note
-                existing.done_criteria = done_criteria
+                existing.acceptance_criteria = acceptance_criteria
                 existing.updated_at = now
                 if not existing.space_id:
                     existing.space_id = space_ctx.space_id
@@ -297,6 +304,7 @@ def import_tasks(
                     action="update",
                     space_id=space_ctx.space_id,
                     changes={
+                        "description": (before["description"], existing.description),
                         "status": (before["status"], existing.status),
                         "priority": (before["priority"], existing.priority),
                         "due_date": (before["due_date"], existing.due_date),
@@ -306,7 +314,10 @@ def import_tasks(
                         "estimate_hours": (before["estimate_hours"], existing.estimate_hours),
                         "blocked": (before["blocked"], existing.blocked),
                         "blocker_note": (before["blocker_note"], existing.blocker_note),
-                        "done_criteria": (before["done_criteria"], existing.done_criteria),
+                        "acceptance_criteria": (
+                            before["acceptance_criteria"],
+                            existing.acceptance_criteria,
+                        ),
                         "completed_at": (before["completed_at"], existing.completed_at),
                     },
                     request_id=None,
@@ -327,6 +338,7 @@ def import_tasks(
                     project_id=project.project_id,
                     solution_id=solution.solution_id,
                     task_name=task_name,
+                    description=description,
                     status=status_enum,
                     priority=priority_val,
                     due_date=due_val,
@@ -336,7 +348,7 @@ def import_tasks(
                     estimate_hours=estimate_hours,
                     blocked=blocked_val,
                     blocker_note=blocker_note,
-                    done_criteria=done_criteria,
+                    done_criteria=acceptance_criteria,
                     completed_at=completed_at,
                 )
                 session.add(task)
@@ -350,6 +362,7 @@ def import_tasks(
                     space_id=space_ctx.space_id,
                     changes={
                         "task_name": (None, task.task_name),
+                        "description": (None, task.description),
                         "status": (None, task.status),
                         "priority": (None, task.priority),
                         "due_date": (None, task.due_date),
@@ -359,7 +372,7 @@ def import_tasks(
                         "estimate_hours": (None, task.estimate_hours),
                         "blocked": (None, task.blocked),
                         "blocker_note": (None, task.blocker_note),
-                        "done_criteria": (None, task.done_criteria),
+                        "acceptance_criteria": (None, task.acceptance_criteria),
                         "completed_at": (None, task.completed_at),
                     },
                     request_id=None,
@@ -413,6 +426,7 @@ def export_tasks(
         "solution_name",
         "version",
         "task_name",
+        "description",
         "status",
         "priority",
         "due_date",
@@ -422,7 +436,7 @@ def export_tasks(
         "estimate_hours",
         "blocked",
         "blocker_note",
-        "done_criteria",
+        "acceptance_criteria",
         "completed_at",
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
@@ -435,6 +449,7 @@ def export_tasks(
                 "solution_name": solution_name,
                 "version": solution_version,
                 "task_name": task.task_name,
+                "description": read_text_value(task.description) or "",
                 "status": task.status.value if hasattr(task.status, "value") else task.status,
                 "priority": task.priority,
                 "due_date": task.due_date.isoformat() if task.due_date else "",
@@ -444,7 +459,7 @@ def export_tasks(
                 "estimate_hours": task.estimate_hours if task.estimate_hours is not None else "",
                 "blocked": task.blocked,
                 "blocker_note": read_text_value(task.blocker_note) or "",
-                "done_criteria": read_text_value(task.done_criteria) or "",
+                "acceptance_criteria": read_text_value(task.acceptance_criteria) or "",
                 "completed_at": task.completed_at.isoformat() if task.completed_at else "",
             }
         )

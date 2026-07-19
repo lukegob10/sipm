@@ -38,12 +38,14 @@ async def test_tasks_import_updates_creates_and_exports(client):
         "solution_name",
         "version",
         "task_name",
+        "description",
         "status",
         "priority",
         "due_date",
         "assignee",
         "github_repo_url",
         "solution_owner",
+        "acceptance_criteria",
         "completed_at",
     ]
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
@@ -54,12 +56,14 @@ async def test_tasks_import_updates_creates_and_exports(client):
             "solution_name": "Access Controls",
             "version": "0.1.0",
             "task_name": "Task A",
+            "description": "Update the platform worker.",
             "status": "complete",
             "priority": "1",
             "due_date": date.today().isoformat(),
             "assignee": "Engineer Updated",
             "github_repo_url": "https://github.com/example-org/platform-worker.git/",
             "solution_owner": "Owner",
+            "acceptance_criteria": "Worker update is verified.",
             "completed_at": "2026-03-04T05:06:07",
         }
     )
@@ -134,6 +138,8 @@ async def test_tasks_import_updates_creates_and_exports(client):
     assert updated.status_code == 200
     updated_json = updated.json()
     assert updated_json["status"] == "complete"
+    assert updated_json["description"] == "Update the platform worker."
+    assert updated_json["acceptance_criteria"] == "Worker update is verified."
     assert updated_json["completed_at"] == "2026-03-04T05:06:07"
     assert updated_json["assignee"] == "Engineer Updated"
     assert updated_json["github_repo_url"] == "https://github.com/example-org/platform-worker"
@@ -149,12 +155,14 @@ async def test_tasks_import_updates_creates_and_exports(client):
             "solution_name": "Access Controls",
             "version": "0.1.0",
             "task_name": "Task A",
+            "description": "Update the platform worker.",
             "status": "in_progress",
             "priority": "1",
             "due_date": date.today().isoformat(),
             "assignee": "Engineer Updated",
             "github_repo_url": "https://github.com/example-org/platform-worker",
             "solution_owner": "Owner",
+            "acceptance_criteria": "Worker update is verified.",
         }
     )
     reopen_resp = await client.post(
@@ -184,6 +192,8 @@ async def test_tasks_import_updates_creates_and_exports(client):
     rows = list(csv.DictReader(StringIO(exported.text)))
     assert any(
         r["task_name"] == "Task A"
+        and r["description"] == "Update the platform worker."
+        and r["acceptance_criteria"] == "Worker update is verified."
         and r["assignee"] == "Engineer Updated"
         and r["github_repo_url"] == "https://github.com/example-org/platform-worker"
         for r in rows

@@ -389,6 +389,7 @@ Key fields:
 | `project_id` | FK projects | Parent project. |
 | `solution_id` | FK solutions | Parent solution. |
 | `task_name` | string | Work item name. |
+| `description` | text nullable | Context and scope for the task. |
 | `status` | enum | Work lifecycle status. |
 | `priority` | integer | Priority ranking. |
 | `due_date` | date nullable | Target date. |
@@ -399,7 +400,7 @@ Key fields:
 | `estimate_hours` | integer nullable | Estimated effort. |
 | `blocked` | boolean | Blocked flag. |
 | `blocker_note` | text nullable | Blocker explanation. |
-| `done_criteria` | text nullable | Definition of done. |
+| `done_criteria` | text nullable | Physical storage for product-facing acceptance criteria. The API also returns this legacy alias for compatibility. |
 | `capacity_hours` | integer | Capacity/effort value used for FTE conversion. |
 | `deleted_at` | datetime nullable | Soft-delete marker. |
 
@@ -422,6 +423,7 @@ Primary APIs:
 
 Derived API fields:
 
+- `acceptance_criteria`: preferred product/API name for the value stored in `done_criteria`.
 - `effective_github_repo_url`: override repo or inherited solution repo.
 - `repo_source`: `override`, `inherited`, or `none`.
 - `is_overdue`, `is_due_soon`, `is_stale`, `urgency_score`: route payload-derived indicators.

@@ -191,6 +191,7 @@ class AgentTaskRead(BaseModel):
     project_id: str
     solution_id: str
     task_name: str
+    description: str | None = None
     github_repo_url: str | None = None
     effective_github_repo_url: str | None = None
     repo_source: str = "none"
@@ -202,6 +203,7 @@ class AgentTaskRead(BaseModel):
     estimate_hours: int | None = None
     blocked: bool | None = None
     blocker_note: str | None = None
+    acceptance_criteria: str | None = None
     done_criteria: str | None = None
     completed_at: datetime | None = None
     capacity_hours: int | None = None
@@ -282,6 +284,7 @@ class AgentTaskNode(BaseModel):
     project_id: str
     solution_id: str
     task_name: str
+    description: str | None = None
     status: str
     priority: int | None = None
     assignee: str | None = None
@@ -293,6 +296,7 @@ class AgentTaskNode(BaseModel):
     estimate_hours: int | None = None
     blocked: bool | None = None
     blocker_note: str | None = None
+    acceptance_criteria: str | None = None
     done_criteria: str | None = None
     completed_at: datetime | None = None
     capacity_hours: int | None = None

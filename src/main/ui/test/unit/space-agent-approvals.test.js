@@ -142,6 +142,38 @@ describe("agent approvals governance UI", () => {
     expect(els.spaceGovernanceShell.querySelector(".agent-approval-table")).toBeNull();
     expect(els.spaceGovernanceShell.querySelector(".agent-proposal-modal")).toBeNull();
     expect(els.spaceGovernanceShell.querySelector("[data-agent-change-request-checkbox]")).not.toBeNull();
+    expect(els.spaceGovernanceShell.querySelector("[data-space-action='refresh-agent-change-requests']")).not.toBeNull();
+  });
+
+  it("manually refreshes the approval queue", async () => {
+    const { api, els, renderGovernanceHub } = createHarness();
+
+    renderGovernanceHub();
+    els.spaceGovernanceShell
+      .querySelector("[data-space-action='refresh-agent-change-requests']")
+      .click();
+
+    await vi.waitFor(() => {
+      expect(api).toHaveBeenCalledWith("/agent/change-requests?status=pending");
+    });
+  });
+
+  it("runs a follow-up refresh when an event arrives during an active request", async () => {
+    const { api, controller } = createHarness();
+    let resolveFirst;
+    api
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockResolvedValueOnce({ pending_count: 0, failed_count: 0, records: [] });
+
+    const firstRefresh = controller.refreshAgentChangeRequests({ force: true });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    const eventRefresh = controller.refreshAgentChangeRequests({ force: true });
+    resolveFirst({ pending_count: 1, failed_count: 0, records: [] });
+    await Promise.all([firstRefresh, eventRefresh]);
+
+    expect(api).toHaveBeenCalledTimes(2);
   });
 
   it("keeps proposal selection in context without opening a modal", () => {

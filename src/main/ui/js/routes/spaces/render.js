@@ -910,9 +910,12 @@ export function createSpaceGovernanceRenderer({
             </div>
             <p class="muted">Review what the agent wants to change, keep the safe edits, and apply them with confidence.</p>
           </div>
-          <div class="agent-approval-health" aria-label="Approval queue status">
-            <span><strong>${esc(state.agentChangeRequestPendingCount || 0)}</strong> pending</span>
-            ${state.agentChangeRequestFailedCount ? `<span class="is-danger"><strong>${esc(state.agentChangeRequestFailedCount)}</strong> failed</span>` : ""}
+          <div class="agent-approval-heading-actions">
+            <div class="agent-approval-health" aria-label="Approval queue status">
+              <span><strong>${esc(state.agentChangeRequestPendingCount || 0)}</strong> pending</span>
+              ${state.agentChangeRequestFailedCount ? `<span class="is-danger"><strong>${esc(state.agentChangeRequestFailedCount)}</strong> failed</span>` : ""}
+            </div>
+            <button type="button" class="secondary" data-space-action="refresh-agent-change-requests" aria-label="Refresh approval queue">Refresh</button>
           </div>
         </div>
         ${isLoading && !rows.length ? `

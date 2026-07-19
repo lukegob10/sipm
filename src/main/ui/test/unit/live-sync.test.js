@@ -17,7 +17,12 @@ class FakeWebSocket {
     this.url = url;
     this.readyState = FakeWebSocket.CONNECTING;
     this.listeners = new Map();
+    this.sent = [];
     FakeWebSocket.instances.push(this);
+  }
+
+  send(payload) {
+    this.sent.push(payload);
   }
 
   addEventListener(type, listener) {
@@ -86,7 +91,13 @@ describe("live sync controller", () => {
       spaceNameForId: (spaceId) => spaceId,
       clearDataState: vi.fn(),
     });
-    return { controller, refreshAgentChangeRequests, refreshFromServer, refreshSessionTokens };
+    return {
+      controller,
+      refreshAgentChangeRequests,
+      refreshFromServer,
+      refreshSessionTokens,
+      reloadCurrentViewData,
+    };
   }
 
   it("retries websocket auth failures by refreshing the session", async () => {
@@ -132,5 +143,35 @@ describe("live sync controller", () => {
       expect(refreshAgentChangeRequests).toHaveBeenCalledWith({ force: true });
     });
     expect(refreshFromServer).not.toHaveBeenCalled();
+  });
+
+  it("keeps the connection active with application-level heartbeats", () => {
+    const { controller } = createHarness();
+
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    vi.advanceTimersByTime(60000);
+
+    expect(socket.sent).toEqual([JSON.stringify({ type: "ping" })]);
+  });
+
+  it("performs a catch-up refresh whenever a socket opens", async () => {
+    const { controller, refreshAgentChangeRequests, reloadCurrentViewData } = createHarness();
+
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+
+    await vi.waitFor(() => {
+      expect(reloadCurrentViewData).toHaveBeenCalledWith({
+        force: true,
+        silent: true,
+        preserveCapacitySelection: false,
+      });
+      expect(refreshAgentChangeRequests).toHaveBeenCalledWith({ force: true });
+    });
   });
 });

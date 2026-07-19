@@ -28,6 +28,7 @@ export function createSpaceGovernanceController({
   const spaceMembersInFlight = {};
   const apiTokensInFlight = {};
   let agentChangeRequestsInFlight = null;
+  let agentChangeRequestsRefreshQueued = false;
   let requestableSpacesInFlight = null;
   let accessRequestsInFlight = null;
   let reviewableAccessRequestsInFlight = null;
@@ -157,9 +158,14 @@ export function createSpaceGovernanceController({
   async function refreshAgentChangeRequests(options = {}) {
     const force = !!options.force;
     if (!force && state.agentChangeRequestsLoaded) return state.agentChangeRequests || [];
-    if (agentChangeRequestsInFlight) return agentChangeRequestsInFlight;
-    agentChangeRequestsInFlight = api("/agent/change-requests?status=pending")
-      .then((payload) => {
+    if (agentChangeRequestsInFlight) {
+      if (force) agentChangeRequestsRefreshQueued = true;
+      return agentChangeRequestsInFlight;
+    }
+    agentChangeRequestsInFlight = (async () => {
+      do {
+        agentChangeRequestsRefreshQueued = false;
+        const payload = await api("/agent/change-requests?status=pending");
         state.agentChangeRequests = Array.isArray(payload?.records) ? payload.records : [];
         state.agentChangeRequestPendingCount = Number(payload?.pending_count || 0);
         state.agentChangeRequestFailedCount = Number(payload?.failed_count || 0);
@@ -179,8 +185,9 @@ export function createSpaceGovernanceController({
           state.agentChangeRequestActiveId = state.agentChangeRequests[0]?.change_request_id || "";
         }
         if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.agentChangeRequests;
-      })
+      } while (agentChangeRequestsRefreshQueued);
+      return state.agentChangeRequests;
+    })()
       .finally(() => {
         agentChangeRequestsInFlight = null;
       });
@@ -268,6 +275,15 @@ export function createSpaceGovernanceController({
   async function handleSpaceGovernanceAction(button) {
     if (!button) return false;
     const action = button.getAttribute("data-space-action") || "";
+    if (action === "refresh-agent-change-requests") {
+      try {
+        await refreshAgentChangeRequests({ force: true });
+        setSpaceGovernanceNotice("Approval queue refreshed.", "success", 3000);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Failed to refresh the approval queue.", "error", 7000);
+      }
+      return true;
+    }
     const spaceId = button.getAttribute("data-space-id") || "";
     const membershipId = button.getAttribute("data-membership-id") || "";
     const soeid = button.getAttribute("data-soeid") || "";

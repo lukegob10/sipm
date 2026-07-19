@@ -676,7 +676,31 @@ button.primary.danger:hover {
 }
 .task-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+.task-sort-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--font-size-table);
+}
+.task-sort-control select {
+  min-width: 150px;
+}
+#solution-task-table {
+  max-height: clamp(240px, 48vh, 520px);
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+#solution-task-table .task-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--table-header-bg, var(--panel-soft));
 }
 .task-table th:first-child,
 .task-table td:first-child {

@@ -59,6 +59,7 @@ import {
   updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
 } from "./routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
+import { sortTasksByName } from "./utils/task-sort.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
@@ -243,6 +244,7 @@ const state = {
   filters: {},
   masterCollapsed: new Set(),
   taskView: "table",
+  taskSort: "name-asc",
   tasksWorkbench: {
     preset: "all",
     filters: {
@@ -2117,9 +2119,10 @@ function renderSolutionTasks(solutionId) {
   const hiddenClosedCount = !showCompletedOperationalWork()
     ? allSubs.filter((task) => isCompletedTaskStatus(task.status)).length
     : 0;
-  const subs = showCompletedOperationalWork()
+  const visibleSubs = showCompletedOperationalWork()
     ? allSubs
     : allSubs.filter((task) => !isCompletedTaskStatus(task.status));
+  const subs = sortTasksByName(visibleSubs, state.taskSort);
   const hiddenNote = hiddenClosedCount
     ? `<p class="form-notice">Completed items are hidden here. Use Show Completed in the top bar to review ${hiddenClosedCount} closed task${hiddenClosedCount === 1 ? "" : "s"}.</p>`
     : "";
@@ -2315,6 +2318,14 @@ function bindSolutionDocumentControls() {
 }
 
 function bindSolutionTaskControls() {
+  if (els.taskSort && !els.taskSort._bound) {
+    els.taskSort.addEventListener("change", () => {
+      state.taskSort = els.taskSort.value === "name-desc" ? "name-desc" : "name-asc";
+      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      renderSolutionTasks(solutionId);
+    });
+    els.taskSort._bound = true;
+  }
   if (els.taskViewToggle && !els.taskViewToggle._bound) {
     els.taskViewToggle.addEventListener("click", () => {
       state.taskView = state.taskView === "table" ? "swimlane" : "table";

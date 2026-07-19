@@ -82,10 +82,8 @@ export function renderTasksWorkbench(ctx) {
       return `
         <tr data-id="${row.task_id}" class="${isActive ? "active-row" : ""}" tabindex="-1">
           <td><input type="checkbox" class="scwb-select-row" data-id="${row.task_id}" ${isSelected ? "checked" : ""} /></td>
-          <td>
-            <strong>${esc(row.task_name || "—")}</strong>
-            <span class="task-workbench-context">${renderTasksWorkbenchProjectLink(row.project_name, row.project_id)} / ${renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)}</span>
-          </td>
+          <td><strong>${esc(row.task_name || "—")}</strong></td>
+          <td class="task-workbench-context-cell"><span class="task-workbench-context">${renderTasksWorkbenchProjectLink(row.project_name, row.project_id)} / ${renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)}</span></td>
           <td class="task-workbench-status-cell">${statusPillMarkup(row.status, statusLabel)} ${blocker}</td>
           <td>${esc(row.assignee || "Unassigned")}</td>
           <td>${due}</td>
@@ -107,6 +105,7 @@ export function renderTasksWorkbench(ctx) {
               <span class="task-name-sort-indicator" aria-hidden="true">${sortPresentation.indicator}</span>
             </button>
           </th>
+          <th>Project / Solution</th>
           <th>Status</th>
           <th>Assignee</th>
           <th>Due</th>

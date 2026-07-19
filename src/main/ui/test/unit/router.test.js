@@ -11,6 +11,7 @@ function buildRouterHarness() {
     <button class="nav-btn" data-view="team-capacity"></button>
     <button class="nav-btn" data-view="spaces"></button>
     <button class="nav-btn" data-view="analytics"></button>
+    <span id="current-route-label"></span>
     <section class="view" id="view-master"></section>
     <section class="view" id="view-gantt"></section>
     <section class="view" id="view-program-dashboard"></section>
@@ -28,6 +29,7 @@ function buildRouterHarness() {
   const els = {
     navButtons: document.querySelectorAll(".nav-btn"),
     views: document.querySelectorAll(".view"),
+    currentRouteLabel: document.getElementById("current-route-label"),
   };
 
   const loadData = vi.fn().mockResolvedValue(undefined);
@@ -133,6 +135,9 @@ describe("router controller", () => {
 
     controller.setView("gantt");
     expect(state.currentView).toBe("gantt");
+    expect(document.querySelector('[data-view="gantt"]').getAttribute("aria-current")).toBe("page");
+    expect(document.getElementById("current-route-label").textContent).toBe("Roadmap");
+    expect(document.title).toBe("Roadmap · SIPM");
     await vi.waitFor(() => expect(loadData).toHaveBeenCalled());
     expect(loadData).toHaveBeenCalledWith(expect.objectContaining({ entities: ["programs", "projects", "solutions", "tasks"] }));
   });

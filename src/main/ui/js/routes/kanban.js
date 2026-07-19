@@ -1,3 +1,5 @@
+import { renderRouteState } from "../ui/route-state.js";
+
 const kanbanState = {
   bound: false,
   ctx: null,
@@ -109,7 +111,11 @@ export function renderKanban(ctx) {
     html += `</div>`;
   });
 
-  els.kanbanBoard.innerHTML = html || "<p class='muted'>No items</p>";
+  els.kanbanBoard.innerHTML = html || renderRouteState({
+    kicker: "No matching work",
+    title: "The board is clear",
+    message: "No solutions match the selected project and owner filters.",
+  });
 }
 
 export function render(ctx) {

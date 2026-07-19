@@ -1,6 +1,6 @@
 .analytics-stack {
   display: grid;
-  gap: 1rem;
+  gap: 12px;
 }
 
 .analytics-toolbar {
@@ -23,9 +23,9 @@
 }
 
 .analytics-card {
-  padding: 1rem;
+  padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--route-card-radius);
   background: var(--panel-soft);
   display: grid;
   gap: 0.35rem;
@@ -44,7 +44,7 @@
 
 .analytics-grid {
   display: grid;
-  gap: 1rem;
+  gap: 12px;
 }
 
 .analytics-panel {
@@ -52,9 +52,9 @@
 }
 
 .analytics-empty {
-  padding: 1.25rem;
+  padding: 18px;
   border: 1px dashed var(--border);
-  border-radius: 14px;
+  border-radius: var(--route-surface-radius);
   background: var(--panel-soft);
 }
 

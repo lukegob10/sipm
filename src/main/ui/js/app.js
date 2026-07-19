@@ -20,6 +20,7 @@ import {
 import { createModalShellController } from "./shell/modal-shell.js";
 import { createSpaceSwitcherController } from "./shell/space-switcher.js";
 import { createTopbarCreateController } from "./shell/topbar-create.js";
+import { createShellNavigationController } from "./shell/navigation.js";
 import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
@@ -94,6 +95,7 @@ async function copyText(value) {
 }
 
 const els = queryShellElements();
+const shellNavigationController = createShellNavigationController({ els });
 
 const normalize = (value) => (value || "").toString().trim().toLowerCase();
 const normalizeSpaceRole = (value) => normalize(value).replace(/[\s-]+/g, "_");
@@ -3380,8 +3382,8 @@ function restoreTasksWorkbenchUiState() {
   wb.preset = String(stored.preset || "all");
   wb.sort = String(stored.sort || "default");
   wb.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
-  wb.drawerOpen = stored.drawerOpen !== false;
   wb.activeTaskId = String(stored.activeTaskId || "");
+  wb.drawerOpen = stored.drawerOpen === true && Boolean(wb.activeTaskId);
   wb.selectedSavedViewId = String(stored.selectedSavedViewId || "");
   normalizeWorkbenchUiState(createTasksWorkbenchContext());
   if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
@@ -3635,6 +3637,7 @@ function init() {
     return;
   }
   bindWorkspaceViewPreferences();
+  shellNavigationController.bind();
   bindAuthUI();
   bindTopbarCreateMenu();
   bindTaskCreatePicker();

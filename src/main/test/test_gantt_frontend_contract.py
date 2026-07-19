@@ -5,6 +5,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
+ROUTE_REGISTRY_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "route-registry.js"
 DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 GANTT_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "gantt.js"
 GANTT_INTERACTIONS_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "gantt" / "interactions.js"
@@ -15,22 +16,24 @@ GANTT_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles" / "routes" / "gantt.css
 def test_gantt_route_is_registered_and_rendered():
     index_text = INDEX_HTML.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
+    route_registry_text = ROUTE_REGISTRY_JS.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
     dom_text = DOM_JS.read_text(encoding="utf-8")
 
-    assert 'type="button" data-view="gantt" class="nav-btn">Gantt</button>' in index_text
+    assert 'type="button" data-view="gantt" class="nav-btn">Roadmap</button>' in index_text
     work_section = index_text[index_text.index("<p class=\"nav-label\">Work</p>"):index_text.index("<p class=\"nav-label\">Insight</p>")]
     insight_section = index_text[index_text.index("<p class=\"nav-label\">Insight</p>"):index_text.index("<div id=\"nav-admin-section\"")]
     assert 'data-view="gantt"' not in work_section
     assert 'data-view="gantt"' in insight_section
     assert 'section id="view-gantt" class="view"' in index_text
-    assert "Insight / Gantt" in index_text
-    assert "<h2>Project Roadmap</h2>" in index_text
+    assert "Insight / Roadmap" in index_text
+    assert '<h1 class="route-title">Roadmap</h1>' in index_text
     for element_id in ("gantt-from", "gantt-to", "gantt-expand-all", "gantt-collapse-all", "gantt-chart"):
         assert f'id="{element_id}"' in index_text
 
-    assert '"gantt",' in router_text
-    assert 'gantt: ["programs", "projects", "solutions", "tasks"],' in router_text
+    assert '["gantt", {' in route_registry_text
+    assert 'label: "Roadmap",' in route_registry_text
+    assert 'data: ["programs", "projects", "solutions", "tasks"],' in route_registry_text
     assert 'gantt: () => import("../routes/gantt.js")' in router_text
     assert 'gantt: () => renderGantt(),' in app_text
     assert 'from "./routes/gantt/interactions.js";' in app_text

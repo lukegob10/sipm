@@ -14,6 +14,7 @@ DASHBOARD_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "
 DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "dashboard" / "render.js"
 PROGRAM_DASHBOARD_RENDER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "program-dashboard" / "render.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
+ROUTE_REGISTRY_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "route-registry.js"
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 
 
@@ -382,10 +383,11 @@ def test_program_dashboard_projects_grid_uses_deliverable_column_only():
 
 def test_program_dashboard_phase_column_reuses_deliverables_phase_display():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
-    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    route_registry_text = ROUTE_REGISTRY_JS.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
 
-    assert '"program-dashboard": ["phases", "programs", "projects", "solutions"],' in router_text
+    assert '["program-dashboard", {' in route_registry_text
+    assert 'data: ["phases", "programs", "projects", "solutions"],' in route_registry_text
     assert "phaseDisplayName: displayPhase," in render_text
     assert "function solutionPhaseLabel(solution, phaseDisplayName) {" in render_text
     assert "return displayValue(phaseDisplayName(solution?.current_phase));" in render_text

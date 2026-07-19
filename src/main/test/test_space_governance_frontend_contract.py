@@ -6,6 +6,7 @@ from ui_style_contract import read_ui_styles
 REPO_ROOT = Path(__file__).resolve().parents[3]
 APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
+ROUTE_REGISTRY_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "route-registry.js"
 INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 SPACES_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces.js"
 SPACES_INTERACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "spaces" / "interactions.js"
@@ -42,13 +43,17 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
+    route_registry_text = ROUTE_REGISTRY_JS.read_text(encoding="utf-8")
     assert 'const SPACE_RECENTS_KEY_PREFIX = "sipm-space-recents-v1";' in app_text
     assert "const { value: stored, recovered } = readStoredJsonState(storageKey, { recent: [] });" in app_text
     assert "const normalizedRecent = recent" in app_text
     assert "if (recovered || JSON.stringify(recent) !== JSON.stringify(normalizedRecent)) {" in app_text
     assert "function viewDomIdForRoute(view)" in router_text
-    assert 'return normalized === "access" ? "spaces" : normalized;' in router_text
-    assert 'if (normalized === "access") return userCanAccessAdminViews();' in router_text
+    assert 'return routeDefinition(view).domView;' in router_text
+    assert '["access", {' in route_registry_text
+    assert 'domView: "spaces",' in route_registry_text
+    assert 'navView: "spaces",' in route_registry_text
+    assert 'return normalized === "spaces" || normalized === "access";' in router_text
     assert "recordRecentSpace(spaceId)" in app_text
     assert "renderGovernanceHub(preferredSection = \"\")" in render_text
     assert "Issue Password Reset" in render_text

@@ -1,4 +1,5 @@
 import { parseDateOnly } from "../utils/date-only.js";
+import { renderRouteState } from "../ui/route-state.js";
 
 function esc(value) {
   return String(value || "")
@@ -71,6 +72,13 @@ function itemsForDay(items, date) {
     if (!due) return false;
     return due.year === date.getFullYear() && due.month === date.getMonth() && due.day === date.getDate();
   });
+}
+
+function renderAgendaItem(item, type, titleField, formatStatus) {
+  return `<li class="calendar-agenda-item ${type}">
+    <span class="calendar-agenda-item-title">${esc(item?.[titleField] || "Untitled")}</span>
+    <span class="calendar-agenda-item-meta">${esc(formatStatus(item?.status))}</span>
+  </li>`;
 }
 
 export function renderCalendar(ctx) {
@@ -161,6 +169,35 @@ export function renderCalendar(ctx) {
     <div class="calendar-weekdays">${weekdayRow}</div>
     ${weeks.join("")}
   `;
+
+  if (els.calendarAgenda) {
+    const populatedDays = Object.entries(itemsByDay)
+      .filter(([, dayItems]) => dayItems.solutions.length || dayItems.tasks.length)
+      .map(([day, dayItems]) => {
+        const date = new Date(year, month, Number(day));
+        const itemCount = dayItems.solutions.length + dayItems.tasks.length;
+        const items = [
+          ...dayItems.solutions.map((item) => renderAgendaItem(item, "solution", "solution_name", formatStatus)),
+          ...dayItems.tasks.map((item) => renderAgendaItem(item, "task", "task_name", formatStatus)),
+        ].join("");
+        return `<section class="calendar-agenda-day">
+          <button type="button" class="calendar-agenda-day-button" data-calendar-agenda-day="${day}" aria-label="Open ${itemCount} item${itemCount === 1 ? "" : "s"} due ${esc(date.toLocaleDateString(undefined, { month: "long", day: "numeric" }))}">
+            <span class="calendar-agenda-date">
+              <span class="calendar-agenda-weekday">${esc(date.toLocaleDateString(undefined, { weekday: "short" }))}</span>
+              <strong>${esc(date.toLocaleDateString(undefined, { month: "short", day: "numeric" }))}</strong>
+            </span>
+            <span class="calendar-count">${itemCount}</span>
+          </button>
+          <ul class="calendar-agenda-items">${items}</ul>
+        </section>`;
+      })
+      .join("");
+    els.calendarAgenda.innerHTML = populatedDays || renderRouteState({
+      kicker: "No scheduled work",
+      title: `${monthLabel} is clear`,
+      message: "No solutions or tasks match the selected calendar filters.",
+    });
+  }
 }
 
 export function openCalendarModal(day, ctx) {

@@ -256,6 +256,25 @@ test("shared controls keep readable contrast in light and dark themes", async ({
       ],
     },
     {
+      view: "calendar",
+      waitFor: "#calendar-grid",
+      selectors: [
+        { selector: "#view-calendar .route-title", label: "calendar route title" },
+        { selector: "#view-calendar .calendar-controls", label: "calendar controls" },
+        { selector: "#calendar-grid .calendar-month-label", label: "calendar month label" },
+        { selector: "#calendar-grid .calendar-cell", label: "calendar day cell" },
+      ],
+    },
+    {
+      view: "gantt",
+      waitFor: "#gantt-chart",
+      selectors: [
+        { selector: "#view-gantt .route-title", label: "roadmap route title" },
+        { selector: "#view-gantt .gantt-controls", label: "roadmap controls" },
+        { selector: "#gantt-chart .route-state", label: "roadmap empty state" },
+      ],
+    },
+    {
       view: "team-capacity",
       waitFor: "#capacity-user-form",
       selectors: [
@@ -268,7 +287,7 @@ test("shared controls keep readable contrast in light and dark themes", async ({
       view: "spaces",
       waitFor: "#view-spaces .panel-header",
       selectors: [
-        { selector: "#view-spaces h2", label: "spaces route title" },
+        { selector: "#view-spaces .route-title", label: "spaces route title" },
         { selector: "#space-governance-shell .space-empty-card", label: "admin boundary message" },
         { selector: "#space-governance-shell .pill", label: "space badge" },
         { selector: "#space-governance-shell button:disabled", label: "space disabled button", disabled: true },

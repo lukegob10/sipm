@@ -1,4 +1,10 @@
 import { APP_CONTEXT_PATH, buildAppUrl } from "./paths.js";
+import {
+  VIEW_DATA_REQUIREMENTS,
+  VIEW_PREFETCH_TARGET,
+  normalizeRouteView,
+  routeDefinition,
+} from "./route-registry.js";
 
 
 export function createRouterController({
@@ -16,50 +22,8 @@ export function createRouterController({
   routeModuleLoaders = null,
 }) {
   const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users"];
-  const KNOWN_VIEWS = [
-    "master",
-    "gantt",
-    "tasks-workbench",
-    "dashboard",
-    "program-dashboard",
-    "pm-dashboard",
-    "kanban",
-    "calendar",
-    "team-capacity",
-    "spaces",
-    "access",
-    "analytics",
-  ];
   const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
-  const VIEW_DATA_REQUIREMENTS = {
-    master: ["phases", "programs", "projects", "solutions", "tasks"],
-    gantt: ["programs", "projects", "solutions", "tasks"],
-    "tasks-workbench": ["programs", "projects", "solutions", "tasks", "users"],
-    dashboard: ["programs", "projects", "solutions", "users"],
-    "program-dashboard": ["phases", "programs", "projects", "solutions"],
-    "pm-dashboard": ["programs", "projects", "solutions", "tasks", "users"],
-    kanban: ["phases", "programs", "projects", "solutions"],
-    calendar: ["programs", "projects", "solutions"],
-    "team-capacity": ["users"],
-    spaces: ["users"],
-    access: ["users"],
-    analytics: [],
-  };
-  const VIEW_PREFETCH_TARGET = {
-    master: "dashboard",
-    gantt: "tasks-workbench",
-    "tasks-workbench": "team-capacity",
-    dashboard: "pm-dashboard",
-    "program-dashboard": "tasks-workbench",
-    "pm-dashboard": "kanban",
-    kanban: "team-capacity",
-    calendar: "team-capacity",
-    "team-capacity": "spaces",
-    spaces: "access",
-    access: "analytics",
-    analytics: "master",
-  };
   const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-escalation-grid-v1";
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
     master: () => import("../routes/master.js"),
@@ -80,9 +44,7 @@ export function createRouterController({
   let suppressRouteChange = false;
 
   function normalizeView(view) {
-    const candidate = (view || "").toString().trim().toLowerCase();
-    if (candidate === "settings") return "team-capacity";
-    return KNOWN_VIEWS.includes(candidate) ? candidate : "master";
+    return normalizeRouteView(view);
   }
 
   function getRouteModule(view) {
@@ -199,13 +161,11 @@ export function createRouterController({
   }
 
   function viewDomIdForRoute(view) {
-    const normalized = normalizeView(view);
-    return normalized === "access" ? "spaces" : normalized;
+    return routeDefinition(view).domView;
   }
 
   function navViewForRoute(view) {
-    const normalized = normalizeView(view);
-    return normalized === "access" ? "spaces" : normalized;
+    return routeDefinition(view).navView;
   }
 
   function isSpaceGovernanceView(view) {
@@ -261,8 +221,20 @@ export function createRouterController({
       state.tasksWorkbench.drawerReturnScrollY = null;
       state.tasksWorkbench.suppressAutoScrollOnce = false;
     }
-    els.views.forEach((viewEl) => viewEl.classList.toggle("active", viewEl.id === `view-${nextDomView}`));
-    els.navButtons.forEach((button) => button.classList.toggle("active", button.dataset.view === nextNavView));
+    els.views.forEach((viewEl) => {
+      const isActive = viewEl.id === `view-${nextDomView}`;
+      viewEl.classList.toggle("active", isActive);
+      viewEl.setAttribute("aria-hidden", isActive ? "false" : "true");
+    });
+    els.navButtons.forEach((button) => {
+      const isActive = button.dataset.view === nextNavView;
+      button.classList.toggle("active", isActive);
+      if (isActive) button.setAttribute("aria-current", "page");
+      else button.removeAttribute("aria-current");
+    });
+    const definition = routeDefinition(nextView);
+    if (els.currentRouteLabel) els.currentRouteLabel.textContent = definition.title;
+    document.title = `${definition.title} · SIPM`;
     if (!fromHistory || redirected) {
       syncPathForView(nextView, redirected ? true : replacePath);
     }

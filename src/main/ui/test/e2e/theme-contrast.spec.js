@@ -300,6 +300,17 @@ test("shared controls keep readable contrast in light and dark themes", async ({
     for (const route of routeSamples) {
       await openRoute(page, route.view, route.waitFor);
       await assertVisibleContrast(page, route.selectors, theme);
+      if (route.view === "tasks-workbench") {
+        await expect(page.locator("#view-tasks-workbench .task-workbench-table thead th")).toHaveCount(8);
+        await expect(page.locator("#view-tasks-workbench .task-workbench-table thead th:nth-child(3)"))
+          .toHaveText("Project / Solution");
+        await expect(page.locator("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) .task-workbench-context"))
+          .toHaveCount(0);
+        await expect(page.locator("#view-tasks-workbench .task-workbench-context-cell"))
+          .toContainText("Theme Project");
+        await expect(page.locator("#view-tasks-workbench .task-workbench-context-cell"))
+          .toContainText("Theme Solution");
+      }
     }
 
     await openRoute(page, "master", "#master-table");

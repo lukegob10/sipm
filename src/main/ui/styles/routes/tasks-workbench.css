@@ -120,18 +120,19 @@
 
 .task-workbench-table th:nth-child(2),
 .task-workbench-table td:nth-child(2) {
-  width: 26%;
+  width: 25%;
   white-space: normal;
 }
 
 .task-workbench-table th:nth-child(3),
 .task-workbench-table td:nth-child(3) {
-  width: 18%;
+  width: 23%;
+  white-space: normal;
 }
 
 .task-workbench-table th:nth-child(4),
 .task-workbench-table td:nth-child(4) {
-  width: 18%;
+  width: 14%;
 }
 
 .task-workbench-table th:nth-child(5),
@@ -141,12 +142,17 @@
 
 .task-workbench-table th:nth-child(6),
 .task-workbench-table td:nth-child(6) {
-  width: 12%;
+  width: 10%;
 }
 
 .task-workbench-table th:nth-child(7),
 .task-workbench-table td:nth-child(7) {
-  width: 12%;
+  width: 7%;
+}
+
+.task-workbench-table th:nth-child(8),
+.task-workbench-table td:nth-child(8) {
+  width: 7%;
 }
 
 .task-workbench-name-sort-button {
@@ -155,7 +161,7 @@
 
 .task-workbench-context {
   display: block;
-  margin-top: 1px;
+  margin: 0;
   color: var(--muted);
   font-size: var(--task-workbench-row-font-size, var(--font-size-table));
   font-weight: var(--task-workbench-row-font-weight, 500);
@@ -426,7 +432,7 @@
   font-size: var(--task-workbench-row-font-size);
 }
 
-#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) .task-workbench-context {
+#view-tasks-workbench .task-workbench-table .task-workbench-context-cell .task-workbench-context {
   margin-inline: auto;
   font-size: var(--font-size-label);
   font-weight: var(--task-workbench-row-font-weight);

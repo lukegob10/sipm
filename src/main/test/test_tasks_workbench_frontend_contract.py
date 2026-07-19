@@ -29,6 +29,9 @@ def test_workbench_route_renders_project_context_as_drilldown_link():
     assert 'data-solution-id="${esc(targetId)}"' in text
     assert 'renderTasksWorkbenchProjectLink(row.project_name, row.project_id)' in text
     assert 'renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)' in text
+    assert '<td><strong>${esc(row.task_name || "—")}</strong></td>' in text
+    assert '<td class="task-workbench-context-cell"><span class="task-workbench-context">' in text
+    assert '<th>Project / Solution</th>\n          <th>Status</th>' in text
 
 
 def test_workbench_project_context_link_reuses_existing_project_modal():
@@ -155,13 +158,14 @@ def test_workbench_task_table_columns_are_balanced_and_centered():
     ]
     task_name_block = styles_text[
         styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) strong {"):
-        styles_text.index("#view-tasks-workbench .task-workbench-table tbody td:nth-child(2) .task-workbench-context {")
+        styles_text.index("#view-tasks-workbench .task-workbench-table .task-workbench-context-cell .task-workbench-context {")
     ]
 
-    assert "width: 26%;" in task_column_block
-    assert "width: 18%;" in task_column_block
+    assert "width: 25%;" in task_column_block
+    assert "width: 23%;" in task_column_block
     assert "width: 14%;" in task_column_block
-    assert "width: 12%;" in task_column_block
+    assert "width: 10%;" in task_column_block
+    assert task_column_block.count("width: 7%;") == 2
     assert "text-align: center;" in scoped_cell_block
     assert "text-align: center;" in task_cell_block
     assert "text-align: left;" not in task_cell_block

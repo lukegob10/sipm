@@ -680,16 +680,6 @@ button.primary.danger:hover {
   gap: 8px;
   flex-wrap: wrap;
 }
-.task-sort-control {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted);
-  font-size: var(--font-size-table);
-}
-.task-sort-control select {
-  min-width: 150px;
-}
 #solution-task-table {
   max-height: clamp(240px, 48vh, 520px);
   min-height: 0;
@@ -701,6 +691,33 @@ button.primary.danger:hover {
   top: 0;
   z-index: 1;
   background: var(--table-header-bg, var(--panel-soft));
+}
+.task-name-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  padding: 0;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+}
+.task-name-sort-button:hover {
+  color: var(--accent);
+}
+.task-name-sort-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.task-name-sort-indicator {
+  min-width: 2.2em;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
 }
 .task-table th:first-child,
 .task-table td:first-child {

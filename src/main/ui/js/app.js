@@ -59,7 +59,7 @@ import {
   updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
 } from "./routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
-import { sortTasksByName } from "./utils/task-sort.js";
+import { nextTaskNameSort, sortTasksByName } from "./utils/task-sort.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
@@ -244,7 +244,7 @@ const state = {
   filters: {},
   masterCollapsed: new Set(),
   taskView: "table",
-  taskSort: "name-asc",
+  taskSort: "default",
   tasksWorkbench: {
     preset: "all",
     filters: {
@@ -2154,6 +2154,11 @@ function renderSolutionTasks(solutionId) {
       .join("");
     els.solutionTaskTable.innerHTML = `${hiddenNote}<div class="swimlane-board">${columns}</div>`;
   } else {
+    const sortPresentation = {
+      "name-asc": { ariaSort: "ascending", indicator: "A–Z", nextLabel: "Sort tasks Z to A" },
+      "name-desc": { ariaSort: "descending", indicator: "Z–A", nextLabel: "Restore normal task order" },
+      default: { ariaSort: "none", indicator: "↕", nextLabel: "Sort tasks A to Z" },
+    }[state.taskSort] || { ariaSort: "none", indicator: "↕", nextLabel: "Sort tasks A to Z" };
     const rows = subs
       .map(
         (s) =>
@@ -2173,7 +2178,12 @@ function renderSolutionTasks(solutionId) {
         <thead>
           <tr>
             <th></th>
-            <th>Task</th>
+            <th aria-sort="${sortPresentation.ariaSort}">
+              <button class="task-name-sort-button" type="button" data-task-name-sort aria-label="${sortPresentation.nextLabel}" title="${sortPresentation.nextLabel}">
+                <span>Task</span>
+                <span class="task-name-sort-indicator" aria-hidden="true">${sortPresentation.indicator}</span>
+              </button>
+            </th>
             <th>Status</th>
             <th>Assignee</th>
             <th>Priority</th>
@@ -2318,14 +2328,6 @@ function bindSolutionDocumentControls() {
 }
 
 function bindSolutionTaskControls() {
-  if (els.taskSort && !els.taskSort._bound) {
-    els.taskSort.addEventListener("change", () => {
-      state.taskSort = els.taskSort.value === "name-desc" ? "name-desc" : "name-asc";
-      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-      renderSolutionTasks(solutionId);
-    });
-    els.taskSort._bound = true;
-  }
   if (els.taskViewToggle && !els.taskViewToggle._bound) {
     els.taskViewToggle.addEventListener("click", () => {
       state.taskView = state.taskView === "table" ? "swimlane" : "table";
@@ -2337,6 +2339,13 @@ function bindSolutionTaskControls() {
   }
   if (els.solutionTaskTable && !els.solutionTaskTable._bound) {
     els.solutionTaskTable.addEventListener("click", (e) => {
+      const sortButton = e.target.closest("[data-task-name-sort]");
+      if (sortButton) {
+        state.taskSort = nextTaskNameSort(state.taskSort);
+        const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+        renderSolutionTasks(solutionId);
+        return;
+      }
       const btn = e.target.closest(".edit-task-btn");
       const card = e.target.closest(".swimlane-card");
       const id = btn?.getAttribute("data-id") || card?.getAttribute("data-id");

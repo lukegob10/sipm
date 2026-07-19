@@ -115,7 +115,6 @@ export function queryShellElements() {
     solutionDocumentFile: document.getElementById("solution-document-file"),
     solutionDocumentUpload: document.getElementById("solution-document-upload"),
     solutionTaskTable: document.getElementById("solution-task-table"),
-    taskSort: document.getElementById("task-sort"),
     taskViewToggle: document.getElementById("task-view-toggle"),
     dashboardCards: document.getElementById("dashboard-cards"),
     dashboardSpaceCapacity: document.getElementById("dashboard-space-capacity"),

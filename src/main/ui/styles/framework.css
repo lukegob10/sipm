@@ -719,7 +719,6 @@ main {
     width: var(--framework-touch-target);
     overflow: hidden;
     padding-inline: 5px;
-    color: transparent;
     font-size: 0;
   }
 

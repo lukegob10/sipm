@@ -52,7 +52,7 @@ def test_listed_views_share_standard_heading_markup():
         assert 'class="panel-header"' in view_html
         assert 'class="view-heading"' in view_html
         assert 'class="view-breadcrumb"' in view_html
-        assert "<h2>" in view_html
+        assert '<h1 class="route-title">' in view_html
 
 
 def test_task_style_route_tokens_are_defined():

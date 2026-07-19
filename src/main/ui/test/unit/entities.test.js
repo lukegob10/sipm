@@ -98,7 +98,6 @@ function taskEls() {
       <input name="capacity_hours" />
     </form>
     <div id="task-form-footer" class="hidden"></div>
-    <button id="task-back-to-list" type="button"></button>
     <button id="task-submit-btn" type="submit"></button>
     <button id="delete-task" type="button"></button>
     <p id="task-form-status"></p>
@@ -109,7 +108,6 @@ function taskEls() {
   return {
     taskForm: document.querySelector("#task-form"),
     taskFormFooter: document.querySelector("#task-form-footer"),
-    taskBackToListBtn: document.querySelector("#task-back-to-list"),
     taskSubmitBtn: document.querySelector("#task-submit-btn"),
     deleteTaskBtn: document.querySelector("#delete-task"),
     taskFormStatus: document.querySelector("#task-form-status"),

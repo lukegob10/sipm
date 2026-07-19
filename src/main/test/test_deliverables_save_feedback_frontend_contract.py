@@ -80,13 +80,13 @@ def test_task_form_footer_is_managed_outside_scroll_flow():
 
     assert 'id="task-form-footer"' in html_text
     assert 'id="task-submit-btn" form="task-form"' in html_text
-    assert 'id="task-back-to-list"' in html_text
-    assert 'taskBackToListBtn: document.getElementById("task-back-to-list")' in dom_text
+    assert 'id="task-back-to-list"' not in html_text
+    assert 'taskBackToListBtn' not in dom_text
     assert 'taskFormFooter: document.getElementById("task-form-footer")' in dom_text
     assert "function setTaskFormVisibility(show) {" in app_text
     assert "return taskEntityController.setTaskFormVisibility(show);" in app_text
     assert 'els.taskFormFooter.classList.toggle("hidden", !show);' in task_text
-    assert 'els.taskBackToListBtn.addEventListener("click", hideTaskForm);' in task_text
+    assert 'taskBackToListBtn' not in task_text
     assert '#solution-modal .modal-tab[data-tab-panel="tasks"].active {' in styles_text
     assert '#solution-modal .modal-tab[data-tab-panel="tasks"] > .task-tab-scroll {' in styles_text
 
@@ -101,6 +101,16 @@ def test_escape_returns_from_task_editor_before_closing_solution_modal():
     task_escape_index = app_text.index('if (els.taskForm && !els.taskForm.classList.contains("hidden")) {')
     close_solution_index = app_text.index("closeSolutionModal();", task_escape_index)
     assert task_escape_index < close_solution_index
+
+
+def test_tasks_tab_returns_from_task_editor_to_task_list():
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'btn.dataset.tab === "tasks" && els.taskForm && !els.taskForm.classList.contains("hidden")' in app_text
+    task_tab_index = app_text.index('if (btn.dataset.tab === "tasks"')
+    hide_form_index = app_text.index("hideTaskForm();", task_tab_index)
+    set_tab_index = app_text.index("setSolutionTab(btn.dataset.tab);", task_tab_index)
+    assert task_tab_index < hide_form_index < set_tab_index
 
 
 def test_new_solution_requires_saved_parent_before_tasks_can_be_added():

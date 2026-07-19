@@ -177,10 +177,6 @@ export function createTaskEntityController({
         }
       };
     }
-    if (els.taskBackToListBtn && !els.taskBackToListBtn._bound) {
-      els.taskBackToListBtn.addEventListener("click", hideTaskForm);
-      els.taskBackToListBtn._bound = true;
-    }
     els.taskForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const data = new FormData(els.taskForm);

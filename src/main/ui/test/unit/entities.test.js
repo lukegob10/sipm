@@ -98,20 +98,24 @@ function taskEls() {
       <input name="capacity_hours" />
     </form>
     <div id="task-form-footer" class="hidden"></div>
+    <button id="task-back-to-list" type="button"></button>
     <button id="task-submit-btn" type="submit"></button>
     <button id="delete-task" type="button"></button>
     <p id="task-form-status"></p>
     <form id="solution-form"><input name="solution_id" /></form>
     <button id="show-task-form" type="button"></button>
+    <div id="solution-task-table"><div data-id="task-1"><button class="edit-task-btn" type="button"></button></div></div>
   `;
   return {
     taskForm: document.querySelector("#task-form"),
     taskFormFooter: document.querySelector("#task-form-footer"),
+    taskBackToListBtn: document.querySelector("#task-back-to-list"),
     taskSubmitBtn: document.querySelector("#task-submit-btn"),
     deleteTaskBtn: document.querySelector("#delete-task"),
     taskFormStatus: document.querySelector("#task-form-status"),
     solutionForm: document.querySelector("#solution-form"),
     showTaskFormBtn: document.querySelector("#show-task-form"),
+    solutionTaskTable: document.querySelector("#solution-task-table"),
   };
 }
 
@@ -327,6 +331,10 @@ describe("task entity controller", () => {
     expect(deps.els.taskSubmitBtn.textContent).toBe("Save Changes");
     expect(deps.resolveAssigneeSelectValue).toHaveBeenCalledWith("eng123", "Engineer One");
     expect(deps.updateTaskRepoPreview).toHaveBeenLastCalledWith("solution-1", "https://github.com/org/repo");
+
+    controller.hideTaskForm();
+    expect(deps.els.taskForm.classList.contains("hidden")).toBe(true);
+    expect(deps.els.taskFormFooter.classList.contains("hidden")).toBe(true);
   });
 });
 

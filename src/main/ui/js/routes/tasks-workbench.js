@@ -1,4 +1,5 @@
 import { statusPillMarkup } from "../utils/display-tokens.js";
+import { taskNameSortPresentation } from "../utils/task-sort.js";
 
 function esc(value) {
   return String(value || "")
@@ -37,6 +38,7 @@ export function renderTasksWorkbench(ctx) {
     rows,
     activeTaskId,
     selectedIds,
+    sort,
     formatStatus,
     summary,
   } = ctx;
@@ -68,6 +70,7 @@ export function renderTasksWorkbench(ctx) {
   }
 
   const allSelected = rows.length > 0 && rows.every((row) => selectedIds.has(row.task_id));
+  const sortPresentation = taskNameSortPresentation(sort);
   const rowsHtml = rows
     .map((row) => {
       const isSelected = selectedIds.has(row.task_id);
@@ -98,7 +101,12 @@ export function renderTasksWorkbench(ctx) {
       <thead>
         <tr>
           <th><input type="checkbox" id="scwb-select-all" ${allSelected ? "checked" : ""} /></th>
-          <th>Task</th>
+          <th aria-sort="${sortPresentation.ariaSort}">
+            <button class="task-name-sort-button task-workbench-name-sort-button" type="button" data-twb-task-sort aria-label="${sortPresentation.nextLabel}" title="${sortPresentation.nextLabel}">
+              <span>Task</span>
+              <span class="task-name-sort-indicator" aria-hidden="true">${sortPresentation.indicator}</span>
+            </button>
+          </th>
           <th>Status</th>
           <th>Assignee</th>
           <th>Due</th>

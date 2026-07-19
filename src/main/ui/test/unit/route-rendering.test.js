@@ -252,6 +252,7 @@ describe("simple route rendering", () => {
       ],
       activeTaskId: "task-1",
       selectedIds: new Set(["task-1"]),
+      sort: "name-asc",
       formatStatus: (status) => `Status: ${status}`,
       summary: { total: 1, visible: 1, overdue: 0, dueSoon: 1, blocked: 1, unassigned: 1 },
     });
@@ -259,6 +260,8 @@ describe("simple route rendering", () => {
     expect(tasksWorkbenchTable.querySelector("tr.active-row")?.dataset.id).toBe("task-1");
     expect(tasksWorkbenchTable.querySelector(".scwb-select-row")?.checked).toBe(true);
     expect(tasksWorkbenchTable.querySelector("#scwb-select-all")?.checked).toBe(true);
+    expect(tasksWorkbenchTable.querySelector("th[aria-sort='ascending']")).toBeTruthy();
+    expect(tasksWorkbenchTable.querySelector("[data-twb-task-sort]")?.textContent).toContain("A–Z");
     expect(tasksWorkbenchTable.textContent).toContain("Status: in_progress");
     expect(tasksWorkbenchTable.textContent).toContain("Blocked");
     expect(tasksWorkbenchTable.textContent).toContain("Unassigned");

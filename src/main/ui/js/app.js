@@ -59,7 +59,7 @@ import {
   updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
 } from "./routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
-import { nextTaskNameSort, sortTasksByName } from "./utils/task-sort.js";
+import { nextTaskNameSort, sortTasksByName, taskNameSortPresentation } from "./utils/task-sort.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
@@ -247,6 +247,7 @@ const state = {
   taskSort: "default",
   tasksWorkbench: {
     preset: "all",
+    sort: "default",
     filters: {
       search: "",
       project_id: "",
@@ -1645,6 +1646,7 @@ function renderTasksWorkbench() {
     rows: visibleRows,
     activeTaskId: wb.activeTaskId,
     selectedIds: wb.selected,
+    sort: wb.sort,
     formatStatus,
     summary: buildTasksWorkbenchSummary(workbenchCtx, allRows, visibleRows),
   });
@@ -2052,6 +2054,10 @@ function setTaskFormVisibility(show) {
   return taskEntityController.setTaskFormVisibility(show);
 }
 
+function hideTaskForm() {
+  return taskEntityController.hideTaskForm();
+}
+
 function setTaskCreateAvailability(solutionId) {
   return solutionEntityController.setTaskCreateAvailability(solutionId);
 }
@@ -2154,11 +2160,7 @@ function renderSolutionTasks(solutionId) {
       .join("");
     els.solutionTaskTable.innerHTML = `${hiddenNote}<div class="swimlane-board">${columns}</div>`;
   } else {
-    const sortPresentation = {
-      "name-asc": { ariaSort: "ascending", indicator: "A–Z", nextLabel: "Sort tasks Z to A" },
-      "name-desc": { ariaSort: "descending", indicator: "Z–A", nextLabel: "Restore normal task order" },
-      default: { ariaSort: "none", indicator: "↕", nextLabel: "Sort tasks A to Z" },
-    }[state.taskSort] || { ariaSort: "none", indicator: "↕", nextLabel: "Sort tasks A to Z" };
+    const sortPresentation = taskNameSortPresentation(state.taskSort);
     const rows = subs
       .map(
         (s) =>
@@ -2371,6 +2373,10 @@ function bindModalShortcuts() {
       return;
     }
     if (els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
+      if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
+        hideTaskForm();
+        return;
+      }
       closeSolutionModal();
       return;
     }
@@ -3356,6 +3362,7 @@ function persistTasksWorkbenchUiState() {
     activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX),
     {
       preset: wb.preset || "all",
+      sort: wb.sort || "default",
       filters: { ...(wb.filters || {}) },
       drawerOpen: wb.drawerOpen !== false,
       activeTaskId: wb.activeTaskId || "",
@@ -3368,6 +3375,7 @@ function restoreTasksWorkbenchUiState() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(TASKS_WORKBENCH_UI_STATE_KEY_PREFIX), {});
   const wb = state.tasksWorkbench;
   wb.preset = String(stored.preset || "all");
+  wb.sort = String(stored.sort || "default");
   wb.filters = stored.filters && typeof stored.filters === "object" ? { ...stored.filters } : {};
   wb.drawerOpen = stored.drawerOpen !== false;
   wb.activeTaskId = String(stored.activeTaskId || "");

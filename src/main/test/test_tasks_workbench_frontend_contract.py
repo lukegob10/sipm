@@ -123,6 +123,21 @@ def test_workbench_status_cells_use_shared_status_pills_and_compact_table_langua
     assert "border-radius: 5px;" in styles_text
 
 
+def test_workbench_task_header_cycles_name_sort_and_restores_default_order():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    route_text = WORKBENCH_ROUTE.read_text(encoding="utf-8")
+    filters_text = WORKBENCH_FILTERS.read_text(encoding="utf-8")
+    interactions_text = WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
+
+    assert 'sort: "default",' in app_text
+    assert 'data-twb-task-sort' in route_text
+    assert 'aria-sort="${sortPresentation.ariaSort}"' in route_text
+    assert 'wb.sort = nextTaskNameSort(wb.sort);' in interactions_text
+    assert 'const sortedVisible = sortTasksByName(visible, wb.sort);' in filters_text
+    assert 'sort: wb.sort || "default",' in app_text
+    assert 'wb.sort = String(stored.sort || "default");' in app_text
+
+
 def test_workbench_task_table_columns_are_balanced_and_centered():
     styles_text = read_ui_styles(STYLES)
 

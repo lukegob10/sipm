@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { nextTaskNameSort, sortTasksByName } from "../../js/utils/task-sort.js";
+import {
+  nextTaskNameSort,
+  sortTasksByName,
+  taskNameSortPresentation,
+} from "../../js/utils/task-sort.js";
 
 describe("solution task sorting", () => {
   const tasks = [
@@ -29,5 +33,15 @@ describe("solution task sorting", () => {
     expect(nextTaskNameSort("default")).toBe("name-asc");
     expect(nextTaskNameSort("name-asc")).toBe("name-desc");
     expect(nextTaskNameSort("name-desc")).toBe("default");
+  });
+
+  it("describes the current state and the next header action", () => {
+    expect(taskNameSortPresentation("default")).toEqual({
+      ariaSort: "none",
+      indicator: "↕",
+      nextLabel: "Sort tasks A to Z",
+    });
+    expect(taskNameSortPresentation("name-asc").ariaSort).toBe("ascending");
+    expect(taskNameSortPresentation("name-desc").nextLabel).toBe("Restore normal task order");
   });
 });

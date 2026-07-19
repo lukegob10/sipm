@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <div id="auth-screen" class="auth-screen hidden">
     <div class="auth-card">
       <div class="auth-brand">SIPM</div>
@@ -64,6 +65,9 @@
       </form>
       <div id="reset-error" class="auth-error" role="status"></div>
       <div id="reset-success" class="auth-note" role="status"></div>
+      <div class="auth-links auth-links-start">
+        <a id="reset-back-link" class="text-link" href="/project-manager/">Back to sign in</a>
+      </div>
     </div>
   </div>
 
@@ -90,7 +94,7 @@
   </div>
 
   <div id="app-shell" class="hidden">
-    <aside class="sidebar">
+    <aside id="app-navigation" class="sidebar" aria-label="Primary navigation">
       <div class="brand" aria-label="SIPM">
         <span class="brand-mark" aria-hidden="true">
           <svg class="brand-mark-svg" viewBox="0 0 32 32" focusable="false">
@@ -110,7 +114,7 @@
       </div>
       <div id="nav-work-section" class="nav-group nav-section">
         <p class="nav-label">Work</p>
-        <button type="button" data-view="master" class="nav-btn active">Deliverables</button>
+        <button type="button" data-view="master" class="nav-btn active" aria-current="page">Deliverables</button>
         <button type="button" data-view="tasks-workbench" class="nav-btn">Tasks</button>
       </div>
       <div id="nav-insight-section" class="nav-group nav-section">
@@ -120,7 +124,7 @@
         <button type="button" data-view="program-dashboard" class="nav-btn">Program Dashboard</button>
         <button type="button" data-view="kanban" class="nav-btn">Kanban</button>
         <button type="button" data-view="calendar" class="nav-btn">Calendar</button>
-        <button type="button" data-view="gantt" class="nav-btn">Gantt</button>
+        <button type="button" data-view="gantt" class="nav-btn">Roadmap</button>
       </div>
       <div id="nav-admin-section" class="nav-group nav-section">
         <p class="nav-label">Admin</p>
@@ -129,11 +133,28 @@
         <button type="button" data-view="analytics" class="nav-btn">Usage Analytics</button>
       </div>
     </aside>
+    <button id="shell-nav-backdrop" class="shell-nav-backdrop hidden" type="button" aria-label="Close navigation"></button>
 
-    <main>
+    <main id="main-content" tabindex="-1">
       <header class="topbar">
-        <div class="status">
-          <span id="connection-status" class="pill">Loading…</span>
+        <div class="topbar-context">
+          <button
+            id="shell-nav-toggle"
+            class="secondary shell-nav-toggle"
+            type="button"
+            aria-label="Open navigation"
+            aria-controls="app-navigation"
+            aria-expanded="false"
+          >
+            <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16"></path><path d="M4 12h16"></path><path d="M4 17h16"></path></svg>
+          </button>
+          <div class="topbar-route-context">
+            <span class="topbar-product">SIPM</span>
+            <strong id="current-route-label">Deliverables</strong>
+          </div>
+          <div class="status">
+            <span id="connection-status" class="pill">Loading…</span>
+          </div>
         </div>
         <a id="public-login-link" class="public-login-link" href="/" aria-label="Log in to SIPM">Log in</a>
         <div class="topbar-actions">
@@ -207,18 +228,33 @@
               </div>
             </div>
           </div>
-          <span id="current-user" class="pill muted"></span>
-          <button
-            id="completed-visibility-toggle"
-            class="secondary"
-            type="button"
-            aria-pressed="false"
-            title="Completed and abandoned work is hidden from operational views."
-          >
-            Show Completed: Off
-          </button>
-          <button type="button" id="logout-btn" class="secondary">Sign out</button>
-          <button type="button" id="theme-toggle" class="secondary">Light Mode</button>
+          <div id="account-menu-shell" class="account-menu-shell">
+            <button
+              id="account-menu-toggle"
+              class="secondary account-menu-toggle"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="account-menu-panel"
+            >
+              Account
+            </button>
+            <div id="account-menu-panel" class="account-menu-panel" role="menu" aria-label="Account and display settings">
+              <span id="current-user" class="pill muted" role="presentation"></span>
+              <button
+                id="completed-visibility-toggle"
+                class="secondary"
+                type="button"
+                role="menuitem"
+                aria-pressed="false"
+                title="Completed and abandoned work is hidden from operational views."
+              >
+                Show Completed: Off
+              </button>
+              <button type="button" id="theme-toggle" class="secondary" role="menuitem">Light Mode</button>
+              <button type="button" id="logout-btn" class="secondary" role="menuitem">Sign out</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -227,7 +263,7 @@
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Work / Deliverables</p>
-              <h2>Deliverables</h2>
+              <h1 class="route-title">Deliverables</h1>
             </div>
           </div>
           <div class="panel-toolbar">
@@ -272,8 +308,8 @@
         <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Insight / Gantt</p>
-            <h2>Project Roadmap</h2>
+              <p class="view-breadcrumb">Insight / Roadmap</p>
+              <h1 class="route-title">Roadmap</h1>
             </div>
             <div class="gantt-controls filters compact">
               <label>From
@@ -293,11 +329,11 @@
       </section>
 
       <section id="view-tasks-workbench" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Work / Tasks</p>
-              <h2>Tasks Workbench</h2>
+              <h1 class="route-title">Tasks</h1>
             </div>
             <div class="panel-actions">
               <button type="button" id="tasks-workbench-clear-filters" class="secondary">Clear Filters</button>
@@ -481,7 +517,7 @@
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / Dashboard</p>
-              <h2>Dashboard</h2>
+              <h1 class="route-title">Dashboard</h1>
             </div>
           </div>
           <div class="dashboard-stack">
@@ -501,7 +537,7 @@
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / Program Dashboard</p>
-              <h2>Program Dashboard</h2>
+              <h1 class="route-title">Program Dashboard</h1>
             </div>
           </div>
           <div id="program-dashboard-root"></div>
@@ -513,7 +549,7 @@
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Insight / PM Command Center</p>
-              <h2>PM Command Center</h2>
+              <h1 class="route-title">PM Command Center</h1>
             </div>
             <button id="pm-dashboard-report-download" class="pm-report-download" type="button" data-pm-dashboard-action="download-report">
               <span aria-hidden="true">PDF</span>
@@ -563,11 +599,11 @@
       </section>
 
       <section id="view-analytics" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Usage Analytics</p>
-              <h2>Usage Analytics</h2>
+              <h1 class="route-title">Usage Analytics</h1>
             </div>
           </div>
           <div id="analytics-root"></div>
@@ -968,8 +1004,8 @@
         <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
-              <p class="view-breadcrumb">Work / Kanban</p>
-              <h2>Kanban</h2>
+              <p class="view-breadcrumb">Insight / Kanban</p>
+              <h1 class="route-title">Kanban</h1>
             </div>
             <div class="filters compact">
               <label>Project
@@ -990,8 +1026,8 @@
           <div class="panel product-route-panel">
             <div class="panel-header">
               <div class="view-heading">
-                <p class="view-breadcrumb">Work / Calendar</p>
-                <h2>Calendar</h2>
+                <p class="view-breadcrumb">Insight / Calendar</p>
+                <h1 class="route-title">Calendar</h1>
               </div>
               <div class="calendar-controls filters compact">
                 <label>Project
@@ -1014,15 +1050,16 @@
               </div>
             </div>
           <div id="calendar-grid" class="calendar"></div>
+          <div id="calendar-agenda" class="calendar-agenda" aria-label="Calendar agenda"></div>
         </div>
       </section>
 
       <section id="view-team-capacity" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Team Capacity</p>
-              <h2>Team Capacity</h2>
+              <h1 class="route-title">Team Capacity</h1>
             </div>
           </div>
           <div class="stacked">
@@ -1065,11 +1102,11 @@
       </section>
 
       <section id="view-spaces" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Space Governance</p>
-              <h2>Space Governance</h2>
+              <h1 class="route-title">Space Governance</h1>
             </div>
           </div>
           <div id="space-governance-shell" class="space-governance-shell"></div>
@@ -1077,11 +1114,11 @@
       </section>
 
       <section id="view-access" class="view">
-        <div class="panel">
+        <div class="panel product-route-panel">
           <div class="panel-header">
             <div class="view-heading">
               <p class="view-breadcrumb">Admin / Access</p>
-              <h2>Access</h2>
+              <h1 class="route-title">Access</h1>
             </div>
           </div>
           <p class="muted">Platform access is managed inside the Space Governance hub.</p>

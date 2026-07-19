@@ -57,12 +57,12 @@
 }
 
 #view-team-capacity {
-  --team-capacity-field-gap: 1cm;
+  --team-capacity-field-gap: 12px;
   --team-capacity-action-gap: 8px;
-  --team-capacity-field-min: 220px;
-  --team-capacity-field-max: 360px;
-  --team-capacity-btn-min: 150px;
-  --team-capacity-btn-max: 240px;
+  --team-capacity-field-min: 180px;
+  --team-capacity-field-max: 320px;
+  --team-capacity-btn-min: 0;
+  --team-capacity-btn-max: none;
 }
 
 #view-team-capacity #capacity-user-form.form.compact {

@@ -1,8 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import { openCalendarModal } from "../../js/routes/calendar.js";
+import { openCalendarModal, renderCalendar } from "../../js/routes/calendar.js";
 
 describe("calendar route", () => {
+  it("renders an agenda representation for compact viewports", () => {
+    document.body.innerHTML = `<div id="calendar-grid"></div><div id="calendar-agenda"></div>`;
+    const ctx = {
+      state: { calendarMonth: "2026-05" },
+      els: {
+        calendarGrid: document.getElementById("calendar-grid"),
+        calendarAgenda: document.getElementById("calendar-agenda"),
+      },
+      filteredSolutionsForCalendar: () => [{
+        solution_id: "solution-1",
+        solution_name: "May Launch",
+        due_date: "2026-05-14",
+        status: "active",
+      }],
+      filteredTasksForCalendar: () => [],
+      formatStatus: (status) => status,
+    };
+
+    renderCalendar(ctx);
+
+    expect(ctx.els.calendarAgenda.textContent).toContain("May Launch");
+    expect(ctx.els.calendarAgenda.querySelector("[data-calendar-agenda-day='14']")).not.toBeNull();
+  });
+
   it("opens day modal when restored calendar month is stored as a string", () => {
     document.body.innerHTML = `
       <div id="calendar-modal" class="hidden"></div>

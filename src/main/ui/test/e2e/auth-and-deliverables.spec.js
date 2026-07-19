@@ -35,6 +35,14 @@ async function loadLocalAuthedApp(page) {
   return { programId: (await program.json()).program_id, programName };
 }
 
+test("password recovery provides a visible return to sign in", async ({ page }) => {
+  await page.goto("/project-manager/reset-password");
+  await expect(page.locator("#reset-screen")).toBeVisible();
+  await expect(page.locator("#reset-back-link")).toHaveText("Back to sign in");
+  await page.locator("#reset-back-link").click();
+  await expect(page.locator("#auth-screen")).toBeVisible();
+});
+
 
 test("local login reaches deliverables and creates a project", async ({ page }) => {
   const suffix = Date.now().toString();

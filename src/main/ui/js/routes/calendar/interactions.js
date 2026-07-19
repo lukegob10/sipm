@@ -152,6 +152,12 @@ export function createCalendarRouteController({
         if (Number.isFinite(day)) openCalendarModal(day);
       });
     }
+    els.calendarAgenda?.addEventListener("click", (event) => {
+      const dayButton = event.target.closest("[data-calendar-agenda-day]");
+      if (!dayButton) return;
+      const day = Number(dayButton.getAttribute("data-calendar-agenda-day"));
+      if (Number.isFinite(day)) openCalendarModal(day);
+    });
     els.calendarModalClose?.addEventListener("click", closeCalendarModal);
     els.calendarModalList?.addEventListener("click", (e) => {
       const actionEl = e.target.closest("[data-calendar-action]");

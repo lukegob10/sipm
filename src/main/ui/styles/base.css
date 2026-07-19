@@ -926,11 +926,13 @@ label.wide {
   gap: 6px;
   width: 100%;
 }
+.panel-header h1,
 .panel-header h2,
 .panel h3,
 .panel h4 {
   margin: 0;
 }
+.panel-header h1,
 .panel-header h2 {
   font-size: var(--view-title-font-size);
   line-height: var(--view-title-line-height);

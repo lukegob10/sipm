@@ -4,6 +4,7 @@ import {
   parseDateOnly,
   todayDayNumber,
 } from "../utils/date-only.js";
+import { renderRouteState } from "../ui/route-state.js";
 
 const LONG_RANGE_DAY_WIDTH = 3.5;
 const DEFAULT_LEFT_RAIL_WIDTH = 620;
@@ -616,14 +617,22 @@ export function renderGantt(ctx) {
   });
 
   if (!windowRange) {
-    els.ganttChart.innerHTML = `<div class="gantt-empty">Select a valid Gantt date range.</div>`;
+    els.ganttChart.innerHTML = renderRouteState({
+      kicker: "Roadmap window",
+      title: "Choose a valid date range",
+      message: "Set both From and To dates to build the roadmap.",
+    });
     return;
   }
 
   const scale = resolveGanttTimelineScale(windowRange, measureElementWidth(els.ganttChart), currentLeftRailWidth());
   const trackWidth = scale.trackWidth;
   if (!rows.length) {
-    els.ganttChart.innerHTML = `<div class="gantt-empty">No scheduled items overlap ${esc(windowRange.from)} - ${esc(windowRange.to)}.</div>`;
+    els.ganttChart.innerHTML = renderRouteState({
+      kicker: "No scheduled work",
+      title: "This roadmap window is clear",
+      message: `No scheduled items overlap ${windowRange.from} – ${windowRange.to}.`,
+    });
     return;
   }
 

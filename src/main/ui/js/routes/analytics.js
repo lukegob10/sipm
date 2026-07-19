@@ -1,3 +1,5 @@
+import { renderRouteState } from "../ui/route-state.js";
+
 const analyticsState = {
   days: 7,
   scope: "current",
@@ -145,23 +147,23 @@ export function renderAnalytics(ctx) {
   bindAnalyticsControls(root, ctx);
 
   if (!ctx.usageAnalyticsEnabled?.()) {
-    root.innerHTML = `
-      <div class="analytics-empty">
-        <h3>Usage Analytics Disabled</h3>
-        <p class="muted">Enable <code>SIPM_USAGE_ANALYTICS_ENABLED=true</code> and apply the analytics schema migration before using this dashboard.</p>
-      </div>
-    `;
+    root.innerHTML = renderRouteState({
+      kind: "restricted",
+      kicker: "Feature unavailable",
+      title: "Usage analytics is disabled",
+      message: "Enable SIPM_USAGE_ANALYTICS_ENABLED and apply the analytics schema before using this dashboard.",
+    });
     ctx.noteViewRendered?.(performance.now() - renderStartedAt);
     return;
   }
 
   if (!ctx.state?.activeSpace?.is_global_admin) {
-    root.innerHTML = `
-      <div class="analytics-empty">
-        <h3>Restricted View</h3>
-        <p class="muted">Usage analytics is limited to global admins.</p>
-      </div>
-    `;
+    root.innerHTML = renderRouteState({
+      kind: "restricted",
+      kicker: "Restricted view",
+      title: "Global admin access required",
+      message: "Usage analytics is limited to global administrators.",
+    });
     ctx.noteViewRendered?.(performance.now() - renderStartedAt);
     return;
   }

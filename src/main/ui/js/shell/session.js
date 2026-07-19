@@ -409,6 +409,10 @@ export function createSessionController({
     els.resetLink?.addEventListener("click", () => {
       window.location.href = buildAppUrl("/reset-password");
     });
+    els.resetBackLink?.addEventListener("click", (event) => {
+      event.preventDefault();
+      window.location.href = buildAppUrl("/");
+    });
 
     els.loginForm?.addEventListener("submit", async (event) => {
       event.preventDefault();

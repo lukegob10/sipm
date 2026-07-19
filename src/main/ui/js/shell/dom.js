@@ -196,7 +196,6 @@ export function queryShellElements() {
     phasesTable: document.getElementById("phases-table"),
     taskForm: document.getElementById("task-form"),
     taskFormFooter: document.getElementById("task-form-footer"),
-    taskBackToListBtn: document.getElementById("task-back-to-list"),
     taskSubmitBtn: document.getElementById("task-submit-btn"),
     taskFormStatus: document.getElementById("task-form-status"),
     taskRepoPreview: document.getElementById("task-repo-preview"),

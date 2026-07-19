@@ -2100,6 +2100,9 @@ function bindSolutionTabs() {
   tabs.addEventListener("click", (e) => {
     const btn = e.target.closest(".tab");
     if (!btn) return;
+    if (btn.dataset.tab === "tasks" && els.taskForm && !els.taskForm.classList.contains("hidden")) {
+      hideTaskForm();
+    }
     setSolutionTab(btn.dataset.tab);
   });
   tabs._bound = true;

@@ -105,6 +105,17 @@ def test_new_solution_requires_saved_parent_before_tasks_can_be_added():
     assert 'alert("Save the solution before adding tasks.");' not in js_text
 
 
+def test_solution_task_table_sorts_from_the_task_header_without_a_dropdown():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+
+    assert 'id="task-sort"' not in html_text
+    assert 'class="task-sort-control"' not in html_text
+    assert 'data-task-name-sort' in app_text
+    assert 'aria-sort="${sortPresentation.ariaSort}"' in app_text
+    assert 'state.taskSort = nextTaskNameSort(state.taskSort);' in app_text
+
+
 def test_solution_form_uses_inline_feedback_for_required_project_and_failures():
     solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
     solution_section = solution_text.split("function bindSolutionForm() {", 1)[1].split("return {", 1)[0]

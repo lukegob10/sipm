@@ -126,6 +126,29 @@ test("desktop route frames remain aligned at compact and wide widths", async ({ 
   }
 });
 
+test("ultrawide shell keeps only half of the former outer gutter", async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 900 });
+  await loadLocalAuthedApp(page);
+
+  const layout = await page.evaluate(() => {
+    const sidebarRect = document.querySelector("#app-navigation").getBoundingClientRect();
+    const mainRect = document.querySelector("main").getBoundingClientRect();
+    const routePanelRect = document.querySelector(".view.active > .product-route-panel").getBoundingClientRect();
+    return {
+      leftGutter: mainRect.left - sidebarRect.right,
+      rightGutter: window.innerWidth - mainRect.right,
+      mainWidth: mainRect.width,
+      routePanelWidth: routePanelRect.width,
+    };
+  });
+
+  expect(layout.leftGutter).toBeCloseTo(100, 0);
+  expect(layout.rightGutter).toBeCloseTo(100, 0);
+  expect(layout.mainWidth).toBeCloseTo(2120, 0);
+  expect(layout.routePanelWidth).toBeCloseTo(2120 - 32, 0);
+  await expectNoDocumentOverflow(page);
+});
+
 test("desktop dashboard fills the viewport with a 55/45 priority split", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await loadLocalAuthedApp(page);

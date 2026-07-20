@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">SIPM</title>
+  <defs>
+    <linearGradient id="tile" x1="8" y1="5" x2="56" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B2B3E"/>
+      <stop offset="1" stop-color="#0D151E"/>
+    </linearGradient>
+    <linearGradient id="thread" x1="50" y1="14" x2="14" y2="51" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8D9FA"/>
+      <stop offset="0.52" stop-color="#82B3E6"/>
+      <stop offset="1" stop-color="#5F9FE0"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#tile)" stroke="#38516B" stroke-width="2"/>
+  <path d="M49 15H24.5C18.7 15 15 18.8 15 24s3.7 9 9.5 9h15C45.3 33 49 36.8 49 42s-3.7 9-9.5 9H15" fill="none" stroke="url(#thread)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="49" cy="15" r="4.25" fill="#0D151E" stroke="#B8D9FA" stroke-width="2.5"/>
+  <circle cx="32" cy="33" r="3.6" fill="#F4F8FC" stroke="#0D151E" stroke-width="2"/>
+  <circle cx="15" cy="51" r="4.25" fill="#0D151E" stroke="#5F9FE0" stroke-width="2.5"/>
+</svg>

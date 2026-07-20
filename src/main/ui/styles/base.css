@@ -400,24 +400,34 @@ body {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.brand-mark-frame {
-  stroke: var(--accent-2);
-  stroke-width: 1.7;
+.brand-thread-highlight {
+  stop-color: var(--text-strong);
 }
-.brand-mark-line {
-  stroke: var(--muted);
-  stroke-width: 1.7;
+.brand-thread-mid {
+  stop-color: var(--accent-2);
 }
-.brand-mark-accent {
-  stroke: var(--nav-active-inset);
+.brand-thread-end {
+  stop-color: var(--accent-strong);
+}
+.brand-mark-thread {
+  fill: none;
+  stroke: url("#brand-thread-gradient");
+  stroke-width: 6;
+}
+.brand-mark-node {
+  fill: var(--surface-raised);
+  stroke-width: 2.5;
+}
+.brand-mark-node-start {
+  stroke: var(--text-strong);
+}
+.brand-mark-node-core {
+  fill: var(--text-strong);
+  stroke: var(--surface-raised);
   stroke-width: 2;
 }
-.brand-mark-dot {
-  fill: var(--muted);
-  stroke: none;
-}
-.brand-mark-dot.accent {
-  fill: var(--accent-2);
+.brand-mark-node-end {
+  stroke: var(--accent-strong);
 }
 .brand-text {
   display: grid;
@@ -487,8 +497,8 @@ body {
     linear-gradient(180deg, rgba(0, 58, 114, 0.1), rgba(0, 58, 114, 0.02)),
     var(--panel);
 }
-.theme-light .brand-mark-dot.accent {
-  fill: var(--accent-strong);
+.theme-light .brand-mark-node {
+  fill: var(--panel);
 }
 .theme-light .nav-section {
   background: var(--panel-soft);

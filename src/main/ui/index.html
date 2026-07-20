@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SIPM</title>
-  <link rel="icon" type="image/x-icon" href="favicon.ico" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -97,15 +97,18 @@
     <aside id="app-navigation" class="sidebar" aria-label="Primary navigation">
       <div class="brand" aria-label="SIPM">
         <span class="brand-mark" aria-hidden="true">
-          <svg class="brand-mark-svg" viewBox="0 0 32 32" focusable="false">
-            <path class="brand-mark-frame" d="M8 7h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"></path>
-            <path class="brand-mark-line" d="M11 13h10"></path>
-            <path class="brand-mark-line" d="M11 18h7"></path>
-            <path class="brand-mark-accent" d="M22 13v9"></path>
-            <path class="brand-mark-accent" d="M18 22h8"></path>
-            <circle class="brand-mark-dot" cx="11" cy="13" r="1.6"></circle>
-            <circle class="brand-mark-dot" cx="11" cy="18" r="1.6"></circle>
-            <circle class="brand-mark-dot accent" cx="22" cy="22" r="1.8"></circle>
+          <svg class="brand-mark-svg" viewBox="0 0 64 64" focusable="false">
+            <defs>
+              <linearGradient id="brand-thread-gradient" x1="49" y1="15" x2="15" y2="51" gradientUnits="userSpaceOnUse">
+                <stop class="brand-thread-highlight" offset="0"></stop>
+                <stop class="brand-thread-mid" offset="0.52"></stop>
+                <stop class="brand-thread-end" offset="1"></stop>
+              </linearGradient>
+            </defs>
+            <path class="brand-mark-thread" d="M49 15H24.5C18.7 15 15 18.8 15 24s3.7 9 9.5 9h15C45.3 33 49 36.8 49 42s-3.7 9-9.5 9H15"></path>
+            <circle class="brand-mark-node brand-mark-node-start" cx="49" cy="15" r="4.25"></circle>
+            <circle class="brand-mark-node brand-mark-node-core" cx="32" cy="33" r="3.6"></circle>
+            <circle class="brand-mark-node brand-mark-node-end" cx="15" cy="51" r="4.25"></circle>
           </svg>
         </span>
         <span class="brand-text">

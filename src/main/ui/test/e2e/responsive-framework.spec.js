@@ -108,6 +108,15 @@ test("desktop route frames remain aligned at compact and wide widths", async ({ 
 
   for (const width of [1024, 1440]) {
     await page.setViewportSize({ width, height: 900 });
+    const mainPadding = await page.locator("main").evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return {
+        left: styles.paddingLeft,
+        right: styles.paddingRight,
+      };
+    });
+    expect(mainPadding).toEqual({ left: "12px", right: "20px" });
+
     for (const [view, title] of routes) {
       await page.locator(`.nav-btn[data-view="${view}"]`).click();
       await expect(page.locator(`#view-${view} .route-title`)).toHaveText(title);

@@ -521,7 +521,7 @@ body {
 }
 
 main {
-  padding: 20px;
+  padding: 20px 20px 20px 12px;
   min-width: 0;
 }
 

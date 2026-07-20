@@ -6,7 +6,6 @@
 
 :root {
   --framework-sidebar-width: 240px;
-  --framework-content-max: 2120px;
   --framework-touch-target: 42px;
   --framework-appbar-height: 58px;
 }
@@ -58,8 +57,6 @@ body {
 
 main {
   width: 100%;
-  max-width: var(--framework-content-max);
-  margin-inline: auto;
   box-sizing: border-box;
 }
 
@@ -128,8 +125,6 @@ main {
 
 .view > .product-route-panel {
   width: 100%;
-  max-width: var(--framework-content-max);
-  margin-inline: auto;
   padding: var(--route-panel-padding);
   box-sizing: border-box;
   border-radius: var(--route-surface-radius);

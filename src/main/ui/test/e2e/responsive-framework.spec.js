@@ -126,7 +126,7 @@ test("desktop route frames remain aligned at compact and wide widths", async ({ 
   }
 });
 
-test("ultrawide shell keeps only half of the former outer gutter", async ({ page }) => {
+test("ultrawide shell and dashboard use the full workspace width", async ({ page }) => {
   await page.setViewportSize({ width: 2560, height: 900 });
   await loadLocalAuthedApp(page);
 
@@ -142,10 +142,16 @@ test("ultrawide shell keeps only half of the former outer gutter", async ({ page
     };
   });
 
-  expect(layout.leftGutter).toBeCloseTo(100, 0);
-  expect(layout.rightGutter).toBeCloseTo(100, 0);
-  expect(layout.mainWidth).toBeCloseTo(2120, 0);
-  expect(layout.routePanelWidth).toBeCloseTo(2120 - 32, 0);
+  expect(layout.leftGutter).toBeCloseTo(0, 0);
+  expect(layout.rightGutter).toBeCloseTo(0, 0);
+  expect(layout.mainWidth).toBeCloseTo(2560 - 240, 0);
+  expect(layout.routePanelWidth).toBeCloseTo(2560 - 240 - 32, 0);
+
+  await page.locator('.nav-btn[data-view="dashboard"]').click();
+  const dashboardWidth = await page.locator("#view-dashboard > .panel").evaluate((element) => (
+    element.getBoundingClientRect().width
+  ));
+  expect(dashboardWidth).toBeCloseTo(layout.routePanelWidth, 0);
   await expectNoDocumentOverflow(page);
 });
 

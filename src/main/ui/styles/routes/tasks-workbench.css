@@ -162,7 +162,7 @@
 .task-workbench-context {
   display: block;
   margin: 0;
-  color: var(--muted);
+  color: var(--text);
   font-size: var(--task-workbench-row-font-size, var(--font-size-table));
   font-weight: var(--task-workbench-row-font-weight, 500);
   letter-spacing: 0;
@@ -203,6 +203,18 @@
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 0.12em;
+}
+
+.task-workbench-context-link[data-twb-action="open-project"],
+.task-workbench-context-link[data-twb-context-action="open-project"] {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.task-workbench-context-link[data-twb-action="open-solution"],
+.task-workbench-context-link[data-twb-context-action="open-solution"] {
+  color: color-mix(in srgb, var(--deliverable-solution-accent) 64%, var(--text-strong));
+  font-weight: 650;
 }
 
 .task-workbench-status-cell {
@@ -426,6 +438,7 @@
   font-weight: 650;
   letter-spacing: 0;
   text-align: center;
+  color: color-mix(in srgb, var(--deliverable-solution-accent) 64%, var(--text-strong));
 }
 
 #view-tasks-workbench .task-workbench-table tbody td:nth-child(2) strong {
@@ -434,7 +447,7 @@
 
 #view-tasks-workbench .task-workbench-table .task-workbench-context-cell .task-workbench-context {
   margin-inline: auto;
-  font-size: var(--font-size-label);
+  font-size: var(--task-workbench-row-font-size);
   font-weight: var(--task-workbench-row-font-weight);
   text-align: center;
 }

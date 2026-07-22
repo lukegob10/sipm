@@ -37,10 +37,15 @@ def _preference_payload(preference: UserPreference | None) -> UserPreferenceRead
 def _assigned_to_user(user: User):
     soeid = str(user.soeid or "").strip().lower()
     display_name = str(user.display_name or "").strip().lower()
-    linked_identity = func.lower(Task.assignee_user_soeid) == soeid
+    normalized_linked_soeid = func.lower(func.trim(Task.assignee_user_soeid))
+    normalized_legacy_assignee = func.lower(func.trim(Task.assignee))
+    linked_identity = normalized_linked_soeid == soeid
     legacy_identity = and_(
-        Task.assignee_user_soeid.is_(None),
-        func.lower(Task.assignee) == display_name,
+        or_(
+            Task.assignee_user_soeid.is_(None),
+            func.trim(Task.assignee_user_soeid) == "",
+        ),
+        normalized_legacy_assignee.in_((display_name, soeid)),
     )
     return or_(linked_identity, legacy_identity)
 

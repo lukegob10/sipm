@@ -160,6 +160,10 @@ def update_task(
         update_data["capacity_hours"] = 0
     if "blocked" in update_data and update_data["blocked"] is None:
         update_data["blocked"] = False
+    if "assignee" in update_data:
+        update_data["assignee"] = normalize_str(update_data["assignee"])
+    if "assignee_user_soeid" in update_data:
+        update_data["assignee_user_soeid"] = normalize_str(update_data["assignee_user_soeid"]) or None
     if update_data.get("blocked") is False:
         update_data["blocker_note"] = None
     if "github_repo_url" in update_data:

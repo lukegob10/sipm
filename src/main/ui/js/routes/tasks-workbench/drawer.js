@@ -310,7 +310,7 @@ export async function saveTasksWorkbenchForm(ctx) {
     setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Select a task first.", "error");
     return;
   }
-  const assigneeUserId = data.get("assignee") || "";
+  const assigneeUserId = String(data.get("assignee_user_soeid") || "").trim();
   const assigneeUser = findUserBySoeid(assigneeUserId);
   const payload = {
     task_name: data.get("task_name") || "",
@@ -319,7 +319,7 @@ export async function saveTasksWorkbenchForm(ctx) {
     status: data.get("status") || "to_do",
     priority: Number(data.get("priority") || 3),
     due_date: data.get("due_date") || null,
-    assignee: assigneeUser?.display_name || "",
+    assignee: assigneeUser?.display_name || assigneeUserId,
     assignee_user_soeid: assigneeUserId || null,
     blocked: !!data.get("blocked"),
     blocker_note: data.get("blocker_note") || null,

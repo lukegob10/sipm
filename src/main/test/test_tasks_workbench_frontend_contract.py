@@ -75,10 +75,14 @@ def test_workbench_editor_uses_centered_modal_shell():
     assert 'id="tasks-workbench-form" class="form compact"' in html_text
     assert 'textarea name="description"' in html_text
     assert 'textarea name="acceptance_criteria"' in html_text
+    assert '<label>Assignee SOEID' in html_text
+    assert 'input type="text" name="assignee_user_soeid"' in html_text
     assert 'setValue("description", task.description || "");' in drawer_text
     assert 'setValue("acceptance_criteria", task.acceptance_criteria || task.done_criteria || "");' in drawer_text
     assert 'description: data.get("description") || null,' in drawer_text
     assert 'acceptance_criteria: data.get("acceptance_criteria") || null,' in drawer_text
+    assert 'String(data.get("assignee_user_soeid") || "").trim()' in drawer_text
+    assert 'assignee_user_soeid: assigneeUserId || null,' in drawer_text
     assert 'form="tasks-workbench-form">Save Changes</button>' in html_text
     assert "task-workbench-layout-drawer-hidden" not in html_text
     assert 'els.tasksWorkbenchDrawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");' in drawer_text

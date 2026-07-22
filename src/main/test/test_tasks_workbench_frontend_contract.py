@@ -108,7 +108,12 @@ def test_workbench_context_links_use_compact_local_styling():
     assert ".task-workbench-context-source {" in text
     assert '.task-workbench-context-link[data-twb-action="open-project"]' in text
     assert '.task-workbench-context-link[data-twb-action="open-solution"]' in text
-    assert "color: color-mix(in srgb, var(--deliverable-solution-accent) 64%, var(--text-strong));" in text
+    solution_link_block = text[
+        text.index('.task-workbench-context-link[data-twb-action="open-solution"]'):
+        text.index(".task-workbench-status-cell {")
+    ]
+    assert "color: var(--text);" in solution_link_block
+    assert "deliverable-solution-accent" not in solution_link_block
 
 
 def test_workbench_status_cells_use_shared_status_pills_and_compact_table_language():

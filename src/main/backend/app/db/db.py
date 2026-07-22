@@ -99,6 +99,12 @@ def _ensure_session_local():
     return SessionLocal
 
 
+def get_engine():
+    """Return the initialized application engine for operational tooling."""
+    _ensure_session_local()
+    return engine
+
+
 def init_db(create_schema: bool = False) -> None:
     """
     Optional DB bootstrap helper for TA/Oracle deployments.

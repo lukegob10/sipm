@@ -171,6 +171,14 @@ async def test_task_crud_normalizes_names_and_clears_stale_blocker_note(client, 
     assert unblocked.json()["blocked"] is False
     assert unblocked.json()["blocker_note"] is None
 
+    reassigned = await client.patch(
+        f"/project-manager/api/tasks/{task['task_id']}",
+        json={"assignee": "  Test User  ", "assignee_user_soeid": " TU12345 "},
+    )
+    assert reassigned.status_code == 200, reassigned.text
+    assert reassigned.json()["assignee"] == "Test User"
+    assert reassigned.json()["assignee_user_soeid"] == "TU12345"
+
 
 @pytest.mark.anyio
 async def test_task_repo_override_inherits_overrides_and_clears(client, db_sessionmaker):

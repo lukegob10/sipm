@@ -154,3 +154,54 @@ async def test_my_work_is_assigned_active_context_with_private_queue_order(clien
     assert inventory[1]["solution_attachment_count"] == 1
     assert inventory[1]["task_override_count"] == 0
     assert inventory[1]["program_names"] == ["Developer Experience"]
+
+
+@pytest.mark.anyio
+async def test_my_work_matches_normalized_linked_and_legacy_soeids(client, db_sessionmaker):
+    with db_sessionmaker() as session:
+        space = Space(space_id="test-space", name="Test Space", slug="test-space")
+        program = Program(program_id="program-1", space_id=space.space_id, program_name="Program")
+        project = Project(
+            project_id="project-1",
+            space_id=space.space_id,
+            program_id=program.program_id,
+            project_name="Project",
+            status=ProjectStatus.active,
+            sponsor="Test User",
+        )
+        solution = Solution(
+            solution_id="solution-1",
+            space_id=space.space_id,
+            project_id=project.project_id,
+            solution_name="Solution",
+            status=SolutionStatus.active,
+            rag_status=RagStatus.green,
+            owner="Test User",
+        )
+        linked = Task(
+            task_id="task-linked",
+            space_id=space.space_id,
+            project_id=project.project_id,
+            solution_id=solution.solution_id,
+            task_name="Linked identity",
+            status=TaskStatus.to_do,
+            assignee="Test User",
+            assignee_user_soeid=" TU12345 ",
+        )
+        legacy = Task(
+            task_id="task-legacy",
+            space_id=space.space_id,
+            project_id=project.project_id,
+            solution_id=solution.solution_id,
+            task_name="Legacy identity",
+            status=TaskStatus.to_do,
+            assignee=" TU12345 ",
+            assignee_user_soeid=None,
+        )
+        session.add_all([space, program, project, solution, linked, legacy])
+        session.commit()
+
+    response = await client.get("/project-manager/api/my-work", headers={"X-Space-Id": "test-space"})
+
+    assert response.status_code == 200
+    assert {record["task"]["task_id"] for record in response.json()} == {"task-linked", "task-legacy"}

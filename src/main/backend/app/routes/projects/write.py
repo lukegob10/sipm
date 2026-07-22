@@ -28,6 +28,7 @@ from .common import (
     _project_query,
     _publish_project_deletion,
     _publish_project_mutation,
+    _resolve_project_owner,
     _resolve_project_sponsor,
 )
 
@@ -92,6 +93,11 @@ def create_project(
         payload.sponsor_user_soeid,
         current_user,
     )
+    owner, owner_user_soeid = _resolve_project_owner(
+        payload.owner,
+        payload.owner_user_soeid,
+        current_user,
+    )
 
     project = Project(
         space_id=space_ctx.space_id,
@@ -102,6 +108,8 @@ def create_project(
         success_criteria=payload.success_criteria,
         sponsor=sponsor,
         sponsor_user_soeid=sponsor_user_soeid,
+        owner=owner,
+        owner_user_soeid=owner_user_soeid,
         strategic_objective=payload.strategic_objective,
         priority=payload.priority if payload.priority is not None else 3,
     )
@@ -166,6 +174,14 @@ def update_project(
     update_data = payload.model_dump(exclude_unset=True)
     if "project_name" in update_data:
         update_data["project_name"] = _required_project_name(update_data["project_name"])
+    if "owner" in update_data or "owner_user_soeid" in update_data:
+        owner, owner_user_soeid = _resolve_project_owner(
+            update_data.get("owner", project.owner),
+            update_data.get("owner_user_soeid") if "owner_user_soeid" in update_data else None,
+            current_user,
+        )
+        update_data["owner"] = owner
+        update_data["owner_user_soeid"] = owner_user_soeid
     program = None
     if "program_id" in update_data:
         program = _ensure_program_exists(session, update_data["program_id"], space_ctx)

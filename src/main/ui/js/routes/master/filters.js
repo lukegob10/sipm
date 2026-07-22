@@ -53,7 +53,9 @@ function currentUserName(state) {
 function isMyTokenMatch(ctx, project, solution) {
   const userName = currentUserName(ctx.state);
   if (!userName) return false;
-  return lower(project?.sponsor).includes(userName)
+  return lower(project?.owner).includes(userName)
+    || lower(project?.owner_user_soeid).includes(userName)
+    || lower(project?.sponsor).includes(userName)
     || lower(solution?.owner).includes(userName)
     || lower(solution?.assignee).includes(userName);
 }
@@ -95,7 +97,7 @@ function fieldValue(ctx, field, program, project, solution) {
     case "version":
       return solution?.version;
     case "owner":
-      return `${solution?.owner || ""} ${solution?.assignee || ""}`;
+      return `${project?.owner || ""} ${project?.owner_user_soeid || ""} ${solution?.owner || ""} ${solution?.assignee || ""}`;
     case "phase":
     case "current_phase":
       return phaseLabel(ctx, solution);
@@ -141,6 +143,8 @@ function freeTextHaystack(ctx, program, project, solution, tasks = []) {
     project?.program_name,
     project?.project_name,
     project?.sponsor,
+    project?.owner,
+    project?.owner_user_soeid,
     solution?.solution_name,
     solution?.version,
     solution?.owner,
@@ -181,7 +185,7 @@ function solutionMatchesQuery(ctx, solution, project, program, tokens, tasks = [
 function projectMatchesQuery(ctx, project, program, tokens) {
   if (!tokens.length) return true;
   return tokens.every((token) => {
-    if (token.field && !["program", "project", "sponsor", "status", "priority"].includes(token.field)) return false;
+    if (token.field && !["program", "project", "sponsor", "owner", "status", "priority"].includes(token.field)) return false;
     if (token.field === "priority") {
       const target = Number(token.value);
       return Number.isFinite(target) && Number(project?.priority) <= target;
@@ -189,7 +193,7 @@ function projectMatchesQuery(ctx, project, program, tokens) {
     if (token.field === "status") return lower(statusLabel(ctx, project?.status)).includes(lower(token.value));
     const value = token.field
       ? fieldValue(ctx, token.field, program, project, null)
-      : [program?.program_name, project?.program_name, project?.project_name, project?.sponsor, statusLabel(ctx, project?.status), project?.priority]
+      : [program?.program_name, project?.program_name, project?.project_name, project?.sponsor, project?.owner, project?.owner_user_soeid, statusLabel(ctx, project?.status), project?.priority]
         .map((item) => lower(item)).join(" ");
     return lower(value).includes(lower(token.value));
   });

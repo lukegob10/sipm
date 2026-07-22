@@ -23,6 +23,7 @@ from .common import (
     _project_create_changes,
     _project_query,
     _publish_project_mutation,
+    _resolve_project_owner,
     _resolve_project_sponsor,
 )
 
@@ -34,6 +35,8 @@ _PROJECT_IMPORT_UPDATE_FIELDS = (
     "success_criteria",
     "sponsor",
     "sponsor_user_soeid",
+    "owner",
+    "owner_user_soeid",
     "strategic_objective",
     "priority",
 )
@@ -46,6 +49,8 @@ _PROJECT_EXPORT_FIELDNAMES = [
     "success_criteria",
     "sponsor",
     "sponsor_user_soeid",
+    "owner",
+    "owner_user_soeid",
     "strategic_objective",
     "priority",
 ]
@@ -95,6 +100,7 @@ def import_projects(
     for idx, row in enumerate(rows, start=2):
         name = normalize_str(row.get("project_name"))
         sponsor_input = normalize_str(row.get("sponsor"))
+        owner_input = normalize_str(row.get("owner"))
         if not name:
             errors.append(f"Row {idx}: project_name is required")
             continue
@@ -120,6 +126,7 @@ def import_projects(
             errors.append(f"Row {idx}: {exc}")
             continue
         sponsor_user_soeid = normalize_str(row.get("sponsor_user_soeid")) or None
+        owner_user_soeid = normalize_str(row.get("owner_user_soeid")) or None
         try:
             program = _resolve_import_program(
                 session,
@@ -145,6 +152,15 @@ def import_projects(
                 else:
                     resolved_sponsor = existing.sponsor
                     resolved_sponsor_user_soeid = existing.sponsor_user_soeid
+                if owner_input:
+                    resolved_owner, resolved_owner_user_soeid = _resolve_project_owner(
+                        owner_input,
+                        owner_user_soeid,
+                        current_user,
+                    )
+                else:
+                    resolved_owner = existing.owner
+                    resolved_owner_user_soeid = existing.owner_user_soeid
                 before = {field: getattr(existing, field) for field in _PROJECT_IMPORT_UPDATE_FIELDS}
                 existing.program_id = program.program_id
                 existing.status = status_enum
@@ -152,6 +168,8 @@ def import_projects(
                 existing.success_criteria = success_criteria
                 existing.sponsor = resolved_sponsor
                 existing.sponsor_user_soeid = resolved_sponsor_user_soeid
+                existing.owner = resolved_owner
+                existing.owner_user_soeid = resolved_owner_user_soeid
                 existing.strategic_objective = strategic_objective
                 existing.priority = priority_val
                 if not existing.space_id:
@@ -176,11 +194,17 @@ def import_projects(
                         sponsor_user_soeid,
                         current_user,
                     )
+                    _resolve_project_owner(owner_input, owner_user_soeid, current_user)
                     created += 1
                     continue
                 resolved_sponsor, resolved_sponsor_user_soeid = _resolve_project_sponsor(
                     sponsor_input,
                     sponsor_user_soeid,
+                    current_user,
+                )
+                resolved_owner, resolved_owner_user_soeid = _resolve_project_owner(
+                    owner_input,
+                    owner_user_soeid,
                     current_user,
                 )
                 project = Project(
@@ -192,6 +216,8 @@ def import_projects(
                     success_criteria=success_criteria,
                     sponsor=resolved_sponsor,
                     sponsor_user_soeid=resolved_sponsor_user_soeid,
+                    owner=resolved_owner,
+                    owner_user_soeid=resolved_owner_user_soeid,
                     strategic_objective=strategic_objective,
                     priority=priority_val,
                 )
@@ -243,6 +269,8 @@ def export_projects(
                 "success_criteria": read_text_value(project.success_criteria) or "",
                 "sponsor": project.sponsor or "",
                 "sponsor_user_soeid": project.sponsor_user_soeid or "",
+                "owner": project.owner or "",
+                "owner_user_soeid": project.owner_user_soeid or "",
                 "strategic_objective": project.strategic_objective or "",
                 "priority": project.priority,
             }

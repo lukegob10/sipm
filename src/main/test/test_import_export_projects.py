@@ -27,7 +27,7 @@ async def test_projects_import_updates_creates_and_exports(client):
 
     csv_text = "\n".join(
         [
-            "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
+            "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
             # Update existing while preserving sponsor when the CSV leaves it blank.
             "Data Platform,On Hold,Waiting on vendor,New criteria,,,,",
             # Create new.
@@ -81,6 +81,8 @@ async def test_projects_import_updates_creates_and_exports(client):
     no_sponsor = next(row for row in rows if row["project_name"] == "No Sponsor")
     assert no_sponsor["sponsor"] == "Test User"
     assert no_sponsor["sponsor_user_soeid"] == "tu12345"
+    assert no_sponsor["owner"] == "Test User"
+    assert no_sponsor["owner_user_soeid"] == "tu12345"
 
     filtered = await client.get("/project-manager/api/projects", params={"status_filter": "on_hold"})
     assert filtered.status_code == 200

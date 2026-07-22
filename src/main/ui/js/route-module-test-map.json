@@ -1,5 +1,13 @@
 {
   "modules": {
+    "my-work.js": [
+      "src/main/test/test_ui_route_modules_exports.py",
+      "src/main/ui/test/unit/my-work.test.js"
+    ],
+    "repositories.js": [
+      "src/main/test/test_ui_route_modules_exports.py",
+      "src/main/ui/test/unit/repositories.test.js"
+    ],
     "calendar.js": [
       "src/main/test/test_ui_route_modules_exports.py",
       "src/main/test/test_calendar_frontend_contract.py",

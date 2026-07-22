@@ -63,6 +63,18 @@ CREATE TABLE "TB_TA_PM_USERS" (
 
 ALTER TABLE "TB_TA_PM_SPACES" ADD CONSTRAINT fk_spaces_owner_user FOREIGN KEY(owner_user_id) REFERENCES "TB_TA_PM_USERS" (user_id);
 
+-- Table: TB_TA_PM_USER_PREFERENCES
+
+CREATE TABLE "TB_TA_PM_USER_PREFERENCES" (
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	developer_mode_enabled SMALLINT NOT NULL,
+	theme VARCHAR2(16 CHAR) NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (user_id),
+	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id)
+);
+
 -- Table: TB_TA_PM_AUTH_SESSIONS
 
 CREATE TABLE "TB_TA_PM_AUTH_SESSIONS" (
@@ -283,6 +295,8 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	success_criteria CLOB,
 	sponsor VARCHAR2(255 CHAR) NOT NULL,
 	sponsor_user_soeid VARCHAR2(255 CHAR),
+	owner VARCHAR2(255 CHAR) NOT NULL,
+	owner_user_soeid VARCHAR2(255 CHAR),
 	strategic_objective CLOB,
 	priority INTEGER NOT NULL,
 	created_at DATE NOT NULL,
@@ -583,6 +597,9 @@ CREATE INDEX "ix_TB_TA_PM_PROJECTS_space_id" ON "TB_TA_PM_PROJECTS" (space_id);
 -- Index: ix_TB_TA_PM_PROJECTS_sponsor_user_soeid
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_sponsor_user_soeid" ON "TB_TA_PM_PROJECTS" (sponsor_user_soeid);
 
+-- Index: ix_TB_TA_PM_PROJECTS_owner_user_soeid
+CREATE INDEX "ix_TB_TA_PM_PROJECTS_owner_user_soeid" ON "TB_TA_PM_PROJECTS" (owner_user_soeid);
+
 -- Index: ix_TB_TA_PM_PROJECTS_status
 CREATE INDEX "ix_TB_TA_PM_PROJECTS_status" ON "TB_TA_PM_PROJECTS" (status);
 
@@ -723,6 +740,28 @@ CREATE INDEX "ix_TB_TA_PM_TASKS_space_id" ON "TB_TA_PM_TASKS" (space_id);
 
 -- Index: ix_TB_TA_PM_TASKS_status
 CREATE INDEX "ix_TB_TA_PM_TASKS_status" ON "TB_TA_PM_TASKS" (status);
+
+-- Table: TB_TA_PM_USER_TASK_STATES
+
+CREATE TABLE "TB_TA_PM_USER_TASK_STATES" (
+	user_task_state_id VARCHAR2(255 CHAR) NOT NULL,
+	user_id VARCHAR2(255 CHAR) NOT NULL,
+	space_id VARCHAR2(255 CHAR) NOT NULL,
+	task_id VARCHAR2(255 CHAR) NOT NULL,
+	sort_rank INTEGER NOT NULL,
+	created_at DATE NOT NULL,
+	updated_at DATE NOT NULL,
+	PRIMARY KEY (user_task_state_id),
+	CONSTRAINT uix_user_task_state_user_task UNIQUE (user_id, task_id),
+	FOREIGN KEY(user_id) REFERENCES "TB_TA_PM_USERS" (user_id),
+	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
+	FOREIGN KEY(task_id) REFERENCES "TB_TA_PM_TASKS" (task_id)
+);
+
+CREATE INDEX idx_user_task_state_queue ON "TB_TA_PM_USER_TASK_STATES" (user_id, space_id, sort_rank);
+CREATE INDEX "ix_TB_TA_PM_USER_TASK_STATES_space_id" ON "TB_TA_PM_USER_TASK_STATES" (space_id);
+CREATE INDEX "ix_TB_TA_PM_USER_TASK_STATES_task_id" ON "TB_TA_PM_USER_TASK_STATES" (task_id);
+CREATE INDEX "ix_TB_TA_PM_USER_TASK_STATES_user_id" ON "TB_TA_PM_USER_TASK_STATES" (user_id);
 
 -- Index: ix_TB_TA_PM_TEAMS_deleted_at
 CREATE INDEX "ix_TB_TA_PM_TEAMS_deleted_at" ON "TB_TA_PM_TEAMS" (deleted_at);

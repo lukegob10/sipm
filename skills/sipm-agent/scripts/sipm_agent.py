@@ -178,6 +178,133 @@ def load_json(path: str) -> dict[str, Any]:
     return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
+def _markdown_value(value: Any, *, fallback: str = "Not provided") -> str:
+    if value in (None, ""):
+        return fallback
+    return str(value).strip() or fallback
+
+
+def build_task_checkout_files(
+    *,
+    space_id: str,
+    task: dict[str, Any],
+    solution: dict[str, Any],
+    project: dict[str, Any],
+) -> dict[str, str]:
+    if task.get("solution_id") != solution.get("solution_id"):
+        raise SystemExit("Task and solution context do not match.")
+    if task.get("project_id") != project.get("project_id"):
+        raise SystemExit("Task and project context do not match.")
+    if solution.get("project_id") != project.get("project_id"):
+        raise SystemExit("Solution and project context do not match.")
+
+    task_json = json.dumps(task, indent=2, sort_keys=True) + "\n"
+    context = {
+        "format_version": "1.0",
+        "space_id": space_id,
+        "program": {
+            "program_id": project.get("program_id"),
+            "program_name": project.get("program_name"),
+        },
+        "project": project,
+        "solution": solution,
+    }
+    context_json = json.dumps(context, indent=2, sort_keys=True) + "\n"
+    lines = [
+        f"# {_markdown_value(task.get('task_name'), fallback='SIPM task')}",
+        "",
+        "> Read-only checkout from SIPM. SIPM remains the canonical task record; propose updates through the Agent API.",
+        "",
+        "## Work item",
+        "",
+        f"- Status: {_markdown_value(task.get('status'))}",
+        f"- Priority: {_markdown_value(task.get('priority'))}",
+        f"- Due date: {_markdown_value(task.get('due_date'))}",
+        f"- Assignee: {_markdown_value(task.get('assignee'))}",
+        f"- Assignee SOE ID: {_markdown_value(task.get('assignee_user_soeid'))}",
+        f"- Program: {_markdown_value(project.get('program_name'))}",
+        f"- Project: {_markdown_value(project.get('project_name'))}",
+        f"- Solution: {_markdown_value(solution.get('solution_name'))}",
+        f"- GitHub repository: {_markdown_value(task.get('effective_github_repo_url'), fallback='Not attached')}",
+        "",
+        "## Description and context",
+        "",
+        _markdown_value(task.get("description")),
+        "",
+        "## Blocker",
+        "",
+        (
+            _markdown_value(task.get("blocker_note"), fallback="Blocked; no note provided")
+            if task.get("blocked")
+            else "Not blocked"
+        ),
+        "",
+        "## Acceptance criteria",
+        "",
+        _markdown_value(task.get("acceptance_criteria")),
+        "",
+        "## Done criteria",
+        "",
+        _markdown_value(task.get("done_criteria")),
+        "",
+        "## SIPM identifiers",
+        "",
+        f"- Space ID: {space_id}",
+        f"- Task ID: {_markdown_value(task.get('task_id'))}",
+        f"- Solution ID: {_markdown_value(task.get('solution_id'))}",
+        f"- Project ID: {_markdown_value(task.get('project_id'))}",
+        f"- Program ID: {_markdown_value(project.get('program_id'))}",
+        "",
+    ]
+    return {
+        "TASK.md": "\n".join(lines),
+        "task.json": task_json,
+        "context.json": context_json,
+    }
+
+
+def write_task_checkout(output_dir: str, files: dict[str, str]) -> dict[str, Any]:
+    target = Path(output_dir).resolve()
+    if target.exists() and not target.is_dir():
+        raise SystemExit(f"Checkout path is not a directory: {target}")
+    if target.exists() and any(target.iterdir()):
+        raise SystemExit(f"Checkout directory must be empty: {target}")
+    target.mkdir(parents=True, exist_ok=True)
+    for filename, content in files.items():
+        (target / filename).write_text(content, encoding="utf-8", newline="\n")
+    return {
+        "checkout_path": str(target),
+        "files": sorted(files),
+    }
+
+
+def checkout_task(
+    client: SipmClient,
+    *,
+    space_id: str,
+    task_id: str,
+    output_dir: str,
+) -> dict[str, Any]:
+    task = client.get_detail("task", task_id, space_id=space_id)
+    solution = client.get_detail("solution", task["solution_id"], space_id=space_id)
+    project = client.get_detail("project", task["project_id"], space_id=space_id)
+    files = build_task_checkout_files(
+        space_id=space_id,
+        task=task,
+        solution=solution,
+        project=project,
+    )
+    result = write_task_checkout(output_dir, files)
+    result.update(
+        {
+            "space_id": space_id,
+            "task_id": task["task_id"],
+            "github_repo_url": task.get("effective_github_repo_url"),
+        }
+    )
+    return result
+
+
 def client_from_args(args: argparse.Namespace, *, human: bool = False) -> SipmClient:
     base_url = args.base_url or env("SIPM_BASE_URL")
     token = (
@@ -265,6 +392,24 @@ def main() -> int:
         required=True,
     )
     detail.add_argument("--id", required=True)
+
+    assigned = sub.add_parser(
+        "list-assigned-work",
+        help="List active shared tasks assigned to one SOE ID",
+    )
+    add_space(assigned)
+    assigned.add_argument("--soeid", required=True)
+    assigned.add_argument("--limit", type=int, default=50)
+    assigned.add_argument("--cursor")
+    assigned.add_argument("--all", action="store_true")
+
+    checkout = sub.add_parser(
+        "checkout-task",
+        help="Write one read-only SIPM task packet to an empty local folder",
+    )
+    add_space(checkout)
+    checkout.add_argument("--task-id", required=True)
+    checkout.add_argument("--output-dir", required=True)
 
     people = sub.add_parser(
         "list-people", help="Resolve assignable people, roles, and capacity"
@@ -448,6 +593,30 @@ def main() -> int:
         return 0
     if args.command == "get-work":
         json_out(client.get_detail(args.entity_type, args.id, space_id=space_id))
+        return 0
+    if args.command == "list-assigned-work":
+        query = {
+            "assignee_user_soeid": args.soeid,
+            "limit": args.limit,
+            "cursor": args.cursor,
+        }
+        json_out(
+            client.all_pages("/agent/assigned-work", space_id=space_id, query=query)
+            if args.all
+            else client.request(
+                "GET", "/agent/assigned-work", space_id=space_id, query=query
+            )
+        )
+        return 0
+    if args.command == "checkout-task":
+        json_out(
+            checkout_task(
+                client,
+                space_id=space_id,
+                task_id=args.task_id,
+                output_dir=args.output_dir,
+            )
+        )
         return 0
     if args.command == "list-people":
         query = {

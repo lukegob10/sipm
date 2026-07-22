@@ -31,17 +31,22 @@ def list_projects(
     program_id: Optional[str] = None,
     sponsor: Optional[str] = None,
     sponsor_user_soeid: Optional[str] = None,
+    owner: Optional[str] = None,
+    owner_user_soeid: Optional[str] = None,
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(current_user_dep),
 ):
     status_val = status_filter.value if hasattr(status_filter, "value") else status_filter
     sponsor_norm = sponsor.strip().lower() if sponsor else None
+    owner_norm = owner.strip().lower() if owner else None
     params = {
         "status": status_val,
         "program_id": program_id,
         "sponsor": sponsor_norm,
         "sponsor_user_soeid": sponsor_user_soeid,
+        "owner": owner_norm,
+        "owner_user_soeid": owner_user_soeid,
     }
     scope_token = make_scope_token("projects", space_ctx.space_id)
 
@@ -59,6 +64,10 @@ def list_projects(
             query = query.filter(func.lower(Project.sponsor) == sponsor_norm)
         if sponsor_user_soeid:
             query = query.filter(Project.sponsor_user_soeid == sponsor_user_soeid)
+        if owner_norm:
+            query = query.filter(func.lower(Project.owner) == owner_norm)
+        if owner_user_soeid:
+            query = query.filter(Project.owner_user_soeid == owner_user_soeid)
         return [
             _project_payload(project, program_name=program.program_name)
             for project, program in query.with_entities(Project, Program).all()

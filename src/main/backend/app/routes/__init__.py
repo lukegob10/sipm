@@ -9,6 +9,7 @@ from .projects import router as projects_router
 from .programs import router as programs_router
 from .phases import router as phases_router
 from .pm_dashboard import router as pm_dashboard_router
+from .my_work import router as my_work_router
 from .solutions import router as solutions_router
 from .tasks import router as tasks_router
 from .sync import router as sync_router
@@ -26,6 +27,7 @@ protected_router.include_router(projects_router, tags=["projects"])
 protected_router.include_router(solutions_router, tags=["solutions"])
 protected_router.include_router(phases_router, tags=["phases"])
 protected_router.include_router(pm_dashboard_router, tags=["pm-dashboard"])
+protected_router.include_router(my_work_router, tags=["my-work"])
 protected_router.include_router(tasks_router, tags=["tasks"])
 protected_router.include_router(teams_router, tags=["teams"])
 protected_router.include_router(spaces_router, tags=["spaces"])

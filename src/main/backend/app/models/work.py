@@ -73,6 +73,8 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
     success_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     sponsor: Mapped[str] = mapped_column(String, nullable=False, default="")
     sponsor_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
+    owner: Mapped[str] = mapped_column(String, nullable=False, default="")
+    owner_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     strategic_objective: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
 

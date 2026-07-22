@@ -38,7 +38,7 @@ from ...utils.enums import (
 )
 
 router = APIRouter()
-REFERENCE_VERSION = "1.0"
+REFERENCE_VERSION = "1.1"
 
 
 @router.post(
@@ -170,6 +170,11 @@ def get_reference_data(
                 "due_to",
                 "updated_since",
                 "lifecycle",
+                "cursor",
+                "limit",
+            ],
+            "assigned_work": [
+                "assignee_user_soeid",
                 "cursor",
                 "limit",
             ],

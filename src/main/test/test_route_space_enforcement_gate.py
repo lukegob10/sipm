@@ -4,13 +4,16 @@ from pathlib import Path
 
 ROUTES_DIR = Path(__file__).resolve().parents[1] / "backend" / "app" / "routes"
 
-# These endpoints are intentionally global/read-only and do not need active-space context.
+# These endpoints are intentionally global or scoped to the authenticated user and do not
+# need active-space context.
 ALLOWED_NO_SPACE_DEP = {
     ("phases.py", "list_phases"),
     ("public.py", "get_public_program_dashboard"),
     ("public.py", "download_public_program_dashboard_report_pdf"),
     ("public.py", "download_public_program_dashboard_report_xlsx"),
     ("spaces.py", "list_spaces"),
+    ("my_work.py", "get_my_preferences"),
+    ("my_work.py", "update_my_preferences"),
     ("agent/manifest.py", "get_agent_manifest"),
     ("agent/spaces.py", "list_spaces"),
     ("agent/spaces.py", "get_space"),

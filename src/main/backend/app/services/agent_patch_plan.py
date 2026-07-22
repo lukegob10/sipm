@@ -40,6 +40,7 @@ from ..services.work_items import (
     project_change_set as _project_change_set,
     project_create_changes as _project_create_changes,
     project_query as _project_query,
+    resolve_project_owner as _resolve_project_owner,
     resolve_project_sponsor as _resolve_project_sponsor,
     resolve_solution_assignee as _resolve_solution_assignee,
     resolve_solution_owner as _resolve_solution_owner,
@@ -827,6 +828,11 @@ def _apply_project(
             payload.sponsor_user_soeid,
             current_user,
         )
+        owner, owner_user_soeid = _resolve_project_owner(
+            payload.owner,
+            payload.owner_user_soeid,
+            current_user,
+        )
         project = Project(
             space_id=space_ctx.space_id,
             program_id=program.program_id,
@@ -836,6 +842,8 @@ def _apply_project(
             success_criteria=payload.success_criteria,
             sponsor=sponsor,
             sponsor_user_soeid=sponsor_user_soeid,
+            owner=owner,
+            owner_user_soeid=owner_user_soeid,
             strategic_objective=payload.strategic_objective,
             priority=payload.priority if payload.priority is not None else 3,
         )
@@ -864,6 +872,14 @@ def _apply_project(
         update_data["program_id"] = program.program_id
     if "project_name" in update_data:
         update_data["project_name"] = normalize_str(update_data["project_name"])
+    if "owner" in update_data or "owner_user_soeid" in update_data:
+        owner, owner_user_soeid = _resolve_project_owner(
+            update_data.get("owner", project.owner),
+            update_data.get("owner_user_soeid") if "owner_user_soeid" in update_data else None,
+            current_user,
+        )
+        update_data["owner"] = owner
+        update_data["owner_user_soeid"] = owner_user_soeid
     before = {field: getattr(project, field) for field in update_data}
     for field, value in update_data.items():
         setattr(project, field, value)

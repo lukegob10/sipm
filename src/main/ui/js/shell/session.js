@@ -20,6 +20,8 @@ export function createSessionController({
   noteSessionActivity,
   broadcastSessionLogout,
   refreshSpaceContext,
+  loadUserPreferences = async () => null,
+  resolvePostAuthView = (view) => view,
   onApiFailure = null,
   startLiveSync,
   stopLiveSync,
@@ -152,6 +154,12 @@ export function createSessionController({
 
   function restoreRouteFromLocationAfterAuth() {
     const nextView = viewFromLocationPath(window.location.pathname);
+    const resolvedView = resolvePostAuthView(nextView, window.location.pathname);
+    const preferenceRedirect = resolvedView !== nextView;
+    if (preferenceRedirect) {
+      setView(resolvedView, { fromHistory: false, replacePath: true });
+      return;
+    }
     setView(nextView, { fromHistory: true });
   }
 
@@ -422,6 +430,7 @@ export function createSessionController({
       await withPendingAuthAction("login", els.loginForm, async () => {
         const user = await performLogin(form.get("soeid"), form.get("password"));
         setAuthed(user);
+        await loadUserPreferences();
         await refreshSpaceContext();
         startLiveSync();
         restoreRouteFromLocationAfterAuth();
@@ -439,6 +448,7 @@ export function createSessionController({
       await withPendingAuthAction("register", els.registerForm, async () => {
         const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
         setAuthed(user);
+        await loadUserPreferences();
         await refreshSpaceContext();
         startLiveSync();
         restoreRouteFromLocationAfterAuth();
@@ -506,6 +516,7 @@ export function createSessionController({
       return;
     }
     if (user) {
+      await loadUserPreferences();
       await refreshSpaceContext();
       startLiveSync();
       restoreRouteFromLocationAfterAuth();

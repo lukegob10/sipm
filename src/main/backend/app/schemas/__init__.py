@@ -182,6 +182,27 @@ class UserUpdate(BaseModel):
     is_service_account: Optional[bool] = None
 
 
+class UserPreferenceUpdate(BaseModel):
+    developer_mode_enabled: Optional[bool] = None
+    theme: Optional[str] = None
+
+    @field_validator("theme")
+    @classmethod
+    def _validate_theme(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip().lower()
+        if normalized not in {"dark", "light", "system"}:
+            raise ValueError("theme must be dark, light, or system")
+        return normalized
+
+
+class UserPreferenceRead(BaseModel):
+    developer_mode_enabled: bool = False
+    theme: str = "dark"
+    has_saved_preferences: bool = False
+
+
 class ApiTokenCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     expires_at: Optional[datetime] = None
@@ -369,6 +390,8 @@ class ProjectBase(BaseModel):
     success_criteria: Optional[str] = None
     sponsor: Optional[str] = None
     sponsor_user_soeid: Optional[str] = None
+    owner: Optional[str] = None
+    owner_user_soeid: Optional[str] = None
     strategic_objective: Optional[str] = None
     priority: Optional[int] = None
 
@@ -396,6 +419,8 @@ class ProjectRead(TextLikeReadModel):
     success_criteria: Optional[str] = None
     sponsor: Optional[str] = None
     sponsor_user_soeid: Optional[str] = None
+    owner: Optional[str] = None
+    owner_user_soeid: Optional[str] = None
     strategic_objective: Optional[str] = None
     priority: Optional[int] = None
     created_at: datetime
@@ -593,6 +618,38 @@ class TaskRead(TextLikeReadModel):
     urgency_score: float = 0
     created_at: datetime
     updated_at: datetime
+
+
+class UserTaskStateUpdate(BaseModel):
+    sort_rank: int = 0
+
+
+class UserTaskStateRead(BaseModel):
+    task_id: str
+    sort_rank: int = 0
+
+
+class MyWorkItemRead(BaseModel):
+    task: TaskRead
+    program_id: Optional[str] = None
+    program_name: Optional[str] = None
+    project_name: str
+    solution_name: str
+    private_sort_rank: int = 0
+    needs_attention: bool = False
+
+
+class RepositoryInventoryItemRead(BaseModel):
+    github_repo_url: str
+    repository_name: str
+    program_names: list[str] = Field(default_factory=list)
+    project_names: list[str] = Field(default_factory=list)
+    solution_names: list[str] = Field(default_factory=list)
+    solution_count: int = 0
+    task_count: int = 0
+    solution_attachment_count: int = 0
+    task_override_count: int = 0
+    last_updated_at: Optional[datetime] = None
 
 
 class TeamMemberBase(BaseModel):

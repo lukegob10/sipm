@@ -28,6 +28,8 @@ function projectEls() {
         <textarea name="success_criteria"></textarea>
         <input name="sponsor" />
         <input name="sponsor_user_soeid" />
+        <input name="owner" />
+        <input name="owner_user_soeid" />
         <input name="strategic_objective" />
         <input name="priority" />
         <button id="submit" type="submit"></button>
@@ -164,6 +166,8 @@ describe("entity payload builders", () => {
       success_criteria: "   ",
       sponsor: "  Sponsor Name  ",
       sponsor_user_soeid: " tu12345 ",
+      owner: "  Project Owner  ",
+      owner_user_soeid: " ow12345 ",
       strategic_objective: "",
       priority: "2",
     }));
@@ -176,6 +180,8 @@ describe("entity payload builders", () => {
       success_criteria: null,
       sponsor: "Sponsor Name",
       sponsor_user_soeid: "tu12345",
+      owner: "Project Owner",
+      owner_user_soeid: "ow12345",
       strategic_objective: null,
       priority: 2,
     });
@@ -224,6 +230,27 @@ describe("entity payload builders", () => {
     expect(payload.escalation).toBe("Escalated request");
     expect(payload.capacity_hours).toBe(80);
     expect(payload).not.toHaveProperty("capacity_fte_months");
+  });
+
+  it("clears a stale RAG reason when a solution returns to green", () => {
+    const payload = buildSolutionPayload(
+      formData({
+        project_id: "project-2",
+        solution_name: "Solution One",
+        version: "1.0.0",
+        status: "active",
+        owner: "Owner Name",
+        assignee: "Assignee Display",
+        key_stakeholder: "Stakeholder",
+        capacity_hours: "0",
+        rag_status: "green",
+        rag_reason: "No longer applicable",
+      }),
+      { hoursFromFteInput: (value) => Number(value) * 160 }
+    );
+
+    expect(payload.rag_status).toBe("green");
+    expect(payload.rag_reason).toBeNull();
   });
 
   it("builds task payloads with repo trimming and blocked-note consistency", () => {
@@ -348,6 +375,8 @@ describe("project entity controller", () => {
       success_criteria: "Criteria",
       sponsor: "Sponsor",
       sponsor_user_soeid: "sp123",
+      owner: "Owner",
+      owner_user_soeid: "ow123",
       strategic_objective: "Objective",
       priority: 1,
     });
@@ -357,6 +386,8 @@ describe("project entity controller", () => {
     expect(deps.els.projectSubmitBtn.textContent).toBe("Save Changes");
     expect(deps.els.deleteProjectBtn.disabled).toBe(false);
     expect(deps.els.projectForm.querySelector("[name='project_name']").value).toBe("Project One");
+    expect(deps.els.projectForm.querySelector("[name='owner']").value).toBe("Owner");
+    expect(deps.els.projectForm.querySelector("[name='owner_user_soeid']").value).toBe("ow123");
 
     controller.closeProjectForm();
 
@@ -364,6 +395,30 @@ describe("project entity controller", () => {
     expect(deps.els.projectModalTitle.textContent).toBe("Create Project");
     expect(deps.els.projectSubmitBtn.textContent).toBe("Create Project");
     expect(deps.els.deleteProjectBtn.disabled).toBe(true);
+  });
+
+  it("protects unsaved project changes before closing", async () => {
+    const showConfirmModal = vi.fn().mockResolvedValue(false);
+    const { controller, deps } = buildProjectController({ showConfirmModal });
+    controller.bindProjectForm();
+    controller.openProjectForm({
+      project_id: "proj-1",
+      program_id: "program-1",
+      project_name: "Project One",
+    });
+
+    const nameField = deps.els.projectForm.querySelector("[name='project_name']");
+    nameField.value = "Unsaved name";
+    nameField.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const closed = await controller.closeProjectForm();
+
+    expect(closed).toBe(false);
+    expect(showConfirmModal).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Discard Project changes?",
+      confirmLabel: "Discard Changes",
+    }));
+    expect(deps.els.projectModal.classList.contains("hidden")).toBe(false);
   });
 
   it("creates a project and refreshes dependent views", async () => {

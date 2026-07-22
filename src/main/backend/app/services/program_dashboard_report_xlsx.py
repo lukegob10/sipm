@@ -234,7 +234,12 @@ def build_program_dashboard_report_xlsx(
             write_report_row("project", {
                 "deliverable": f"  {_text(project.get('project_name'), 'Unnamed Project')}",
                 "entity_type": "Project",
-                "owner": _text(project.get("sponsor") or project.get("sponsor_user_soeid")),
+                "owner": _text(
+                    project.get("owner")
+                    or project.get("owner_user_soeid")
+                    or project.get("sponsor")
+                    or project.get("sponsor_user_soeid")
+                ),
                 "stakeholder": "-", "start": "-", "end": "-", "status": _status_label(project.get("status")),
                 "phase": _phase_summary(project_solutions, phase_by_id) if project_solutions else (
                     "Complete" if _status_is_closed(project.get("status")) else "-"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from ...schemas.agent import AgentErrorRead
+from .assigned_work import router as assigned_work_router
 from .change_requests import router as change_requests_router
 from .manifest import router as manifest_router
 from .patches import router as patches_router
@@ -26,6 +27,7 @@ router = APIRouter(
 )
 router.include_router(manifest_router)
 router.include_router(spaces_router)
+router.include_router(assigned_work_router)
 router.include_router(work_graph_router)
 router.include_router(programs_router)
 router.include_router(work_items_router)

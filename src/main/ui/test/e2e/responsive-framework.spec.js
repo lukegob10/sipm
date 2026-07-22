@@ -36,8 +36,8 @@ async function expectNoDocumentOverflow(page) {
 test("compact shell keeps every member route and session action reachable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await loadLocalAuthedApp(page);
-  await expect(page.locator(".view > .product-route-panel")).toHaveCount(12);
-  await expect(page.locator(".view .route-title")).toHaveCount(12);
+  await expect(page.locator(".view > .product-route-panel")).toHaveCount(13);
+  await expect(page.locator(".view .route-title")).toHaveCount(13);
 
   const routes = [
     ["master", "Deliverables"],
@@ -72,8 +72,9 @@ test("compact shell keeps every member route and session action reachable", asyn
 
   await page.locator("#account-menu-toggle").click();
   await expect(page.locator("#account-menu-panel")).toBeVisible();
-  await expect(page.locator("#completed-visibility-toggle")).toBeVisible();
-  await expect(page.locator("#theme-toggle")).toBeVisible();
+  await expect(page.locator("#preferences-open")).toBeVisible();
+  await expect(page.locator("#completed-visibility-toggle")).toHaveCount(0);
+  await expect(page.locator("#theme-toggle")).toHaveCount(0);
   await expect(page.locator("#logout-btn")).toBeVisible();
 });
 

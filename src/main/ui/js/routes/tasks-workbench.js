@@ -64,7 +64,7 @@ export function renderTasksWorkbench(ctx) {
   if (!rows.length) {
     const hiddenClosed = Number(summary?.hiddenClosed || 0);
     els.tasksWorkbenchTable.innerHTML = hiddenClosed
-      ? `<p class='muted'>No open tasks match the current filters. ${hiddenClosed} completed or abandoned item${hiddenClosed === 1 ? "" : "s"} are hidden. Use Show Completed in the top bar to review them.</p>`
+      ? `<p class='muted'>No open tasks match the current filters. ${hiddenClosed} completed or abandoned item${hiddenClosed === 1 ? "" : "s"} are hidden. Enable Show completed work in Preferences to review them.</p>`
       : "<p class='muted'>No tasks match the current filters in this space.</p>";
     return;
   }

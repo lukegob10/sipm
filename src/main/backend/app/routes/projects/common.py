@@ -25,6 +25,8 @@ _PROJECT_CREATE_AUDIT_FIELDS = (
     "success_criteria",
     "sponsor",
     "sponsor_user_soeid",
+    "owner",
+    "owner_user_soeid",
     "strategic_objective",
     "priority",
 )
@@ -143,6 +145,20 @@ def _resolve_project_sponsor(
     return sponsor, sponsor_user_soeid
 
 
+def _resolve_project_owner(
+    owner_value: object | None,
+    owner_user_soeid_value: object | None,
+    current_user: object,
+) -> tuple[str, str | None]:
+    display_name = normalize_str(getattr(current_user, "display_name", None))
+    current_soeid = normalize_str(getattr(current_user, "soeid", None))
+    owner = normalize_str(owner_value) or display_name or current_soeid or ""
+    owner_user_soeid = normalize_str(owner_user_soeid_value) or None
+    if owner_user_soeid is None and current_soeid and owner in {display_name, current_soeid}:
+        owner_user_soeid = current_soeid
+    return owner, owner_user_soeid
+
+
 def _project_create_changes(project: Project) -> dict[str, tuple[object | None, object | None]]:
     return {field: (None, getattr(project, field)) for field in _PROJECT_CREATE_AUDIT_FIELDS}
 
@@ -182,5 +198,6 @@ __all__ = [
     "_publish_project_deletion",
     "_publish_project_mutation",
     "_resolve_project_sponsor",
+    "_resolve_project_owner",
     "_role_scope",
 ]

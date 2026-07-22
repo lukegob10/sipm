@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -25,25 +26,29 @@ import backend.app.db.db as db_module  # noqa: E402
 from backend.main import app  # noqa: E402
 
 
-def configure_sqlite_runtime() -> None:
-    temp_dir = REPO_ROOT / ".tmp"
-    temp_dir.mkdir(exist_ok=True)
+def configure_sqlite_runtime(temp_dir: Path) -> None:
     db_path = temp_dir / "ui-smoke.db"
-    if db_path.exists():
-        db_path.unlink()
     engine = create_engine(
         f"sqlite+pysqlite:///{db_path}",
         connect_args={"check_same_thread": False},
     )
     db_module.engine = engine
-    db_module.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    db_module.SessionLocal = sessionmaker(
+        autocommit=False, autoflush=False, bind=engine
+    )
     Base.metadata.create_all(bind=engine)
 
 
 def main() -> None:
-    configure_sqlite_runtime()
-    port = int(os.getenv("SIPM_UI_SMOKE_PORT", "8000"))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    with tempfile.TemporaryDirectory(prefix="sipm-ui-smoke-") as temp_dir:
+        configure_sqlite_runtime(Path(temp_dir))
+        port = int(os.getenv("SIPM_UI_SMOKE_PORT", "8000"))
+        try:
+            uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+        finally:
+            db_module.engine.dispose()
+            db_module.engine = None
+            db_module.SessionLocal = None
 
 
 if __name__ == "__main__":

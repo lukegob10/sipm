@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 
 ROUTE_MAP_PATH = Path("src/main/ui/js/route-module-test-map.json")
@@ -21,8 +22,8 @@ def validate_route_module_test_mapping(repo_root: Path) -> list[str]:
         return [f"Missing routes directory: {routes_dir}"]
 
     try:
-        payload = json.loads(route_map_path.read_text(encoding="utf-8"))
-    except Exception as exc:
+        payload: Any = json.loads(route_map_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
         return [f"Unable to parse route module mapping file: {exc}"]
 
     modules = payload.get("modules")
@@ -35,9 +36,16 @@ def validate_route_module_test_mapping(repo_root: Path) -> list[str]:
     for route_file in route_files:
         mapped_tests = modules.get(route_file)
         if not isinstance(mapped_tests, list) or not mapped_tests:
-            errors.append(f"{route_file} must map to at least one test file in {route_map_path}.")
+            errors.append(
+                f"{route_file} must map to at least one test file in {route_map_path}."
+            )
             continue
         for rel_test_path in mapped_tests:
+            if not isinstance(rel_test_path, str) or not rel_test_path.strip():
+                errors.append(
+                    f"{route_file} contains an invalid test path: {rel_test_path!r}"
+                )
+                continue
             test_path = repo_root / rel_test_path
             if not test_path.exists():
                 errors.append(f"{route_file} maps to missing test file: {test_path}")

@@ -6,6 +6,8 @@
 @import "./styles/routes/gantt.css";
 @import "./styles/routes/workbench-admin.css";
 @import "./styles/routes/tasks-workbench.css";
+@import "./styles/routes/my-work.css";
+@import "./styles/routes/repositories.css";
 @import "./styles/routes/team-capacity.css";
 @import "./styles/routes/space-governance.css";
 @import "./styles/routes/analytics.css";
@@ -26,7 +28,6 @@ body.public-program-dashboard-page #idle-modal,
 body.public-program-dashboard-page #topbar-create-shell,
 body.public-program-dashboard-page #space-switcher-shell,
 body.public-program-dashboard-page #current-user,
-body.public-program-dashboard-page #completed-visibility-toggle,
 body.public-program-dashboard-page #logout-btn,
 body.public-program-dashboard-page #connection-status,
 body.public-program-dashboard-page .topbar-actions,

@@ -22,6 +22,8 @@ async def test_create_and_list_projects(client):
             "description": "Modernize data stack",
             "success_criteria": "Reduce run time by 30% and decommission legacy tooling",
             "sponsor": "CFO Office",
+            "owner": "Data Product Lead",
+            "owner_user_soeid": "dp12345",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -29,6 +31,8 @@ async def test_create_and_list_projects(client):
     assert data["project_name"] == "Data Platform"
     assert data["status"] == "not_started"
     assert data["success_criteria"] == "Reduce run time by 30% and decommission legacy tooling"
+    assert data["owner"] == "Data Product Lead"
+    assert data["owner_user_soeid"] == "dp12345"
 
     list_resp = await client.get("/project-manager/api/projects/")
     assert list_resp.status_code == 200
@@ -62,6 +66,31 @@ async def test_create_project_defaults_sponsor_and_priority(client):
     assert data["priority"] == 3
     assert data["sponsor"] == "Test User"
     assert data["sponsor_user_soeid"] == "tu12345"
+    assert data["owner"] == "Test User"
+    assert data["owner_user_soeid"] == "tu12345"
+
+
+@pytest.mark.anyio
+async def test_project_owner_can_be_updated_and_filtered(client):
+    created = (
+        await client.post(
+            "/project-manager/api/projects/",
+            json={"project_name": "Owned Project", "owner": "First Owner", "owner_user_soeid": "fo123"},
+        )
+    ).json()
+
+    updated = await client.patch(
+        f"/project-manager/api/projects/{created['project_id']}",
+        json={"owner": "Second Owner", "owner_user_soeid": "so456"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["owner"] == "Second Owner"
+    assert updated.json()["owner_user_soeid"] == "so456"
+
+    by_owner = await client.get("/project-manager/api/projects", params={"owner": "second owner"})
+    assert [row["project_id"] for row in by_owner.json()] == [created["project_id"]]
+    by_soeid = await client.get("/project-manager/api/projects", params={"owner_user_soeid": "so456"})
+    assert [row["project_id"] for row in by_soeid.json()] == [created["project_id"]]
 
 
 @pytest.mark.anyio

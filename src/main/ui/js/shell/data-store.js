@@ -43,6 +43,19 @@ export function createDataStoreController({
     state.users = [];
     state.ganttCollapsed = new Set();
     state.loadedEntities = new Set();
+    if (state.myWork) {
+      state.myWork.records = null;
+      state.myWork.loading = false;
+      state.myWork.error = "";
+      state.myWork.selectedTaskId = "";
+      state.myWork.repository = "";
+    }
+    if (state.repositoryInventory) {
+      state.repositoryInventory.records = null;
+      state.repositoryInventory.loading = false;
+      state.repositoryInventory.error = "";
+      state.repositoryInventory.search = "";
+    }
     state.capacitySelectedSoeid = "";
     state.teamCapacity = createTeamCapacityState();
     if (state.tasksWorkbench) {

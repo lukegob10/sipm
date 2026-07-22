@@ -431,7 +431,12 @@ def build_program_dashboard_report_pdf(
             draw_row(
                 depth=2,
                 title=_text(project.get("project_name"), "Unnamed Project"),
-                owner=_text(project.get("sponsor") or project.get("sponsor_user_soeid")),
+                owner=_text(
+                    project.get("owner")
+                    or project.get("owner_user_soeid")
+                    or project.get("sponsor")
+                    or project.get("sponsor_user_soeid")
+                ),
                 start="-",
                 end="-",
                 status=_status_label(project.get("status")),

@@ -270,8 +270,23 @@ const state = {
     drawerReturnScrollY: null,
     suppressAutoScrollOnce: false,
   },
+  myWork: {
+    records: null,
+    loading: false,
+    error: "",
+    selectedTaskId: "",
+    search: "",
+    repository: "",
+  },
+  repositoryInventory: {
+    records: null,
+    loading: false,
+    error: "",
+    search: "",
+  },
   currentView: "master",
   theme: "dark",
+  userPreferences: { developer_mode_enabled: false, theme: "dark" },
   workspacePrefs: { showCompleted: false },
   loading: false,
   pendingRefresh: false,
@@ -713,6 +728,8 @@ function initShellControllers() {
     noteSessionActivity: () => activitySessionController.noteUserActivity(),
     broadcastSessionLogout: () => activitySessionController.broadcastLogout(),
     refreshSpaceContext,
+    loadUserPreferences,
+    resolvePostAuthView,
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),
@@ -1087,6 +1104,9 @@ function setAuthed(user) {
     activitySessionController.start(user.user_id);
     state.spaceRecentIds = readRecentSpaceIds();
   } else {
+    state.userPreferences = { developer_mode_enabled: false, theme: state.theme || "dark" };
+    syncDeveloperModeUi();
+    closePreferences();
     state.workspacePrefs = { showCompleted: false };
     clearDataState();
     state.spaces = [];
@@ -1236,14 +1256,23 @@ function setView(view, options = {}) {
   return routerController.setView(view, options);
 }
 
+function normalizedTheme(theme) {
+  return ["dark", "light", "system"].includes(theme) ? theme : "dark";
+}
+
+function resolvedTheme(theme) {
+  const normalized = normalizedTheme(theme);
+  if (normalized !== "system") return normalized;
+  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
 function applyTheme(theme) {
-  state.theme = theme;
-  document.body.classList.toggle("theme-light", theme === "light");
-  if (els.themeToggle) {
-    els.themeToggle.textContent = theme === "light" ? "Dark Mode" : "Light Mode";
-  }
+  const preference = normalizedTheme(theme);
+  const resolved = resolvedTheme(preference);
+  state.theme = preference;
+  document.body.classList.toggle("theme-light", resolved === "light");
   try {
-    localStorage.setItem("jira-lite-theme", theme);
+    localStorage.setItem("jira-lite-theme", preference);
   } catch (e) {
     console.warn("Theme preference not saved", e);
   }
@@ -1256,25 +1285,110 @@ function initTheme() {
   } catch (e) {
     console.warn("Theme preference not loaded", e);
   }
-  applyTheme(saved === "light" ? "light" : "dark");
-  els.themeToggle?.addEventListener("click", () => {
-    const next = document.body.classList.contains("theme-light") ? "dark" : "light";
-    applyTheme(next);
+  applyTheme(normalizedTheme(saved));
+  window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
+    if (state.theme === "system") applyTheme("system");
+  });
+}
+
+function syncDeveloperModeUi() {
+  const enabled = !!state.userPreferences?.developer_mode_enabled;
+  els.navPersonalSection?.classList.toggle("hidden", !enabled);
+  els.navRepositories?.classList.toggle("hidden", !enabled);
+}
+
+async function loadUserPreferences() {
+  if (!state.authed) return state.userPreferences;
+  let legacyTheme = "dark";
+  try {
+    legacyTheme = normalizedTheme(localStorage.getItem("jira-lite-theme") || "dark");
+  } catch {
+    legacyTheme = "dark";
+  }
+  let preferences = await api("/users/me/preferences");
+  if (!preferences.has_saved_preferences && legacyTheme !== "dark") {
+    preferences = await api("/users/me/preferences", {
+      method: "PATCH",
+      body: JSON.stringify({ theme: legacyTheme }),
+    });
+  }
+  state.userPreferences = {
+    developer_mode_enabled: !!preferences.developer_mode_enabled,
+    theme: normalizedTheme(preferences.theme),
+  };
+  applyTheme(state.userPreferences.theme);
+  syncDeveloperModeUi();
+  return state.userPreferences;
+}
+
+async function updateUserPreferences(patch) {
+  const updated = await api("/users/me/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  state.userPreferences = {
+    developer_mode_enabled: !!updated.developer_mode_enabled,
+    theme: normalizedTheme(updated.theme),
+  };
+  applyTheme(state.userPreferences.theme);
+  syncDeveloperModeUi();
+  return state.userPreferences;
+}
+
+function resolvePostAuthView(requestedView, pathname = window.location.pathname) {
+  const relative = routerController.appRelativePath(pathname).replace(/\/+$/, "");
+  const isRoot = relative === "" || relative === "/";
+  if (isRoot && state.userPreferences?.developer_mode_enabled) return "my-work";
+  return requestedView;
+}
+
+function closePreferences() {
+  els.preferencesModal?.classList.add("hidden");
+}
+
+function openPreferences() {
+  if (!els.preferencesModal || !els.preferencesForm) return;
+  els.preferencesForm.querySelector('[name="developer_mode_enabled"]').checked = !!state.userPreferences?.developer_mode_enabled;
+  els.preferencesForm.querySelector('[name="theme"]').value = normalizedTheme(state.userPreferences?.theme);
+  els.preferencesForm.querySelector('[name="show_completed"]').checked = !!state.workspacePrefs?.showCompleted;
+  if (els.preferencesStatus) els.preferencesStatus.textContent = "";
+  els.preferencesModal.classList.remove("hidden");
+  els.preferencesForm.querySelector('[name="developer_mode_enabled"]')?.focus();
+}
+
+function bindPreferences() {
+  els.preferencesOpen?.addEventListener("click", openPreferences);
+  els.preferencesClose?.addEventListener("click", closePreferences);
+  els.preferencesCancel?.addEventListener("click", closePreferences);
+  els.preferencesModal?.querySelector("[data-preferences-close]")?.addEventListener("click", closePreferences);
+  els.preferencesForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(els.preferencesForm);
+    const wasEnabled = !!state.userPreferences?.developer_mode_enabled;
+    if (els.preferencesStatus) els.preferencesStatus.textContent = "Saving preferences…";
+    try {
+      const updated = await updateUserPreferences({
+        developer_mode_enabled: !!data.get("developer_mode_enabled"),
+        theme: normalizedTheme(data.get("theme")),
+      });
+      state.workspacePrefs.showCompleted = !!data.get("show_completed");
+      persistWorkspaceViewPreferences();
+      renderCompletedVisibilityToggle();
+      renderActiveView();
+      closePreferences();
+      if (wasEnabled && !updated.developer_mode_enabled && ["my-work", "repositories"].includes(state.currentView)) {
+        setView("master", { replacePath: true });
+      } else if (!wasEnabled && updated.developer_mode_enabled) {
+        setView("my-work");
+      }
+    } catch (err) {
+      if (els.preferencesStatus) els.preferencesStatus.textContent = err.message || "Preferences could not be saved.";
+    }
   });
 }
 
 function bindWorkspaceViewPreferences() {
   renderCompletedVisibilityToggle();
-  if (els.completedVisibilityToggle && !els.completedVisibilityToggle._bound) {
-    els.completedVisibilityToggle.addEventListener("click", () => {
-      if (!state.authed) return;
-      state.workspacePrefs.showCompleted = !state.workspacePrefs.showCompleted;
-      persistWorkspaceViewPreferences();
-      renderCompletedVisibilityToggle();
-      renderActiveView();
-    });
-    els.completedVisibilityToggle._bound = true;
-  }
 }
 
 function upsertById(list, item, idKey) {
@@ -1317,6 +1431,8 @@ function populateCapacityUserOptions() {
 function renderActiveView() {
   const renderStartedAt = performance.now();
   const routeDispatch = {
+    "my-work": () => renderMyWork(),
+    repositories: () => renderRepositories(),
     master: () => {
       renderMasterFilters();
       renderMasterTable();
@@ -1342,6 +1458,50 @@ function renderActiveView() {
     renderSolutionPhases(openSolutionId);
   }
   telemetryController?.noteViewRendered?.(state.currentView, performance.now() - renderStartedAt);
+}
+
+function createMyWorkRouteContext() {
+  return createShellContext({
+    state,
+    els,
+    api,
+    escapeHtml,
+    formatStatus,
+    renderExternalRepoLink,
+    setView,
+  });
+}
+
+function renderMyWork() {
+  const mod = getRouteModule("my-work");
+  if (!mod || typeof mod.renderMyWork !== "function") {
+    ensureRouteModule("my-work").then((loaded) => {
+      if (loaded && state.currentView === "my-work") renderMyWork();
+    });
+    return;
+  }
+  mod.renderMyWork(createMyWorkRouteContext());
+}
+
+function createRepositoryInventoryRouteContext() {
+  return createShellContext({
+    state,
+    els,
+    api,
+    escapeHtml,
+    renderExternalRepoLink,
+  });
+}
+
+function renderRepositories() {
+  const mod = getRouteModule("repositories");
+  if (!mod || typeof mod.renderRepositories !== "function") {
+    ensureRouteModule("repositories").then((loaded) => {
+      if (loaded && state.currentView === "repositories") renderRepositories();
+    });
+    return;
+  }
+  mod.renderRepositories(createRepositoryInventoryRouteContext());
 }
 
 function restoreSelections(projectId, solutionId, taskId) {
@@ -2135,7 +2295,7 @@ function renderSolutionTasks(solutionId) {
     : allSubs.filter((task) => !isCompletedTaskStatus(task.status));
   const subs = sortTasksByName(visibleSubs, state.taskSort);
   const hiddenNote = hiddenClosedCount
-    ? `<p class="form-notice">Completed items are hidden here. Use Show Completed in the top bar to review ${hiddenClosedCount} closed task${hiddenClosedCount === 1 ? "" : "s"}.</p>`
+    ? `<p class="form-notice">Completed items are hidden here. Enable Show completed work in Preferences to review ${hiddenClosedCount} closed task${hiddenClosedCount === 1 ? "" : "s"}.</p>`
     : "";
   if (state.taskView === "swimlane") {
     const grouped = {
@@ -2772,7 +2932,7 @@ function csvKindConfig(kind) {
       label: "Projects",
       filename: "projects-template.csv",
       templateContent: [
-        "program_id,program_name,project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,strategic_objective,priority",
+        "program_id,program_name,project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
         ",Default Program,Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
       ].join("\n"),
     },
@@ -3294,15 +3454,8 @@ function userScopedStorageKey(prefix) {
 }
 
 function renderCompletedVisibilityToggle() {
-  if (!els.completedVisibilityToggle) return;
-  const showCompleted = !!state.workspacePrefs?.showCompleted;
-  els.completedVisibilityToggle.disabled = !state.authed;
-  els.completedVisibilityToggle.textContent = `Show Completed: ${showCompleted ? "On" : "Off"}`;
-  els.completedVisibilityToggle.setAttribute("aria-pressed", showCompleted ? "true" : "false");
-  els.completedVisibilityToggle.classList.toggle("active", showCompleted);
-  els.completedVisibilityToggle.title = showCompleted
-    ? "Completed and abandoned work is visible in operational views."
-    : "Completed and abandoned work is hidden from operational views.";
+  const checkbox = els.preferencesForm?.querySelector('[name="show_completed"]');
+  if (checkbox) checkbox.checked = !!state.workspacePrefs?.showCompleted;
 }
 
 function readRecentSpaceIds() {
@@ -3637,6 +3790,7 @@ function init() {
     return;
   }
   bindWorkspaceViewPreferences();
+  bindPreferences();
   shellNavigationController.bind();
   bindAuthUI();
   bindTopbarCreateMenu();

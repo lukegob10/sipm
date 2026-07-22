@@ -63,6 +63,8 @@ def load_program_dashboard_report_data(
                 "status": row.status.value if hasattr(row.status, "value") else row.status,
                 "sponsor": row.sponsor,
                 "sponsor_user_soeid": row.sponsor_user_soeid,
+                "owner": row.owner,
+                "owner_user_soeid": row.owner_user_soeid,
             }
             for row in project_rows
         ],

@@ -1,4 +1,5 @@
 import { nullableTextValue, textValue } from "../utils/form-values.js";
+import { createFormDraftGuard } from "../utils/form-draft.js";
 
 export function buildProjectPayload(data) {
   return {
@@ -9,6 +10,8 @@ export function buildProjectPayload(data) {
     success_criteria: nullableTextValue(data.get("success_criteria")),
     sponsor: textValue(data.get("sponsor")),
     sponsor_user_soeid: nullableTextValue(data.get("sponsor_user_soeid")),
+    owner: textValue(data.get("owner")),
+    owner_user_soeid: nullableTextValue(data.get("owner_user_soeid")),
     strategic_objective: nullableTextValue(data.get("strategic_objective")),
     priority: Number(data.get("priority") || 3),
   };
@@ -34,7 +37,12 @@ export function createProjectEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
-  let resettingProjectForm = false;
+  const projectDraft = createFormDraftGuard({
+    form: els.projectForm,
+    indicator: els.projectModal?.querySelector('[data-form-dirty-indicator="project"]'),
+    entityLabel: "Project",
+    showConfirmModal,
+  });
 
   function setProjectFormVisibility(show) {
     if (!els.projectModal) return;
@@ -52,12 +60,7 @@ export function createProjectEntityController({
 
   function fillProjectForm(project = null) {
     if (!els.projectForm) return;
-    resettingProjectForm = true;
-    try {
-      els.projectForm.reset();
-    } finally {
-      resettingProjectForm = false;
-    }
+    els.projectForm.reset();
     clearDeliverableFormNotice(els.projectFormStatus);
     const setVal = (name, value = "") => {
       const field = els.projectForm.querySelector(`[name="${name}"]`);
@@ -77,11 +80,14 @@ export function createProjectEntityController({
     setVal("success_criteria", project?.success_criteria || "");
     setVal("sponsor", project?.sponsor || "");
     setVal("sponsor_user_soeid", project?.sponsor_user_soeid || "");
+    setVal("owner", project?.owner || "");
+    setVal("owner_user_soeid", project?.owner_user_soeid || "");
     setVal("strategic_objective", project?.strategic_objective || "");
     setVal("priority", project?.priority ?? 3);
     if (els.deleteProjectBtn) {
       els.deleteProjectBtn.disabled = !project?.project_id;
     }
+    projectDraft.capture();
   }
 
   function openProjectForm(project = null) {
@@ -90,16 +96,28 @@ export function createProjectEntityController({
     setProjectActionButtonLabel(!!project?.project_id);
   }
 
-  function closeProjectForm() {
+  function finishClosingProjectForm() {
     fillProjectForm(null);
     setProjectFormVisibility(false);
     setProjectActionButtonLabel(false);
+    return true;
+  }
+
+  function closeProjectForm(options = {}) {
+    if (options.discardChanges || !projectDraft.isDirty()) {
+      return finishClosingProjectForm();
+    }
+    return projectDraft.confirmDiscard().then((confirmed) => {
+      if (!confirmed) return false;
+      return finishClosingProjectForm();
+    });
   }
 
   function bindProjectForm() {
     if (!els.projectForm) return;
-    els.projectModalClose?.addEventListener("click", () => closeProjectForm());
-    els.projectModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => closeProjectForm());
+    projectDraft.bind();
+    els.projectModalClose?.addEventListener("click", () => void closeProjectForm());
+    els.projectModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => void closeProjectForm());
     els.projectForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const data = new FormData(els.projectForm);
@@ -149,12 +167,6 @@ export function createProjectEntityController({
         );
       }
     });
-    els.projectForm.addEventListener("reset", () => {
-      if (resettingProjectForm) return;
-      clearDeliverableFormNotice(els.projectFormStatus);
-      fillProjectForm(null);
-      setProjectActionButtonLabel(false);
-    });
     if (els.deleteProjectBtn) {
       els.deleteProjectBtn.addEventListener("click", async () => {
         const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
@@ -171,7 +183,7 @@ export function createProjectEntityController({
           markIgnoreRefresh("projects");
           await api(`/projects/${id}`, { method: "DELETE" });
           removeById(state.projects, id, "project_id");
-          closeProjectForm();
+          closeProjectForm({ discardChanges: true });
           populateSelects();
           renderMasterTable();
           renderDashboard();

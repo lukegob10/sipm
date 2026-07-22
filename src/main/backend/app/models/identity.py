@@ -51,6 +51,56 @@ class User(TimestampMixin, Base):
     )
 
 
+class UserPreference(TimestampMixin, Base):
+    __tablename__ = physical_table_name("user_preferences")
+
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        primary_key=True,
+    )
+    developer_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    theme: Mapped[str] = mapped_column(String(16), default="dark", nullable=False)
+
+
+class UserTaskState(TimestampMixin, Base):
+    __tablename__ = physical_table_name("user_task_states")
+    __table_args__ = (
+        UniqueConstraint("user_id", "task_id", name="uix_user_task_state_user_task"),
+        Index(
+            "idx_user_task_state_queue",
+            "user_id",
+            "space_id",
+            "sort_rank",
+        ),
+    )
+
+    user_task_state_id: Mapped[str] = mapped_column(
+        String,
+        primary_key=True,
+        default=lambda: str(uuid4()),
+    )
+    user_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("users", "user_id")),
+        nullable=False,
+        index=True,
+    )
+    space_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("spaces", "space_id")),
+        nullable=False,
+        index=True,
+    )
+    task_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey(fk_target("tasks", "task_id")),
+        nullable=False,
+        index=True,
+    )
+    sort_rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
 class AuthSession(TimestampMixin, Base):
     __tablename__ = physical_table_name("auth_sessions")
     __table_args__ = (

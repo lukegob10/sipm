@@ -1,0 +1,702 @@
+.my-work-panel {
+  min-height: calc(100vh - 112px);
+}
+
+.my-work-header {
+  align-items: flex-start;
+}
+
+.my-work-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+}
+
+.my-work-root {
+  display: grid;
+  gap: 18px;
+}
+
+.my-work-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.55fr) auto;
+  gap: 14px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-sunken);
+}
+
+.my-work-control {
+  display: grid;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+}
+
+.my-work-control input,
+.app-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.my-work-control input {
+  padding: 9px 12px;
+}
+
+.app-select {
+  padding: 9px 36px 9px 12px;
+  cursor: pointer;
+}
+
+.my-work-control input:hover,
+.app-select:hover {
+  border-color: var(--hover-border);
+}
+
+.my-work-control input:focus,
+.app-select:focus {
+  border-color: var(--accent-strong);
+  box-shadow: var(--selected-ring-strong);
+}
+
+.my-work-toolbar-summary {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-height: var(--route-control-height);
+  padding: 8px 12px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.my-work-toolbar-summary strong {
+  color: var(--text-strong);
+  font-size: 1.2rem;
+}
+
+.my-work-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(560px, 2.15fr);
+  gap: 18px;
+  align-items: stretch;
+  height: clamp(640px, calc(100vh - 300px), 720px);
+  min-height: 0;
+}
+
+.my-work-queue {
+  height: 100%;
+  min-height: 0;
+}
+
+.my-work-queue-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.my-work-queue-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+
+.my-work-queue-heading h2,
+.my-work-queue-heading p {
+  margin: 0;
+}
+
+.my-work-queue-heading h2 {
+  color: var(--text-strong);
+  font-size: 0.98rem;
+}
+
+.my-work-queue-heading p {
+  margin-top: 3px;
+  color: var(--text-subtle);
+  font-size: 0.76rem;
+}
+
+.my-work-count {
+  display: grid;
+  min-width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.my-work-card-list {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 48px;
+  overflow-y: auto;
+  padding: 8px;
+  scrollbar-gutter: stable;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.my-work-card-list.is-drop-zone.is-drag-over {
+  background: color-mix(in srgb, var(--accent-strong) 10%, var(--surface-sunken));
+  box-shadow: inset 0 0 0 2px var(--accent-strong);
+}
+
+.my-work-card {
+  position: relative;
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  min-height: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--table-row-bg);
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.my-work-card:hover,
+.my-work-card:focus-visible {
+  border-color: var(--hover-border);
+  background: var(--hover-strong);
+}
+
+.my-work-card.is-selected {
+  border-color: var(--accent-strong);
+  box-shadow: inset 3px 0 0 var(--accent-strong);
+}
+
+.my-work-card.needs-attention {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border-soft));
+  box-shadow: inset 3px 0 0 var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--table-row-bg));
+}
+
+.my-work-card.needs-attention.is-selected {
+  border-color: var(--danger);
+  box-shadow: inset 3px 0 0 var(--danger), var(--selected-ring);
+}
+
+.my-work-card[draggable="true"] {
+  cursor: grab;
+}
+
+.my-work-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.my-work-card.is-dragging {
+  opacity: 0.42;
+}
+
+.my-work-card.drop-before::before,
+.my-work-card.drop-after::after {
+  position: absolute;
+  z-index: 3;
+  right: 8px;
+  left: 8px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-strong) 24%, transparent), 0 0 10px color-mix(in srgb, var(--accent-strong) 55%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
+.my-work-card.drop-before::before {
+  top: -6px;
+}
+
+.my-work-card.drop-after::after {
+  bottom: -6px;
+}
+
+.my-work-task-title {
+  color: var(--text-strong);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.my-work-task-description {
+  display: block;
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  max-height: 2.9em;
+}
+
+.my-work-card-due {
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.my-work-card-due.is-attention {
+  color: var(--danger);
+}
+
+.my-work-card-meta > span:not(:last-child)::after {
+  margin-left: 10px;
+  color: var(--border-strong);
+  content: "•";
+}
+
+.my-work-empty-bucket {
+  margin: 0;
+  padding: 13px;
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.my-work-detail {
+  position: sticky;
+  top: 82px;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-1);
+  box-shadow: var(--shadow);
+}
+
+.my-work-detail-view {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.my-work-card-list::-webkit-scrollbar,
+.my-work-detail::-webkit-scrollbar {
+  width: 10px;
+}
+
+.my-work-card-list::-webkit-scrollbar-track,
+.my-work-detail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.my-work-card-list::-webkit-scrollbar-thumb,
+.my-work-detail::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+.my-work-detail-empty {
+  display: grid;
+  min-height: 300px;
+  padding: 28px;
+  place-items: center;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.my-work-detail-empty h2,
+.my-work-detail-empty p {
+  margin: 8px 0 0;
+}
+
+.my-work-detail-icon {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--accent-2);
+  font-size: 1.3rem;
+}
+
+.my-work-detail-head,
+.my-work-detail-section,
+.my-work-detail-footer {
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.my-work-detail-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+  background: var(--surface-2);
+}
+
+.my-work-detail-head-copy {
+  min-width: 0;
+}
+
+.my-work-detail-head h2,
+.my-work-detail-head p,
+.my-work-detail-section h3,
+.my-work-detail-section h4,
+.my-work-detail-section p {
+  margin: 0;
+}
+
+.my-work-detail-head h2 {
+  margin-top: 5px;
+  color: var(--text-strong);
+  font-size: 1.08rem;
+}
+
+.my-work-detail-head p,
+.my-work-detail-section p {
+  margin-top: 7px;
+  color: var(--text-subtle);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.my-work-detail-section h3 {
+  color: var(--text-strong);
+  font-size: 0.88rem;
+}
+
+.my-work-detail-copy {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  min-height: 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.my-work-detail-copy-section {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 17px 18px;
+}
+
+.my-work-detail-copy-section + .my-work-detail-copy-section {
+  border-top: 1px solid var(--border-soft);
+}
+
+.my-work-detail-copy-section h3,
+.my-work-detail-copy-section p {
+  margin: 0;
+}
+
+.my-work-detail-copy-section h3 {
+  color: var(--text-strong);
+  font-size: 0.88rem;
+}
+
+.my-work-detail-copy-section p {
+  margin-top: 7px;
+  color: var(--text-subtle);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.my-work-detail-section h4 {
+  margin-top: 14px;
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.my-work-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.my-work-detail-facts span {
+  display: grid;
+  gap: 3px;
+}
+
+.my-work-detail-facts small {
+  color: var(--text-subtle);
+}
+
+.my-work-detail-facts strong {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+}
+
+.my-work-blocker {
+  display: grid;
+  gap: 3px;
+  margin-top: 13px;
+  padding: 10px 11px;
+  border-left: 3px solid var(--danger);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-sunken));
+  font-size: 0.78rem;
+}
+
+.my-work-detail-footer {
+  display: grid;
+  gap: 8px;
+}
+
+.preference-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+}
+
+.my-work-detail-footer {
+  border-bottom: 0;
+  background: var(--surface-sunken);
+}
+
+.my-work-detail-footer .form-notice:empty {
+  display: none;
+}
+
+.my-work-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.my-work-empty,
+.my-work-loading {
+  display: grid;
+  min-height: 360px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.my-work-empty span {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--positive) 18%, var(--surface-2));
+  color: var(--positive);
+  font-size: 1.4rem;
+}
+
+.my-work-empty h2,
+.my-work-empty p {
+  margin: 0;
+}
+
+.preferences-modal-content {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.preferences-form,
+.preferences-section {
+  display: grid;
+  gap: 16px;
+}
+
+.preferences-form {
+  padding: 18px;
+}
+
+.preferences-section {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.55fr);
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-1);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border-soft) 70%, transparent);
+}
+
+.preferences-section h4,
+.preferences-section p {
+  margin: 0;
+}
+
+.preferences-section p {
+  margin-top: 5px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.preference-switch {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.preference-field {
+  width: 100%;
+}
+
+.my-work-edit-form {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  overflow: hidden;
+  padding: 14px;
+  scrollbar-gutter: auto;
+}
+
+.my-work-edit-heading {
+  display: flex;
+  min-height: 84px;
+  box-sizing: border-box;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.my-work-edit-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.my-work-edit-heading h2 {
+  margin: 5px 0 0;
+  color: var(--text-strong);
+  font-size: 1.08rem;
+}
+
+.my-work-edit-field {
+  display: grid;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+}
+
+.my-work-edit-field input,
+.my-work-edit-field textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  outline: none;
+  resize: vertical;
+}
+
+.my-work-edit-field input:focus,
+.my-work-edit-field textarea:focus {
+  border-color: var(--accent-strong);
+  box-shadow: var(--selected-ring-strong);
+}
+
+.my-work-edit-field textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.my-work-edit-field .my-work-longform-editor {
+  height: 136px;
+  min-height: 136px;
+  max-height: 136px;
+  overflow-y: auto;
+  resize: none;
+}
+
+.my-work-edit-field .my-work-acceptance-editor {
+  height: 84px;
+  min-height: 84px;
+  max-height: 84px;
+}
+
+.my-work-edit-grid {
+  display: grid;
+  grid-template-columns: 120px 112px 145px;
+  gap: 8px;
+  align-items: end;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.my-work-edit-grid .my-work-edit-field {
+  gap: 5px;
+}
+
+.my-work-edit-grid .my-work-edit-field input,
+.my-work-edit-grid .app-select {
+  height: 34px;
+  min-height: 34px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.my-work-blocked-toggle {
+  min-height: 34px;
+  box-sizing: border-box;
+  justify-self: stretch;
+  padding: 6px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 1180px) {
+  .my-work-layout {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .my-work-queue,
+  .my-work-queue-panel {
+    height: min(520px, calc(100vh - 220px));
+  }
+
+  .my-work-detail {
+    position: static;
+    height: auto;
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .my-work-toolbar,
+  .preferences-section {
+    grid-template-columns: 1fr;
+  }
+
+  .my-work-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}

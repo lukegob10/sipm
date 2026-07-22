@@ -115,10 +115,15 @@
           <span class="brand-name">SIPM</span>
         </span>
       </div>
+      <div id="nav-personal-section" class="nav-group nav-section hidden">
+        <p class="nav-label">Personal</p>
+        <button type="button" data-view="my-work" class="nav-btn">My Work</button>
+      </div>
       <div id="nav-work-section" class="nav-group nav-section">
         <p class="nav-label">Work</p>
         <button type="button" data-view="master" class="nav-btn active" aria-current="page">Deliverables</button>
         <button type="button" data-view="tasks-workbench" class="nav-btn">Tasks</button>
+        <button type="button" id="nav-repositories" data-view="repositories" class="nav-btn hidden">Repositories</button>
       </div>
       <div id="nav-insight-section" class="nav-group nav-section">
         <p class="nav-label">Insight</p>
@@ -244,22 +249,40 @@
             </button>
             <div id="account-menu-panel" class="account-menu-panel" role="menu" aria-label="Account and display settings">
               <span id="current-user" class="pill muted" role="presentation"></span>
-              <button
-                id="completed-visibility-toggle"
-                class="secondary"
-                type="button"
-                role="menuitem"
-                aria-pressed="false"
-                title="Completed and abandoned work is hidden from operational views."
-              >
-                Show Completed: Off
-              </button>
-              <button type="button" id="theme-toggle" class="secondary" role="menuitem">Light Mode</button>
+              <button type="button" id="preferences-open" class="secondary" role="menuitem">Preferences</button>
               <button type="button" id="logout-btn" class="secondary" role="menuitem">Sign out</button>
             </div>
           </div>
         </div>
       </header>
+
+      <section id="view-my-work" class="view" aria-hidden="true">
+        <div class="panel product-route-panel my-work-panel">
+          <div class="panel-header my-work-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Personal / My Work</p>
+              <h1 class="route-title">My Work</h1>
+              <p class="my-work-subtitle">Your assigned SIPM tasks, organized for focused execution.</p>
+            </div>
+            <span class="pill info">Developer Mode</span>
+          </div>
+          <div id="my-work-root" class="my-work-root" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section id="view-repositories" class="view" aria-hidden="true">
+        <div class="panel product-route-panel repository-inventory-panel">
+          <div class="panel-header repository-inventory-header">
+            <div class="view-heading">
+              <p class="view-breadcrumb">Work / Repositories</p>
+              <h1 class="route-title">Repositories</h1>
+              <p class="repository-inventory-subtitle">A deduplicated index of GitHub repositories referenced by this workspace.</p>
+            </div>
+            <span class="pill info">Developer Mode</span>
+          </div>
+          <div id="repository-inventory-root" class="repository-inventory-root" aria-live="polite"></div>
+        </div>
+      </section>
 
       <section id="view-master" class="view active">
         <div class="panel product-route-panel">
@@ -653,7 +676,10 @@
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
           <div class="modal-header modal-header-sticky">
-            <h3 id="project-modal-title">Project</h3>
+            <div class="modal-title-block">
+              <span class="modal-eyebrow">Project editor</span>
+              <h3 id="project-modal-title">Project</h3>
+            </div>
             <button
               type="button"
               id="project-modal-close"
@@ -666,33 +692,66 @@
             </button>
           </div>
           <div class="modal-body">
-            <form id="project-form" class="form compact">
-              <h3 class="form-title">Project Details</h3>
-              <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+            <form id="project-form" class="form compact entity-editor-form">
+              <div class="entity-editor-intro full-span">
+                <div>
+                  <h3 class="form-title">Project details</h3>
+                  <p class="form-required-note">Organize ownership, delivery state, and the outcomes this project is expected to produce.</p>
+                </div>
+                <p class="form-required-note">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+              </div>
               <input type="hidden" name="project_id" />
-              <label><span class="field-label">Program<span class="required-marker" aria-hidden="true">*</span></span><select name="program_id" required></select></label>
-              <label><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required /></label>
-              <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
-              <label>Status
-                <select name="status">
-                  <option value="not_started">Not started</option>
-                  <option value="active">Active</option>
-                  <option value="on_hold">On hold</option>
-                  <option value="complete">Complete</option>
-                  <option value="abandoned">Abandoned</option>
-                </select>
-              </label>
-              <label><span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required /></label>
-              <label>Sponsor SOEID <input name="sponsor_user_soeid" placeholder="SOEID" /></label>
-              <label class="full-span">Description <textarea name="description"></textarea></label>
-              <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
-              <label class="full-span">Strategic Objective <textarea name="strategic_objective" placeholder="Theme/initiative intent"></textarea></label>
+              <section class="entity-editor-section" aria-labelledby="project-overview-heading">
+                <div class="entity-editor-section-heading">
+                  <h4 id="project-overview-heading">Overview</h4>
+                  <p>Place the project in its program and set its current delivery state.</p>
+                </div>
+                <div class="entity-editor-grid entity-editor-grid-2 project-form-primary-row">
+                  <label><span class="field-label">Program<span class="required-marker" aria-hidden="true">*</span></span><select name="program_id" required></select></label>
+                  <label><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required /></label>
+                </div>
+                <div class="entity-editor-grid entity-editor-grid-2 entity-editor-grid-compact project-form-status-row">
+                  <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
+                  <label>Status
+                    <select name="status">
+                      <option value="not_started">Not started</option>
+                      <option value="active">Active</option>
+                      <option value="on_hold">On hold</option>
+                      <option value="complete">Complete</option>
+                      <option value="abandoned">Abandoned</option>
+                    </select>
+                  </label>
+                </div>
+              </section>
+              <section class="entity-editor-section" aria-labelledby="project-people-heading">
+                <div class="entity-editor-section-heading">
+                  <h4 id="project-people-heading">People</h4>
+                  <p>Keep executive sponsorship and day-to-day ownership together.</p>
+                </div>
+                <div class="entity-editor-grid entity-editor-grid-4 project-form-ownership-row">
+                  <label><span class="field-label">Sponsor<span class="required-marker" aria-hidden="true">*</span></span><input name="sponsor" required /></label>
+                  <label>Sponsor SOEID <input name="sponsor_user_soeid" placeholder="SOEID" /></label>
+                  <label>Owner <input name="owner" /></label>
+                  <label>Owner SOEID <input name="owner_user_soeid" placeholder="SOEID" /></label>
+                </div>
+              </section>
+              <section class="entity-editor-section" aria-labelledby="project-definition-heading">
+                <div class="entity-editor-section-heading">
+                  <h4 id="project-definition-heading">Definition and outcomes</h4>
+                  <p>Describe the intent, strategic fit, and evidence of success.</p>
+                </div>
+                <label>Description <textarea name="description" class="entity-editor-textarea entity-editor-textarea-wide"></textarea></label>
+                <div class="entity-editor-grid entity-editor-grid-2 entity-editor-narrative-grid">
+                  <label>Strategic Objective <textarea name="strategic_objective" class="entity-editor-textarea" placeholder="Theme/initiative intent"></textarea></label>
+                  <label>Success Criteria <textarea name="success_criteria" class="entity-editor-textarea" placeholder="- Outcome / metric / target / evidence"></textarea></label>
+                </div>
+              </section>
             </form>
             <div class="modal-form-footer full-span">
-              <div class="form-actions">
-                <button type="submit" id="project-submit-btn" form="project-form">Create Project</button>
-                <button type="reset" class="secondary" form="project-form">Reset</button>
-                <button type="button" id="delete-project" class="secondary" disabled>Delete</button>
+              <div class="form-actions entity-editor-actions">
+                <button type="button" id="delete-project" class="secondary entity-editor-delete-action" disabled>Delete project</button>
+                <span class="entity-editor-dirty-indicator" data-form-dirty-indicator="project" hidden>Unsaved changes</span>
+                <button type="submit" id="project-submit-btn" form="project-form" class="entity-editor-save-action">Create Project</button>
               </div>
               <p id="project-form-status" class="form-notice" role="status" aria-live="polite"></p>
             </div>
@@ -705,7 +764,10 @@
         <div class="modal-content wide">
           <div class="modal-sticky-chrome">
             <div class="modal-header modal-header-sticky">
-              <h3 id="solution-modal-title">Solution</h3>
+              <div class="modal-title-block">
+                <span class="modal-eyebrow">Solution editor</span>
+                <h3 id="solution-modal-title">Solution</h3>
+              </div>
               <button
                 type="button"
                 id="solution-modal-close"
@@ -727,73 +789,129 @@
           </div>
           <div class="modal-body">
             <div class="modal-tab active" data-tab-panel="details">
-              <form id="solution-form" class="form compact">
-                <h3 class="form-title">Solution Details</h3>
-                <p class="form-required-note full-span">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+              <form id="solution-form" class="form compact entity-editor-form">
+                <div class="entity-editor-intro full-span">
+                  <div>
+                    <h3 class="form-title">Solution details</h3>
+                    <p class="form-required-note">Connect the solution to a project, then manage delivery health, people, and outcomes.</p>
+                  </div>
+                  <p class="form-required-note">Fields marked <span class="required-marker" aria-hidden="true">*</span> are required.</p>
+                </div>
                 <input type="hidden" name="solution_id" />
-                <label class="wide"><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span>
-                  <select name="project_id" required></select>
-                </label>
-                <label class="wide"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span><input name="solution_name" required /></label>
-                <label class="full-span">Primary GitHub Repo
-                  <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
-                </label>
-                <p class="form-hint full-span">Primary repo for this solution or tool.</p>
-                <label>Version <input name="version" value="0.1.0" /></label>
-                <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
-                <label>Status
-                  <select name="status">
-                    <option value="not_started">Not started</option>
-                    <option value="active">Active</option>
-                    <option value="on_hold">On hold</option>
-                    <option value="complete">Complete</option>
-                    <option value="abandoned">Abandoned</option>
-                  </select>
-                </label>
-                <label>RAG Status
-                  <select name="rag_status">
-                    <option value="green" selected>Green</option>
-                    <option value="amber">Amber</option>
-                    <option value="red">Red</option>
-                  </select>
-                </label>
-                <label>Priority
-                  <input type="number" name="priority" min="0" max="5" value="3" />
-                </label>
-                <label>Due Date <input type="date" name="due_date" /></label>
-                <label class="wide">Current Phase
-                  <select name="current_phase"></select>
-                </label>
-                <label>Planned Start <input type="date" name="planned_start_date" /></label>
-                <label>Impact Confidence
-                  <select name="impact_confidence">
-                    <option value="">Select</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                </label>
-                <label class="wide"><span class="field-label">Solution Owner<span class="required-marker" aria-hidden="true">*</span></span><input name="owner" required /></label>
-                <label>Owner SOEID <input name="owner_user_soeid" /></label>
-                <label class="wide">Assignee <input name="assignee" /></label>
-                <label>Assignee SOEID <input name="assignee_user_soeid" /></label>
-                <label class="wide">Approver <input name="approver" /></label>
-                <label>Approver SOEID <input name="approver_user_soeid" /></label>
-                <label class="wide">Key Stakeholder <input name="key_stakeholder" /></label>
-                <label>RAG Confidence <input type="number" step="any" name="rag_confidence" min="0" max="100" placeholder="0-100" /></label>
-                <label class="full-span">Description <textarea name="description"></textarea></label>
-                <label class="full-span">Problem Statement <textarea name="problem_statement" placeholder="Context / pain point"></textarea></label>
-                <label class="full-span">Success Criteria <textarea name="success_criteria" placeholder="- Outcome / metric / target / evidence"></textarea></label>
-                <label class="full-span">Escalation <textarea name="escalation" maxlength="255" rows="2"></textarea></label>
-                <label class="full-span">RAG Reason <textarea name="rag_reason" placeholder="Reason for current RAG"></textarea></label>
-                <label class="full-span">Blockers <textarea name="blockers"></textarea></label>
-                <label class="full-span">Risks <textarea name="risks"></textarea></label>
+                <section class="entity-editor-section" aria-labelledby="solution-overview-heading">
+                  <div class="entity-editor-section-heading">
+                    <h4 id="solution-overview-heading">Overview</h4>
+                    <p>Identify the solution and surface its most important delivery signals.</p>
+                  </div>
+                  <div class="solution-editor-overview-grid">
+                    <div class="solution-form-primary-fields">
+                      <label class="wide"><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span>
+                        <select name="project_id" required></select>
+                      </label>
+                      <label class="wide"><span class="field-label">Solution<span class="required-marker" aria-hidden="true">*</span></span><input name="solution_name" required /></label>
+                      <label class="wide">Primary GitHub Repo
+                        <input name="github_repo_url" type="url" placeholder="https://github.com/org/repo" />
+                      </label>
+                      <p class="form-hint">Primary repo for this solution or tool.</p>
+                    </div>
+                    <div class="solution-delivery-state" aria-labelledby="solution-delivery-heading">
+                      <h5 id="solution-delivery-heading">Delivery state</h5>
+                      <div class="entity-editor-grid entity-editor-grid-2">
+                        <label>Status
+                          <select name="status">
+                            <option value="not_started">Not started</option>
+                            <option value="active">Active</option>
+                            <option value="on_hold">On hold</option>
+                            <option value="complete">Complete</option>
+                            <option value="abandoned">Abandoned</option>
+                          </select>
+                        </label>
+                        <label>RAG Status
+                          <select name="rag_status">
+                            <option value="green" selected>Green</option>
+                            <option value="amber">Amber</option>
+                            <option value="red">Red</option>
+                          </select>
+                        </label>
+                        <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>
+                        <label>Due Date <input type="date" name="due_date" /></label>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+                <section class="entity-editor-section" aria-labelledby="solution-planning-heading">
+                  <div class="entity-editor-section-heading">
+                    <h4 id="solution-planning-heading">Planning and health</h4>
+                    <p>Capture schedule, capacity, phase, and confidence without crowding the overview.</p>
+                  </div>
+                  <div class="entity-editor-grid entity-editor-grid-3">
+                    <label>Version <input name="version" value="0.1.0" /></label>
+                    <label>Resource Need (FTE-Months) <input type="number" name="capacity_hours" min="0" step="0.05" value="0.00" /></label>
+                    <label>Current Phase <select name="current_phase"></select></label>
+                    <label>Planned Start <input type="date" name="planned_start_date" /></label>
+                    <label>Impact Confidence
+                      <select name="impact_confidence">
+                        <option value="">Select</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </label>
+                    <label>RAG Confidence <input type="number" step="any" name="rag_confidence" min="0" max="100" placeholder="0-100" /></label>
+                  </div>
+                </section>
+                <section class="entity-editor-section" aria-labelledby="solution-people-heading">
+                  <div class="entity-editor-section-heading">
+                    <h4 id="solution-people-heading">People</h4>
+                    <p>Keep each delivery role paired with its SOEID.</p>
+                  </div>
+                  <div class="solution-people-grid">
+                    <div class="entity-editor-person-pair">
+                      <label><span class="field-label">Solution Owner<span class="required-marker" aria-hidden="true">*</span></span><input name="owner" required /></label>
+                      <label>Owner SOEID <input name="owner_user_soeid" /></label>
+                    </div>
+                    <div class="entity-editor-person-pair">
+                      <label>Assignee <input name="assignee" /></label>
+                      <label>Assignee SOEID <input name="assignee_user_soeid" /></label>
+                    </div>
+                    <div class="entity-editor-person-pair">
+                      <label>Approver <input name="approver" /></label>
+                      <label>Approver SOEID <input name="approver_user_soeid" /></label>
+                    </div>
+                    <label class="solution-stakeholder-field">Key Stakeholder <input name="key_stakeholder" /></label>
+                  </div>
+                </section>
+                <section class="entity-editor-section" aria-labelledby="solution-definition-heading">
+                  <div class="entity-editor-section-heading">
+                    <h4 id="solution-definition-heading">Definition and outcomes</h4>
+                    <p>Explain the problem, the proposed response, and how success will be measured.</p>
+                  </div>
+                  <div class="entity-editor-grid entity-editor-grid-2 entity-editor-narrative-grid">
+                    <label>Description <textarea name="description" class="entity-editor-textarea"></textarea></label>
+                    <label>Problem Statement <textarea name="problem_statement" class="entity-editor-textarea" placeholder="Context / pain point"></textarea></label>
+                  </div>
+                  <label>Success Criteria <textarea name="success_criteria" class="entity-editor-textarea entity-editor-textarea-wide" placeholder="- Outcome / metric / target / evidence"></textarea></label>
+                </section>
+                <section class="entity-editor-section" aria-labelledby="solution-risk-heading">
+                  <div class="entity-editor-section-heading">
+                    <h4 id="solution-risk-heading">Risk and escalation</h4>
+                    <p>Document active constraints and the intervention needed to move forward.</p>
+                  </div>
+                  <div class="entity-editor-grid entity-editor-grid-2 entity-editor-narrative-grid">
+                    <label>Blockers <textarea name="blockers" class="entity-editor-textarea"></textarea></label>
+                    <label>Risks <textarea name="risks" class="entity-editor-textarea"></textarea></label>
+                  </div>
+                  <div class="solution-rag-reason-field" data-solution-rag-reason hidden>
+                    <label>RAG Reason <textarea name="rag_reason" class="entity-editor-textarea" placeholder="Explain the Amber or Red status"></textarea></label>
+                  </div>
+                  <label>Escalation <textarea name="escalation" class="entity-editor-textarea entity-editor-textarea-short" maxlength="255" rows="2"></textarea></label>
+                </section>
               </form>
               <div class="modal-form-footer full-span">
-                <div class="form-actions">
-                  <button type="submit" id="solution-submit-btn" form="solution-form">Create Solution</button>
-                  <button type="reset" class="secondary" form="solution-form">Reset</button>
-                  <button type="button" id="delete-solution" class="secondary" disabled>Delete</button>
+                <div class="form-actions entity-editor-actions">
+                  <button type="button" id="delete-solution" class="secondary entity-editor-delete-action" disabled>Delete solution</button>
+                  <span class="entity-editor-dirty-indicator" data-form-dirty-indicator="solution" hidden>Unsaved changes</span>
+                  <button type="submit" id="solution-submit-btn" form="solution-form" class="entity-editor-save-action">Create Solution</button>
                 </div>
                 <p id="solution-form-status" class="form-notice" role="status" aria-live="polite"></p>
               </div>
@@ -1128,6 +1246,59 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div id="preferences-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="preferences-modal-title">
+    <div class="modal-backdrop" data-preferences-close></div>
+    <div class="modal-content preferences-modal-content">
+      <div class="modal-header">
+        <div>
+          <p class="view-breadcrumb">Personal settings</p>
+          <h3 id="preferences-modal-title">Preferences</h3>
+        </div>
+        <button type="button" id="preferences-close" class="secondary modal-close-x" aria-label="Close preferences">×</button>
+      </div>
+      <form id="preferences-form" class="preferences-form">
+        <section class="preferences-section">
+          <div>
+            <h4>Developer Mode</h4>
+            <p class="muted">Adds My Work to navigation and makes it your starting view without changing shared Tasks.</p>
+          </div>
+          <label class="preference-switch">
+            <input type="checkbox" name="developer_mode_enabled" />
+            <span>Enable Developer Mode</span>
+          </label>
+        </section>
+        <section class="preferences-section">
+          <div>
+            <h4>Appearance</h4>
+            <p class="muted">Theme is independent from Developer Mode.</p>
+          </div>
+          <label class="preference-field"><span>Theme</span>
+            <select name="theme" class="app-select">
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </label>
+        </section>
+        <section class="preferences-section">
+          <div>
+            <h4>Work visibility</h4>
+            <p class="muted">Include completed and abandoned work in operational views for this Space.</p>
+          </div>
+          <label class="preference-switch">
+            <input type="checkbox" name="show_completed" />
+            <span>Show completed work</span>
+          </label>
+        </section>
+        <p id="preferences-status" class="form-notice" role="status" aria-live="polite"></p>
+        <div class="form-actions">
+          <button type="submit">Save Preferences</button>
+          <button type="button" id="preferences-cancel" class="secondary">Cancel</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div id="calendar-modal" class="modal hidden">

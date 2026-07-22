@@ -7,6 +7,7 @@ All paths are below `<SIPM_BASE_URL>/api`. Service-account calls use `Authorizat
 - `GET /agent/manifest` — truthful capabilities and safety flags.
 - `GET /agent/spaces` and `/{space_id}` — accessible, cursor-paginated space discovery; no space header required.
 - `GET /agent/work-items` — typed, cursor-paginated locator for program/project/solution/task.
+- `GET /agent/assigned-work?assignee_user_soeid=<soeid>` — active shared Tasks assigned by exact SOE ID, with hierarchy, actionability, and effective GitHub-repository context. Results exclude completed/abandoned work and all private My Work ordering state.
 - `GET /agent/{programs|projects|solutions|tasks}/{id}` — complete direct detail with concurrency timestamps.
 - `GET /agent/work-graph` — project-boundary cursor pagination, `task_id`, and `summary|full` projection. Filters select matching parent graphs; returned parents include their full child set for the chosen projection.
 - `GET /agent/audit-feed` — scoped incremental verification.

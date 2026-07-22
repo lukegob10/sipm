@@ -648,7 +648,7 @@ function renderProjectsTable({
                 toggleHtml: projectToggleMarkup(project, collapsed, projectSolutions.length),
                 linkHtml: projectLinkMarkup(project, readOnly),
               }),
-              owner: esc(displayValue(project.sponsor || project.sponsor_user_soeid)),
+              owner: esc(displayValue(project.owner || project.owner_user_soeid || project.sponsor || project.sponsor_user_soeid)),
               start: esc(projectStart),
               end: esc(projectEnd),
               status: statusMarkup(project.status, formatStatus),

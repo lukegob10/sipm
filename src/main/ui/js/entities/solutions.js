@@ -1,6 +1,8 @@
 import { nullableTextValue, textValue } from "../utils/form-values.js";
+import { createFormDraftGuard } from "../utils/form-draft.js";
 
 export function buildSolutionPayload(data, { hoursFromFteInput }) {
+  const ragStatus = data.get("rag_status") || "green";
   return {
     solution_name: textValue(data.get("solution_name")),
     project_id: textValue(data.get("project_id")),
@@ -27,8 +29,8 @@ export function buildSolutionPayload(data, { hoursFromFteInput }) {
     blockers: nullableTextValue(data.get("blockers")),
     risks: nullableTextValue(data.get("risks")),
     capacity_hours: hoursFromFteInput(data.get("capacity_hours")),
-    rag_status: data.get("rag_status") || "green",
-    rag_reason: nullableTextValue(data.get("rag_reason")),
+    rag_status: ragStatus,
+    rag_reason: ragStatus === "green" ? null : nullableTextValue(data.get("rag_reason")),
   };
 }
 
@@ -64,6 +66,22 @@ export function createSolutionEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
+  const solutionDraft = createFormDraftGuard({
+    form: els.solutionForm,
+    indicator: els.solutionModal?.querySelector('[data-form-dirty-indicator="solution"]'),
+    entityLabel: "Solution",
+    showConfirmModal,
+  });
+
+  function updateRagReasonVisibility() {
+    const status = els.solutionForm?.querySelector('[name="rag_status"]')?.value || "green";
+    const reasonField = els.solutionForm?.querySelector("[data-solution-rag-reason]");
+    if (!reasonField) return;
+    const showReason = status === "amber" || status === "red";
+    reasonField.hidden = !showReason;
+    reasonField.setAttribute("aria-hidden", showReason ? "false" : "true");
+  }
+
   function fillSolutionForm(solution = null) {
     if (!els.solutionForm) return;
     els.solutionForm.reset();
@@ -100,6 +118,8 @@ export function createSolutionEntityController({
     if (els.deleteSolutionBtn) {
       els.deleteSolutionBtn.disabled = !solution?.solution_id;
     }
+    updateRagReasonVisibility();
+    solutionDraft.capture();
   }
 
   function setSolutionActionButtonLabel(isEditing) {
@@ -147,7 +167,7 @@ export function createSolutionEntityController({
     }
   }
 
-  function closeSolutionModal() {
+  function finishClosingSolutionModal() {
     if (!els.solutionModal) return;
     fillSolutionForm(null);
     setSolutionActionButtonLabel(false);
@@ -158,12 +178,26 @@ export function createSolutionEntityController({
       setTaskFormVisibility(false);
       setTaskActionButtonLabel(false);
     }
+    return true;
+  }
+
+  function closeSolutionModal(options = {}) {
+    if (!els.solutionModal) return false;
+    if (options.discardChanges || !solutionDraft.isDirty()) {
+      return finishClosingSolutionModal();
+    }
+    return solutionDraft.confirmDiscard().then((confirmed) => {
+      if (!confirmed) return false;
+      return finishClosingSolutionModal();
+    });
   }
 
   function bindSolutionForm() {
     if (!els.solutionForm) return;
-    els.solutionModalClose?.addEventListener("click", () => closeSolutionModal());
-    els.solutionModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => closeSolutionModal());
+    solutionDraft.bind();
+    els.solutionModalClose?.addEventListener("click", () => void closeSolutionModal());
+    els.solutionModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => void closeSolutionModal());
+    els.solutionForm.querySelector('[name="rag_status"]')?.addEventListener("change", updateRagReasonVisibility);
 
     const saveHandler = async () => {
       const data = new FormData(els.solutionForm);
@@ -231,13 +265,6 @@ export function createSolutionEntityController({
       e.preventDefault();
       saveHandler();
     });
-    els.solutionForm.addEventListener("reset", () => {
-      clearDeliverableFormNotice(els.solutionFormStatus);
-      fillSolutionForm(null);
-      setSolutionActionButtonLabel(false);
-      updateCurrentPhaseOptions("");
-      renderSolutionPhases();
-    });
     if (els.deleteSolutionBtn) {
       els.deleteSolutionBtn.addEventListener("click", async () => {
         const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
@@ -256,7 +283,7 @@ export function createSolutionEntityController({
           removeById(state.solutions, id, "solution_id");
           delete state.solutionPhases[id];
           delete state.solutionDocuments[id];
-          closeSolutionModal();
+          closeSolutionModal({ discardChanges: true });
           populateSelects();
           renderMasterTable();
           renderDashboard();

@@ -210,13 +210,14 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     )
     assert accepted.status_code == 200, accepted.text
     manifest = accepted.json()
-    assert manifest["version"] == "1.3"
+    assert manifest["version"] == "1.4"
     assert manifest["capabilities"] == [
         "read_programs",
         "read_spaces",
         "read_work_graph",
         "read_paginated_work_graph",
         "read_work_item_details",
+        "read_assigned_work",
         "search_work_items",
         "read_own_change_requests",
         "cancel_own_change_request",
@@ -497,6 +498,8 @@ def _seed_work_graph(db_sessionmaker):
             project_name="Agent Project",
             status="active",
             sponsor="Sponsor",
+            owner="Project Owner",
+            owner_user_soeid="project-owner",
             priority=2,
         )
         other_project = Project(
@@ -556,6 +559,105 @@ def _seed_work_graph(db_sessionmaker):
 
 
 @pytest.mark.anyio
+async def test_agent_assigned_work_is_shared_scoped_paginated_and_private_state_free(
+    agent_client, db_sessionmaker
+):
+    token, space_id, _other_token, _other_space_id, _project_id, solution_id, task_id, *_ = (
+        _seed_work_graph(db_sessionmaker)
+    )
+    with db_sessionmaker() as session:
+        solution = session.get(Solution, solution_id)
+        solution.github_repo_url = "https://github.com/example/assigned-work"
+        attention_task = session.get(Task, task_id)
+        attention_task.blocked = True
+        attention_task.blocker_note = "Waiting for credentials"
+        attention_task.acceptance_criteria = "Credentials are exercised by a test"
+        next_task = Task(
+            space_id=space_id,
+            project_id=attention_task.project_id,
+            solution_id=solution_id,
+            task_name="Second assigned task",
+            status="to_do",
+            priority=4,
+            assignee="Worker",
+            assignee_user_soeid="WRK123",
+        )
+        completed_task = Task(
+            space_id=space_id,
+            project_id=attention_task.project_id,
+            solution_id=solution_id,
+            task_name="Already complete",
+            status="complete",
+            priority=1,
+            assignee="Worker",
+            assignee_user_soeid="wrk123",
+        )
+        legacy_name_only = Task(
+            space_id=space_id,
+            project_id=attention_task.project_id,
+            solution_id=solution_id,
+            task_name="Legacy display-name assignment",
+            status="to_do",
+            priority=1,
+            assignee="Worker",
+            assignee_user_soeid=None,
+        )
+        session.add_all([next_task, completed_task, legacy_name_only])
+        session.commit()
+        next_task_id = next_task.task_id
+
+    headers = _auth_headers(token, space_id)
+    first = await agent_client.get(
+        "/project-manager/api/agent/assigned-work",
+        headers=headers,
+        params={"assignee_user_soeid": "WRK123", "limit": 1},
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["space_id"] == space_id
+    assert first_body["assignee_user_soeid"] == "wrk123"
+    assert first_body["has_more"] is True
+    assert first_body["next_cursor"]
+    assert len(first_body["records"]) == 1
+    record = first_body["records"][0]
+    assert record["task"]["task_id"] == task_id
+    assert record["task"]["acceptance_criteria"] == "Credentials are exercised by a test"
+    assert record["task"]["effective_github_repo_url"] == "https://github.com/example/assigned-work"
+    assert record["task"]["repo_source"] == "inherited"
+    assert record["program_name"] == "Default Program"
+    assert record["project_name"] == "Agent Project"
+    assert record["solution_name"] == "Agent Solution"
+    assert record["needs_attention"] is True
+    assert "private_sort_rank" not in record
+
+    second = await agent_client.get(
+        "/project-manager/api/agent/assigned-work",
+        headers=headers,
+        params={
+            "assignee_user_soeid": "wrk123",
+            "limit": 1,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert second.status_code == 200, second.text
+    assert [row["task"]["task_id"] for row in second.json()["records"]] == [
+        next_task_id
+    ]
+    assert second.json()["has_more"] is False
+
+    mismatched_cursor = await agent_client.get(
+        "/project-manager/api/agent/assigned-work",
+        headers=headers,
+        params={
+            "assignee_user_soeid": "different-user",
+            "cursor": first_body["next_cursor"],
+        },
+    )
+    assert mismatched_cursor.status_code == 400
+    assert mismatched_cursor.json()["code"] == "INVALID_CURSOR"
+
+
+@pytest.mark.anyio
 async def test_agent_work_graph_is_scoped_nested_and_filterable(
     agent_client, db_sessionmaker
 ):
@@ -572,6 +674,8 @@ async def test_agent_work_graph_is_scoped_nested_and_filterable(
     assert data["space_id"] == space_id
     assert [row["program_name"] for row in data["programs"]] == ["Default Program"]
     assert [row["project_name"] for row in data["records"]] == ["Agent Project"]
+    assert data["records"][0]["owner"] == "Project Owner"
+    assert data["records"][0]["owner_user_soeid"] == "project-owner"
     solution = data["records"][0]["solutions"][0]
     assert solution["solution_id"] == solution_id
     assert solution["tasks"][0]["task_name"] == "Agent Task"
@@ -582,6 +686,13 @@ async def test_agent_work_graph_is_scoped_nested_and_filterable(
     )
     assert owner_filter.status_code == 200, owner_filter.text
     assert owner_filter.json()["records"][0]["project_id"] == project_id
+
+    project_owner_filter = await agent_client.get(
+        "/project-manager/api/agent/work-graph?owner_user_soeid=project-owner",
+        headers=_auth_headers(token, space_id),
+    )
+    assert project_owner_filter.status_code == 200, project_owner_filter.text
+    assert project_owner_filter.json()["records"][0]["project_id"] == project_id
 
     missing_filter = await agent_client.get(
         "/project-manager/api/agent/work-graph?assignee_user_soeid=missing",
@@ -1049,6 +1160,8 @@ async def test_agent_work_item_details_are_complete_scoped_and_direct(
     assert project_response.json()["description"] == "Complete project context"
     assert project_response.json()["success_criteria"] == "Project succeeds"
     assert project_response.json()["strategic_objective"] == "Scale safely"
+    assert project_response.json()["owner"] == "Project Owner"
+    assert project_response.json()["owner_user_soeid"] == "project-owner"
     assert (
         solution_response.json()["github_repo_url"]
         == "https://github.com/example/solution"
@@ -2385,7 +2498,7 @@ async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_
         headers={"Authorization": f"Bearer {token}"},
     )
     assert reference.status_code == 200, reference.text
-    assert reference.headers["etag"] == '"agent-reference-1.0"'
+    assert reference.headers["etag"] == '"agent-reference-1.1"'
     reference_data = reference.json()
     assert reference_data["operations"] == ["archive", "create", "update"]
     assert "project_id" not in reference_data["fields"]["solution"]["create"]
@@ -2398,6 +2511,11 @@ async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_
         "abandoned",
     ]
     assert reference_data["limits"]["patch_operations"] == 25
+    assert reference_data["filters"]["assigned_work"] == [
+        "assignee_user_soeid",
+        "cursor",
+        "limit",
+    ]
 
     openapi = await agent_client.get(
         "/project-manager/api/agent/openapi.json",
@@ -2406,6 +2524,7 @@ async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_
     assert openapi.status_code == 200, openapi.text
     contract = openapi.json()
     assert contract["paths"]
+    assert "/project-manager/api/agent/assigned-work" in contract["paths"]
     assert all("/api/agent/" in path for path in contract["paths"])
     assert not any(path.endswith("/api/projects") for path in contract["paths"])
     detail_operation = contract["paths"][

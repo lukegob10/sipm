@@ -72,10 +72,11 @@ async function loadLocalAuthedApp(page) {
 }
 
 async function setTheme(page, theme) {
-  const isLight = await page.locator("body").evaluate((body) => body.classList.contains("theme-light"));
-  if ((theme === "light") !== isLight) {
-    await page.locator("#theme-toggle").click();
-  }
+  await page.locator("#account-menu-toggle").click();
+  await page.locator("#preferences-open").click();
+  await page.locator('#preferences-form select[name="theme"]').selectOption(theme);
+  await page.locator('#preferences-form button[type="submit"]').click();
+  await expect(page.locator("#preferences-modal")).toHaveClass(/hidden/);
   await expect(page.locator("body")).toHaveClass(theme === "light" ? /theme-light/ : /^(?!.*theme-light).*$/);
   await page.waitForTimeout(250);
 }

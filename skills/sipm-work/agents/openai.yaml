@@ -1,0 +1,4 @@
+interface:
+  display_name: "SIPM Work"
+  short_description: "Pull and update your assigned SIPM tasks"
+  default_prompt: "Use $sipm-work to list my assigned SIPM tasks and prepare one for local work."

@@ -1,6 +1,6 @@
 ---
 name: sipm-agent
-description: Operate SIPM through its scoped, approval-gated Agent API. Use to discover SIPM spaces, locate or inspect programs/projects/solutions/tasks, understand bounded work context, validate and submit atomic change proposals, poll or cancel owned requests, perform explicitly authenticated human-delegated review, or verify results through the audit feed.
+description: Operate SIPM through its full scoped, approval-gated Agent API. Use for space discovery, broad program/project/solution/task administration, bounded work graphs, complex or multi-entity patch proposals, change-request lifecycle management, explicitly authenticated human-delegated review, and audit verification. Use the sipm-work skill instead for a developer's assigned queue and local task checkout.
 ---
 
 # SIPM Agent

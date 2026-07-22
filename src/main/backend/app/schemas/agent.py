@@ -142,6 +142,8 @@ class AgentProjectRead(BaseModel):
     success_criteria: str | None = None
     sponsor: str | None = None
     sponsor_user_soeid: str | None = None
+    owner: str | None = None
+    owner_user_soeid: str | None = None
     strategic_objective: str | None = None
     priority: int | None = None
     created_at: datetime
@@ -213,6 +215,23 @@ class AgentTaskRead(BaseModel):
     urgency_score: float = 0
     created_at: datetime
     updated_at: datetime
+
+
+class AgentAssignedWorkItemRead(BaseModel):
+    task: AgentTaskRead
+    program_id: str | None = None
+    program_name: str | None = None
+    project_name: str
+    solution_name: str
+    needs_attention: bool = False
+
+
+class AgentAssignedWorkListRead(BaseModel):
+    space_id: str
+    assignee_user_soeid: str
+    records: list[AgentAssignedWorkItemRead]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class AgentWorkItemSummary(BaseModel):
@@ -352,6 +371,8 @@ class AgentProjectNode(BaseModel):
     priority: int | None = None
     sponsor: str | None = None
     sponsor_user_soeid: str | None = None
+    owner: str | None = None
+    owner_user_soeid: str | None = None
     description: str | None = None
     success_criteria: str | None = None
     strategic_objective: str | None = None

@@ -6,6 +6,8 @@ ROUTES_DIR = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes"
 ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 
 EXPECTED_ROUTE_EXPORTS = {
+    "my-work.js": ["renderMyWork", "render"],
+    "repositories.js": ["renderRepositories", "render"],
     "access.js": ["renderAccess", "render"],
     "master.js": ["renderMasterFilters", "renderMasterTable", "render"],
     "tasks-workbench.js": ["renderTasksWorkbench", "render"],
@@ -21,6 +23,8 @@ EXPECTED_ROUTE_EXPORTS = {
 }
 
 EXPECTED_ROUTE_LOADERS = {
+    "my-work": "./routes/my-work.js",
+    "repositories": "./routes/repositories.js",
     "access": "./routes/access.js",
     "master": "./routes/master.js",
     "tasks-workbench": "./routes/tasks-workbench.js",

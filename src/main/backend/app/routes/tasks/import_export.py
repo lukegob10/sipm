@@ -155,6 +155,8 @@ def import_tasks(
                 description=None,
                 sponsor=sponsor_val,
                 sponsor_user_soeid=sponsor_user_soeid,
+                owner=sponsor_val,
+                owner_user_soeid=sponsor_user_soeid,
             )
             session.add(project)
             session.flush()
@@ -172,6 +174,8 @@ def import_tasks(
                     "description": (None, project.description),
                     "sponsor": (None, project.sponsor),
                     "sponsor_user_soeid": (None, project.sponsor_user_soeid),
+                    "owner": (None, project.owner),
+                    "owner_user_soeid": (None, project.owner_user_soeid),
                 },
                 request_id=None,
             )

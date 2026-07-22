@@ -340,7 +340,7 @@ function buildProjectNode(project, childNodes, healthContext, todayDay) {
     id: project.project_id,
     key: `project:${project.project_id}`,
     label: project.project_name || "Untitled project",
-    assignee: project.sponsor || project.sponsor_user_soeid || "Unassigned",
+    assignee: project.owner || project.owner_user_soeid || project.sponsor || project.sponsor_user_soeid || "Unassigned",
     status: project.status || "",
     priority: project.priority ?? "",
     range,

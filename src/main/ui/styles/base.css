@@ -1469,6 +1469,7 @@ label.wide {
   align-items: start;
 }
 #project-form.form.compact {
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -1476,11 +1477,273 @@ label.wide {
 }
 
 #solution-form.form.compact {
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
   padding-bottom: 16px;
 }
+
+.entity-editor-form.form {
+  gap: 14px;
+  padding: 2px 4px 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.modal-title-block {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modal-eyebrow {
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.entity-editor-intro {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 2px 0;
+}
+
+.entity-editor-intro .form-title,
+.entity-editor-intro .form-required-note {
+  margin: 0;
+}
+
+.entity-editor-intro > .form-required-note {
+  flex: 0 0 auto;
+  padding-bottom: 2px;
+}
+
+.entity-editor-section {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.entity-editor-section-heading {
+  display: grid;
+  gap: 3px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.entity-editor-section-heading h4,
+.solution-delivery-state h5 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-body);
+  font-weight: 750;
+}
+
+.entity-editor-section-heading p,
+.solution-delivery-state p,
+.form-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  line-height: 1.35;
+}
+
+.entity-editor-grid {
+  display: grid;
+  gap: 14px 16px;
+  min-width: 0;
+}
+
+.entity-editor-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.entity-editor-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.entity-editor-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.entity-editor-grid-compact {
+  width: min(100%, 520px);
+}
+
+.entity-editor-narrative-grid {
+  align-items: stretch;
+}
+
+.entity-editor-textarea {
+  height: 108px;
+  min-height: 108px !important;
+  resize: none !important;
+  overflow: auto;
+}
+
+.entity-editor-textarea-wide {
+  height: 116px;
+  min-height: 116px !important;
+}
+
+.entity-editor-textarea-short {
+  height: 76px;
+  min-height: 76px !important;
+}
+
+.solution-editor-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  min-width: 0;
+}
+
+.solution-form-primary-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.solution-delivery-state {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.solution-people-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  min-width: 0;
+}
+
+.entity-editor-person-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr);
+  gap: 12px;
+  min-width: 0;
+}
+
+.solution-stakeholder-field {
+  width: calc(50% - 9px);
+}
+
+.solution-rag-reason-field {
+  display: grid;
+  min-width: 0;
+}
+
+.solution-rag-reason-field[hidden] {
+  display: none;
+}
+
+.entity-editor-actions {
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.entity-editor-actions button {
+  flex: 0 0 auto;
+}
+
+.entity-editor-save-action {
+  min-width: 180px;
+  margin-left: auto;
+}
+
+.entity-editor-delete-action {
+  color: var(--danger) !important;
+}
+
+.entity-editor-delete-action:not(:disabled):hover {
+  background: color-mix(in srgb, var(--danger) 10%, var(--button-secondary-bg));
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--button-secondary-border));
+}
+
+.entity-editor-dirty-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--font-size-meta);
+  font-weight: 650;
+}
+
+.entity-editor-dirty-indicator::before {
+  width: 7px;
+  height: 7px;
+  background: var(--warning-text);
+  border-radius: 999px;
+  content: "";
+}
+
+.entity-editor-dirty-indicator[hidden] {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .entity-editor-grid-3,
+  .entity-editor-grid-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .solution-editor-overview-grid,
+  .solution-people-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .solution-stakeholder-field {
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .entity-editor-intro {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .entity-editor-grid-2,
+  .entity-editor-grid-3,
+  .entity-editor-grid-4,
+  .entity-editor-person-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entity-editor-actions {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .entity-editor-dirty-indicator {
+    order: -1;
+    width: 100%;
+  }
+
+  .entity-editor-save-action {
+    flex: 1 1 160px !important;
+    min-width: 0;
+  }
+}
+
 #task-form.form.compact {
   column-gap: 24px;
 }
@@ -1492,6 +1755,14 @@ label.wide {
 .form.compact textarea {
   padding: 8px;
   font-size: var(--font-size-body);
+}
+.entity-editor-form.form.compact input:not([type="checkbox"]):not([type="radio"]),
+.entity-editor-form.form.compact select {
+  height: 36px;
+  min-height: 36px;
+  padding: 7px 9px;
+  font-family: inherit;
+  line-height: 20px;
 }
 .form-title {
   grid-column: 1 / -1;
@@ -1523,6 +1794,16 @@ label.wide {
 }
 .form-actions button {
   flex: 1;
+}
+.modal-form-footer .entity-editor-actions button {
+  flex: 0 0 auto;
+}
+.modal-form-footer .entity-editor-actions .entity-editor-save-action {
+  min-width: 180px;
+  margin-left: auto;
+}
+.modal-form-footer .entity-editor-actions .entity-editor-delete-action {
+  min-width: 132px;
 }
 .modal-form-footer {
   position: sticky;

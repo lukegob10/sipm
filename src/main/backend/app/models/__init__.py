@@ -17,6 +17,8 @@ from .identity import (
     Team,
     TeamMember,
     User,
+    UserPreference,
+    UserTaskState,
 )
 from .work import (
     Phase,
@@ -54,5 +56,7 @@ __all__ = [
     "UsageIdentityDailyRollup",
     "UsageRouteIdentityDailyRollup",
     "User",
+    "UserPreference",
+    "UserTaskState",
     "_utcnow_naive",
 ]

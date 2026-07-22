@@ -79,6 +79,8 @@ def download_pm_command_report_pdf(
                 "status": _enum_value(row.status),
                 "sponsor": row.sponsor,
                 "sponsor_user_soeid": row.sponsor_user_soeid,
+                "owner": row.owner,
+                "owner_user_soeid": row.owner_user_soeid,
                 "priority": row.priority,
                 "updated_at": row.updated_at,
             }

@@ -162,7 +162,7 @@ export function buildMasterTable(ctx) {
             pluralize(solutionCount, "solution"),
             `${Number(row.progress || 0)}% avg`,
             `P${row.project?.priority ?? "-"}`,
-            row.project?.sponsor || "No sponsor",
+            row.project?.owner || row.project?.owner_user_soeid || "No owner",
           ])}
         </div>
       </td>

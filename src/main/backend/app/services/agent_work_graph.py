@@ -128,8 +128,11 @@ def build_work_graph(
         query = query.filter(or_(*status_filters))
     if owner_user_soeid:
         query = query.filter(
-            Project.project_id.in_(
-                active_solutions.filter(Solution.owner_user_soeid == owner_user_soeid)
+            or_(
+                Project.owner_user_soeid == owner_user_soeid,
+                Project.project_id.in_(
+                    active_solutions.filter(Solution.owner_user_soeid == owner_user_soeid)
+                ),
             )
         )
     if assignee_user_soeid:
@@ -312,6 +315,8 @@ def build_work_graph(
                 priority=project.priority,
                 sponsor=project.sponsor,
                 sponsor_user_soeid=project.sponsor_user_soeid,
+                owner=project.owner,
+                owner_user_soeid=project.owner_user_soeid,
                 updated_at=project.updated_at,
                 solutions=solutions_by_project.get(project.project_id, []),
             )

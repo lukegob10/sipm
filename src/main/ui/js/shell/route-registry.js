@@ -1,4 +1,11 @@
 const ROUTE_ENTRIES = [
+  ["my-work", {
+    section: "Personal",
+    label: "My Work",
+    title: "My Work",
+    data: [],
+    prefetch: "tasks-workbench",
+  }],
   ["master", {
     section: "Work",
     label: "Deliverables",
@@ -12,6 +19,13 @@ const ROUTE_ENTRIES = [
     title: "Tasks",
     data: ["programs", "projects", "solutions", "tasks", "users"],
     prefetch: "team-capacity",
+  }],
+  ["repositories", {
+    section: "Work",
+    label: "Repositories",
+    title: "Repositories",
+    data: [],
+    prefetch: "tasks-workbench",
   }],
   ["pm-dashboard", {
     section: "Insight",

@@ -169,6 +169,8 @@ def import_solutions(
                 description=None,
                 sponsor=project_sponsor,
                 sponsor_user_soeid=project_sponsor_user_soeid,
+                owner=project_sponsor,
+                owner_user_soeid=project_sponsor_user_soeid,
             )
             session.add(project)
             session.flush()
@@ -187,6 +189,8 @@ def import_solutions(
                     "success_criteria": (None, project.success_criteria),
                     "sponsor": (None, project.sponsor),
                     "sponsor_user_soeid": (None, project.sponsor_user_soeid),
+                    "owner": (None, project.owner),
+                    "owner_user_soeid": (None, project.owner_user_soeid),
                 },
                 request_id=None,
             )

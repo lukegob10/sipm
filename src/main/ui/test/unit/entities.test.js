@@ -23,6 +23,8 @@ function projectEls() {
         <input name="project_id" />
         <select name="program_id"><option value="program-1"></option></select>
         <input name="project_name" />
+        <input name="function" />
+        <input name="area" />
         <select name="status"><option value="not_started"></option><option value="active"></option></select>
         <textarea name="description"></textarea>
         <textarea name="success_criteria"></textarea>
@@ -161,6 +163,8 @@ describe("entity payload builders", () => {
     const payload = buildProjectPayload(formData({
       program_id: " program-1 ",
       project_name: "  Project Alpha  ",
+      function: "  Finance  ",
+      area: "  Data and Analytics  ",
       status: "active",
       description: " Keep spacing in long text ",
       success_criteria: "   ",
@@ -175,6 +179,8 @@ describe("entity payload builders", () => {
     expect(payload).toEqual({
       program_id: "program-1",
       project_name: "Project Alpha",
+      function: "Finance",
+      area: "Data and Analytics",
       status: "active",
       description: " Keep spacing in long text ",
       success_criteria: null,
@@ -370,6 +376,8 @@ describe("project entity controller", () => {
     controller.openProjectForm({
       project_id: "proj-1",
       project_name: "Project One",
+      function: "Finance",
+      area: "Data and Analytics",
       status: "active",
       description: "Description",
       success_criteria: "Criteria",
@@ -386,6 +394,8 @@ describe("project entity controller", () => {
     expect(deps.els.projectSubmitBtn.textContent).toBe("Save Changes");
     expect(deps.els.deleteProjectBtn.disabled).toBe(false);
     expect(deps.els.projectForm.querySelector("[name='project_name']").value).toBe("Project One");
+    expect(deps.els.projectForm.querySelector("[name='function']").value).toBe("Finance");
+    expect(deps.els.projectForm.querySelector("[name='area']").value).toBe("Data and Analytics");
     expect(deps.els.projectForm.querySelector("[name='owner']").value).toBe("Owner");
     expect(deps.els.projectForm.querySelector("[name='owner_user_soeid']").value).toBe("ow123");
 

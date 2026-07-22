@@ -48,5 +48,6 @@ jobs:
           set -euo pipefail
           docker compose build
           docker compose run --rm --no-deps sipm python -m backend.app.db.developer_mode_schema
+          docker compose run --rm --no-deps sipm python -m backend.app.db.project_function_area_schema
           docker compose up -d
           docker compose ps

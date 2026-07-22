@@ -33,6 +33,15 @@ def test_deliverables_forms_mark_required_fields():
     assert '.field-label {' in styles_text
 
 
+def test_project_overview_exposes_free_form_function_and_area_fields():
+    text = INDEX_HTML.read_text(encoding="utf-8")
+
+    overview = text.split('id="project-overview-heading"', 1)[1].split("</section>", 1)[0]
+    assert '<input name="function"' in overview
+    assert '<input name="area"' in overview
+    assert 'project-form-taxonomy-row' in overview
+
+
 def test_deliverables_save_handlers_show_inline_feedback():
     text = APP_JS.read_text(encoding="utf-8")
     project_text = PROJECT_ENTITIES_JS.read_text(encoding="utf-8")

@@ -1123,6 +1123,8 @@ async def test_agent_work_item_details_are_complete_scoped_and_direct(
         project.description = "Complete project context"
         project.success_criteria = "Project succeeds"
         project.strategic_objective = "Scale safely"
+        project.function = "Technology"
+        project.area = "Developer Experience"
         solution.github_repo_url = "https://github.com/example/solution"
         solution.description = "Complete solution context"
         solution.problem_statement = "A specific problem"
@@ -1160,6 +1162,8 @@ async def test_agent_work_item_details_are_complete_scoped_and_direct(
     assert project_response.json()["description"] == "Complete project context"
     assert project_response.json()["success_criteria"] == "Project succeeds"
     assert project_response.json()["strategic_objective"] == "Scale safely"
+    assert project_response.json()["function"] == "Technology"
+    assert project_response.json()["area"] == "Developer Experience"
     assert project_response.json()["owner"] == "Project Owner"
     assert project_response.json()["owner_user_soeid"] == "project-owner"
     assert (

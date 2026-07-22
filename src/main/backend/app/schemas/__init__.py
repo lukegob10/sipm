@@ -385,6 +385,8 @@ class ProgramDashboardReportRequest(BaseModel):
 class ProjectBase(BaseModel):
     program_id: Optional[str] = None
     project_name: Optional[str] = None
+    function: Optional[str] = None
+    area: Optional[str] = None
     status: Optional[ProjectStatus] = None
     description: Optional[str] = None
     success_criteria: Optional[str] = None
@@ -414,6 +416,8 @@ class ProjectRead(TextLikeReadModel):
     program_id: str
     program_name: Optional[str] = None
     project_name: str
+    function: Optional[str] = None
+    area: Optional[str] = None
     status: ProjectStatus
     description: Optional[str] = None
     success_criteria: Optional[str] = None

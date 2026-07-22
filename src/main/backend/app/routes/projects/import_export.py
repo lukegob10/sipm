@@ -30,6 +30,8 @@ from .common import (
 router = APIRouter()
 _PROJECT_IMPORT_UPDATE_FIELDS = (
     "program_id",
+    "function",
+    "area",
     "status",
     "description",
     "success_criteria",
@@ -44,6 +46,8 @@ _PROJECT_EXPORT_FIELDNAMES = [
     "program_id",
     "program_name",
     "project_name",
+    "function",
+    "area",
     "status",
     "description",
     "success_criteria",
@@ -99,6 +103,8 @@ def import_projects(
     seen = set()
     for idx, row in enumerate(rows, start=2):
         name = normalize_str(row.get("project_name"))
+        project_function = normalize_str(row.get("function")) or None
+        area = normalize_str(row.get("area")) or None
         sponsor_input = normalize_str(row.get("sponsor"))
         owner_input = normalize_str(row.get("owner"))
         if not name:
@@ -163,6 +169,8 @@ def import_projects(
                     resolved_owner_user_soeid = existing.owner_user_soeid
                 before = {field: getattr(existing, field) for field in _PROJECT_IMPORT_UPDATE_FIELDS}
                 existing.program_id = program.program_id
+                existing.function = project_function
+                existing.area = area
                 existing.status = status_enum
                 existing.description = description
                 existing.success_criteria = success_criteria
@@ -211,6 +219,8 @@ def import_projects(
                     space_id=space_ctx.space_id,
                     program_id=program.program_id,
                     project_name=name,
+                    function=project_function,
+                    area=area,
                     status=status_enum,
                     description=description,
                     success_criteria=success_criteria,
@@ -264,6 +274,8 @@ def export_projects(
                 "program_id": project.program_id,
                 "program_name": program.program_name,
                 "project_name": project.project_name,
+                "function": project.function or "",
+                "area": project.area or "",
                 "status": project.status.value if hasattr(project.status, "value") else project.status,
                 "description": read_text_value(project.description) or "",
                 "success_criteria": read_text_value(project.success_criteria) or "",

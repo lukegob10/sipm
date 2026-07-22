@@ -706,11 +706,15 @@
               <section class="entity-editor-section" aria-labelledby="project-overview-heading">
                 <div class="entity-editor-section-heading">
                   <h4 id="project-overview-heading">Overview</h4>
-                  <p>Place the project in its program and set its current delivery state.</p>
+                  <p>Place the project in its program, identify its business context, and set its delivery state.</p>
                 </div>
                 <div class="entity-editor-grid entity-editor-grid-2 project-form-primary-row">
                   <label><span class="field-label">Program<span class="required-marker" aria-hidden="true">*</span></span><select name="program_id" required></select></label>
                   <label><span class="field-label">Project<span class="required-marker" aria-hidden="true">*</span></span><input name="project_name" required /></label>
+                </div>
+                <div class="entity-editor-grid entity-editor-grid-2 project-form-taxonomy-row">
+                  <label>Function <input name="function" placeholder="e.g., Finance, Technology, Operations" /></label>
+                  <label>Area <input name="area" placeholder="e.g., Data and Analytics" /></label>
                 </div>
                 <div class="entity-editor-grid entity-editor-grid-2 entity-editor-grid-compact project-form-status-row">
                   <label>Priority <input type="number" name="priority" min="0" max="5" value="3" /></label>

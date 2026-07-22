@@ -837,6 +837,8 @@ def _apply_project(
             space_id=space_ctx.space_id,
             program_id=program.program_id,
             project_name=normalize_str(payload.project_name),
+            function=normalize_str(payload.function) or None,
+            area=normalize_str(payload.area) or None,
             status=payload.status,
             description=payload.description,
             success_criteria=payload.success_criteria,
@@ -872,6 +874,9 @@ def _apply_project(
         update_data["program_id"] = program.program_id
     if "project_name" in update_data:
         update_data["project_name"] = normalize_str(update_data["project_name"])
+    for field in ("function", "area"):
+        if field in update_data:
+            update_data[field] = normalize_str(update_data[field]) or None
     if "owner" in update_data or "owner_user_soeid" in update_data:
         owner, owner_user_soeid = _resolve_project_owner(
             update_data.get("owner", project.owner),

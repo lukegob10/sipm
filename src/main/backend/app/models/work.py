@@ -63,6 +63,8 @@ class Project(TimestampMixin, SoftDeleteMixin, Base):
         nullable=False,
     )
     project_name: Mapped[str] = mapped_column(String, nullable=False)
+    function: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    area: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     status: Mapped[ProjectStatus] = mapped_column(
         Enum(ProjectStatus),
         index=True,

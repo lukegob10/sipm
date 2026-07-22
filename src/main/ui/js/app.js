@@ -2932,8 +2932,8 @@ function csvKindConfig(kind) {
       label: "Projects",
       filename: "projects-template.csv",
       templateContent: [
-        "program_id,program_name,project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
-        ",Default Program,Example Project,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,,3",
+        "program_id,program_name,project_name,function,area,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
+        ",Default Program,Example Project,Finance,Data and Analytics,not_started,Simple project description,Deliver one small milestone,Example Sponsor,,Example Owner,,Modernize reporting,3",
       ].join("\n"),
     },
     solutions: {

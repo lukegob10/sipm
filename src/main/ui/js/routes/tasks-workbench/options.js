@@ -34,6 +34,16 @@ export function populateTasksWorkbenchOptions(ctx, { projectOptionsHtml = "" } =
           if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
         };
       }
+      if (assigneeUserInput) {
+        assigneeUserInput.oninput = () => {
+          if (!assigneeSel) return;
+          const entered = String(assigneeUserInput.value || "").trim().toLowerCase();
+          const matchingUser = users.find(
+            (user) => String(user.soeid || "").trim().toLowerCase() === entered
+          );
+          assigneeSel.value = matchingUser?.soeid || "";
+        };
+      }
     }
   }
 

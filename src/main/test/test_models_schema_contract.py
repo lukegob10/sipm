@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import backend.app.models as models
 from sqlalchemy import create_engine, select
-from sqlalchemy import LargeBinary, Text
+from sqlalchemy import LargeBinary, String, Text
 from sqlalchemy.schema import CreateTable
 from sqlalchemy.dialects import oracle
 from sqlalchemy.orm import sessionmaker
@@ -22,6 +22,7 @@ SOLUTION_DOCUMENTS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20
 PUBLIC_PROGRAM_DASHBOARD_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260622_public_program_dashboard_v1.sql"
 AUTH_SESSIONS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260715_auth_sessions_v1.sql"
 TASK_DESCRIPTION_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260718_task_description_v1.sql"
+PROJECT_FUNCTION_AREA_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260722_project_function_area_v1.sql"
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -124,6 +125,22 @@ def test_project_long_text_fields_use_text_type():
     assert isinstance(Project.__table__.c.description.type, Text)
     assert isinstance(Project.__table__.c.success_criteria.type, Text)
     assert isinstance(Project.__table__.c.strategic_objective.type, Text)
+
+
+def test_project_function_and_area_use_free_form_string_columns():
+    assert isinstance(Project.__table__.c.function.type, String)
+    assert isinstance(Project.__table__.c.area.type, String)
+    assert Project.__table__.c.function.nullable is True
+    assert Project.__table__.c.area.nullable is True
+
+
+def test_project_function_area_migration_is_rerunnable_and_matches_metadata():
+    sql = PROJECT_FUNCTION_AREA_SQL_PATH.read_text(encoding="utf-8")
+
+    assert "ALTER TABLE \"TB_TA_PM_PROJECTS\" ADD (function VARCHAR2(255 CHAR))" in sql
+    assert "ALTER TABLE \"TB_TA_PM_PROJECTS\" ADD (area VARCHAR2(255 CHAR))" in sql
+    assert "AND column_name = 'FUNCTION'" in sql
+    assert "AND column_name = 'AREA'" in sql
 
 
 def test_solution_long_text_fields_use_text_type():

@@ -153,6 +153,14 @@ an environment is missing phase rows.
 
 ## Oracle Migration Repairs
 
+Before deploying Project function and area fields to an existing database, run:
+
+1. `docs/sql/20260722_project_function_area_v1.sql`
+
+The migration is idempotent and adds nullable free-form `function` and `area`
+columns. The Home Lab deployment runs the equivalent guarded migration before
+starting the updated application.
+
 Before deploying task descriptions to an existing database, run:
 
 1. `docs/sql/20260718_task_description_v1.sql`

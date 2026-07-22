@@ -137,6 +137,8 @@ class AgentProjectRead(BaseModel):
     program_id: str
     program_name: str | None = None
     project_name: str
+    function: str | None = None
+    area: str | None = None
     status: str
     description: str | None = None
     success_criteria: str | None = None

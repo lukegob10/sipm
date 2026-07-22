@@ -27,17 +27,17 @@ async def test_projects_import_updates_creates_and_exports(client):
 
     csv_text = "\n".join(
         [
-            "project_name,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
+            "project_name,function,area,status,description,success_criteria,sponsor,sponsor_user_soeid,owner,owner_user_soeid,strategic_objective,priority",
             # Update existing while preserving sponsor when the CSV leaves it blank.
-            "Data Platform,On Hold,Waiting on vendor,New criteria,,,,",
+            "Data Platform,Finance,Data and Analytics,On Hold,Waiting on vendor,New criteria,,,,,,",
             # Create new.
-            "Risk Platform,active,Own risk controls,,COO Office,,,",
+            "Risk Platform,Risk,Controls,active,Own risk controls,,COO Office,,,,,",
             # Missing sponsor => lean create with current-user fallback.
-            "No Sponsor,active,Desc,,,,,",
+            "No Sponsor,Operations,Shared Services,active,Desc,,,,,,,",
             # Duplicate project_name in same CSV => row error.
-            "Risk Platform,active,Duplicate row,,COO Office,,,",
+            "Risk Platform,Risk,Controls,active,Duplicate row,,COO Office,,,,,",
             # Invalid status => row error.
-            "Bad Status,not a status,Desc,,Someone,,,",
+            "Bad Status,Finance,Planning,not a status,Desc,,Someone,,,,,",
             "",
         ]
     )
@@ -72,6 +72,8 @@ async def test_projects_import_updates_creates_and_exports(client):
     assert updated.json()["description"] == "Waiting on vendor"
     assert updated.json()["success_criteria"] == "New criteria"
     assert updated.json()["sponsor"] == "CFO Office"
+    assert updated.json()["function"] == "Finance"
+    assert updated.json()["area"] == "Data and Analytics"
 
     export = await client.get("/project-manager/api/projects/export")
     assert export.status_code == 200
@@ -79,6 +81,8 @@ async def test_projects_import_updates_creates_and_exports(client):
     rows = list(csv.DictReader(StringIO(export.text)))
     assert {row["project_name"] for row in rows} == {"Data Platform", "Risk Platform", "No Sponsor"}
     no_sponsor = next(row for row in rows if row["project_name"] == "No Sponsor")
+    assert no_sponsor["function"] == "Operations"
+    assert no_sponsor["area"] == "Shared Services"
     assert no_sponsor["sponsor"] == "Test User"
     assert no_sponsor["sponsor_user_soeid"] == "tu12345"
     assert no_sponsor["owner"] == "Test User"

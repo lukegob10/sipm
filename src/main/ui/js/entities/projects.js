@@ -5,6 +5,8 @@ export function buildProjectPayload(data) {
   return {
     program_id: textValue(data.get("program_id")),
     project_name: textValue(data.get("project_name")),
+    function: nullableTextValue(data.get("function")),
+    area: nullableTextValue(data.get("area")),
     status: data.get("status"),
     description: data.get("description"),
     success_criteria: nullableTextValue(data.get("success_criteria")),
@@ -75,6 +77,8 @@ export function createProjectEntityController({
         || "",
     );
     setVal("project_name", project?.project_name || "");
+    setVal("function", project?.function || "");
+    setVal("area", project?.area || "");
     setVal("status", project?.status || "not_started");
     setVal("description", project?.description || "");
     setVal("success_criteria", project?.success_criteria || "");

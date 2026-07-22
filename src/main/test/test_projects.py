@@ -217,6 +217,8 @@ async def test_update_project_status_and_description(client):
         "/project-manager/api/projects/",
         json={
             "project_name": "Portal",
+            "function": "Technology",
+            "area": "Digital Channels",
             "status": "active",
             "sponsor": "CFO Office",
         },
@@ -237,6 +239,17 @@ async def test_update_project_status_and_description(client):
     assert updated["status"] == "on_hold"
     assert updated["description"] == "Waiting on vendor"
     assert updated["success_criteria"] == "Pilot with 3 teams and hit >90% satisfaction"
+    assert updated["function"] == "Technology"
+    assert updated["area"] == "Digital Channels"
+
+    classification_resp = await client.patch(
+        f"/project-manager/api/projects/{project_id}",
+        json={"function": " Operations ", "area": " Customer Service "},
+    )
+    assert classification_resp.status_code == 200
+    classified = classification_resp.json()
+    assert classified["function"] == "Operations"
+    assert classified["area"] == "Customer Service"
 
 
 @pytest.mark.anyio

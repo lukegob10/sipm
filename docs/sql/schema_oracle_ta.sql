@@ -290,6 +290,8 @@ CREATE TABLE "TB_TA_PM_PROJECTS" (
 	space_id VARCHAR2(255 CHAR),
 	program_id VARCHAR2(255 CHAR) NOT NULL,
 	project_name VARCHAR2(255 CHAR) NOT NULL,
+	function VARCHAR2(255 CHAR),
+	area VARCHAR2(255 CHAR),
 	status VARCHAR(11 CHAR) NOT NULL,
 	description CLOB,
 	success_criteria CLOB,

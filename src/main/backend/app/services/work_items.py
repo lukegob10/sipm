@@ -28,6 +28,8 @@ TASKS_DETAIL_TTL_SECONDS = 30
 PROJECT_CREATE_AUDIT_FIELDS = (
     "program_id",
     "project_name",
+    "function",
+    "area",
     "status",
     "description",
     "success_criteria",

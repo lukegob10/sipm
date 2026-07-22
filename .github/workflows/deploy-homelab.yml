@@ -46,5 +46,7 @@ jobs:
           PIP_EXTRA_INDEX_URL: ${{ secrets.PIP_EXTRA_INDEX_URL }}
         run: |
           set -euo pipefail
-          docker compose up -d --build
+          docker compose build
+          docker compose run --rm --no-deps sipm python -m backend.app.db.developer_mode_schema
+          docker compose up -d
           docker compose ps

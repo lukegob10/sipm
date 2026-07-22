@@ -213,8 +213,8 @@
 
 .task-workbench-context-link[data-twb-action="open-solution"],
 .task-workbench-context-link[data-twb-context-action="open-solution"] {
-  color: color-mix(in srgb, var(--deliverable-solution-accent) 64%, var(--text-strong));
-  font-weight: 650;
+  color: var(--text);
+  font-weight: var(--task-workbench-row-font-weight, 500);
 }
 
 .task-workbench-status-cell {
@@ -438,7 +438,7 @@
   font-weight: 650;
   letter-spacing: 0;
   text-align: center;
-  color: color-mix(in srgb, var(--deliverable-solution-accent) 64%, var(--text-strong));
+  color: var(--text);
 }
 
 #view-tasks-workbench .task-workbench-table tbody td:nth-child(2) strong {

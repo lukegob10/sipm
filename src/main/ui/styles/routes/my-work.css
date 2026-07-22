@@ -91,7 +91,7 @@
   grid-template-columns: minmax(300px, 0.85fr) minmax(560px, 2.15fr);
   gap: 18px;
   align-items: stretch;
-  height: clamp(640px, calc(100vh - 300px), 720px);
+  height: clamp(680px, calc(100vh - 260px), 780px);
   min-height: 0;
 }
 
@@ -151,10 +151,13 @@
 
 .my-work-card-list {
   display: grid;
+  grid-auto-rows: 116px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-content: start;
   min-height: 48px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px;
   scrollbar-gutter: stable;
   transition: background 120ms ease, box-shadow 120ms ease;
@@ -170,7 +173,11 @@
   display: grid;
   gap: 7px;
   width: 100%;
-  min-height: 0;
+  height: 116px;
+  min-height: 116px;
+  max-height: 116px;
+  box-sizing: border-box;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 13px 14px;
   border: 1px solid var(--border-soft);
   border-radius: 9px;
@@ -237,9 +244,13 @@
 }
 
 .my-work-task-title {
+  display: block;
+  overflow: hidden;
   color: var(--text-strong);
   font-weight: 700;
   line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .my-work-task-description {
@@ -560,16 +571,16 @@
 
 .my-work-edit-form {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   align-content: start;
-  overflow: hidden;
-  padding: 14px;
+  overflow-y: auto;
+  padding: 12px;
   scrollbar-gutter: auto;
 }
 
 .my-work-edit-heading {
   display: flex;
-  min-height: 84px;
+  min-height: 64px;
   box-sizing: border-box;
   justify-content: space-between;
   gap: 16px;
@@ -614,6 +625,16 @@
   resize: vertical;
 }
 
+.my-work-edit-field small {
+  overflow: hidden;
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  font-weight: 500;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .my-work-edit-field input:focus,
 .my-work-edit-field textarea:focus {
   border-color: var(--accent-strong);
@@ -626,26 +647,51 @@
 }
 
 .my-work-edit-field .my-work-longform-editor {
-  height: 136px;
-  min-height: 136px;
-  max-height: 136px;
+  height: 148px;
+  min-height: 148px;
+  max-height: 148px;
   overflow-y: auto;
   resize: none;
 }
 
 .my-work-edit-field .my-work-acceptance-editor {
-  height: 84px;
-  min-height: 84px;
-  max-height: 84px;
+  height: 148px;
+  min-height: 148px;
+  max-height: 148px;
 }
 
 .my-work-edit-grid {
   display: grid;
-  grid-template-columns: 120px 112px 145px;
+  grid-template-columns: 140px 140px 112px 152px;
   gap: 8px;
   align-items: end;
   width: fit-content;
   max-width: 100%;
+}
+
+.my-work-edit-assignment-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 0.9fr) minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.my-work-edit-assignment-grid > * {
+  min-width: 0;
+}
+
+.my-work-edit-copy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.my-work-blocker-editor {
+  height: 58px;
+  min-height: 58px;
+  max-height: 58px;
+  overflow-y: auto;
+  resize: none;
 }
 
 .my-work-edit-grid .my-work-edit-field {
@@ -653,7 +699,9 @@
 }
 
 .my-work-edit-grid .my-work-edit-field input,
-.my-work-edit-grid .app-select {
+.my-work-edit-grid .app-select,
+.my-work-edit-assignment-grid .my-work-edit-field input,
+.my-work-edit-assignment-grid .app-select {
   height: 34px;
   min-height: 34px;
   padding-top: 6px;
@@ -688,6 +736,10 @@
     height: auto;
     max-height: none;
   }
+
+  .my-work-edit-assignment-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -697,6 +749,11 @@
   }
 
   .my-work-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .my-work-edit-assignment-grid,
+  .my-work-edit-copy-grid {
     grid-template-columns: 1fr;
   }
 }

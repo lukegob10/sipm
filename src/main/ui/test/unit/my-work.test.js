@@ -6,6 +6,10 @@ function context(records) {
   document.body.innerHTML = '<div id="my-work-root"></div>';
   return {
     state: {
+      users: [
+        { soeid: "dev1", display_name: "Developer One" },
+        { soeid: "dev2", display_name: "Developer Two" },
+      ],
       myWork: {
         records,
         loading: false,
@@ -121,6 +125,13 @@ describe("My Work", () => {
         status: "in_progress",
         priority: 1,
         description: "Original context",
+        github_repo_url: "https://github.com/example/task-override",
+        effective_github_repo_url: "https://github.com/example/task-override",
+        repo_source: "override",
+        assignee: "Developer One",
+        assignee_user_soeid: "dev1",
+        estimate_hours: 80,
+        capacity_hours: 160,
         blocked: true,
         blocker_note: "Needs a decision",
       },
@@ -138,13 +149,78 @@ describe("My Work", () => {
     expect(ctx.els.myWorkRoot.querySelector('[name="description"]').classList).toContain("my-work-longform-editor");
     expect(ctx.els.myWorkRoot.querySelector('[name="acceptance_criteria"]').classList).toContain("my-work-longform-editor");
     expect(ctx.els.myWorkRoot.querySelector('[name="acceptance_criteria"]').classList).toContain("my-work-acceptance-editor");
+    expect(ctx.els.myWorkRoot.querySelector('[name="status"]').value).toBe("in_progress");
+    expect(ctx.els.myWorkRoot.querySelector('[name="assignee"]').value).toBe("dev1");
+    expect(ctx.els.myWorkRoot.querySelector('[name="assignee_user_soeid"]').value).toBe("dev1");
+    expect(ctx.els.myWorkRoot.querySelector('[name="github_repo_url"]').value).toBe("https://github.com/example/task-override");
+    expect(ctx.els.myWorkRoot.querySelector('[name="estimate_hours"]').value).toBe("0.50");
+    expect(ctx.els.myWorkRoot.querySelector('[name="capacity_hours"]').value).toBe("1.00");
     expect(ctx.els.myWorkRoot.querySelector('[name="blocked"]').checked).toBe(true);
     expect(ctx.els.myWorkRoot.querySelector('[name="blocker_note"]').value).toBe("Needs a decision");
-    expect(ctx.els.myWorkRoot.querySelector(".my-work-edit-grid").nextElementSibling.querySelector('[name="description"]')).toBeTruthy();
+    expect(ctx.els.myWorkRoot.querySelector(".my-work-edit-copy-grid [name='description']")).toBeTruthy();
+    expect(ctx.els.myWorkRoot.querySelector(".my-work-edit-copy-grid [name='acceptance_criteria']")).toBeTruthy();
     expect(ctx.els.myWorkRoot.querySelector(".my-work-blocked-toggle").textContent).toContain("Task is blocked");
     expect(ctx.els.myWorkRoot.querySelectorAll("[data-my-work-edit-cancel]")).toHaveLength(1);
     expect(ctx.els.myWorkRoot.querySelector(".my-work-edit-heading button[type='submit']")).toBeTruthy();
     expect(ctx.els.myWorkRoot.querySelector(".my-work-edit-actions")).toBeNull();
+  });
+
+  it("saves every shared Task field from My Work with canonical FTE conversions", async () => {
+    const records = [{
+      task: {
+        task_id: "task-1",
+        task_name: "Clarify the contract",
+        status: "to_do",
+        priority: 3,
+        assignee: "Developer One",
+        assignee_user_soeid: "dev1",
+        blocked: false,
+      },
+      program_name: "Developer Experience",
+      project_name: "Developer Mode",
+      solution_name: "My Work",
+      needs_attention: false,
+    }];
+    const ctx = context(records);
+    ctx.api.mockImplementation(async (path) => path === "/my-work" ? records : {});
+
+    renderMyWork(ctx);
+    ctx.els.myWorkRoot.querySelector("[data-my-work-edit]").click();
+    const form = ctx.els.myWorkRoot.querySelector("[data-my-work-edit-form]");
+    form.querySelector('[name="status"]').value = "in_progress";
+    form.querySelector('[name="due_date"]').value = "2026-08-15";
+    form.querySelector('[name="priority"]').value = "2";
+    form.querySelector('[name="assignee"]').value = "dev2";
+    form.querySelector('[name="assignee"]').dispatchEvent(new Event("change", { bubbles: true }));
+    form.querySelector('[name="github_repo_url"]').value = "https://github.com/example/sipm";
+    form.querySelector('[name="estimate_hours"]').value = "0.50";
+    form.querySelector('[name="capacity_hours"]').value = "1.25";
+    form.querySelector('[name="description"]').value = "Updated context";
+    form.querySelector('[name="acceptance_criteria"]').value = "Contract is verified";
+    form.querySelector('[name="blocked"]').checked = true;
+    form.querySelector('[name="blocker_note"]').disabled = false;
+    form.querySelector('[name="blocker_note"]').value = "Waiting on review";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      const updateCall = ctx.api.mock.calls.find(([path]) => path === "/tasks/task-1");
+      expect(updateCall).toBeTruthy();
+      expect(JSON.parse(updateCall[1].body)).toEqual(expect.objectContaining({
+        task_name: "Clarify the contract",
+        description: "Updated context",
+        github_repo_url: "https://github.com/example/sipm",
+        status: "in_progress",
+        priority: 2,
+        due_date: "2026-08-15",
+        assignee: "Developer Two",
+        assignee_user_soeid: "dev2",
+        estimate_hours: 80,
+        capacity_hours: 200,
+        blocked: true,
+        blocker_note: "Waiting on review",
+        acceptance_criteria: "Contract is verified",
+      }));
+    });
   });
 
   it("persists a dragged card in its target queue lane", async () => {

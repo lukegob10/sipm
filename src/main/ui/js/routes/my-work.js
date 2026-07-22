@@ -40,6 +40,46 @@ function statusLabel(ctx, value) {
   return ctx.formatStatus ? ctx.formatStatus(value) : String(value || "").replaceAll("_", " ");
 }
 
+const HOURS_PER_FTE_MONTH = 160;
+
+function fteInputValue(hours, fallback = "") {
+  if (hours === null || hours === undefined || hours === "") return fallback;
+  const numericHours = Number(hours);
+  return Number.isFinite(numericHours) ? (numericHours / HOURS_PER_FTE_MONTH).toFixed(2) : fallback;
+}
+
+function hoursFromFteInput(value, fallback = null) {
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  const fte = Number(value);
+  return Number.isFinite(fte) ? Math.round(Math.max(fte, 0) * HOURS_PER_FTE_MONTH) : fallback;
+}
+
+function resolvedAssigneeSoeid(ctx, task) {
+  if (task.assignee_user_soeid) return String(task.assignee_user_soeid);
+  if (!task.assignee) return "";
+  return String((ctx.state.users || []).find((user) => user.display_name === task.assignee)?.soeid || "");
+}
+
+function assigneeOptions(ctx, task) {
+  const users = [...(ctx.state.users || [])].sort((left, right) => (
+    String(left.display_name || left.soeid).localeCompare(String(right.display_name || right.soeid))
+  ));
+  const selectedSoeid = resolvedAssigneeSoeid(ctx, task);
+  const options = ['<option value="">Unassigned</option>'];
+
+  if (!selectedSoeid && task.assignee) {
+    options.push(`<option value="__legacy__" selected>${ctx.escapeHtml(task.assignee)} (not linked)</option>`);
+  }
+  if (selectedSoeid && !users.some((user) => user.soeid === selectedSoeid)) {
+    options.push(`<option value="${ctx.escapeHtml(selectedSoeid)}" selected>${ctx.escapeHtml(task.assignee || selectedSoeid)}</option>`);
+  }
+  options.push(...users.map((user) => {
+    const label = user.display_name ? `${user.display_name} (${user.soeid})` : user.soeid;
+    return `<option value="${ctx.escapeHtml(user.soeid)}"${user.soeid === selectedSoeid ? " selected" : ""}>${ctx.escapeHtml(label)}</option>`;
+  }));
+  return options.join("");
+}
+
 function dueLabel(task) {
   if (!task.due_date) return "No due date";
   const formatted = new Date(`${task.due_date}T00:00:00`).toLocaleDateString([], {
@@ -94,6 +134,13 @@ function renderQueue(ctx, records) {
 
 function editTaskForm(ctx, record) {
   const task = record.task;
+  const statusOptions = [
+    ["to_do", "To do"],
+    ["in_progress", "In progress"],
+    ["on_hold", "On hold"],
+    ["complete", "Complete"],
+    ["abandoned", "Abandoned"],
+  ];
   return `
     <form class="my-work-detail my-work-edit-form" data-my-work-edit-form>
       <div class="my-work-edit-heading">
@@ -108,13 +155,23 @@ function editTaskForm(ctx, record) {
       </div>
       <label class="my-work-edit-field"><span>Task name</span><input name="task_name" required value="${ctx.escapeHtml(task.task_name)}" /></label>
       <div class="my-work-edit-grid">
+        <label class="my-work-edit-field"><span>Status</span><select class="app-select" name="status">${statusOptions.map(([value, label]) => `<option value="${value}"${task.status === value ? " selected" : ""}>${label}</option>`).join("")}</select></label>
         <label class="my-work-edit-field"><span>Due date</span><input type="date" name="due_date" value="${ctx.escapeHtml(task.due_date || "")}" /></label>
-        <label class="my-work-edit-field"><span>Priority</span><select class="app-select" name="priority">${[1, 2, 3, 4, 5].map((priority) => `<option value="${priority}"${Number(task.priority) === priority ? " selected" : ""}>${priority}</option>`).join("")}</select></label>
+        <label class="my-work-edit-field"><span>Priority</span><select class="app-select" name="priority">${[0, 1, 2, 3, 4, 5].map((priority) => `<option value="${priority}"${Number(task.priority) === priority ? " selected" : ""}>${priority}</option>`).join("")}</select></label>
         <label class="preference-switch my-work-blocked-toggle"><input type="checkbox" name="blocked"${task.blocked ? " checked" : ""} /><span>Task is blocked</span></label>
       </div>
-      <label class="my-work-edit-field"><span>Description and context</span><textarea class="my-work-longform-editor" name="description" rows="5" placeholder="What needs to happen, and why?">${ctx.escapeHtml(task.description || "")}</textarea></label>
-      <label class="my-work-edit-field"><span>Acceptance criteria</span><textarea class="my-work-longform-editor my-work-acceptance-editor" name="acceptance_criteria" rows="3" placeholder="What must be true for this Task to be complete?">${ctx.escapeHtml(task.acceptance_criteria || task.done_criteria || "")}</textarea></label>
-      <label class="my-work-edit-field"><span>Blocker context</span><textarea name="blocker_note" rows="3" placeholder="What is blocked, and what would unblock it?"${task.blocked ? "" : " disabled"}>${ctx.escapeHtml(task.blocker_note || "")}</textarea></label>
+      <div class="my-work-edit-assignment-grid">
+        <label class="my-work-edit-field"><span>Assignee</span><select class="app-select" name="assignee">${assigneeOptions(ctx, task)}</select></label>
+        <label class="my-work-edit-field"><span>Assignee SOEID</span><input name="assignee_user_soeid" value="${ctx.escapeHtml(resolvedAssigneeSoeid(ctx, task))}" placeholder="SOEID" autocapitalize="none" spellcheck="false" /></label>
+        <label class="my-work-edit-field"><span>Estimate (FTE-months)</span><input type="number" name="estimate_hours" min="0" step="0.01" value="${ctx.escapeHtml(fteInputValue(task.estimate_hours))}" /></label>
+        <label class="my-work-edit-field"><span>Resource need (FTE-months)</span><input type="number" name="capacity_hours" min="0" step="0.01" value="${ctx.escapeHtml(fteInputValue(task.capacity_hours, "0.00"))}" /></label>
+      </div>
+      <label class="my-work-edit-field my-work-repo-editor"><span>GitHub repo override</span><input type="url" name="github_repo_url" value="${ctx.escapeHtml(task.github_repo_url || "")}" placeholder="https://github.com/owner/repository" /><small>${task.repo_source === "inherited" && task.effective_github_repo_url ? `Currently inherited from Solution: ${ctx.escapeHtml(task.effective_github_repo_url)}` : "Leave blank to inherit the Solution repository."}</small></label>
+      <div class="my-work-edit-copy-grid">
+        <label class="my-work-edit-field"><span>Description and context</span><textarea class="my-work-longform-editor" name="description" rows="6" placeholder="What needs to happen, and why?">${ctx.escapeHtml(task.description || "")}</textarea></label>
+        <label class="my-work-edit-field"><span>Acceptance criteria</span><textarea class="my-work-longform-editor my-work-acceptance-editor" name="acceptance_criteria" rows="6" placeholder="What must be true for this Task to be complete?">${ctx.escapeHtml(task.acceptance_criteria || task.done_criteria || "")}</textarea></label>
+      </div>
+      <label class="my-work-edit-field"><span>Blocker context</span><textarea class="my-work-blocker-editor" name="blocker_note" rows="3" placeholder="What is blocked, and what would unblock it?"${task.blocked ? "" : " disabled"}>${ctx.escapeHtml(task.blocker_note || "")}</textarea></label>
       <p class="form-notice" data-my-work-edit-feedback role="status" aria-live="polite"></p>
     </form>
   `;
@@ -298,6 +355,7 @@ function bindQueueDragging(ctx) {
 function bindTaskEditing(ctx) {
   const root = ctx.els.myWorkRoot;
   const work = myWorkState(ctx.state);
+  const selectedRecord = (work.records || []).find((record) => record.task.task_id === work.selectedTaskId) || null;
   root.querySelector("[data-my-work-edit]")?.addEventListener("click", () => {
     work.editingTaskId = work.selectedTaskId;
     renderMyWork(ctx);
@@ -312,9 +370,20 @@ function bindTaskEditing(ctx) {
   const form = root.querySelector("[data-my-work-edit-form]");
   const blockedInput = form?.querySelector('[name="blocked"]');
   const blockerNote = form?.querySelector('[name="blocker_note"]');
+  const assigneeSelect = form?.querySelector('[name="assignee"]');
+  const assigneeSoeid = form?.querySelector('[name="assignee_user_soeid"]');
   blockedInput?.addEventListener("change", () => {
     blockerNote.disabled = !blockedInput.checked;
     if (blockedInput.checked) blockerNote.focus();
+  });
+  assigneeSelect?.addEventListener("change", () => {
+    if (assigneeSelect.value !== "__legacy__") assigneeSoeid.value = assigneeSelect.value;
+  });
+  assigneeSoeid?.addEventListener("input", () => {
+    const normalized = assigneeSoeid.value.trim().toLowerCase();
+    const matchingUser = (ctx.state.users || []).find((user) => String(user.soeid).toLowerCase() === normalized);
+    if (matchingUser) assigneeSelect.value = matchingUser.soeid;
+    else if (!normalized) assigneeSelect.value = "";
   });
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -322,6 +391,12 @@ function bindTaskEditing(ctx) {
     const submit = form.querySelector('button[type="submit"]');
     const data = new FormData(form);
     const blocked = !!data.get("blocked");
+    const assigneeSelection = String(data.get("assignee") || "");
+    const assigneeUserSoeid = String(data.get("assignee_user_soeid") || "").trim();
+    const linkedAssignee = (ctx.state.users || []).find((user) => (
+      String(user.soeid).toLowerCase() === assigneeUserSoeid.toLowerCase()
+    ));
+    const preserveLegacyAssignee = assigneeSelection === "__legacy__" && !assigneeUserSoeid;
     submit.disabled = true;
     if (feedback) feedback.textContent = "Saving shared Task…";
     try {
@@ -330,9 +405,17 @@ function bindTaskEditing(ctx) {
         body: JSON.stringify({
           task_name: String(data.get("task_name") || "").trim(),
           description: String(data.get("description") || "").trim() || null,
+          github_repo_url: String(data.get("github_repo_url") || "").trim() || null,
+          status: String(data.get("status") || "to_do"),
           acceptance_criteria: String(data.get("acceptance_criteria") || "").trim() || null,
           due_date: String(data.get("due_date") || "") || null,
           priority: Number(data.get("priority")),
+          assignee: preserveLegacyAssignee
+            ? selectedRecord?.task?.assignee || null
+            : assigneeUserSoeid ? linkedAssignee?.display_name || assigneeUserSoeid : null,
+          assignee_user_soeid: assigneeUserSoeid || null,
+          estimate_hours: hoursFromFteInput(data.get("estimate_hours")),
+          capacity_hours: hoursFromFteInput(data.get("capacity_hours"), 0),
           blocked,
           blocker_note: blocked ? String(data.get("blocker_note") || "").trim() || null : null,
         }),

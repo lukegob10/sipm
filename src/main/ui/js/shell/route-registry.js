@@ -3,7 +3,7 @@ const ROUTE_ENTRIES = [
     section: "Personal",
     label: "My Work",
     title: "My Work",
-    data: [],
+    data: ["users"],
     prefetch: "tasks-workbench",
   }],
   ["master", {

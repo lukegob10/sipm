@@ -72,7 +72,10 @@ async function loadLocalAuthedApp(page) {
 }
 
 async function setTheme(page, theme) {
-  await page.locator("#account-menu-toggle").click();
+  const accountMenuToggle = page.locator("#account-menu-toggle");
+  if (await accountMenuToggle.isVisible()) {
+    await accountMenuToggle.click();
+  }
   await page.locator("#preferences-open").click();
   await page.locator('#preferences-form select[name="theme"]').selectOption(theme);
   await page.locator('#preferences-form button[type="submit"]').click();

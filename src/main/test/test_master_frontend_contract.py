@@ -313,6 +313,12 @@ def test_master_deliverables_use_shared_display_tokens_for_status_rag_and_phase_
     assert "color: var(--rag-red-text);" in styles_text
     assert "#master-table .deliverables-table .rag-select option {" in styles_text
     assert "background-color: var(--field-bg);" in styles_text
+    assert 'option[value="green"] {' in styles_text
+    assert "background-color: var(--rag-green-option-bg);" in styles_text
+    assert 'option[value="amber"] {' in styles_text
+    assert "background-color: var(--rag-amber-option-bg);" in styles_text
+    assert 'option[value="red"] {' in styles_text
+    assert "background-color: var(--rag-red-option-bg);" in styles_text
     assert ".theme-light #master-table .deliverables-table .rag-select option {" in styles_text
 
 

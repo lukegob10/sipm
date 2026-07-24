@@ -123,25 +123,25 @@ def _entity_row(
         return (
             _program_query(session, space_ctx)
             .filter(Program.program_id == operation.id)
-            .first()
+            .one_or_none()
         )
     if operation.entity == "project" and operation.id:
         return (
             _project_query(session, space_ctx)
             .filter(Project.project_id == operation.id)
-            .first()
+            .one_or_none()
         )
     if operation.entity == "solution" and operation.id:
         return (
             _solution_query(session, space_ctx)
             .filter(Solution.solution_id == operation.id)
-            .first()
+            .one_or_none()
         )
     if operation.entity == "task" and operation.id:
         return (
             _task_query(session, space_ctx)
             .filter(Task.task_id == operation.id)
-            .first()
+            .one_or_none()
         )
     return None
 
@@ -274,7 +274,7 @@ def create_change_request(
         .filter(AgentChangeRequest.proposed_by_user_id == current_user.user_id)
         .filter(AgentChangeRequest.idempotency_key == idempotency_key)
         .order_by(AgentChangeRequest.created_at.desc())
-        .first()
+        .one_or_none()
     )
     if existing:
         if _same_idempotent_request(
@@ -437,7 +437,7 @@ def get_change_request(
         )
     row = query.filter(
         AgentChangeRequest.change_request_id == change_request_id
-    ).first()
+    ).one_or_none()
     if not row:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -465,7 +465,7 @@ def update_change_request(
         .filter(AgentChangeRequest.proposed_by_user_id == proposer.user_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
         .with_for_update()
-        .first()
+        .one_or_none()
     )
     if row is None:
         raise security_http_exception(
@@ -553,7 +553,7 @@ def approve_change_request(
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
         .with_for_update()
-        .first()
+        .one_or_none()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")
@@ -612,7 +612,7 @@ def verify_delegated_review_confirmation(
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
         .with_for_update()
-        .first()
+        .one_or_none()
     )
     if row is None:
         raise security_http_exception(
@@ -645,7 +645,7 @@ def cancel_change_request(
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.proposed_by_user_id == proposer.user_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
-        .first()
+        .one_or_none()
     )
     if not row:
         raise security_http_exception(
@@ -694,7 +694,7 @@ def approve_change_request_operations(
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
         .with_for_update()
-        .first()
+        .one_or_none()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")
@@ -720,11 +720,16 @@ def approve_change_request_operations(
             detail={"unknown_client_operation_ids": unknown_ids},
         )
 
+    selected_id_set = set(selected_ids)
     selected_payload = AgentPatchRequest(
         dry_run=False,
         reason=original_payload.reason,
         idempotency_key=original_payload.idempotency_key,
-        operations=[operations_by_id[value] for value in selected_ids],
+        operations=[
+            operation
+            for operation in original_payload.operations
+            if operation.client_operation_id in selected_id_set
+        ],
     )
     validation = validate_patch_plan(session, space_ctx, selected_payload, for_apply=True)
     now = _utc_now_naive()
@@ -745,11 +750,58 @@ def approve_change_request_operations(
     if not apply_result.valid or not apply_result.applied:
         row.status = "failed"
         row.failed_reason = "Patch application failed"
+        row.validation_json = apply_result.model_dump_json()
     else:
-        row.status = "approved"
-        row.applied_at = _utc_now_naive()
         row.failed_reason = None
-    row.validation_json = apply_result.model_dump_json()
+        remaining_operations = [
+            operation
+            for operation in original_payload.operations
+            if operation.client_operation_id not in selected_id_set
+        ]
+        if remaining_operations:
+            remaining_payload = AgentPatchRequest(
+                dry_run=False,
+                reason=original_payload.reason,
+                idempotency_key=original_payload.idempotency_key,
+                operations=remaining_operations,
+            )
+            remaining_validation = validate_patch_plan(
+                session,
+                space_ctx,
+                remaining_payload,
+            )
+            row.status = "pending"
+            row.operations_json = _dumps(_operation_payloads(remaining_payload))
+            row.validation_json = remaining_validation.model_dump_json()
+            row.diff_json = _dumps(
+                build_patch_diff(session, space_ctx, remaining_payload)
+            )
+            row.updated_at = _utc_now_naive()
+            log_changes(
+                session,
+                entity_type="agent_change_request",
+                entity_id=row.change_request_id,
+                user_id=reviewer.user_id,
+                action="approve_selected_operations",
+                changes={
+                    "operation_count": (
+                        len(original_payload.operations),
+                        len(remaining_operations),
+                    ),
+                    "approved_operation_ids": (
+                        None,
+                        ",".join(
+                            operation.client_operation_id
+                            for operation in selected_payload.operations
+                        ),
+                    ),
+                },
+                space_id=space_ctx.space_id,
+            )
+        else:
+            row.status = "approved"
+            row.applied_at = _utc_now_naive()
+            row.validation_json = apply_result.model_dump_json()
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -769,7 +821,7 @@ def reject_change_request(
         session.query(AgentChangeRequest)
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
-        .first()
+        .one_or_none()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")

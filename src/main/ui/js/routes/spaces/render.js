@@ -827,7 +827,7 @@ export function createSpaceGovernanceRenderer({
         <div class="agent-proposal-review-actions">
           <div>
             <strong>${allSelected ? "Ready to approve this proposal" : `${esc(selectedCount)} selected change${selectedCount === 1 ? "" : "s"}`}</strong>
-            <span class="muted">${allSelected ? "All proposed changes will be applied." : "Unselected changes will not be applied."}</span>
+            <span class="muted">${allSelected ? "All proposed changes will be applied." : "Unselected changes will remain pending."}</span>
           </div>
           <div class="form-actions">
             <button type="button" class="secondary danger" data-space-action="reject-agent-change-request" data-change-request-id="${escapeAttr(request.change_request_id)}">Reject</button>

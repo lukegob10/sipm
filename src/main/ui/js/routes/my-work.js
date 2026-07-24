@@ -27,10 +27,15 @@ function searchableText(record) {
   ].map((value) => String(value || "").toLowerCase()).join(" ");
 }
 
-function visibleRecords(state) {
-  const work = myWorkState(state);
+function isClosedTask(task) {
+  return ["complete", "abandoned"].includes(String(task?.status || "").toLowerCase());
+}
+
+function visibleRecords(ctx) {
+  const work = myWorkState(ctx.state);
   const search = work.search.trim().toLowerCase();
   return (work.records || []).filter((record) => {
+    if (!ctx.showCompletedOperationalWork?.() && isClosedTask(record.task)) return false;
     if (work.repository && record.task?.effective_github_repo_url !== work.repository) return false;
     return !search || searchableText(record).includes(search);
   });
@@ -263,7 +268,7 @@ async function moveInQueue(ctx, taskId, targetTaskId, insertAfter) {
   const moving = (work.records || []).find((record) => record.task.task_id === taskId);
   if (!moving || moving.needs_attention) return;
 
-  const targetRecords = visibleRecords(ctx.state)
+  const targetRecords = visibleRecords(ctx)
     .filter((record) => !record.needs_attention && record.task.task_id !== taskId);
   let insertionIndex = targetRecords.length;
   if (targetTaskId) {
@@ -477,17 +482,24 @@ export function renderMyWork(ctx) {
     return;
   }
   if (work.loading) return;
-  const records = visibleRecords(ctx.state);
-  const selected = (work.records || []).find((record) => record.task.task_id === work.selectedTaskId) || null;
+  const records = visibleRecords(ctx);
+  const selected = records.find((record) => record.task.task_id === work.selectedTaskId) || records[0] || null;
   const repositories = [...new Set((work.records || []).map((record) => record.task.effective_github_repo_url).filter(Boolean))].sort();
+  const showCompleted = !!ctx.showCompletedOperationalWork?.();
+  const hiddenClosedCount = showCompleted
+    ? 0
+    : (work.records || []).filter((record) => isClosedTask(record.task)).length;
+  const emptyMessage = hiddenClosedCount
+    ? `No open Tasks are assigned to you in this space. ${hiddenClosedCount} completed or abandoned task${hiddenClosedCount === 1 ? " is" : "s are"} hidden. Enable Show completed work in Preferences to review ${hiddenClosedCount === 1 ? "it" : "them"}.`
+    : "No active Tasks are assigned to you in this space.";
   root.innerHTML = `
     <div class="my-work-toolbar">
       <label class="my-work-control my-work-search"><span>Search work</span><input type="search" data-my-work-search value="${ctx.escapeHtml(work.search)}" placeholder="Task, project, solution, or repository" /></label>
       <label class="my-work-control"><span>Repository</span><select class="app-select" data-my-work-repo><option value="">All repositories</option>${repositories.map((repo) => `<option value="${ctx.escapeHtml(repo)}"${work.repository === repo ? " selected" : ""}>${ctx.escapeHtml(repo.replace("https://github.com/", ""))}</option>`).join("")}</select></label>
-      <div class="my-work-toolbar-summary"><strong>${records.length}</strong><span>active assigned task${records.length === 1 ? "" : "s"}</span></div>
+      <div class="my-work-toolbar-summary"><strong>${records.length}</strong><span>${showCompleted ? "assigned" : "active assigned"} task${records.length === 1 ? "" : "s"}</span></div>
     </div>
     ${work.error ? `<div class="route-error-card"><strong>My Work unavailable</strong><p>${ctx.escapeHtml(work.error)}</p></div>` : ""}
-    ${!work.error && !(work.records || []).length ? '<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>No active Tasks are assigned to you in this space.</p></div>' : `
+    ${!work.error && !records.length && !work.search && !work.repository ? `<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>${ctx.escapeHtml(emptyMessage)}</p></div>` : `
       <div class="my-work-layout">
         <div class="my-work-queue">${renderQueue(ctx, records)}</div>
         ${detailPane(ctx, selected)}

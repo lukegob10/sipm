@@ -1469,6 +1469,7 @@ function createMyWorkRouteContext() {
     formatStatus,
     renderExternalRepoLink,
     setView,
+    showCompletedOperationalWork,
   });
 }
 

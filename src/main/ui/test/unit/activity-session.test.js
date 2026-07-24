@@ -63,6 +63,23 @@ describe("activity session controller", () => {
     expect(onIdleLogout).toHaveBeenCalledTimes(1);
   });
 
+  it("records activity before the action handler can start an authenticated request", async () => {
+    const { controller, onHeartbeat } = createHarness();
+    const action = vi.fn();
+    const button = document.createElement("button");
+    button.addEventListener("click", action);
+    document.body.append(button);
+    controller.start("user-1");
+    await vi.advanceTimersByTimeAsync(15 * 1000);
+
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(onHeartbeat).toHaveBeenCalledTimes(1);
+    expect(action).toHaveBeenCalledTimes(1);
+    expect(onHeartbeat.mock.invocationCallOrder[0]).toBeLessThan(action.mock.invocationCallOrder[0]);
+    button.remove();
+  });
+
   it("throttles leading heartbeats and sends a trailing heartbeat", async () => {
     const { controller, onHeartbeat } = createHarness();
     controller.start("user-1");

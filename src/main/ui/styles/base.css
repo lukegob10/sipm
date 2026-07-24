@@ -138,6 +138,12 @@
   --rag-red-bg: var(--tone-danger-bg);
   --rag-red-border: var(--tone-danger-border);
   --rag-red-text: var(--tone-danger-text);
+  --rag-green-option-bg: #245c39;
+  --rag-green-option-text: #e6f7eb;
+  --rag-amber-option-bg: #6a4c16;
+  --rag-amber-option-text: #fff0c2;
+  --rag-red-option-bg: #6a2d29;
+  --rag-red-option-text: #ffe2df;
   --rag-unknown-border: var(--tone-muted-border);
   --shadow-low: 0 10px 22px rgba(4, 8, 13, 0.22);
   --shadow-high: 0 26px 58px rgba(4, 8, 13, 0.54);
@@ -328,6 +334,12 @@
   --rag-red-bg: var(--tone-danger-bg);
   --rag-red-border: var(--tone-danger-border);
   --rag-red-text: var(--tone-danger-text);
+  --rag-green-option-bg: #d8f0df;
+  --rag-green-option-text: #145c31;
+  --rag-amber-option-bg: #f9e7b4;
+  --rag-amber-option-text: #744c00;
+  --rag-red-option-bg: #f5d6d3;
+  --rag-red-option-text: #8f2119;
   --rag-unknown-border: var(--tone-muted-border);
   --shadow-low: 0 10px 24px rgba(16, 42, 67, 0.08);
   --shadow-high: 0 10px 24px rgba(16, 42, 67, 0.08);
@@ -2258,6 +2270,18 @@ button.secondary.danger:hover {
   font-family: inherit;
   font-size: var(--master-row-font-size);
   font-weight: var(--master-row-font-weight);
+}
+#master-table .deliverables-table .rag-select option[value="green"] {
+  background-color: var(--rag-green-option-bg);
+  color: var(--rag-green-option-text);
+}
+#master-table .deliverables-table .rag-select option[value="amber"] {
+  background-color: var(--rag-amber-option-bg);
+  color: var(--rag-amber-option-text);
+}
+#master-table .deliverables-table .rag-select option[value="red"] {
+  background-color: var(--rag-red-option-bg);
+  color: var(--rag-red-option-text);
 }
 .theme-light #master-table .deliverables-table .rag-select option {
   color-scheme: light;

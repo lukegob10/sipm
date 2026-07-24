@@ -320,6 +320,24 @@ test("shared controls keep readable contrast across every named theme", async ({
     }
 
     await openRoute(page, "master", "#master-table");
+    const ragOptionStyles = await page.locator("#master-table .rag-select").evaluate((select) => (
+      Object.fromEntries(Array.from(select.options, (option) => {
+        const style = getComputedStyle(option);
+        return [option.value, { background: style.backgroundColor, color: style.color }];
+      }))
+    ));
+    const expectedRagOptionStyles = theme === "light"
+      ? {
+          green: { background: "rgb(216, 240, 223)", color: "rgb(20, 92, 49)" },
+          amber: { background: "rgb(249, 231, 180)", color: "rgb(116, 76, 0)" },
+          red: { background: "rgb(245, 214, 211)", color: "rgb(143, 33, 25)" },
+        }
+      : {
+          green: { background: "rgb(36, 92, 57)", color: "rgb(230, 247, 235)" },
+          amber: { background: "rgb(106, 76, 22)", color: "rgb(255, 240, 194)" },
+          red: { background: "rgb(106, 45, 41)", color: "rgb(255, 226, 223)" },
+        };
+    expect(ragOptionStyles).toEqual(expectedRagOptionStyles);
     await page.locator("#topbar-create-toggle").click();
     await page.locator("#topbar-create-project").click();
     await expect(page.locator("#project-modal:not(.hidden) .modal-content")).toBeVisible();

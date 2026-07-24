@@ -30,7 +30,8 @@ export function createActivitySessionController({
   let logoutStarted = false;
   let listenersBound = false;
 
-  const activityEvents = ["mousemove", "keydown", "click", "scroll", "touchstart"];
+  const activityEvents = ["mousemove", "keydown", "pointerdown", "click", "scroll", "touchstart"];
+  const activityListenerOptions = { passive: true, capture: true };
 
   function clearTimer(timer) {
     if (timer !== null) windowRef.clearTimeout(timer);
@@ -151,7 +152,11 @@ export function createActivitySessionController({
 
   function bindListeners() {
     if (listenersBound) return;
-    activityEvents.forEach((eventName) => windowRef.addEventListener(eventName, noteUserActivity, { passive: true }));
+    activityEvents.forEach((eventName) => windowRef.addEventListener(
+      eventName,
+      noteUserActivity,
+      activityListenerOptions,
+    ));
     windowRef.addEventListener("storage", handleStorage);
     windowRef.addEventListener("pagehide", handlePageHide);
     documentRef.addEventListener("visibilitychange", handleVisibilityChange);
@@ -160,7 +165,11 @@ export function createActivitySessionController({
 
   function unbindListeners() {
     if (!listenersBound) return;
-    activityEvents.forEach((eventName) => windowRef.removeEventListener(eventName, noteUserActivity));
+    activityEvents.forEach((eventName) => windowRef.removeEventListener(
+      eventName,
+      noteUserActivity,
+      activityListenerOptions,
+    ));
     windowRef.removeEventListener("storage", handleStorage);
     windowRef.removeEventListener("pagehide", handlePageHide);
     documentRef.removeEventListener("visibilitychange", handleVisibilityChange);

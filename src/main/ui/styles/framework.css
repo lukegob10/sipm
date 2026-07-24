@@ -41,6 +41,11 @@ body {
   transform: translateY(0);
 }
 
+:where(a, button, input, select, textarea, [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 #app-shell {
   grid-template-columns: var(--framework-sidebar-width) minmax(0, 1fr);
   min-height: 100dvh;
@@ -117,6 +122,129 @@ main {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.preferences-modal-content {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.preferences-form,
+.preferences-section,
+.appearance-control {
+  display: grid;
+  gap: 16px;
+}
+
+.preferences-form {
+  padding: 18px;
+}
+
+.preferences-section {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.55fr);
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-1);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border-soft) 70%, transparent);
+}
+
+.preferences-section h4,
+.preferences-section p {
+  margin: 0;
+}
+
+.preferences-section p {
+  margin-top: 5px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.preference-switch {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: var(--text-strong);
+  font-weight: 650;
+}
+
+.preference-field {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+}
+
+.appearance-control {
+  gap: 8px;
+}
+
+.theme-preview {
+  --preview-bg: #0b1118;
+  --preview-sidebar: #111923;
+  --preview-surface: #223044;
+  --preview-accent: #5f9fe0;
+  display: grid;
+  grid-template-columns: 0.55fr 1.45fr 0.3fr;
+  gap: 5px;
+  min-height: 40px;
+  padding: 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--preview-bg);
+}
+
+.theme-preview[data-preview-theme="midnight"] {
+  --preview-bg: #070812;
+  --preview-sidebar: #0d1020;
+  --preview-surface: #252e4c;
+  --preview-accent: #93a4ff;
+}
+
+.theme-preview[data-preview-theme="forest"] {
+  --preview-bg: #07110e;
+  --preview-sidebar: #0d1915;
+  --preview-surface: #274038;
+  --preview-accent: #78c8a0;
+}
+
+.theme-preview[data-preview-theme="light"] {
+  --preview-bg: #f5f6f8;
+  --preview-sidebar: #ffffff;
+  --preview-surface: #dfe7ef;
+  --preview-accent: #003a72;
+}
+
+.theme-preview[data-preview-theme="system"] {
+  --preview-bg: linear-gradient(135deg, #0b1118 0 49%, #f5f6f8 51% 100%);
+  --preview-sidebar: #111923;
+  --preview-surface: #ffffff;
+  --preview-accent: #5f9fe0;
+}
+
+.theme-preview > span {
+  display: block;
+  border-radius: 5px;
+}
+
+.theme-preview-sidebar {
+  background: var(--preview-sidebar);
+}
+
+.theme-preview-surface {
+  background: var(--preview-surface);
+}
+
+.theme-preview-accent {
+  background: var(--preview-accent);
+}
+
+.preferences-section .theme-description {
+  min-height: 2.9em;
+  margin-top: 0;
 }
 
 .view {
@@ -535,6 +663,12 @@ main {
   }
 
   .dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .preferences-section {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -78,9 +78,11 @@ async function setTheme(page, theme) {
   }
   await page.locator("#preferences-open").click();
   await page.locator('#preferences-form select[name="theme"]').selectOption(theme);
+  await expect(page.locator("#theme-preview")).toHaveAttribute("data-preview-theme", theme);
   await page.locator('#preferences-form button[type="submit"]').click();
   await expect(page.locator("#preferences-modal")).toHaveClass(/hidden/);
-  await expect(page.locator("body")).toHaveClass(theme === "light" ? /theme-light/ : /^(?!.*theme-light).*$/);
+  await expect(page.locator("body")).toHaveAttribute("data-theme", theme);
+  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await page.waitForTimeout(250);
 }
 
@@ -193,7 +195,7 @@ async function assertVisibleContrast(page, selectors, theme) {
   }
 }
 
-test("shared controls keep readable contrast in light and dark themes", async ({ page }) => {
+test("shared controls keep readable contrast across every named theme", async ({ page }) => {
   await loadLocalAuthedApp(page);
 
   const routeSamples = [
@@ -299,7 +301,7 @@ test("shared controls keep readable contrast in light and dark themes", async ({
     },
   ];
 
-  for (const theme of ["dark", "light"]) {
+  for (const theme of ["dark", "midnight", "forest", "light"]) {
     await setTheme(page, theme);
     for (const route of routeSamples) {
       await openRoute(page, route.view, route.waitFor);

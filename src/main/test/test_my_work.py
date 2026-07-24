@@ -27,10 +27,28 @@ async def test_preferences_default_and_update(client):
         "has_saved_preferences": True,
     }
 
+    for theme in ("midnight", "forest", "system"):
+        response = await client.patch(
+            "/project-manager/api/users/me/preferences",
+            json={"theme": theme},
+        )
+        assert response.status_code == 200
+        assert response.json() == {
+            "developer_mode_enabled": True,
+            "theme": theme,
+            "has_saved_preferences": True,
+        }
+
+    invalid = await client.patch(
+        "/project-manager/api/users/me/preferences",
+        json={"theme": "sepia"},
+    )
+    assert invalid.status_code == 422
+
     persisted = await client.get("/project-manager/api/users/me/preferences")
     assert persisted.json() == {
         "developer_mode_enabled": True,
-        "theme": "light",
+        "theme": "system",
         "has_saved_preferences": True,
     }
 

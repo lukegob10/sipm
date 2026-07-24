@@ -815,6 +815,10 @@
     overflow: visible;
   }
 
+  #view-master .panel-header .view-heading {
+    flex: 0 1 auto;
+  }
+
   #view-master #master-table {
     max-height: none;
   }

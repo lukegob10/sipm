@@ -192,8 +192,10 @@ class UserPreferenceUpdate(BaseModel):
         if value is None:
             return None
         normalized = str(value).strip().lower()
-        if normalized not in {"dark", "midnight", "forest", "light", "system"}:
-            raise ValueError("theme must be dark, midnight, forest, light, or system")
+        if normalized == "forest":
+            return "slate"
+        if normalized not in {"dark", "midnight", "slate", "light", "system"}:
+            raise ValueError("theme must be dark, midnight, slate, light, or system")
         return normalized
 
 

@@ -436,106 +436,106 @@
   --product-table-head-text: #f4f5ff;
 }
 
-.theme-forest {
+.theme-slate {
   color-scheme: dark;
-  --surface-0: #07110e;
-  --surface-1: #0d1915;
-  --surface-2: #15231d;
-  --surface-3: #1d3028;
-  --surface-elevated: #274038;
-  --base: #07110e;
-  --bg: #07110e;
-  --panel: #0d1915;
-  --panel-soft: #15231d;
-  --app-shell-bg: #07110e;
-  --surface-raised: #15231d;
-  --surface-sunken: #09140f;
-  --data-canvas: #0b1712;
-  --section-header-bg: linear-gradient(180deg, #315445, #254236);
-  --table-row-bg: #0e1b16;
-  --table-row-alt-bg: #15271f;
-  --table-header-bg: linear-gradient(180deg, #3b6251, #2d4e40);
-  --field-bg: #0b1813;
-  --text-strong: #f0fbf5;
-  --text: #d9ece2;
-  --text-subtle: #a7c4b5;
-  --muted: #a7c4b5;
-  --accent: #78c8a0;
-  --accent-strong: #8fd8b2;
-  --accent-2: #b7e8cf;
-  --hover: rgba(143, 216, 178, 0.08);
-  --hover-strong: rgba(143, 216, 178, 0.14);
-  --hover-border: rgba(159, 222, 189, 0.42);
-  --border-soft: rgba(135, 188, 159, 0.24);
-  --border-strong: rgba(135, 188, 159, 0.44);
-  --border: rgba(135, 188, 159, 0.28);
-  --focus-ring: #a4e2c2;
-  --focus-border: #8fd8b2;
-  --modal-scrim: rgba(2, 8, 5, 0.82);
-  --auth-scrim: rgba(2, 8, 5, 0.78);
-  --info-soft: rgba(103, 181, 145, 0.17);
-  --info-border: rgba(143, 216, 178, 0.5);
+  --surface-0: #0d1014;
+  --surface-1: #13171c;
+  --surface-2: #1a2026;
+  --surface-3: #232a31;
+  --surface-elevated: #2c353d;
+  --base: #0d1014;
+  --bg: #0d1014;
+  --panel: #13171c;
+  --panel-soft: #1a2026;
+  --app-shell-bg: #0d1014;
+  --surface-raised: #1a2026;
+  --surface-sunken: #101419;
+  --data-canvas: #11161b;
+  --section-header-bg: linear-gradient(180deg, #354049, #2b343c);
+  --table-row-bg: #151a20;
+  --table-row-alt-bg: #1b2228;
+  --table-header-bg: linear-gradient(180deg, #3b454d, #303941);
+  --field-bg: #12171c;
+  --text-strong: #f1f4f5;
+  --text: #d8dee1;
+  --text-subtle: #a8b1b6;
+  --muted: #a8b1b6;
+  --accent: #9bb8aa;
+  --accent-strong: #b1cabd;
+  --accent-2: #d0ddd7;
+  --hover: rgba(177, 202, 189, 0.07);
+  --hover-strong: rgba(177, 202, 189, 0.12);
+  --hover-border: rgba(177, 202, 189, 0.36);
+  --border-soft: rgba(174, 185, 191, 0.2);
+  --border-strong: rgba(174, 185, 191, 0.38);
+  --border: rgba(174, 185, 191, 0.25);
+  --focus-ring: #c3d5cc;
+  --focus-border: #b1cabd;
+  --modal-scrim: rgba(4, 6, 8, 0.82);
+  --auth-scrim: rgba(4, 6, 8, 0.78);
+  --info-soft: rgba(135, 161, 177, 0.16);
+  --info-border: rgba(157, 182, 197, 0.46);
   --success-soft: rgba(96, 202, 139, 0.16);
   --success-border: rgba(114, 213, 155, 0.5);
   --warning-soft: rgba(226, 181, 92, 0.16);
   --warning-border: rgba(226, 181, 92, 0.5);
   --danger-soft: rgba(230, 122, 112, 0.16);
   --danger-border: rgba(230, 122, 112, 0.52);
-  --nav-active-bg: rgba(120, 200, 160, 0.19);
-  --nav-active-border: rgba(143, 216, 178, 0.56);
-  --nav-active-inset: #8fd8b2;
-  --nav-active-text: #f0fbf5;
-  --tab-active-bg: rgba(120, 200, 160, 0.18);
-  --tab-active-border: #8fd8b2;
-  --tab-active-text: #f0fbf5;
-  --button-primary-bg: #2f7655;
-  --button-primary-hover-bg: #3c8866;
-  --button-primary-border: #68b98e;
+  --nav-active-bg: rgba(155, 184, 170, 0.15);
+  --nav-active-border: rgba(177, 202, 189, 0.48);
+  --nav-active-inset: #b1cabd;
+  --nav-active-text: #f1f4f5;
+  --tab-active-bg: rgba(155, 184, 170, 0.14);
+  --tab-active-border: #b1cabd;
+  --tab-active-text: #f1f4f5;
+  --button-primary-bg: #536c61;
+  --button-primary-hover-bg: #627c70;
+  --button-primary-border: #819e91;
   --button-primary-text: #ffffff;
-  --button-primary-shadow: 0 10px 18px rgba(2, 10, 6, 0.32);
-  --button-secondary-bg: #15231d;
-  --button-secondary-border: rgba(135, 188, 159, 0.34);
-  --button-secondary-text: #d9ece2;
-  --button-secondary-hover-bg: rgba(143, 216, 178, 0.12);
-  --button-secondary-hover-border: rgba(159, 222, 189, 0.5);
-  --button-secondary-active-bg: rgba(120, 200, 160, 0.19);
-  --button-secondary-active-border: #8fd8b2;
-  --button-secondary-active-text: #f0fbf5;
-  --button-disabled-bg: #15231d;
-  --button-disabled-border: rgba(135, 188, 159, 0.24);
-  --button-disabled-text: #a7c4b5;
+  --button-primary-shadow: 0 10px 18px rgba(3, 5, 7, 0.32);
+  --button-secondary-bg: #1a2026;
+  --button-secondary-border: rgba(174, 185, 191, 0.3);
+  --button-secondary-text: #d8dee1;
+  --button-secondary-hover-bg: rgba(177, 202, 189, 0.1);
+  --button-secondary-hover-border: rgba(177, 202, 189, 0.42);
+  --button-secondary-active-bg: rgba(155, 184, 170, 0.16);
+  --button-secondary-active-border: #b1cabd;
+  --button-secondary-active-text: #f1f4f5;
+  --button-disabled-bg: #1a2026;
+  --button-disabled-border: rgba(174, 185, 191, 0.2);
+  --button-disabled-text: #a8b1b6;
   --button-disabled-opacity: 0.86;
-  --selected-row-bg: rgba(120, 200, 160, 0.15);
-  --selected-ring: 0 0 0 1px rgba(143, 216, 178, 0.38);
-  --selected-ring-strong: 0 0 0 2px rgba(143, 216, 178, 0.34);
-  --accent-hover-soft: rgba(120, 200, 160, 0.08);
-  --accent-hover: rgba(120, 200, 160, 0.14);
-  --accent-hover-strong: rgba(120, 200, 160, 0.24);
-  --hero-surface: linear-gradient(180deg, rgba(120, 200, 160, 0.16), rgba(13, 25, 21, 0.2));
-  --callout-bg: rgba(120, 200, 160, 0.13);
-  --callout-border: rgba(143, 216, 178, 0.42);
-  --project-pill-bg: rgba(120, 200, 160, 0.2);
-  --project-pill-border: rgba(143, 216, 178, 0.5);
-  --project-pill-dot: #9bdfbd;
+  --selected-row-bg: rgba(155, 184, 170, 0.12);
+  --selected-ring: 0 0 0 1px rgba(177, 202, 189, 0.3);
+  --selected-ring-strong: 0 0 0 2px rgba(177, 202, 189, 0.28);
+  --accent-hover-soft: rgba(155, 184, 170, 0.06);
+  --accent-hover: rgba(155, 184, 170, 0.11);
+  --accent-hover-strong: rgba(155, 184, 170, 0.2);
+  --hero-surface: linear-gradient(180deg, rgba(155, 184, 170, 0.11), rgba(19, 23, 28, 0.2));
+  --callout-bg: rgba(155, 184, 170, 0.1);
+  --callout-border: rgba(177, 202, 189, 0.34);
+  --project-pill-bg: rgba(155, 184, 170, 0.15);
+  --project-pill-border: rgba(177, 202, 189, 0.4);
+  --project-pill-dot: #b1cabd;
   --solution-pill-bg: rgba(230, 122, 112, 0.17);
   --solution-pill-border: rgba(230, 122, 112, 0.5);
   --solution-pill-dot: #ed9a92;
   --notice-warning-bg: rgba(226, 181, 92, 0.16);
   --notice-warning-border: rgba(226, 181, 92, 0.5);
-  --calendar-solution-border: rgba(143, 216, 178, 0.56);
-  --calendar-task-border: rgba(167, 196, 181, 0.62);
+  --calendar-solution-border: rgba(177, 202, 189, 0.48);
+  --calendar-task-border: rgba(168, 177, 182, 0.58);
   --warning-text: #ebc77f;
   --danger: #e67a70;
   --positive: #72d59b;
-  --shadow-low: 0 10px 24px rgba(2, 8, 5, 0.28);
-  --shadow-high: 0 26px 58px rgba(2, 8, 5, 0.6);
+  --shadow-low: 0 10px 24px rgba(3, 5, 7, 0.3);
+  --shadow-high: 0 26px 58px rgba(3, 5, 7, 0.62);
   --shadow: none;
-  --product-border: rgba(135, 188, 159, 0.3);
-  --product-grid: rgba(183, 232, 207, 0.018);
-  --product-surface: #12221b;
-  --product-surface-soft: #0a1511;
-  --product-table-head: linear-gradient(180deg, #3b6251, #2d4e40);
-  --product-table-head-text: #f0fbf5;
+  --product-border: rgba(174, 185, 191, 0.26);
+  --product-grid: rgba(208, 221, 215, 0.015);
+  --product-surface: #1a2026;
+  --product-surface-soft: #101419;
+  --product-table-head: linear-gradient(180deg, #3b454d, #303941);
+  --product-table-head-text: #f1f4f5;
 }
 
 body {
@@ -2246,6 +2246,8 @@ button.secondary.danger:hover {
   color: var(--rag-green-text);
 }
 #master-table .deliverables-table .rag-select option {
+  background-color: var(--field-bg);
+  color-scheme: dark;
   font-family: inherit;
   font-size: var(--master-row-font-size);
   font-weight: var(--master-row-font-weight);
@@ -2257,14 +2259,8 @@ button.secondary.danger:hover {
   font-size: var(--master-row-font-size);
   font-weight: var(--master-row-font-weight);
 }
-#master-table .deliverables-table .rag-select option[value="red"] {
-  background: var(--rag-red-bg);
-}
-#master-table .deliverables-table .rag-select option[value="amber"] {
-  background: var(--rag-amber-bg);
-}
-#master-table .deliverables-table .rag-select option[value="green"] {
-  background: var(--rag-green-bg);
+.theme-light #master-table .deliverables-table .rag-select option {
+  color-scheme: light;
 }
 .inline-input:focus,
 .inline-select:focus,

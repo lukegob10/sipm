@@ -311,6 +311,9 @@ def test_master_deliverables_use_shared_display_tokens_for_status_rag_and_phase_
     assert "color: var(--rag-green-text);" in styles_text
     assert "color: var(--rag-amber-text);" in styles_text
     assert "color: var(--rag-red-text);" in styles_text
+    assert "#master-table .deliverables-table .rag-select option {" in styles_text
+    assert "background-color: var(--field-bg);" in styles_text
+    assert ".theme-light #master-table .deliverables-table .rag-select option {" in styles_text
 
 
 def test_master_deliverables_project_solution_titles_use_dense_wrapping():

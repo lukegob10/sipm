@@ -27,7 +27,7 @@ async def test_preferences_default_and_update(client):
         "has_saved_preferences": True,
     }
 
-    for theme in ("midnight", "forest", "system"):
+    for theme in ("midnight", "slate", "system"):
         response = await client.patch(
             "/project-manager/api/users/me/preferences",
             json={"theme": theme},
@@ -38,6 +38,18 @@ async def test_preferences_default_and_update(client):
             "theme": theme,
             "has_saved_preferences": True,
         }
+
+    legacy = await client.patch(
+        "/project-manager/api/users/me/preferences",
+        json={"theme": "forest"},
+    )
+    assert legacy.status_code == 200
+    assert legacy.json()["theme"] == "slate"
+
+    await client.patch(
+        "/project-manager/api/users/me/preferences",
+        json={"theme": "system"},
+    )
 
     invalid = await client.patch(
         "/project-manager/api/users/me/preferences",

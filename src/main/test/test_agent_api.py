@@ -1247,14 +1247,25 @@ async def test_agent_change_request_can_approve_selected_operations(
     )
     assert approved.status_code == 200, approved.text
     body = approved.json()
-    assert body["status"] == "approved"
-    assert body["operation_count"] == 2
+    assert body["status"] == "pending"
+    assert body["operation_count"] == 1
+    assert [operation["client_operation_id"] for operation in body["operations"]] == [
+        "skipped-project"
+    ]
     assert [
         result["client_operation_id"] for result in body["validation"]["results"]
-    ] == ["approved-project"]
+    ] == ["skipped-project"]
     assert [item["client_operation_id"] for item in body["diff"]] == [
-        "approved-project",
         "skipped-project",
+    ]
+
+    pending = await agent_client.get(
+        "/project-manager/api/agent/change-requests?status=pending",
+        headers={"X-Space-Id": space_id},
+    )
+    assert pending.status_code == 200, pending.text
+    assert [record["change_request_id"] for record in pending.json()["records"]] == [
+        request_id
     ]
 
     with db_sessionmaker() as session:
@@ -1268,6 +1279,30 @@ async def test_agent_change_request_can_approve_selected_operations(
             .filter(Project.project_name == "Skipped Project")
             .first()
             is None
+        )
+        audit_fields = {
+            row.field
+            for row in session.query(ChangeLog)
+            .filter(ChangeLog.entity_type == "agent_change_request")
+            .filter(ChangeLog.entity_id == request_id)
+            .filter(ChangeLog.action == "approve_selected_operations")
+            .all()
+        }
+        assert audit_fields == {"operation_count", "approved_operation_ids"}
+
+    approved_remainder = await agent_client.post(
+        f"/project-manager/api/agent/change-requests/{request_id}/approve-selected-operations",
+        headers={"X-Space-Id": space_id},
+        json={"client_operation_ids": ["skipped-project"]},
+    )
+    assert approved_remainder.status_code == 200, approved_remainder.text
+    assert approved_remainder.json()["status"] == "approved"
+
+    with db_sessionmaker() as session:
+        assert (
+            session.query(Project)
+            .filter(Project.project_name == "Skipped Project")
+            .one()
         )
 
 

@@ -371,7 +371,7 @@ export function createSpaceGovernanceController({
         const confirmed = await showConfirmModal({
           title: approving ? "Approve Selected Changes" : "Reject Agent Proposal",
           message: approving
-            ? `Approve ${selectedOperationIds.length} selected change${selectedOperationIds.length === 1 ? "" : "s"}? ${operationCount - selectedOperationIds.length} unselected change${operationCount - selectedOperationIds.length === 1 ? "" : "s"} will not be applied.`
+            ? `Approve ${selectedOperationIds.length} selected change${selectedOperationIds.length === 1 ? "" : "s"}? ${operationCount - selectedOperationIds.length} unselected change${operationCount - selectedOperationIds.length === 1 ? "" : "s"} will remain pending.`
             : "Reject this entire agent proposal?",
           confirmLabel: approving ? "Approve selected" : "Reject proposal",
         });
@@ -398,7 +398,9 @@ export function createSpaceGovernanceController({
         await refreshFromServer("all");
         renderGovernanceHub("agent-approvals");
         const completed = approving ? selectedOperationIds.length : Number(result?.rejected || 0);
-        const approvalFailed = approving && result?.status !== "approved";
+        const approvalFailed = approving
+          && result?.status !== "approved"
+          && !(partialApproval && result?.status === "pending");
         const failed = approvalFailed ? 1 : Number(result?.failed || 0);
         setSpaceGovernanceNotice(
           approvalFailed

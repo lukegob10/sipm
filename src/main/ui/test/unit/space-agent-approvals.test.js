@@ -61,6 +61,9 @@ function createHarness() {
     if (path === "/agent/change-requests/actions/reject-selected") {
       return Promise.resolve({ rejected: 1, failed: 0 });
     }
+    if (path === "/agent/change-requests/cr-1/approve-selected-operations") {
+      return Promise.resolve({ status: "approved" });
+    }
     if (path === "/agent/change-requests?status=pending") {
       return Promise.resolve({ pending_count: 0, failed_count: 0, records: [] });
     }
@@ -279,13 +282,17 @@ describe("agent approvals governance UI", () => {
     );
     operationCheckboxes[1].checked = false;
     operationCheckboxes[1].dispatchEvent(new Event("change", { bubbles: true }));
+    expect(els.spaceGovernanceShell.textContent).toContain("Unselected changes will remain pending.");
     els.spaceGovernanceShell
       .querySelector("[data-space-action='approve-agent-change-request']")
       .click();
 
     await vi.waitFor(() => {
       expect(showConfirmModal).toHaveBeenCalledWith(
-        expect.objectContaining({ title: "Approve Selected Changes" })
+        expect.objectContaining({
+          title: "Approve Selected Changes",
+          message: expect.stringContaining("will remain pending"),
+        })
       );
       expect(api).toHaveBeenCalledWith(
         "/agent/change-requests/cr-1/approve-selected-operations",

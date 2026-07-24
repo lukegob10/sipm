@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..deps import current_space as current_space_dep
@@ -17,11 +17,8 @@ from ..schemas import (
 )
 from ..services.spaces import SpaceContext
 from ..services.work_items import task_payload
-from ..utils.enums import TaskStatus
 
 router = APIRouter()
-
-_CLOSED_TASK_STATUSES = (TaskStatus.complete, TaskStatus.abandoned)
 
 
 def _preference_payload(preference: UserPreference | None) -> UserPreferenceRead:
@@ -36,18 +33,7 @@ def _preference_payload(preference: UserPreference | None) -> UserPreferenceRead
 
 def _assigned_to_user(user: User):
     soeid = str(user.soeid or "").strip().lower()
-    display_name = str(user.display_name or "").strip().lower()
-    normalized_linked_soeid = func.lower(func.trim(Task.assignee_user_soeid))
-    normalized_legacy_assignee = func.lower(func.trim(Task.assignee))
-    linked_identity = normalized_linked_soeid == soeid
-    legacy_identity = and_(
-        or_(
-            Task.assignee_user_soeid.is_(None),
-            func.trim(Task.assignee_user_soeid) == "",
-        ),
-        normalized_legacy_assignee.in_((display_name, soeid)),
-    )
-    return or_(linked_identity, legacy_identity)
+    return func.lower(func.trim(Task.assignee_user_soeid)) == soeid
 
 
 def _repository_name(url: str) -> str:
@@ -58,15 +44,8 @@ def _repository_name(url: str) -> str:
 def _eligible_task_query(session: Session, space_ctx: SpaceContext, user: User):
     return (
         session.query(Task)
-        .join(Solution, Solution.solution_id == Task.solution_id)
-        .join(Project, Project.project_id == Task.project_id)
         .filter(Task.space_id == space_ctx.space_id)
         .filter(Task.deleted_at.is_(None))
-        .filter(Solution.space_id == space_ctx.space_id)
-        .filter(Solution.deleted_at.is_(None))
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Task.status.notin_(_CLOSED_TASK_STATUSES))
         .filter(_assigned_to_user(user))
     )
 

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderMyWork } from "../../js/routes/my-work.js";
 
-function context(records) {
+function context(records, { showCompleted = false } = {}) {
   document.body.innerHTML = '<div id="my-work-root"></div>';
   return {
     state: {
@@ -29,6 +29,7 @@ function context(records) {
     formatStatus: (value) => String(value).replaceAll("_", " "),
     renderExternalRepoLink: (url, options) => `<a href="${url}">${options.label}</a>`,
     setView: vi.fn(),
+    showCompletedOperationalWork: () => showCompleted,
   };
 }
 
@@ -98,6 +99,41 @@ describe("My Work", () => {
     renderMyWork(ctx);
     expect(ctx.els.myWorkRoot.textContent).toContain("You are clear");
     expect(ctx.els.myWorkRoot.textContent).toContain("No active Tasks are assigned to you");
+  });
+
+  it("uses the shared Show completed work preference", () => {
+    const records = [
+      {
+        task: { task_id: "task-open", task_name: "Open task", status: "to_do", priority: 1 },
+        project_name: "Project",
+        solution_name: "Solution",
+        needs_attention: false,
+      },
+      {
+        task: { task_id: "task-complete", task_name: "Completed task", status: "complete", priority: 2 },
+        project_name: "Project",
+        solution_name: "Solution",
+        needs_attention: false,
+      },
+      {
+        task: { task_id: "task-abandoned", task_name: "Abandoned task", status: "abandoned", priority: 3 },
+        project_name: "Project",
+        solution_name: "Solution",
+        needs_attention: false,
+      },
+    ];
+
+    const defaultCtx = context(records);
+    renderMyWork(defaultCtx);
+    expect(defaultCtx.els.myWorkRoot.textContent).toContain("Open task");
+    expect(defaultCtx.els.myWorkRoot.textContent).not.toContain("Completed task");
+    expect(defaultCtx.els.myWorkRoot.textContent).not.toContain("Abandoned task");
+
+    const completedCtx = context(records, { showCompleted: true });
+    renderMyWork(completedCtx);
+    expect(completedCtx.els.myWorkRoot.textContent).toContain("Open task");
+    expect(completedCtx.els.myWorkRoot.textContent).toContain("Completed task");
+    expect(completedCtx.els.myWorkRoot.textContent).toContain("Abandoned task");
   });
 
   it("uses the queue itself for private ordering instead of a separate focus control", () => {

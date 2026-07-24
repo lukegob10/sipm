@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -111,7 +111,11 @@ async def test_my_work_is_assigned_active_context_with_private_queue_order(clien
     response = await client.get("/project-manager/api/my-work", headers={"X-Space-Id": "test-space"})
     assert response.status_code == 200
     records = response.json()
-    assert [record["task"]["task_id"] for record in records] == ["task-blocked", "task-assigned"]
+    assert [record["task"]["task_id"] for record in records] == [
+        "task-blocked",
+        "task-assigned",
+        "task-completed",
+    ]
     assert records[0]["needs_attention"] is True
     assert records[1]["needs_attention"] is False
     assert records[1]["program_name"] == "Developer Experience"
@@ -157,7 +161,7 @@ async def test_my_work_is_assigned_active_context_with_private_queue_order(clien
 
 
 @pytest.mark.anyio
-async def test_my_work_matches_normalized_linked_and_legacy_soeids(client, db_sessionmaker):
+async def test_my_work_uses_only_normalized_task_soeid_for_eligibility(client, db_sessionmaker):
     with db_sessionmaker() as session:
         space = Space(space_id="test-space", name="Test Space", slug="test-space")
         program = Program(program_id="program-1", space_id=space.space_id, program_name="Program")
@@ -167,7 +171,8 @@ async def test_my_work_matches_normalized_linked_and_legacy_soeids(client, db_se
             program_id=program.program_id,
             project_name="Project",
             status=ProjectStatus.active,
-            sponsor="Test User",
+            sponsor="Another User",
+            deleted_at=datetime.now(timezone.utc),
         )
         solution = Solution(
             solution_id="solution-1",
@@ -176,7 +181,10 @@ async def test_my_work_matches_normalized_linked_and_legacy_soeids(client, db_se
             solution_name="Solution",
             status=SolutionStatus.active,
             rag_status=RagStatus.green,
-            owner="Test User",
+            owner="Another User",
+            assignee="Another User",
+            assignee_user_soeid="au12345",
+            deleted_at=datetime.now(timezone.utc),
         )
         linked = Task(
             task_id="task-linked",
@@ -204,4 +212,4 @@ async def test_my_work_matches_normalized_linked_and_legacy_soeids(client, db_se
     response = await client.get("/project-manager/api/my-work", headers={"X-Space-Id": "test-space"})
 
     assert response.status_code == 200
-    assert {record["task"]["task_id"] for record in response.json()} == {"task-linked", "task-legacy"}
+    assert {record["task"]["task_id"] for record in response.json()} == {"task-linked"}

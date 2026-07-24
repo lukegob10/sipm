@@ -1,7 +1,7 @@
 export const THEME_PREFERENCES = Object.freeze([
   "dark",
   "midnight",
-  "forest",
+  "slate",
   "light",
   "system",
 ]);
@@ -12,13 +12,13 @@ export const LEGACY_THEME_STORAGE_KEY = "jira-lite-theme";
 const THEME_CLASSES = Object.freeze({
   light: "theme-light",
   midnight: "theme-midnight",
-  forest: "theme-forest",
+  slate: "theme-slate",
 });
 
 const THEME_META_COLORS = Object.freeze({
   dark: "#0b1118",
   midnight: "#070812",
-  forest: "#07110e",
+  slate: "#0d1014",
   light: "#f5f6f8",
 });
 
@@ -31,9 +31,9 @@ const THEME_PRESENTATIONS = Object.freeze({
     label: "Midnight",
     description: "Deep indigo surfaces with stronger visual separation.",
   },
-  forest: {
-    label: "Forest",
-    description: "Low-glare green surfaces with a calmer, natural tint.",
+  slate: {
+    label: "Slate",
+    description: "Charcoal surfaces with a restrained sage accent.",
   },
   light: {
     label: "Light",
@@ -47,6 +47,7 @@ const THEME_PRESENTATIONS = Object.freeze({
 
 export function normalizeTheme(theme) {
   const normalized = String(theme || "").trim().toLowerCase();
+  if (normalized === "forest") return "slate";
   return THEME_PREFERENCES.includes(normalized) ? normalized : "dark";
 }
 

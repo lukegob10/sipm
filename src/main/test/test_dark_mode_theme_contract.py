@@ -96,15 +96,15 @@ def test_additional_dark_schemes_use_the_shared_token_system_and_appear_in_prefe
         "--surface-0: #070812;",
         "--accent-strong: #a9b6ff;",
         "--button-primary-bg: #596ab8;",
-        ".theme-forest {",
-        "--surface-0: #07110e;",
-        "--accent-strong: #8fd8b2;",
-        "--button-primary-bg: #2f7655;",
+        ".theme-slate {",
+        "--surface-0: #0d1014;",
+        "--accent-strong: #b1cabd;",
+        "--button-primary-bg: #536c61;",
     ]:
         assert snippet in text
 
     assert '<option value="midnight">Midnight</option>' in html
-    assert '<option value="forest">Forest</option>' in html
+    assert '<option value="slate">Slate</option>' in html
     assert 'id="theme-preview"' in html
 
 def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved_look():

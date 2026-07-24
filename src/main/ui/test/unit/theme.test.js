@@ -23,12 +23,13 @@ afterEach(() => {
 describe("theme preferences", () => {
   it("normalizes supported schemes and falls back to dark", () => {
     expect(normalizeTheme(" Midnight ")).toBe("midnight");
-    expect(normalizeTheme("FOREST")).toBe("forest");
+    expect(normalizeTheme("SLATE")).toBe("slate");
+    expect(normalizeTheme("FOREST")).toBe("slate");
     expect(normalizeTheme("unknown")).toBe("dark");
   });
 
   it("resolves the system preference without changing named schemes", () => {
-    expect(resolveTheme("forest", () => ({ matches: true }))).toBe("forest");
+    expect(resolveTheme("slate", () => ({ matches: true }))).toBe("slate");
     expect(resolveTheme("system", () => ({ matches: true }))).toBe("light");
     expect(resolveTheme("system", () => ({ matches: false }))).toBe("dark");
   });
@@ -53,7 +54,7 @@ describe("theme preferences", () => {
     };
 
     expect(readThemePreference(blockedStorage)).toBe("dark");
-    expect(persistThemePreference("forest", blockedStorage)).toBe(false);
+    expect(persistThemePreference("slate", blockedStorage)).toBe(false);
   });
 
   it("applies one resolved theme class and updates native browser colors", () => {
@@ -73,9 +74,9 @@ describe("theme preferences", () => {
   });
 
   it("provides concise descriptions for the appearance preview", () => {
-    expect(themePresentation("forest")).toEqual({
-      label: "Forest",
-      description: "Low-glare green surfaces with a calmer, natural tint.",
+    expect(themePresentation("slate")).toEqual({
+      label: "Slate",
+      description: "Charcoal surfaces with a restrained sage accent.",
     });
   });
 });

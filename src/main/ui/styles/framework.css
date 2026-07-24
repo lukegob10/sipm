@@ -204,11 +204,11 @@ main {
   --preview-accent: #93a4ff;
 }
 
-.theme-preview[data-preview-theme="forest"] {
-  --preview-bg: #07110e;
-  --preview-sidebar: #0d1915;
-  --preview-surface: #274038;
-  --preview-accent: #78c8a0;
+.theme-preview[data-preview-theme="slate"] {
+  --preview-bg: #0d1014;
+  --preview-sidebar: #13171c;
+  --preview-surface: #2c353d;
+  --preview-accent: #9bb8aa;
 }
 
 .theme-preview[data-preview-theme="light"] {

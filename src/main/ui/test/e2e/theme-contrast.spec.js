@@ -301,7 +301,7 @@ test("shared controls keep readable contrast across every named theme", async ({
     },
   ];
 
-  for (const theme of ["dark", "midnight", "forest", "light"]) {
+  for (const theme of ["dark", "midnight", "slate", "light"]) {
     await setTheme(page, theme);
     for (const route of routeSamples) {
       await openRoute(page, route.view, route.waitFor);

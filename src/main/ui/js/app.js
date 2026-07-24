@@ -69,6 +69,13 @@ import { createSpaceGovernanceController } from "./routes/spaces/interactions.js
 import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
 import { formatStatusLabel } from "./utils/display-tokens.js";
 import { safeExternalUrl } from "./utils/external-url.js";
+import {
+  applyThemeToDocument,
+  normalizeTheme,
+  persistThemePreference,
+  readThemePreference,
+  themePresentation,
+} from "./ui/theme.js";
 
 const HOURS_PER_FTE_MONTH = 160;
 const HOURS_PER_FTE_CAPACITY = 40;
@@ -1256,36 +1263,15 @@ function setView(view, options = {}) {
   return routerController.setView(view, options);
 }
 
-function normalizedTheme(theme) {
-  return ["dark", "light", "system"].includes(theme) ? theme : "dark";
-}
-
-function resolvedTheme(theme) {
-  const normalized = normalizedTheme(theme);
-  if (normalized !== "system") return normalized;
-  return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
 function applyTheme(theme) {
-  const preference = normalizedTheme(theme);
-  const resolved = resolvedTheme(preference);
+  const preference = normalizeTheme(theme);
   state.theme = preference;
-  document.body.classList.toggle("theme-light", resolved === "light");
-  try {
-    localStorage.setItem("jira-lite-theme", preference);
-  } catch (e) {
-    console.warn("Theme preference not saved", e);
-  }
+  applyThemeToDocument(preference);
+  persistThemePreference(preference);
 }
 
 function initTheme() {
-  let saved = "dark";
-  try {
-    saved = localStorage.getItem("jira-lite-theme") || "dark";
-  } catch (e) {
-    console.warn("Theme preference not loaded", e);
-  }
-  applyTheme(normalizedTheme(saved));
+  applyTheme(readThemePreference());
   window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => {
     if (state.theme === "system") applyTheme("system");
   });
@@ -1299,22 +1285,17 @@ function syncDeveloperModeUi() {
 
 async function loadUserPreferences() {
   if (!state.authed) return state.userPreferences;
-  let legacyTheme = "dark";
-  try {
-    legacyTheme = normalizedTheme(localStorage.getItem("jira-lite-theme") || "dark");
-  } catch {
-    legacyTheme = "dark";
-  }
+  const storedTheme = readThemePreference();
   let preferences = await api("/users/me/preferences");
-  if (!preferences.has_saved_preferences && legacyTheme !== "dark") {
+  if (!preferences.has_saved_preferences && storedTheme !== "dark") {
     preferences = await api("/users/me/preferences", {
       method: "PATCH",
-      body: JSON.stringify({ theme: legacyTheme }),
+      body: JSON.stringify({ theme: storedTheme }),
     });
   }
   state.userPreferences = {
     developer_mode_enabled: !!preferences.developer_mode_enabled,
-    theme: normalizedTheme(preferences.theme),
+    theme: normalizeTheme(preferences.theme),
   };
   applyTheme(state.userPreferences.theme);
   syncDeveloperModeUi();
@@ -1328,7 +1309,7 @@ async function updateUserPreferences(patch) {
   });
   state.userPreferences = {
     developer_mode_enabled: !!updated.developer_mode_enabled,
-    theme: normalizedTheme(updated.theme),
+    theme: normalizeTheme(updated.theme),
   };
   applyTheme(state.userPreferences.theme);
   syncDeveloperModeUi();
@@ -1342,16 +1323,40 @@ function resolvePostAuthView(requestedView, pathname = window.location.pathname)
   return requestedView;
 }
 
+let preferencesReturnFocusEl = null;
+
+function syncThemePreview(theme) {
+  const normalized = normalizeTheme(theme);
+  const presentation = themePresentation(normalized);
+  if (els.preferencesThemePreview) {
+    els.preferencesThemePreview.dataset.previewTheme = normalized;
+    els.preferencesThemePreview.setAttribute("aria-label", `${presentation.label} theme preview`);
+  }
+  if (els.preferencesThemeDescription) {
+    els.preferencesThemeDescription.textContent = presentation.description;
+  }
+}
+
 function closePreferences() {
+  const wasOpen = !!els.preferencesModal && !els.preferencesModal.classList.contains("hidden");
   els.preferencesModal?.classList.add("hidden");
+  if (wasOpen) {
+    const preferredTargetIsVisible = preferencesReturnFocusEl?.isConnected
+      && preferencesReturnFocusEl.getClientRects().length > 0;
+    const focusTarget = preferredTargetIsVisible ? preferencesReturnFocusEl : els.accountMenuToggle;
+    if (focusTarget?.isConnected && typeof focusTarget.focus === "function") focusTarget.focus();
+  }
+  preferencesReturnFocusEl = null;
 }
 
 function openPreferences() {
   if (!els.preferencesModal || !els.preferencesForm) return;
+  preferencesReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   els.preferencesForm.querySelector('[name="developer_mode_enabled"]').checked = !!state.userPreferences?.developer_mode_enabled;
-  els.preferencesForm.querySelector('[name="theme"]').value = normalizedTheme(state.userPreferences?.theme);
+  els.preferencesForm.querySelector('[name="theme"]').value = normalizeTheme(state.userPreferences?.theme);
   els.preferencesForm.querySelector('[name="show_completed"]').checked = !!state.workspacePrefs?.showCompleted;
   if (els.preferencesStatus) els.preferencesStatus.textContent = "";
+  syncThemePreview(state.userPreferences?.theme);
   els.preferencesModal.classList.remove("hidden");
   els.preferencesForm.querySelector('[name="developer_mode_enabled"]')?.focus();
 }
@@ -1361,6 +1366,14 @@ function bindPreferences() {
   els.preferencesClose?.addEventListener("click", closePreferences);
   els.preferencesCancel?.addEventListener("click", closePreferences);
   els.preferencesModal?.querySelector("[data-preferences-close]")?.addEventListener("click", closePreferences);
+  els.preferencesForm?.querySelector('[name="theme"]')?.addEventListener("change", (event) => {
+    syncThemePreview(event.currentTarget.value);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || els.preferencesModal?.classList.contains("hidden")) return;
+    event.preventDefault();
+    closePreferences();
+  });
   els.preferencesForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(els.preferencesForm);
@@ -1369,7 +1382,7 @@ function bindPreferences() {
     try {
       const updated = await updateUserPreferences({
         developer_mode_enabled: !!data.get("developer_mode_enabled"),
-        theme: normalizedTheme(data.get("theme")),
+        theme: normalizeTheme(data.get("theme")),
       });
       state.workspacePrefs.showCompleted = !!data.get("show_completed");
       persistWorkspaceViewPreferences();

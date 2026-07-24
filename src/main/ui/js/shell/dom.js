@@ -38,6 +38,8 @@ export function queryShellElements() {
     preferencesClose: document.getElementById("preferences-close"),
     preferencesCancel: document.getElementById("preferences-cancel"),
     preferencesStatus: document.getElementById("preferences-status"),
+    preferencesThemePreview: document.getElementById("theme-preview"),
+    preferencesThemeDescription: document.getElementById("theme-description"),
     accountMenuShell: document.getElementById("account-menu-shell"),
     accountMenuToggle: document.getElementById("account-menu-toggle"),
     accountMenuPanel: document.getElementById("account-menu-panel"),

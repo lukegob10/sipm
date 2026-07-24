@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
 
 async function loadLocalAuthedApp(page) {
-  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const soeid = `responsive${suffix}`.replace(/[^a-z0-9]/g, "").slice(0, 20);
+  const randomPart = Math.random().toString(36).slice(2, 8);
+  const timePart = Date.now().toString(36).slice(-4);
+  const soeid = `responsive${randomPart}${timePart}`.slice(0, 20);
   const register = await page.request.post("/project-manager/api/auth/register", {
     data: {
       soeid,
@@ -59,6 +60,12 @@ test("compact shell keeps every member route and session action reachable", asyn
     await expect(page.locator(`#view-${view === "spaces" ? "spaces" : view}`)).toHaveClass(/active/);
     await expect(page.locator(`#view-${view === "spaces" ? "spaces" : view} .route-title`)).toHaveText(title);
     await expect(page.locator("#shell-nav-toggle")).toHaveAttribute("aria-expanded", "false");
+    if (view === "master") {
+      const headerHeight = await page.locator("#view-master .panel-header").evaluate((element) => (
+        element.getBoundingClientRect().height
+      ));
+      expect(headerHeight).toBeLessThan(100);
+    }
     if (view === "tasks-workbench") {
       await expect(page.locator("#tasks-workbench-drawer")).toBeHidden();
     }
@@ -76,6 +83,12 @@ test("compact shell keeps every member route and session action reachable", asyn
   await expect(page.locator("#completed-visibility-toggle")).toHaveCount(0);
   await expect(page.locator("#theme-toggle")).toHaveCount(0);
   await expect(page.locator("#logout-btn")).toBeVisible();
+
+  await page.locator("#preferences-open").click();
+  await expect(page.locator("#preferences-modal")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#preferences-modal")).toBeHidden();
+  await expect(page.locator("#account-menu-toggle")).toBeFocused();
 });
 
 test("tablet shell uses the same deliberate drawer contract", async ({ page }) => {

@@ -5,6 +5,7 @@ from ui_style_contract import read_ui_styles
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 STYLES_CSS = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
+INDEX_HTML = REPO_ROOT / "src" / "main" / "ui" / "index.html"
 
 
 def test_dark_mode_tokens_exist_and_light_theme_values_remain_pinned():
@@ -84,6 +85,27 @@ def test_dark_mode_component_families_use_shared_tokens_without_legacy_dark_hack
     ]
     for snippet in shared_token_snippets:
         assert snippet in text
+
+
+def test_additional_dark_schemes_use_the_shared_token_system_and_appear_in_preferences():
+    text = read_ui_styles(STYLES_CSS)
+    html = INDEX_HTML.read_text(encoding="utf-8")
+
+    for snippet in [
+        ".theme-midnight {",
+        "--surface-0: #070812;",
+        "--accent-strong: #a9b6ff;",
+        "--button-primary-bg: #596ab8;",
+        ".theme-forest {",
+        "--surface-0: #07110e;",
+        "--accent-strong: #8fd8b2;",
+        "--button-primary-bg: #2f7655;",
+    ]:
+        assert snippet in text
+
+    assert '<option value="midnight">Midnight</option>' in html
+    assert '<option value="forest">Forest</option>' in html
+    assert 'id="theme-preview"' in html
 
 def test_light_mode_fidelity_overrides_exist_for_components_with_exact_preserved_look():
     text = read_ui_styles(STYLES_CSS)

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1118" />
   <title>SIPM</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <link rel="stylesheet" href="styles.css" />
@@ -1280,13 +1281,23 @@
             <h4>Appearance</h4>
             <p class="muted">Theme is independent from Developer Mode.</p>
           </div>
-          <label class="preference-field"><span>Theme</span>
-            <select name="theme" class="app-select">
-              <option value="dark">Dark</option>
-              <option value="light">Light</option>
-              <option value="system">System</option>
-            </select>
-          </label>
+          <div class="appearance-control">
+            <label class="preference-field"><span>Theme</span>
+              <select name="theme" class="app-select" aria-describedby="theme-description">
+                <option value="dark">Dark</option>
+                <option value="midnight">Midnight</option>
+                <option value="forest">Forest</option>
+                <option value="light">Light</option>
+                <option value="system">System</option>
+              </select>
+            </label>
+            <div id="theme-preview" class="theme-preview" data-preview-theme="dark" role="img" aria-label="Dark theme preview">
+              <span class="theme-preview-sidebar"></span>
+              <span class="theme-preview-surface"></span>
+              <span class="theme-preview-accent"></span>
+            </div>
+            <p id="theme-description" class="muted theme-description" aria-live="polite">Slate surfaces with balanced contrast for everyday work.</p>
+          </div>
         </section>
         <section class="preferences-section">
           <div>

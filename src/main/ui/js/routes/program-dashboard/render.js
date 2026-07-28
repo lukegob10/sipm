@@ -416,8 +416,8 @@ async function downloadProgramDashboardReport(programDashboardState, extension) 
       selected_program_ids: Array.isArray(programDashboardState.selectedProgramIds)
         ? programDashboardState.selectedProgramIds
         : [],
-      collapsed_program_ids: Array.from(programDashboardState.collapsedProgramIds || []),
-      collapsed_project_ids: Array.from(programDashboardState.collapsedProjectIds || []),
+      collapsed_program_ids: extension === "xlsx" ? [] : Array.from(programDashboardState.collapsedProgramIds || []),
+      collapsed_project_ids: extension === "xlsx" ? [] : Array.from(programDashboardState.collapsedProjectIds || []),
     }),
   });
   if (!response.ok) {

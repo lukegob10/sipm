@@ -100,6 +100,12 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
             "description": "Project delivery description",
             "status": "active",
             "sponsor": "Visible Sponsor",
+        }, {
+            "project_id": "project-2",
+            "program_id": "program-1",
+            "project_name": "Final Project",
+            "description": "Final project description",
+            "status": "active",
         }],
         solutions=[{
             "solution_id": "solution-1",
@@ -111,10 +117,16 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
             "key_stakeholder": "Executive Stakeholder",
             "current_phase": "go_live",
             "escalation": "Needs help",
+        }, {
+            "solution_id": "solution-2",
+            "project_id": "project-2",
+            "solution_name": "Final Project Solution",
+            "description": "Final solution description",
+            "status": "not_started",
         }],
         phases=[{"phase_id": "go_live", "phase_name": "Go Live", "sequence": 1}],
-        collapsed_program_ids=set(),
-        collapsed_project_ids=set(),
+        collapsed_program_ids={"program-1"},
+        collapsed_project_ids={"project-1", "project-2"},
     )
 
     assert xlsx_bytes.startswith(b"PK")
@@ -139,9 +151,14 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
     assert "Visible Solution" in shared_strings
     assert "Project delivery description" in shared_strings
     assert "Solution delivery description" in shared_strings
+    assert "Final Project" in shared_strings
+    assert "Final Project Solution" in shared_strings
     assert "Needs help" in shared_strings
     assert "<f>" not in worksheet
     assert "autoFilter" in worksheet
+    assert 'summaryBelow="0"' in worksheet
+    assert 'outlineLevel="1"' in worksheet
+    assert 'outlineLevel="2"' in worksheet
     assert "conditionalFormatting" not in worksheet
     assert "fills count=" in styles
 
@@ -354,8 +371,8 @@ async def test_program_dashboard_report_download_returns_excel_with_solution_sta
         "/project-manager/api/programs/dashboard/report.xlsx",
         json={
             "selected_program_ids": [program["program_id"]],
-            "collapsed_program_ids": [],
-            "collapsed_project_ids": [],
+            "collapsed_program_ids": [program["program_id"]],
+            "collapsed_project_ids": [project["project_id"]],
         },
     )
 

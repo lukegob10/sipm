@@ -931,7 +931,7 @@ describe("simple route rendering", () => {
     expect(createObjectUrl).toHaveBeenCalled();
   });
 
-  it("downloads the program dashboard Excel report with selected and collapsed state", async () => {
+  it("downloads the program dashboard Excel report scoped only by selected programs", async () => {
     document.body.innerHTML = `
       <section id="view-program-dashboard">
         <div id="program-dashboard-root"></div>
@@ -981,7 +981,7 @@ describe("simple route rendering", () => {
       body: JSON.stringify({
         selected_program_ids: ["program-1"],
         collapsed_program_ids: [],
-        collapsed_project_ids: ["project-1"],
+        collapsed_project_ids: [],
       }),
     });
   });

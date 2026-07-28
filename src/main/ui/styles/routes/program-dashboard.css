@@ -302,16 +302,16 @@
 }
 
 .program-dashboard-project-grid-shell .program-dashboard-table-actions {
-  min-width: 1360px;
+  min-width: 1480px;
 }
 
 .program-dashboard-project-grid {
-  min-width: 1360px;
+  min-width: 1480px;
 }
 
 .program-dashboard-grid-row {
   display: grid;
-  grid-template-columns: minmax(260px, 2fr) minmax(150px, 0.95fr) minmax(94px, 0.65fr) minmax(94px, 0.65fr) minmax(130px, 0.8fr) minmax(120px, 0.75fr) minmax(190px, 1.2fr) minmax(138px, 0.9fr);
+  grid-template-columns: minmax(260px, 2fr) minmax(120px, 0.8fr) minmax(150px, 0.95fr) minmax(150px, 0.95fr) minmax(94px, 0.65fr) minmax(94px, 0.65fr) minmax(130px, 0.8fr) minmax(190px, 1.2fr) minmax(138px, 0.9fr);
   column-gap: 1px;
   min-height: 56px;
   border-bottom: 1px solid var(--border);
@@ -363,8 +363,9 @@
 
 .program-dashboard-date-cell,
 .program-dashboard-status-cell,
-.program-dashboard-phase-cell,
 .program-dashboard-escalation-cell,
+.program-dashboard-function-cell,
+.program-dashboard-area-cell,
 .program-dashboard-owner-cell {
   justify-content: center;
   text-align: center;

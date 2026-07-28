@@ -17,6 +17,9 @@ from .program_dashboard_report_pdf import (
 REPORT_COLUMNS = (
     ("deliverable", "Deliverable", 34),
     ("entity_type", "Entity Type", 14),
+    ("function", "Function", 18),
+    ("area", "Area", 22),
+    ("description", "Description", 34),
     ("owner", "Owner", 20),
     ("stakeholder", "Stakeholder", 22),
     ("start", "Start", 12),
@@ -45,6 +48,23 @@ def _excel_date(value: object) -> date | datetime | str:
 def _text(value: object, fallback: str = "-") -> str:
     text = str(value or "").strip()
     return text or fallback
+
+
+def _program_function_area(value: object) -> tuple[str, str]:
+    text = str(value or "").strip()
+    if not text:
+        return "-", "-"
+    hits = [
+        (text.find(separator), separator)
+        for separator in (" - ", " / ", " – ", " — ")
+        if text.find(separator) >= 0
+    ]
+    if not hits:
+        return "-", text
+    index, separator = min(hits, key=lambda item: item[0])
+    function = text[:index].strip() or "-"
+    area = text[index + len(separator):].strip() or text
+    return function, area
 
 
 def build_program_dashboard_report_xlsx(
@@ -200,13 +220,16 @@ def build_program_dashboard_report_xlsx(
             elif key == "progress":
                 worksheet.write_number(current_row, col_idx, max(0, min(100, int(value or 0))) / 100, formats["progress"])
             else:
-                is_text_column = key in {"deliverable", "owner", "stakeholder", "escalation"}
+                is_text_column = key in {
+                    "deliverable", "function", "area", "description", "owner", "stakeholder", "escalation"
+                }
                 text_format = formats["text"] if is_text_column and value != "-" else formats["center"]
                 worksheet.write(current_row, col_idx, value, text_format)
         current_row += 1
 
     for program in programs:
         program_id = str(program.get("program_id") or "")
+        program_function, program_area = _program_function_area(program.get("program_name"))
         program_projects = projects_by_program.get(program_id, [])
         program_solutions = [
             solution for project in program_projects
@@ -219,6 +242,8 @@ def build_program_dashboard_report_xlsx(
         write_report_row("program", {
             "deliverable": _text(program.get("program_name"), "Unnamed Program"),
             "entity_type": "Program",
+            "function": program_function, "area": program_area,
+            "description": "-",
             "owner": "-", "stakeholder": "-", "start": "-", "end": "-", "status": "-",
             "phase": _phase_summary(program_solutions, phase_by_id), "escalation": "", "progress": program_progress,
         }, level=0)
@@ -234,6 +259,9 @@ def build_program_dashboard_report_xlsx(
             write_report_row("project", {
                 "deliverable": f"  {_text(project.get('project_name'), 'Unnamed Project')}",
                 "entity_type": "Project",
+                "function": program_function,
+                "area": program_area,
+                "description": _text(project.get("description")),
                 "owner": _text(
                     project.get("owner")
                     or project.get("owner_user_soeid")
@@ -252,6 +280,9 @@ def build_program_dashboard_report_xlsx(
                 write_report_row("solution", {
                     "deliverable": f"    {_text(solution.get('solution_name'), 'Unnamed Solution')}",
                     "entity_type": "Solution",
+                    "function": program_function,
+                    "area": program_area,
+                    "description": _text(solution.get("description")),
                     "owner": _text(
                         solution.get("owner")
                         or solution.get("owner_user_soeid")

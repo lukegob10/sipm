@@ -136,8 +136,9 @@ def read_csv(file_bytes: bytes) -> Tuple[list, list]:
 def enable_all_phases(session, solution_id: str) -> None:
     """Ensure all phases are enabled for a solution (idempotent)."""
     from ..models import Phase, SolutionPhase
+    from ..phase_catalog import canonical_phase_query
 
-    phases = session.query(Phase).order_by(Phase.sequence.asc()).all()
+    phases = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
     now_phases = []
     for ph in phases:
         existing = (

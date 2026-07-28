@@ -297,7 +297,7 @@ Key fields:
 | `priority` | integer | Priority ranking. |
 | `due_date` | date nullable | Target date. |
 | `planned_start_date` | date nullable | Planned start date. |
-| `current_phase` | string nullable | Current phase id. |
+| `current_phase` | string nullable | Current canonical phase id; blank means unassigned. |
 | `description` | text nullable | Description. |
 | `success_criteria` | text nullable | Completion criteria. |
 | `problem_statement` | text nullable | Problem statement. |
@@ -434,27 +434,40 @@ Derived API fields:
 
 SQLAlchemy model: `Phase`
 
-Purpose: reference table for allowed phases.
+Purpose: fixed reference table for the seven allowed solution phases.
+
+Canonical order:
+
+1. `backlog` — Intake / Backlog
+2. `requirements` — Requirements / Specification
+3. `development` — Development
+4. `testing` — Testing
+5. `deployment` — Deployment
+6. `go_live` — Go Live
+7. `retired` — Retired
 
 Key fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `phase_id` | string PK | Stable phase id. |
-| `phase_group` | string | Phase grouping/category. |
+| `phase_group` | string | Compatibility field; matches `phase_name` in the canonical catalog. |
 | `phase_name` | string | Display label. |
 | `sequence` | integer | Default ordering. |
 
 Primary APIs:
 
 - `GET /api/phases`
-- `POST /api/phases`
+- `GET /api/solutions/{solution_id}/phases`
+- `POST /api/solutions/{solution_id}/phases` (legacy API compatibility; not exposed in the UI)
 
 #### `TB_TA_PM_SOLUTION_PHASES`
 
 SQLAlchemy model: `SolutionPhase`
 
-Purpose: per-solution phase enablement and ordering.
+Purpose: compatibility link between solutions and phase reference rows. The canonical migration
+enables all seven phases with default ordering for every solution; the solution editor does not
+expose per-solution phase configuration.
 
 Key fields:
 
@@ -680,7 +693,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   Project["Project"] --> Solution["Solution"]
-  Solution --> PhaseConfig["Solution phases"]
+  Solution --> CurrentPhase["Current phase from fixed seven-phase catalog"]
   Solution --> Task["Task"]
   Solution --> Repo["Solution GitHub repo URL"]
   Task --> EffectiveRepo["Effective repo = override or inherited"]
@@ -715,7 +728,7 @@ The frontend stores fetched entity arrays in memory:
 
 | State field | Source API | Used by |
 | --- | --- | --- |
-| `state.phases` | `/api/phases` | master, kanban, solution phase controls |
+| `state.phases` | `/api/phases` | master, Kanban, current-phase selector |
 | `state.programs` | `/api/programs` | project forms, project filters, hierarchy labels |
 | `state.projects` | `/api/projects` | master, dashboards, Gantt |
 | `state.solutions` | `/api/solutions` | master, dashboards, Gantt, Kanban, Calendar |

@@ -185,12 +185,16 @@ def test_task_form_uses_inline_feedback_for_failures():
     assert 'alert(`${isEditing ? "Save" : "Create"} failed: ${err.message}`);' not in task_section
 
 
-def test_solution_phases_use_inline_feedback_for_failures():
-    js_text = APP_JS.read_text(encoding="utf-8")
-    phases_section = js_text.split("async function renderSolutionPhases(selectedId) {", 1)[1].split("function bindTaskForm() {", 1)[0]
+def test_solution_editor_uses_one_current_phase_field_without_phase_configuration():
+    html_text = INDEX_HTML.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    solution_text = SOLUTION_ENTITIES_JS.read_text(encoding="utf-8")
+    dom_text = DOM_JS.read_text(encoding="utf-8")
 
-    assert 'els.phasesTable.innerHTML = "<p class=\'muted\'>Unable to load phases.</p>";' in phases_section
-    assert 'setDeliverableFormNotice(\n        els.solutionFormStatus,\n        `Unable to load phases: ${err.message}`,\n        "error"\n      );' in phases_section
-    assert 'setDeliverableFormNotice(\n          els.solutionFormStatus,\n          `Phase update failed: ${err.message}`,\n          "error"\n        );' in phases_section
-    assert 'alert(`Load failed: ${err.message}`);' not in phases_section
-    assert 'alert(`Save failed: ${err.message}`);' not in phases_section
+    assert '<select name="current_phase"' in html_text
+    assert 'data-tab="phases"' not in html_text
+    assert 'data-tab-panel="phases"' not in html_text
+    assert "renderSolutionPhases" not in app_text
+    assert "solutionPhases" not in app_text
+    assert "renderSolutionPhases" not in solution_text
+    assert "phasesTable" not in dom_text

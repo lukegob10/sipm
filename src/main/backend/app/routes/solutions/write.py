@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_non_agent_write, require_space_role
-from ...models import Phase, Solution, User
+from ...models import Solution, User
+from ...phase_catalog import get_canonical_phase
 from ...schemas import SolutionCreate, SolutionRead, SolutionUpdate
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
@@ -77,7 +78,7 @@ def create_solution(
 
     current_phase = normalize_str(payload.current_phase) or None
     if current_phase:
-        phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
+        phase_exists = get_canonical_phase(session, current_phase)
         if not phase_exists:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

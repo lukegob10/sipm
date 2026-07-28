@@ -1448,45 +1448,6 @@ label.wide {
 .repo-external-link:focus-visible {
   text-decoration: underline;
 }
-.phase-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-.phase-group {
-  margin-bottom: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
-}
-.phase-group-title {
-  font-weight: 700;
-  margin: 0 0 8px;
-}
-.phase-cell {
-  background: var(--panel-soft);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
-  display: grid;
-  gap: 6px;
-}
-.phase-title {
-  font-weight: 600;
-}
-.phase-meta {
-  color: var(--muted);
-  font-size: var(--font-size-meta);
-}
-.phase-toggle {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  font-size: var(--font-size-body);
-  color: var(--text);
-}
-
 .pill {
   display: inline-block;
   padding: 6px 10px;

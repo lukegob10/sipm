@@ -153,6 +153,15 @@ an environment is missing phase rows.
 
 ## Oracle Migration Repairs
 
+Before deploying the canonical seven-phase workflow to an existing database, run:
+
+1. `docs/sql/20260728_simplify_solution_phases_v1.sql`
+
+The migration maps legacy solution phases into Intake / Backlog, Requirements /
+Specification, Development, Testing, Deployment, Go Live, or Retired. It also
+normalizes every solution to the same ordered catalog. The Home Lab deployment
+runs the equivalent idempotent data migration before starting the application.
+
 Before deploying Project function and area fields to an existing database, run:
 
 1. `docs/sql/20260722_project_function_area_v1.sql`

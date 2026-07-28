@@ -220,7 +220,7 @@ Design choice: `app.js` remains the integration surface because the app is a no-
 
 - Binds solution modal/form interactions.
 - Creates, updates, and deletes solutions.
-- Manages solution phase and task modal state.
+- Manages the current-phase selector and task modal state.
 - Tracks workflow telemetry.
 
 `entities/tasks.js`
@@ -370,12 +370,12 @@ Major route groups:
 
 - `auth.py`: register, login, refresh, password reset, logout, current user, active space switching.
 - `projects/*`: project CRUD and CSV import/export.
-- `solutions/*`: solution CRUD, phase setup, CSV import/export.
+- `solutions/*`: solution CRUD, current-phase validation, CSV import/export.
 - `tasks/*`: task CRUD, batch actions, activity, CSV import/export.
 - `teams.py`: teams and team members.
 - `users.py`: user directory, global admins, admin password reset, API tokens, import/export.
 - `spaces.py`: spaces and space memberships.
-- `phases.py`: phase reference data and solution-phase configuration.
+- `phases.py`: fixed seven-phase reference data and legacy solution-phase API compatibility.
 - `analytics.py`: telemetry ingest and analytics dashboard APIs.
 - `audit.py`: change log reads.
 - `sync.py`: realtime status and WebSocket endpoint.

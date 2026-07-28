@@ -8,7 +8,8 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Phase, Program, Project, Solution, Task, User
+from ..models import Program, Project, Solution, Task, User
+from ..phase_catalog import get_canonical_phase
 from ..schemas import ProgramCreate, ProgramUpdate, ProjectCreate, ProjectUpdate
 from ..schemas import SolutionCreate, SolutionUpdate
 from ..schemas import TaskCreate, TaskUpdate
@@ -503,11 +504,7 @@ def _validate_solution(
             if payload.github_repo_url is not None:
                 normalize_solution_repo_url(payload.github_repo_url)
             if payload.current_phase:
-                phase = (
-                    session.query(Phase)
-                    .filter(Phase.phase_id == payload.current_phase)
-                    .first()
-                )
+                phase = get_canonical_phase(session, payload.current_phase)
                 if not phase:
                     return _invalid(
                         operation,

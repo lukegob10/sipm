@@ -17,6 +17,7 @@ from ..deps import (
     require_space_role,
 )
 from ..models import Phase, Program, Project, Solution, User
+from ..phase_catalog import canonical_phase_query
 from ..schemas import ProgramCreate, ProgramDashboardReportRequest, ProgramRead, ProgramUpdate
 from ..services.audit_log import safe_log_changes
 from ..services.mutations import publish_space_mutation
@@ -214,7 +215,7 @@ def download_program_dashboard_report_pdf(
             .all()
         )
 
-    phase_rows = session.query(Phase).order_by(Phase.sequence.asc()).all()
+    phase_rows = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
     program_label = (
         program_rows[0].program_name
         if len(program_rows) == 1

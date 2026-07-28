@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_db
 from ..models import Phase, Program, Project, Solution, Space
+from ..phase_catalog import canonical_phase_query
 from ..routes.projects.common import _project_payload
 from ..routes.solutions.common import _solution_payload
 from ..schemas import PhaseRead, ProgramDashboardReportRequest, ProgramRead
@@ -70,7 +71,7 @@ def get_public_program_dashboard(space_slug: str, session: Session = Depends(get
         .order_by(Solution.priority.asc(), Solution.created_at.asc())
         .all()
     )
-    phases = session.query(Phase).order_by(Phase.sequence.asc()).all()
+    phases = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
 
     return {
         "space": {
@@ -143,7 +144,7 @@ def download_public_program_dashboard_report_pdf(
             .all()
         )
 
-    phase_rows = session.query(Phase).order_by(Phase.sequence.asc()).all()
+    phase_rows = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
     program_label = (
         program_rows[0].program_name
         if len(program_rows) == 1

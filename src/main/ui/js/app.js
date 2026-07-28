@@ -245,7 +245,6 @@ const state = {
   programs: [],
   projects: [],
   solutions: [],
-  solutionPhases: {}, // solution_id -> phases
   solutionDocuments: {}, // solution_id -> document metadata
   tasks: [],
   teams: [],
@@ -400,7 +399,6 @@ const solutionEntityController = createSolutionEntityController({
   renderKanban,
   renderCalendar,
   renderGantt,
-  renderSolutionPhases,
   renderSolutionTasks,
   renderSolutionDocuments,
   renderSolutionActivity,
@@ -1468,7 +1466,6 @@ function renderActiveView() {
   if (openSolutionId && els.solutionModal && !els.solutionModal.classList.contains("hidden")) {
     renderSolutionTasks(openSolutionId);
     renderSolutionActivity(openSolutionId);
-    renderSolutionPhases(openSolutionId);
   }
   telemetryController?.noteViewRendered?.(state.currentView, performance.now() - renderStartedAt);
 }
@@ -1873,26 +1870,12 @@ function filteredTasksForCalendar() {
   });
 }
 
-function orderedPhases(solutionId) {
-  const enabled = (state.solutionPhases[solutionId] || []).filter((p) => p.is_enabled);
-  return enabled.sort((a, b) => {
-    const aSeq = a.sequence_override ?? state.phases.find((p) => p.phase_id === a.phase_id)?.sequence ?? 0;
-    const bSeq = b.sequence_override ?? state.phases.find((p) => p.phase_id === b.phase_id)?.sequence ?? 0;
-    return aSeq - bSeq;
-  });
-}
-
-function updateCurrentPhaseOptions(solutionId, selectedPhaseId = null) {
+function updateCurrentPhaseOptions(_solutionId, selectedPhaseId = null) {
   const sel = els.solutionForm?.querySelector('[name="current_phase"]');
   if (!sel) return;
 
   const selectedValue = selectedPhaseId ?? sel.value ?? "";
-  const enabledPhaseIds = orderedPhases(solutionId).map((p) => p.phase_id);
-  const phases = enabledPhaseIds.length
-    ? enabledPhaseIds
-        .map((id) => state.phases.find((p) => p.phase_id === id) || { phase_id: id, phase_name: id })
-        .filter(Boolean)
-    : state.phases;
+  const phases = [...state.phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
 
   const opts = phases
     .map((p) => `<option value="${p.phase_id}">${phaseDisplayName(p.phase_id) || p.phase_id}</option>`)
@@ -1930,9 +1913,7 @@ function escapeAttr(value) {
 function phaseDisplayName(phaseId) {
   if (!phaseId) return "";
   const phase = state.phases.find((p) => p.phase_id === phaseId);
-  const name = phase?.phase_name || phaseId;
-  if (phaseId === "poc" || name.toLowerCase() === "poc") return "Proof of Concept";
-  return name;
+  return phase?.phase_name || phaseId;
 }
 
 function renderMasterTable() {
@@ -2263,10 +2244,6 @@ function setSolutionTab(tab) {
     const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     renderSolutionDocuments(solutionId);
   }
-  if (tab === "phases") {
-    const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    if (solutionId) renderSolutionPhases(solutionId);
-  }
 }
 
 function bindSolutionTabs() {
@@ -2594,94 +2571,6 @@ async function renderSolutionActivity(solutionId) {
   } catch (_err) {
     els.solutionActivity.innerHTML = `<p class='muted'>Unable to load activity.</p>`;
   }
-}
-
-async function renderSolutionPhases(selectedId) {
-  if (!els.phasesTable) return;
-  const solutionId = selectedId || els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-  if (!solutionId) {
-    els.phasesTable.innerHTML = "<p class='muted'>Select a solution to edit phases.</p>";
-    return;
-  }
-
-  if (!state.solutionPhases[solutionId]) {
-    els.phasesTable.innerHTML = "<p class='muted'>Loading phases…</p>";
-    try {
-      state.solutionPhases[solutionId] = await api(`/solutions/${solutionId}/phases`);
-    } catch (err) {
-      els.phasesTable.innerHTML = "<p class='muted'>Unable to load phases.</p>";
-      setDeliverableFormNotice(
-        els.solutionFormStatus,
-        `Unable to load phases: ${err.message}`,
-        "error"
-      );
-      return;
-    }
-  }
-  const currentPhaseValue = els.solutionForm?.querySelector('[name="current_phase"]')?.value || "";
-  updateCurrentPhaseOptions(solutionId, currentPhaseValue);
-
-  const enabled = new Set((state.solutionPhases[solutionId] || []).filter((p) => p.is_enabled).map((p) => p.phase_id));
-  const grouped = {};
-  state.phases.forEach((p) => {
-    grouped[p.phase_group] = grouped[p.phase_group] || [];
-    grouped[p.phase_group].push(p);
-  });
-  const groupHtml = Object.entries(grouped)
-    .map(([groupName, phases]) => {
-      const cards = phases
-        .map((p) => {
-          const checked = enabled.has(p.phase_id) ? "checked" : "";
-          return `<div class="phase-cell">
-            <div class="phase-title">${phaseDisplayName(p.phase_id)}</div>
-            <div class="phase-meta">${groupName}</div>
-            <label class="phase-toggle">
-              <input type="checkbox" data-phase-id="${p.phase_id}" ${checked}>
-              <span>Enabled</span>
-            </label>
-          </div>`;
-        })
-        .join("");
-      return `<div class="phase-group"><div class="phase-group-title">${groupName}</div><div class="phase-grid">${cards}</div></div>`;
-    })
-    .join("");
-  els.phasesTable.innerHTML = groupHtml;
-  els.phasesTable.querySelectorAll('input[data-phase-id]').forEach((box) => {
-    box.addEventListener("change", async () => {
-      const phases = state.phases.map((ph) => ({
-        phase_id: ph.phase_id,
-        is_enabled: !!els.phasesTable.querySelector(`input[data-phase-id="${ph.phase_id}"]`)?.checked,
-      }));
-      try {
-        markIgnoreRefresh("solutions");
-        await api(`/solutions/${solutionId}/phases`, { method: "POST", body: JSON.stringify({ phases }) });
-        const [updated, updatedSolution] = await Promise.all([
-          api(`/solutions/${solutionId}/phases`),
-          api(`/solutions/${solutionId}`),
-        ]);
-        state.solutionPhases[solutionId] = updated;
-        const idx = state.solutions.findIndex((s) => s.solution_id === solutionId);
-        if (idx !== -1) state.solutions[idx] = updatedSolution;
-
-        updateCurrentPhaseOptions(solutionId, updatedSolution.current_phase || "");
-        if (els.solutionForm?.querySelector('[name="solution_id"]')?.value === solutionId) {
-          els.solutionForm.querySelector('[name="current_phase"]').value = updatedSolution.current_phase || "";
-        }
-        renderSolutionPhases(solutionId);
-        renderMasterTable();
-        renderDashboard();
-        renderKanban();
-        renderCalendar();
-      } catch (err) {
-        ignoreNextRefresh.delete("solutions");
-        setDeliverableFormNotice(
-          els.solutionFormStatus,
-          `Phase update failed: ${err.message}`,
-          "error"
-        );
-      }
-    });
-  });
 }
 
 function bindTaskForm() {

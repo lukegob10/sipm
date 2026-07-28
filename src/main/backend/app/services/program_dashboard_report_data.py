@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from ..models import Phase, Program, Project, Solution
+from ..phase_catalog import canonical_phase_query
 
 
 def load_program_dashboard_report_data(
@@ -45,7 +46,7 @@ def load_program_dashboard_report_data(
             .order_by(Solution.solution_name.asc())
             .all()
         )
-    phase_rows = session.query(Phase).order_by(Phase.sequence.asc()).all()
+    phase_rows = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
 
     return {
         "selected_program_label": (

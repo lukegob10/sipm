@@ -140,29 +140,29 @@ http://<server>:8000/project-manager/
 
 ## First-Deploy Database Setup
 
-SIPM does not mutate Oracle schema or reference data during application
-startup. For a new database, run the SQL artifacts in this order:
+SIPM does not mutate the Oracle schema during application startup. For a new
+database, run the SQL artifacts in this order:
 
 1. `docs/sql/schema_oracle_ta.sql`
 2. `docs/sql/first_deploy_reference_data.sql`
 3. `docs/sql/first_time_global_admin.sql`, after the first user row exists
 
 `first_deploy_reference_data.sql` seeds the canonical phase catalog required by
-the solution phase workflows. It is idempotent and can be rerun if
-an environment is missing phase rows.
+the solution phase workflows. Normal application startup also runs the
+equivalent idempotent catalog synchronization so an environment with only a
+partial phase seed is repaired before it serves requests.
 
 ## Oracle Migration Repairs
 
-Before deploying the restored full solution lifecycle to an existing database, run:
+Before deploying the canonical seven-phase workflow to an existing database, run:
 
-1. `docs/sql/20260728_restore_full_solution_phases_v1.sql`
+1. `docs/sql/20260728_simplify_solution_phases_v1.sql`
 
-The migration restores the canonical 17 phases, maps temporary seven-phase
-values back to their nearest lifecycle phase, and enables every phase for every
-solution. The Home Lab deployment runs the equivalent idempotent data migration
-before starting the application. The earlier
-`20260728_simplify_solution_phases_v1.sql` migration is superseded and must not
-be run after the restoration migration.
+The migration maps legacy solution phases into Intake / Backlog, Requirements /
+Specification, Development, Testing, Deployment, Go Live, or Retired. It also
+normalizes every solution to the same ordered catalog. Every normal application
+startup runs the equivalent idempotent synchronization; the Home Lab deployment
+also runs it explicitly before starting the application.
 
 Before deploying Project function and area fields to an existing database, run:
 

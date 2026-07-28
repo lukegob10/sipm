@@ -2537,7 +2537,7 @@ async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_
         headers={"Authorization": f"Bearer {token}"},
     )
     assert reference.status_code == 200, reference.text
-    assert reference.headers["etag"] == '"agent-reference-1.3"'
+    assert reference.headers["etag"] == '"agent-reference-1.2"'
     reference_data = reference.json()
     assert reference_data["operations"] == ["archive", "create", "update"]
     assert "project_id" not in reference_data["fields"]["solution"]["create"]

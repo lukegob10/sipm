@@ -39,7 +39,7 @@ vi.mock("../../js/routes/program-dashboard/render.js", () => ({
   renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));
 
-vi.mock("../../js/routes/program-dashboard/render.js?v=program-dashboard-escalation-grid-v1", () => ({
+vi.mock("../../js/routes/program-dashboard/render.js?v=program-dashboard-columns-v3", () => ({
   createProgramDashboardState: programDashboardMock.createProgramDashboardState,
   renderProgramDashboardView: programDashboardMock.renderProgramDashboardView,
 }));

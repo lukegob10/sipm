@@ -345,7 +345,7 @@ def test_dashboard_and_program_dashboard_use_shared_status_and_rag_display_token
     assert 'import { statusPillMarkup } from "../../utils/display-tokens.js";' in render_text
     assert 'return statusPillMarkup(value, label, "program-dashboard-status");' in render_text
     assert "function statusTone" not in render_text
-    assert 'from "./program-dashboard/render.js?v=program-dashboard-escalation-grid-v1";' in route_text
+    assert 'from "./program-dashboard/render.js?v=program-dashboard-columns-v3";' in route_text
 
 
 def test_program_dashboard_projects_grid_uses_deliverable_column_only():
@@ -355,22 +355,25 @@ def test_program_dashboard_projects_grid_uses_deliverable_column_only():
     assert "<th>Project / Solution</th>" not in render_text
     assert 'class="program-dashboard-project-grid" role="table" aria-label="Projects and solutions"' in render_text
     assert '{ key: "deliverable", label: "Deliverable", className: "program-dashboard-deliverable-cell" }' in render_text
+    assert '{ key: "function", label: "Function", className: "program-dashboard-function-cell" }' in render_text
+    assert '{ key: "area", label: "Area", className: "program-dashboard-area-cell" }' in render_text
     assert '{ key: "owner", label: "Solution / Owner", className: "program-dashboard-owner-cell" }' in render_text
     assert '{ key: "start", label: "Start", className: "program-dashboard-date-cell program-dashboard-start-cell" }' in render_text
     assert '{ key: "end", label: "End", className: "program-dashboard-date-cell program-dashboard-end-cell" }' in render_text
     assert '{ key: "status", label: "Status", className: "program-dashboard-status-cell" }' in render_text
-    assert '{ key: "phase", label: "Phase", className: "program-dashboard-phase-cell" }' in render_text
+    assert 'key: "phase"' not in render_text
     assert '{ key: "escalation", label: "Escalation", className: "program-dashboard-escalation-cell" }' in render_text
     assert '{ key: "progress", label: "% Complete", className: "program-dashboard-progress-cell" }' in render_text
     assert 'label: "Owner"' not in render_text
     assert 'label: "Sponsor / Owner"' not in render_text
     header_order = [
         'key: "deliverable"',
+        'key: "function"',
+        'key: "area"',
         'key: "owner"',
         'key: "start"',
         'key: "end"',
         'key: "status"',
-        'key: "phase"',
         'key: "escalation"',
         'key: "progress"',
     ]
@@ -381,32 +384,28 @@ def test_program_dashboard_projects_grid_uses_deliverable_column_only():
     assert "function projectGridHeaderRow" in render_text
 
 
-def test_program_dashboard_phase_column_reuses_deliverables_phase_display():
+def test_program_dashboard_hides_phase_but_keeps_phase_data_for_progress():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     route_registry_text = ROUTE_REGISTRY_JS.read_text(encoding="utf-8")
     app_text = APP_JS.read_text(encoding="utf-8")
 
     assert '["program-dashboard", {' in route_registry_text
     assert 'data: ["phases", "programs", "projects", "solutions"],' in route_registry_text
-    assert "phaseDisplayName: displayPhase," in render_text
-    assert "function solutionPhaseLabel(solution, phaseDisplayName) {" in render_text
-    assert "return displayValue(phaseDisplayName(solution?.current_phase));" in render_text
-    assert "phaseSummary(programSolutions, phaseDisplayName)" in render_text
-    assert "phaseSummary(projectSolutions, phaseDisplayName)" in render_text
-    assert "displayValue(solution.current_phase)" not in render_text
+    assert 'key: "phase"' not in render_text
+    assert "phaseDisplayName" not in render_text
+    assert "phaseSummary" not in render_text
     assert "return Math.round((idx / phases.length) * 100);" in app_text
     assert "return Math.round(((idx + 1) / phases.length) * 100);" not in app_text
 
 
-def test_program_dashboard_escalation_column_sits_between_phase_and_percent_complete():
+def test_program_dashboard_escalation_column_sits_before_percent_complete():
     render_text = PROGRAM_DASHBOARD_RENDER.read_text(encoding="utf-8")
     text = read_ui_styles(STYLES_CSS)
 
-    assert 'key: "phase", label: "Phase"' in render_text
+    assert 'key: "phase", label: "Phase"' not in render_text
     assert 'key: "escalation", label: "Escalation"' in render_text
     assert 'key: "progress", label: "% Complete"' in render_text
     header_order = [
-        'key: "phase"',
         'key: "escalation"',
         'key: "progress"',
     ]
@@ -452,7 +451,7 @@ def test_program_dashboard_project_solution_column_uses_gantt_like_title_styling
     assert ".program-dashboard-project-grid {" in text
     assert ".program-dashboard-grid-row {" in text
     assert ".program-dashboard-grid-cell {" in text
-    assert "grid-template-columns: minmax(260px, 2fr) minmax(150px, 0.95fr)" in text
+    assert "grid-template-columns: minmax(260px, 2fr) minmax(120px, 0.8fr) minmax(150px, 0.95fr)" in text
     assert "minmax(190px, 1.2fr) minmax(138px, 0.9fr)" in text
     assert 'className: "program-dashboard-date-cell program-dashboard-start-cell"' in render_text
     assert 'className: "program-dashboard-date-cell program-dashboard-end-cell"' in render_text

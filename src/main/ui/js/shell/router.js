@@ -24,7 +24,7 @@ export function createRouterController({
   const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users"];
   const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
-  const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-escalation-grid-v1";
+  const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-columns-v3";
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
     "my-work": () => import("../routes/my-work.js"),
     repositories: () => import("../routes/repositories.js"),

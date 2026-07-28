@@ -92,11 +92,12 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
     xlsx_bytes = build_program_dashboard_report_xlsx(
         space_name="Main",
         selected_program_label="Report Program",
-        programs=[{"program_id": "program-1", "program_name": "Report Program"}],
+        programs=[{"program_id": "program-1", "program_name": "Operations - Data"}],
         projects=[{
             "project_id": "project-1",
             "program_id": "program-1",
             "project_name": "Visible Project",
+            "description": "Project delivery description",
             "status": "active",
             "sponsor": "Visible Sponsor",
         }],
@@ -104,6 +105,7 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
             "solution_id": "solution-1",
             "project_id": "project-1",
             "solution_name": "Visible Solution",
+            "description": "Solution delivery description",
             "status": "active",
             "owner": "=1+1",
             "key_stakeholder": "Executive Stakeholder",
@@ -124,12 +126,19 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
     assert "Program Dashboard Report" in shared_strings
     assert "Stakeholder" in shared_strings
     assert "Entity Type" in shared_strings
+    assert "Function" in shared_strings
+    assert "Area" in shared_strings
+    assert "Description" in shared_strings
+    assert "Operations" in shared_strings
+    assert "Data" in shared_strings
     assert "Program" in shared_strings
     assert "Project" in shared_strings
     assert "Solution" in shared_strings
     assert "Executive Stakeholder" in shared_strings
     assert "=1+1" in shared_strings
     assert "Visible Solution" in shared_strings
+    assert "Project delivery description" in shared_strings
+    assert "Solution delivery description" in shared_strings
     assert "Needs help" in shared_strings
     assert "<f>" not in worksheet
     assert "autoFilter" in worksheet

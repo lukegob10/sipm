@@ -720,7 +720,7 @@ describe("simple route rendering", () => {
     expect(root.textContent).toContain("owner123");
     expect(root.textContent).toContain("Sam Sponsor");
     expect(root.textContent).toContain("abc123");
-    expect(root.textContent).toContain("Build / Docs");
+    expect(root.textContent).not.toContain("Build / Docs");
     expect(root.textContent).toContain("Needs management unblock");
     expect(root.textContent).not.toContain("build_docs");
     expect(root.textContent).toContain("50%");
@@ -729,16 +729,17 @@ describe("simple route rendering", () => {
     expect(root.textContent).not.toContain("Internal Use Only");
     expect([...root.querySelectorAll(".program-dashboard-grid-header [role='columnheader']")].map((cell) => cell.textContent)).toEqual([
       "Deliverable",
+      "Function",
+      "Area",
       "Solution / Owner",
       "Start",
       "End",
       "Status",
-      "Phase",
       "Escalation",
       "% Complete",
     ]);
     root.querySelectorAll(".program-dashboard-grid-row").forEach((row) => {
-      expect(row.querySelectorAll(":scope > .program-dashboard-grid-cell")).toHaveLength(8);
+      expect(row.querySelectorAll(":scope > .program-dashboard-grid-cell")).toHaveLength(9);
     });
     expect(root.querySelector(".program-dashboard-program-row .program-dashboard-escalation-cell")?.textContent).toBe("");
     expect(root.querySelector(".program-dashboard-project-row .program-dashboard-escalation-cell")?.textContent).toBe("");
@@ -810,7 +811,7 @@ describe("simple route rendering", () => {
     expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual(["project-1"]);
   });
 
-  it("rolls up program dashboard phase and percent complete from active deliverables", () => {
+  it("rolls up program dashboard percent complete without rendering phase", () => {
     document.body.innerHTML = `
       <section id="view-program-dashboard">
         <div id="program-dashboard-root"></div>
@@ -862,17 +863,9 @@ describe("simple route rendering", () => {
     const root = document.getElementById("program-dashboard-root");
     const programCells = root.querySelector(".program-dashboard-program-row")?.querySelectorAll(".program-dashboard-grid-cell");
     const projectCells = root.querySelector(".program-dashboard-project-row")?.querySelectorAll(".program-dashboard-grid-cell");
-    const childRows = root.querySelectorAll(".program-dashboard-child-row");
-
-    expect(programCells?.[5]?.textContent).toBe("2 phases");
-    expect(projectCells?.[5]?.textContent).toBe("2 phases");
-    expect(programCells?.[7]?.textContent).toContain("44%");
-    expect(projectCells?.[7]?.textContent).toContain("44%");
-    expect([...childRows].map((row) => row.querySelector(".program-dashboard-phase-cell")?.textContent).sort()).toEqual([
-      "Build",
-      "Deploy",
-      "Plan",
-    ]);
+    expect(root.querySelector(".program-dashboard-phase-cell")).toBeNull();
+    expect(programCells?.[8]?.textContent).toContain("44%");
+    expect(projectCells?.[8]?.textContent).toContain("44%");
   });
 
   it("downloads the program dashboard PDF with selected and collapsed state", async () => {

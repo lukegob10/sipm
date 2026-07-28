@@ -508,11 +508,12 @@ function hierarchyLabelMarkup({ depth, rowType, toggleHtml, linkHtml }) {
 
 const PROJECT_GRID_COLUMN_DEFS = [
   { key: "deliverable", label: "Deliverable", className: "program-dashboard-deliverable-cell" },
+  { key: "function", label: "Function", className: "program-dashboard-function-cell" },
+  { key: "area", label: "Area", className: "program-dashboard-area-cell" },
   { key: "owner", label: "Solution / Owner", className: "program-dashboard-owner-cell" },
   { key: "start", label: "Start", className: "program-dashboard-date-cell program-dashboard-start-cell" },
   { key: "end", label: "End", className: "program-dashboard-date-cell program-dashboard-end-cell" },
   { key: "status", label: "Status", className: "program-dashboard-status-cell" },
-  { key: "phase", label: "Phase", className: "program-dashboard-phase-cell" },
   { key: "escalation", label: "Escalation", className: "program-dashboard-escalation-cell" },
   { key: "progress", label: "% Complete", className: "program-dashboard-progress-cell" },
 ];
@@ -542,24 +543,6 @@ function averageProgress(rows, solutionProgress) {
   return Math.round(total / rows.length);
 }
 
-function solutionPhaseLabel(solution, phaseDisplayName) {
-  return displayValue(phaseDisplayName(solution?.current_phase));
-}
-
-function phaseSummary(rows, phaseDisplayName) {
-  if (!rows.length) return "-";
-  const activeRows = rows.filter((row) => !statusIsClosed(row?.status));
-  if (!activeRows.length) return "Complete";
-  const labels = Array.from(new Set(
-    activeRows
-      .map((row) => solutionPhaseLabel(row, phaseDisplayName))
-      .filter((label) => label && label !== "-")
-  ));
-  if (!labels.length) return "Unassigned";
-  if (labels.length === 1) return labels[0];
-  return `${labels.length} phases`;
-}
-
 function sortedDates(rows, key) {
   return rows.map((row) => dateValue(row?.[key])).filter(Boolean).sort();
 }
@@ -571,7 +554,6 @@ function renderProjectsTable({
   projects,
   solutionsByProject,
   formatStatus,
-  phaseDisplayName,
   solutionProgress,
   readOnly = false,
 }) {
@@ -602,6 +584,9 @@ function renderProjectsTable({
   const rowsHtml = programRows
     .map(({ program, projects: programProjects }) => {
       const programId = String(program.program_id || "");
+      const programParts = splitProgramName(program.program_name);
+      const programFunction = esc(displayValue(programParts.team));
+      const programArea = esc(displayValue(programParts.subArea, program.program_name || "-"));
       const programCollapsed = collapsedProgramIds.has(programId);
       const programSolutions = programProjects.flatMap((project) => solutionsByProject.get(String(project.project_id || "")) || []);
       const programStartDates = sortedDates(programSolutions, "planned_start_date");
@@ -616,11 +601,12 @@ function renderProjectsTable({
             toggleHtml: programToggleMarkup(program, programCollapsed, programProjects.length),
             linkHtml: programLabelMarkup(program),
           }),
+          function: programFunction,
+          area: programArea,
           owner: "-",
           start: esc(programStartDates[0] || "-"),
           end: esc(programEndDates[programEndDates.length - 1] || "-"),
           status: "-",
-          phase: esc(phaseSummary(programSolutions, phaseDisplayName)),
           escalation: "",
           progress: progressMarkup(averageProgress(programSolutions, solutionProgress)),
         },
@@ -648,11 +634,12 @@ function renderProjectsTable({
                 toggleHtml: projectToggleMarkup(project, collapsed, projectSolutions.length),
                 linkHtml: projectLinkMarkup(project, readOnly),
               }),
+              function: programFunction,
+              area: programArea,
               owner: esc(displayValue(project.owner || project.owner_user_soeid || project.sponsor || project.sponsor_user_soeid)),
               start: esc(projectStart),
               end: esc(projectEnd),
               status: statusMarkup(project.status, formatStatus),
-              phase: esc(projectSolutions.length ? phaseSummary(projectSolutions, phaseDisplayName) : (normalize(project.status) === "complete" ? "Complete" : "-")),
               escalation: "",
               progress: progressMarkup(progress),
             },
@@ -670,11 +657,12 @@ function renderProjectsTable({
                       toggleHtml: "",
                       linkHtml: solutionLinkMarkup(solution, readOnly),
                     }),
+                    function: programFunction,
+                    area: programArea,
                     owner: esc(displayValue(solution.owner || solution.owner_user_soeid || solution.assignee || solution.key_stakeholder)),
                     start: esc(displayValue(dateValue(solution.planned_start_date))),
                     end: esc(displayValue(dateValue(solution.due_date))),
                     status: statusMarkup(solution.status, formatStatus),
-                    phase: esc(solutionPhaseLabel(solution, phaseDisplayName)),
                     escalation: esc(displayValue(solution.escalation, "")),
                     progress: progressMarkup(solutionProgress(solution)),
                   },
@@ -722,7 +710,7 @@ function renderSummary({ projectCount, solutionCount, completeCount, activeCount
 }
 
 export function renderProgramDashboardView(programDashboardState, ctx) {
-  const { state, els, formatStatus, phaseDisplayName, solutionProgress } = ctx;
+  const { state, els, formatStatus, solutionProgress } = ctx;
   const readOnly = !!(ctx.readOnly || ctx.publicMode);
   const root = els.programDashboardRoot || document.getElementById("program-dashboard-root");
   if (!root) return;
@@ -787,10 +775,6 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   const progressForSolution = typeof solutionProgress === "function"
     ? solutionProgress
     : (solution) => (normalize(solution?.status) === "complete" ? 100 : 0);
-  const displayPhase = typeof phaseDisplayName === "function"
-    ? phaseDisplayName
-    : (phaseId) => displayValue(phaseId);
-
   const bodyHtml = renderProjectsTable({
     programDashboardState,
     selectedProgram: multipleProgramsSelected ? { program_name: "the selected programs" } : selectedProgram,
@@ -798,7 +782,6 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
     projects,
     solutionsByProject,
     formatStatus,
-    phaseDisplayName: displayPhase,
     solutionProgress: progressForSolution,
     readOnly,
   });

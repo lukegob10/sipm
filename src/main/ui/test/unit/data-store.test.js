@@ -19,7 +19,6 @@ function createHarness(apiImpl, overrides = {}) {
     phases: [],
     projects: [],
     solutions: [],
-    solutionPhases: {},
     tasks: [],
     teams: [],
     users: [],

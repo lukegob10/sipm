@@ -57,4 +57,39 @@ describe("kanban route", () => {
     expect(board.innerHTML).toContain("&lt;b&gt;Design&lt;/b&gt;");
     expect(board.innerHTML).toContain("&lt;marquee&gt;active&lt;/marquee&gt;");
   });
+
+  it("renders one ordered column per phase even when phase groups match", () => {
+    document.body.innerHTML = '<div id="view-kanban"><div id="kanban-board"></div></div>';
+
+    const phases = [
+      { phase_id: "testing", phase_group: "Delivery", phase_name: "Testing", sequence: 4 },
+      { phase_id: "development", phase_group: "Delivery", phase_name: "Development", sequence: 3 },
+    ];
+    const ctx = {
+      state: {
+        phases,
+        projects: [{ project_id: "project-1", project_name: "Project" }],
+      },
+      els: { kanbanBoard: document.getElementById("kanban-board") },
+      filteredSolutionsForKanban: () => [
+        {
+          solution_id: "solution-1",
+          solution_name: "Build",
+          project_id: "project-1",
+          current_phase: "development",
+          status: "in_progress",
+        },
+      ],
+      phaseDisplayName: (phaseId) => phases.find((phase) => phase.phase_id === phaseId)?.phase_name || "",
+      formatStatus: (status) => status,
+    };
+
+    renderKanban(ctx);
+
+    const columns = [...ctx.els.kanbanBoard.querySelectorAll(".kanban-column")];
+    expect(columns.map((column) => column.dataset.phaseId)).toEqual(["development", "testing"]);
+    expect(columns.map((column) => column.querySelector("h4").textContent)).toEqual(["Development", "Testing"]);
+    expect(columns[0].textContent).toContain("Build");
+    expect(columns[1].textContent).toContain("Empty");
+  });
 });

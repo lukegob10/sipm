@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ...models import Phase, Project, Solution, SolutionPhase
+from ...phase_catalog import CANONICAL_PHASE_IDS, get_canonical_phase
 from ...schemas import SolutionRead
 from ...services.github_repo_urls import normalize_github_repo_url
 from ...services.mutations import publish_space_mutation
@@ -158,6 +159,7 @@ def _enabled_phase_ids(session: Session, solution_id: str) -> set[str]:
         session.query(SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
         .filter(SolutionPhase.is_enabled)
+        .filter(SolutionPhase.phase_id.in_(CANONICAL_PHASE_IDS))
         .all()
     )
     return {r[0] for r in rows}
@@ -170,6 +172,7 @@ def _last_enabled_phase_id(session: Session, solution_id: str) -> Optional[str]:
         .join(Phase, Phase.phase_id == SolutionPhase.phase_id)
         .filter(SolutionPhase.solution_id == solution_id)
         .filter(SolutionPhase.is_enabled)
+        .filter(Phase.phase_id.in_(CANONICAL_PHASE_IDS))
         .order_by(sort_key.desc(), Phase.sequence.desc(), SolutionPhase.solution_phase_id.desc())
         .first()
     )
@@ -179,7 +182,7 @@ def _last_enabled_phase_id(session: Session, solution_id: str) -> Optional[str]:
 def _validate_current_phase(session: Session, solution_id: str, current_phase: Optional[str]) -> None:
     if not current_phase:
         return
-    phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
+    phase_exists = get_canonical_phase(session, current_phase)
     if not phase_exists:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

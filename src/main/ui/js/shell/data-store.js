@@ -37,7 +37,6 @@ export function createDataStoreController({
     state.programs = [];
     state.projects = [];
     state.solutions = [];
-    state.solutionPhases = {};
     state.tasks = [];
     state.teams = [];
     state.users = [];
@@ -92,7 +91,6 @@ export function createDataStoreController({
   function applyEntityData(entity, data) {
     if (entity === "phases") {
       state.phases = Array.isArray(data) ? data : [];
-      state.solutionPhases = {};
     } else if (entity === "programs") {
       state.programs = Array.isArray(data) ? data : [];
     } else if (entity === "projects") {

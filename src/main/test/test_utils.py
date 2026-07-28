@@ -117,8 +117,18 @@ def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
         session.refresh(solution)
 
         phases = [
-            Phase(phase_id="p1", phase_group="G", phase_name="P1", sequence=1),
-            Phase(phase_id="p2", phase_group="G", phase_name="P2", sequence=2),
+            Phase(
+                phase_id="backlog",
+                phase_group="Intake / Backlog",
+                phase_name="Intake / Backlog",
+                sequence=1,
+            ),
+            Phase(
+                phase_id="requirements",
+                phase_group="Requirements / Specification",
+                phase_name="Requirements / Specification",
+                sequence=2,
+            ),
         ]
         session.add_all(phases)
         session.commit()
@@ -126,7 +136,7 @@ def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
         session.add(
             SolutionPhase(
                 solution_id=solution.solution_id,
-                phase_id="p1",
+                phase_id="backlog",
                 is_enabled=False,
                 sequence_override=99,
             )
@@ -142,7 +152,7 @@ def test_enable_all_phases_is_idempotent_and_resets_overrides(db_sessionmaker):
             .order_by(SolutionPhase.phase_id.asc())
             .all()
         )
-        assert [r.phase_id for r in rows] == ["p1", "p2"]
+        assert [r.phase_id for r in rows] == ["backlog", "requirements"]
         assert all(r.is_enabled is True for r in rows)
         assert all(r.sequence_override is None for r in rows)
 

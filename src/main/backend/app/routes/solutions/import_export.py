@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_non_agent_write, require_space_role
-from ...models import Phase, Project, Solution, User
+from ...models import Project, Solution, User
+from ...phase_catalog import get_canonical_phase
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
@@ -114,7 +115,7 @@ def import_solutions(
         rag_reason_val = normalize_str(row.get("rag_reason")) or None
         current_phase = normalize_str(row.get("current_phase")) or None
         if current_phase:
-            phase_exists = session.query(Phase).filter(Phase.phase_id == current_phase).first()
+            phase_exists = get_canonical_phase(session, current_phase)
             if not phase_exists:
                 errors.append(f"Row {idx}: current_phase '{current_phase}' does not exist")
                 continue

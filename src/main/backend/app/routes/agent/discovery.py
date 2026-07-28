@@ -16,6 +16,7 @@ from ...deps import (
 )
 from ...models import Phase, User
 from ...paths import API_PREFIX
+from ...phase_catalog import canonical_phase_query
 from ...schemas.agent import (
     AgentAuditFeedRead,
     AgentDelegatedTokenRead,
@@ -38,7 +39,7 @@ from ...utils.enums import (
 )
 
 router = APIRouter()
-REFERENCE_VERSION = "1.1"
+REFERENCE_VERSION = "1.2"
 
 
 @router.post(
@@ -146,7 +147,7 @@ def get_reference_data(
                 "phase_name": row.phase_name,
                 "sequence": row.sequence,
             }
-            for row in session.query(Phase)
+            for row in canonical_phase_query(session)
             .order_by(Phase.sequence.asc(), Phase.phase_id.asc())
             .all()
         ],

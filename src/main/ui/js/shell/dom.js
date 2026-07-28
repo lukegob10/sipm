@@ -211,7 +211,6 @@ export function queryShellElements() {
     csvDownloadTemplate: document.getElementById("csv-download-template"),
     csvSubmitUpload: document.getElementById("csv-submit-upload"),
     csvUploadStatus: document.getElementById("csv-upload-status"),
-    phasesTable: document.getElementById("phases-table"),
     taskForm: document.getElementById("task-form"),
     taskFormFooter: document.getElementById("task-form-footer"),
     taskSubmitBtn: document.getElementById("task-submit-btn"),

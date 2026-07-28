@@ -471,17 +471,21 @@ async def test_app_lifespan_accepts_truthy_disable_startup_value(monkeypatch):
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
     monkeypatch.setenv("SIPM_DISABLE_STARTUP", "1")
 
-    calls = {"init_db": 0}
+    calls = {"init_db": 0, "phase_catalog": 0}
 
     def fake_init_db() -> None:
         calls["init_db"] += 1
 
+    def fake_ensure_phase_catalog() -> None:
+        calls["phase_catalog"] += 1
+
     monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "ensure_phase_catalog", fake_ensure_phase_catalog)
 
     async with main_module.app.router.lifespan_context(main_module.app):
         pass
 
-    assert calls["init_db"] == 0
+    assert calls == {"init_db": 0, "phase_catalog": 0}
 
 
 @pytest.mark.anyio
@@ -493,6 +497,7 @@ async def test_app_lifespan_accepts_truthy_disable_threadpool_value(monkeypatch)
 
     original_run_sync = anyio.to_thread.run_sync
     monkeypatch.setattr(main_module, "init_db", lambda: None)
+    monkeypatch.setattr(main_module, "ensure_phase_catalog", lambda: None)
 
     async with main_module.app.router.lifespan_context(main_module.app):
         patched_run_sync = anyio.to_thread.run_sync
@@ -538,7 +543,7 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
     monkeypatch.setenv("SIPM_DB_PREWARM_ON_STARTUP", "true")
     monkeypatch.setenv("SIPM_DB_PREWARM_CONNECTIONS", "2")
 
-    calls = {"init_db": 0, "warm": []}
+    calls = {"init_db": 0, "phase_catalog": 0, "warm": []}
 
     async def fake_start_runtime() -> None:
         return None
@@ -549,18 +554,22 @@ async def test_app_lifespan_prewarms_pool_when_enabled(monkeypatch):
     def fake_init_db() -> None:
         calls["init_db"] += 1
 
+    def fake_ensure_phase_catalog() -> None:
+        calls["phase_catalog"] += 1
+
     def fake_warm_db_pool(*, connection_count: int) -> None:
         calls["warm"].append(connection_count)
 
     monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
     monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
     monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "ensure_phase_catalog", fake_ensure_phase_catalog)
     monkeypatch.setattr(main_module, "warm_db_pool", fake_warm_db_pool)
 
     async with main_module.app.router.lifespan_context(main_module.app):
         pass
 
-    assert calls == {"init_db": 1, "warm": [2]}
+    assert calls == {"init_db": 1, "phase_catalog": 1, "warm": [2]}
 
 
 @pytest.mark.anyio
@@ -572,7 +581,7 @@ async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
     monkeypatch.delenv("SIPM_DB_PREWARM_ON_STARTUP", raising=False)
     monkeypatch.setenv("SIPM_DB_KEEPWARM_INTERVAL_SECONDS", "60")
 
-    calls = {"init_db": 0, "check": 0, "create_task": 0}
+    calls = {"init_db": 0, "phase_catalog": 0, "check": 0, "create_task": 0}
 
     async def fake_start_runtime() -> None:
         return None
@@ -582,6 +591,9 @@ async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
 
     def fake_init_db() -> None:
         calls["init_db"] += 1
+
+    def fake_ensure_phase_catalog() -> None:
+        calls["phase_catalog"] += 1
 
     def fake_check_db_connection() -> None:
         calls["check"] += 1
@@ -610,10 +622,11 @@ async def test_app_lifespan_starts_keepwarm_task_when_enabled(monkeypatch):
     monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
     monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
     monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "ensure_phase_catalog", fake_ensure_phase_catalog)
     monkeypatch.setattr(main_module, "check_db_connection", fake_check_db_connection)
     monkeypatch.setattr(main_module.asyncio, "create_task", fake_create_task)
 
     async with main_module.app.router.lifespan_context(main_module.app):
         pass
 
-    assert calls == {"init_db": 1, "check": 1, "create_task": 1}
+    assert calls == {"init_db": 1, "phase_catalog": 1, "check": 1, "create_task": 1}

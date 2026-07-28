@@ -13,7 +13,7 @@ REQUIRED_TABLES = (Phase.__table__, Solution.__table__, SolutionPhase.__table__)
 
 
 def ensure_phase_catalog(bind: Engine | None = None) -> None:
-    """Restore the canonical 17-phase workflow and enable it for every solution."""
+    """Replace legacy phase reference data with the canonical seven-phase workflow."""
     target = bind or get_engine()
     inspector = inspect(target)
     missing = [table.name for table in REQUIRED_TABLES if not inspector.has_table(table.name)]
@@ -22,12 +22,12 @@ def ensure_phase_catalog(bind: Engine | None = None) -> None:
 
     with Session(target) as session, session.begin():
         phases_by_id = {row.phase_id: row for row in session.query(Phase).all()}
-        for phase_id, phase_group, phase_name, sequence in CANONICAL_PHASES:
+        for phase_id, phase_name, sequence in CANONICAL_PHASES:
             phase = phases_by_id.get(phase_id)
             if phase is None:
                 phase = Phase(phase_id=phase_id)
                 session.add(phase)
-            phase.phase_group = phase_group
+            phase.phase_group = phase_name
             phase.phase_name = phase_name
             phase.sequence = sequence
 

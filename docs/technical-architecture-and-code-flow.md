@@ -83,11 +83,12 @@ Lifespan flow in `backend/main.py`:
 2. `coordination.validate_configuration()` verifies `memory` or `redis` coordination settings.
 3. `start_realtime_runtime()` starts Redis refresh listeners when Redis coordination is enabled.
 4. Unless `SIPM_DISABLE_STARTUP=true`, `init_db()` initializes the SQLAlchemy session factory.
-5. Optional pool prewarming runs if `SIPM_DB_PREWARM_ON_STARTUP=true`.
-6. Optional keepwarm checks run on `SIPM_DB_KEEPWARM_INTERVAL_SECONDS`.
-7. Shutdown stops realtime runtime and cancels background tasks.
+5. `ensure_phase_catalog()` synchronizes the fixed seven-phase reference data and enables the full catalog for every solution.
+6. Optional pool prewarming runs if `SIPM_DB_PREWARM_ON_STARTUP=true`.
+7. Optional keepwarm checks run on `SIPM_DB_KEEPWARM_INTERVAL_SECONDS`.
+8. Shutdown stops realtime runtime and cancels background tasks.
 
-Design choice: startup validates runtime readiness but intentionally does not mutate production database schema. The canonical schema lives in `docs/sql/schema_oracle_ta.sql`, and schema deployment is an external platform/DBA responsibility.
+Design choice: startup validates runtime readiness and normalizes fixed phase reference data, but it does not mutate the production database schema. The canonical schema lives in `docs/sql/schema_oracle_ta.sql`, and schema deployment is an external platform/DBA responsibility.
 
 ## Path And Context Routing
 
@@ -380,7 +381,7 @@ Major route groups:
 - `teams.py`: teams and team members.
 - `users.py`: user directory, global admins, admin password reset, API tokens, import/export.
 - `spaces.py`: spaces and space memberships.
-- `phases.py`: fixed 17-phase reference data and legacy solution-phase API compatibility.
+- `phases.py`: fixed seven-phase reference data and legacy solution-phase API compatibility.
 - `analytics.py`: telemetry ingest and analytics dashboard APIs.
 - `audit.py`: change log reads.
 - `sync.py`: realtime status and WebSocket endpoint.

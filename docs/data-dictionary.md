@@ -434,34 +434,24 @@ Derived API fields:
 
 SQLAlchemy model: `Phase`
 
-Purpose: fixed reference table for the 17 allowed solution phases.
+Purpose: fixed reference table for the seven allowed solution phases.
 
 Canonical order:
 
-1. `backlog` — Backlog
-2. `requirements` — Requirements
-3. `controls_scoping` — Controls & Scoping
-4. `resourcing_timeline` — Resourcing & Timeline
-5. `poc` — Proof of Concept
-6. `delivery_success` — Delivery and Success Criteria
-7. `design` — Design
-8. `build_docs` — Build & Documentation
-9. `sandbox_deploy` — Sandbox Deployment
-10. `socialization_signoff` — Socialization & Signoff
-11. `deployment_prep` — Deployment Preparation
-12. `dev_deploy` — DEV Deployment
-13. `uat_deploy` — UAT Deployment
-14. `prod_deploy` — PROD Deployment
-15. `go_live` — Go Live
-16. `closure_signoff` — Closure and Signoff
-17. `handoff_offboarding` — Handoff and offboarding
+1. `backlog` — Intake / Backlog
+2. `requirements` — Requirements / Specification
+3. `development` — Development
+4. `testing` — Testing
+5. `deployment` — Deployment
+6. `go_live` — Go Live
+7. `retired` — Retired
 
 Key fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `phase_id` | string PK | Stable phase id. |
-| `phase_group` | string | Lifecycle grouping used to organize the canonical catalog. |
+| `phase_group` | string | Compatibility field; matches `phase_name` in the canonical catalog. |
 | `phase_name` | string | Display label. |
 | `sequence` | integer | Default ordering. |
 
@@ -476,7 +466,7 @@ Primary APIs:
 SQLAlchemy model: `SolutionPhase`
 
 Purpose: compatibility link between solutions and phase reference rows. The canonical migration
-enables all 17 phases with default ordering for every solution; the solution editor does not
+enables all seven phases with default ordering for every solution; the solution editor does not
 expose per-solution phase configuration.
 
 Key fields:
@@ -703,7 +693,7 @@ flowchart TD
 ```mermaid
 flowchart TD
   Project["Project"] --> Solution["Solution"]
-  Solution --> CurrentPhase["Current phase from fixed 17-phase catalog"]
+  Solution --> CurrentPhase["Current phase from fixed seven-phase catalog"]
   Solution --> Task["Task"]
   Solution --> Repo["Solution GitHub repo URL"]
   Task --> EffectiveRepo["Effective repo = override or inherited"]

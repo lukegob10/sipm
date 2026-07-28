@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { renderKanban } from "../../js/routes/kanban.js";
 
@@ -91,5 +91,67 @@ describe("kanban route", () => {
     expect(columns.map((column) => column.querySelector("h4").textContent)).toEqual(["Development", "Testing"]);
     expect(columns[0].textContent).toContain("Build");
     expect(columns[1].textContent).toContain("Empty");
+  });
+
+  it("moves a dragged solution to a different phase in the same project", () => {
+    document.body.innerHTML = '<div id="view-kanban"><div id="kanban-board"></div></div>';
+
+    const phases = [
+      { phase_id: "development", phase_name: "Development", sequence: 3 },
+      { phase_id: "testing", phase_name: "Testing", sequence: 4 },
+    ];
+    const moveKanbanSolutionToPhase = vi.fn();
+    const ctx = {
+      state: {
+        phases,
+        projects: [{ project_id: "project-1", project_name: "Project" }],
+      },
+      els: { kanbanBoard: document.getElementById("kanban-board") },
+      filteredSolutionsForKanban: () => [
+        {
+          solution_id: "solution-1",
+          solution_name: "Build",
+          project_id: "project-1",
+          current_phase: "development",
+          status: "in_progress",
+        },
+      ],
+      phaseDisplayName: (phaseId) => phases.find((phase) => phase.phase_id === phaseId)?.phase_name || "",
+      formatStatus: (status) => status,
+      isKanbanSolutionMovePending: () => false,
+      moveKanbanSolutionToPhase,
+    };
+
+    renderKanban(ctx);
+
+    const card = ctx.els.kanbanBoard.querySelector('[data-solution-id="solution-1"]');
+    const sourceColumn = ctx.els.kanbanBoard.querySelector('[data-phase-id="development"]');
+    const targetColumn = ctx.els.kanbanBoard.querySelector('[data-phase-id="testing"]');
+    const dataTransfer = {
+      effectAllowed: "",
+      dropEffect: "",
+      setData: vi.fn(),
+      getData: vi.fn(() => "solution-1"),
+    };
+    const dragStart = new Event("dragstart", { bubbles: true, cancelable: true });
+    Object.defineProperty(dragStart, "dataTransfer", { value: dataTransfer });
+    card.dispatchEvent(dragStart);
+
+    expect(dataTransfer.setData).toHaveBeenCalledWith("text/plain", "solution-1");
+    expect(sourceColumn.classList.contains("is-drop-eligible")).toBe(false);
+    expect(targetColumn.classList.contains("is-drop-eligible")).toBe(true);
+
+    const dragOver = new Event("dragover", { bubbles: true, cancelable: true });
+    Object.defineProperty(dragOver, "dataTransfer", { value: dataTransfer });
+    targetColumn.dispatchEvent(dragOver);
+    expect(dragOver.defaultPrevented).toBe(true);
+    expect(targetColumn.classList.contains("is-drop-target")).toBe(true);
+
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: dataTransfer });
+    targetColumn.dispatchEvent(drop);
+
+    expect(moveKanbanSolutionToPhase).toHaveBeenCalledWith("solution-1", "testing");
+    expect(ctx.els.kanbanBoard.querySelector(".is-drop-eligible, .is-drop-target, .is-dragging")).toBeNull();
   });
 });

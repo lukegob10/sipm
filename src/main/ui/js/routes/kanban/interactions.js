@@ -11,7 +11,16 @@ export function createKanbanRouteController({
   openSolutionModal,
   hideClosedDeliverables,
   isClosedSolutionStatus,
+  api,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  setStatus,
+  phaseDisplayName,
+  trackWorkflow,
 }) {
+  const pendingSolutionMoves = new Set();
+
   function filteredSolutionsForKanban() {
     const { project, owner } = state.kanbanFilters || {};
     const ownerNorm = (owner || "").toLowerCase();
@@ -37,6 +46,60 @@ export function createKanbanRouteController({
     const solution = state.solutions.find((row) => row.solution_id === targetId);
     if (!solution) return;
     openSolutionModal(solution, "details");
+  }
+
+  function isKanbanSolutionMovePending(solutionId) {
+    return pendingSolutionMoves.has(String(solutionId || "").trim());
+  }
+
+  async function moveKanbanSolutionToPhase(solutionId, phaseId) {
+    const targetSolutionId = String(solutionId || "").trim();
+    const targetPhaseId = String(phaseId || "").trim();
+    const solution = state.solutions.find((row) => row.solution_id === targetSolutionId);
+    const phase = state.phases.find((row) => row.phase_id === targetPhaseId);
+    if (!solution || !phase || pendingSolutionMoves.has(targetSolutionId)) return false;
+
+    const previousPhaseId = solution.current_phase || null;
+    if (previousPhaseId === targetPhaseId) return false;
+
+    const solutionLabel = String(solution.solution_name || "Untitled solution");
+    const phaseLabel = phaseDisplayName(targetPhaseId) || phase.phase_name || targetPhaseId;
+    pendingSolutionMoves.add(targetSolutionId);
+    solution.current_phase = targetPhaseId;
+    setStatus(`Moving ${solutionLabel} to ${phaseLabel}...`);
+    renderKanban();
+
+    try {
+      markIgnoreRefresh("solutions");
+      const updated = await api(`/solutions/${encodeURIComponent(targetSolutionId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ current_phase: targetPhaseId }),
+      });
+      upsertById(state.solutions, updated, "solution_id");
+      setStatus(`${solutionLabel} moved to ${phaseLabel}.`, "success");
+      trackWorkflow?.("solutions", "update", "success", {
+        source: "kanban_drag",
+        field: "current_phase",
+        from_phase: previousPhaseId,
+        to_phase: targetPhaseId,
+      });
+      return true;
+    } catch (err) {
+      ignoreNextRefresh?.delete?.("solutions");
+      const current = state.solutions.find((row) => row.solution_id === targetSolutionId);
+      if (current?.current_phase === targetPhaseId) current.current_phase = previousPhaseId;
+      setStatus(`Could not move ${solutionLabel} to ${phaseLabel}: ${err.message || "Save failed"}`, "danger");
+      trackWorkflow?.("solutions", "update", "failure", {
+        source: "kanban_drag",
+        field: "current_phase",
+        from_phase: previousPhaseId,
+        to_phase: targetPhaseId,
+      });
+      return false;
+    } finally {
+      pendingSolutionMoves.delete(targetSolutionId);
+      renderKanban();
+    }
   }
 
   function persistKanbanViewState() {
@@ -78,6 +141,8 @@ export function createKanbanRouteController({
   return {
     bindKanbanRouteControls,
     filteredSolutionsForKanban,
+    isKanbanSolutionMovePending,
+    moveKanbanSolutionToPhase,
     openKanbanProjectDrilldown,
     openKanbanSolutionDrilldown,
     persistKanbanViewState,

@@ -479,6 +479,13 @@ const kanbanRouteController = createKanbanRouteController({
   openSolutionModal,
   hideClosedDeliverables,
   isClosedSolutionStatus,
+  api,
+  markIgnoreRefresh,
+  ignoreNextRefresh,
+  upsertById,
+  setStatus,
+  phaseDisplayName,
+  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const teamCapacityRouteController = createTeamCapacityRouteController({
   state,
@@ -2156,6 +2163,14 @@ function openKanbanSolutionDrilldown(solutionId) {
   return kanbanRouteController.openKanbanSolutionDrilldown(solutionId);
 }
 
+function moveKanbanSolutionToPhase(solutionId, phaseId) {
+  return kanbanRouteController.moveKanbanSolutionToPhase(solutionId, phaseId);
+}
+
+function isKanbanSolutionMovePending(solutionId) {
+  return kanbanRouteController.isKanbanSolutionMovePending(solutionId);
+}
+
 function openPMDashboardTaskDrilldown(taskId) {
   const targetId = String(taskId || "").trim();
   if (!targetId) return;
@@ -2718,6 +2733,8 @@ function renderKanban() {
     filteredSolutionsForKanban,
     phaseDisplayName,
     formatStatus,
+    isKanbanSolutionMovePending,
+    moveKanbanSolutionToPhase,
     openKanbanProjectDrilldown,
     openKanbanSolutionDrilldown,
   });

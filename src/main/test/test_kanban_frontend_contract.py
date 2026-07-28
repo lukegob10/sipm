@@ -41,6 +41,25 @@ def test_kanban_route_handles_solution_drilldown_clicks():
     assert "bindKanbanEvents();" in text
 
 
+def test_kanban_cards_are_draggable_phase_update_controls():
+    route_text = KANBAN_ROUTE.read_text(encoding="utf-8")
+    interactions_text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
+    app_text = APP_JS.read_text(encoding="utf-8")
+    styles_text = read_ui_styles(STYLES_CSS)
+
+    assert 'data-kanban-draggable="solution"' in route_text
+    assert 'data-kanban-dropzone="phase"' in route_text
+    assert 'viewRoot.addEventListener("dragstart"' in route_text
+    assert 'viewRoot.addEventListener("dragover"' in route_text
+    assert 'viewRoot.addEventListener("drop"' in route_text
+    assert "moveKanbanSolutionToPhase" in route_text
+    assert 'body: JSON.stringify({ current_phase: targetPhaseId })' in interactions_text
+    assert 'source: "kanban_drag"' in interactions_text
+    assert "return kanbanRouteController.moveKanbanSolutionToPhase(solutionId, phaseId);" in app_text
+    assert '.kanban-card[draggable="true"] {' in styles_text
+    assert ".kanban-column.is-drop-target {" in styles_text
+
+
 def test_kanban_drilldown_helper_reuses_existing_solution_modal():
     app_text = APP_JS.read_text(encoding="utf-8")
     interactions_text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")

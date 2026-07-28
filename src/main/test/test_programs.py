@@ -97,6 +97,8 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
             "project_id": "project-1",
             "program_id": "program-1",
             "project_name": "Visible Project",
+            "function": "Treasury Operations",
+            "area": "Data Quality",
             "description": "Project delivery description",
             "status": "active",
             "sponsor": "Visible Sponsor",
@@ -104,6 +106,8 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
             "project_id": "project-2",
             "program_id": "program-1",
             "project_name": "Final Project",
+            "function": "Risk Management",
+            "area": "Controls",
             "description": "Final project description",
             "status": "active",
         }],
@@ -141,8 +145,10 @@ def test_build_program_dashboard_report_xlsx_is_formatted_and_includes_stakehold
     assert "Function" in shared_strings
     assert "Area" in shared_strings
     assert "Description" in shared_strings
-    assert "Operations" in shared_strings
-    assert "Data" in shared_strings
+    assert "Treasury Operations" in shared_strings
+    assert "Data Quality" in shared_strings
+    assert "Risk Management" in shared_strings
+    assert "Controls" in shared_strings
     assert "Program" in shared_strings
     assert "Project" in shared_strings
     assert "Solution" in shared_strings
@@ -354,7 +360,12 @@ async def test_program_dashboard_report_download_returns_excel_with_solution_sta
     project = (
         await client.post(
             "/project-manager/api/projects",
-            json={"program_id": program["program_id"], "project_name": "Excel Project"},
+            json={
+                "program_id": program["program_id"],
+                "project_name": "Excel Project",
+                "function": "Finance",
+                "area": "Liquidity Reporting",
+            },
         )
     ).json()
     await client.post(
@@ -386,6 +397,8 @@ async def test_program_dashboard_report_download_returns_excel_with_solution_sta
     assert "Stakeholder" in shared_strings
     assert "Excel Stakeholder" in shared_strings
     assert "Excel Solution" in shared_strings
+    assert "Finance" in shared_strings
+    assert "Liquidity Reporting" in shared_strings
 
 
 @pytest.mark.anyio

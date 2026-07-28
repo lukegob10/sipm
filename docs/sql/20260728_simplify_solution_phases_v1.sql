@@ -1,4 +1,6 @@
 -- SIPM canonical seven-phase workflow migration v1.
+-- Historical migration superseded by 20260728_restore_full_solution_phases_v1.sql.
+-- Do not run this script after the restoration migration.
 --
 -- Purpose:
 --   Replace the legacy 17-step phase catalog and per-solution phase subsets

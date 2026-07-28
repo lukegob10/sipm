@@ -39,7 +39,7 @@ from ...utils.enums import (
 )
 
 router = APIRouter()
-REFERENCE_VERSION = "1.2"
+REFERENCE_VERSION = "1.3"
 
 
 @router.post(

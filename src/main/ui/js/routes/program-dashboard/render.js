@@ -584,9 +584,6 @@ function renderProjectsTable({
   const rowsHtml = programRows
     .map(({ program, projects: programProjects }) => {
       const programId = String(program.program_id || "");
-      const programParts = splitProgramName(program.program_name);
-      const programFunction = esc(displayValue(programParts.team));
-      const programArea = esc(displayValue(programParts.subArea, program.program_name || "-"));
       const programCollapsed = collapsedProgramIds.has(programId);
       const programSolutions = programProjects.flatMap((project) => solutionsByProject.get(String(project.project_id || "")) || []);
       const programStartDates = sortedDates(programSolutions, "planned_start_date");
@@ -601,8 +598,8 @@ function renderProjectsTable({
             toggleHtml: programToggleMarkup(program, programCollapsed, programProjects.length),
             linkHtml: programLabelMarkup(program),
           }),
-          function: programFunction,
-          area: programArea,
+          function: "-",
+          area: "-",
           owner: "-",
           start: esc(programStartDates[0] || "-"),
           end: esc(programEndDates[programEndDates.length - 1] || "-"),
@@ -621,6 +618,8 @@ function renderProjectsTable({
           const endDates = sortedDates(projectSolutions, "due_date");
           const projectStart = startDates[0] || "-";
           const projectEnd = endDates[endDates.length - 1] || "-";
+          const projectFunction = esc(displayValue(project.function));
+          const projectArea = esc(displayValue(project.area));
           const progress = projectSolutions.length
             ? averageProgress(projectSolutions, solutionProgress)
             : (normalize(project.status) === "complete" ? 100 : 0);
@@ -634,8 +633,8 @@ function renderProjectsTable({
                 toggleHtml: projectToggleMarkup(project, collapsed, projectSolutions.length),
                 linkHtml: projectLinkMarkup(project, readOnly),
               }),
-              function: programFunction,
-              area: programArea,
+              function: projectFunction,
+              area: projectArea,
               owner: esc(displayValue(project.owner || project.owner_user_soeid || project.sponsor || project.sponsor_user_soeid)),
               start: esc(projectStart),
               end: esc(projectEnd),
@@ -657,8 +656,8 @@ function renderProjectsTable({
                       toggleHtml: "",
                       linkHtml: solutionLinkMarkup(solution, readOnly),
                     }),
-                    function: programFunction,
-                    area: programArea,
+                    function: projectFunction,
+                    area: projectArea,
                     owner: esc(displayValue(solution.owner || solution.owner_user_soeid || solution.assignee || solution.key_stakeholder)),
                     start: esc(displayValue(dateValue(solution.planned_start_date))),
                     end: esc(displayValue(dateValue(solution.due_date))),

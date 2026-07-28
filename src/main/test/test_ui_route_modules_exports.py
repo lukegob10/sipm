@@ -29,7 +29,7 @@ EXPECTED_ROUTE_LOADERS = {
     "master": "./routes/master.js",
     "tasks-workbench": "./routes/tasks-workbench.js",
     "dashboard": "./routes/dashboard.js",
-    "program-dashboard": "./routes/program-dashboard.js?v=program-dashboard-columns-v3",
+    "program-dashboard": "./routes/program-dashboard.js?v=program-dashboard-fields-v4",
     "pm-dashboard": "./routes/pm-dashboard.js",
     "gantt": "./routes/gantt.js",
     "kanban": "./routes/kanban.js",

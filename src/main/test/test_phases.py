@@ -20,9 +20,9 @@ def seed_phases(SessionLocal):
                     sequence=2,
                 ),
                 Phase(
-                    phase_id="testing",
-                    phase_group="Testing",
-                    phase_name="Testing",
+                    phase_id="uat_deploy",
+                    phase_group="Deployment & Testing",
+                    phase_name="UAT Deployment",
                     sequence=3,
                 ),
             ]
@@ -56,7 +56,7 @@ async def test_list_phases(client, db_sessionmaker):
     resp = await client.get("/project-manager/api/phases")
     assert resp.status_code == 200
     data = resp.json()
-    assert [p["phase_id"] for p in data] == ["backlog", "requirements", "testing"]
+    assert [p["phase_id"] for p in data] == ["backlog", "requirements", "uat_deploy"]
 
 
 @pytest.mark.anyio
@@ -76,7 +76,7 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
             "phases": [
                 {"phase_id": "backlog", "is_enabled": True},
                 {"phase_id": "requirements", "is_enabled": True, "sequence_override": 5},
-                {"phase_id": "testing", "is_enabled": False},
+                {"phase_id": "uat_deploy", "is_enabled": False},
             ]
         },
     )
@@ -90,7 +90,7 @@ async def test_set_and_get_solution_phases(client, db_sessionmaker):
     assert list_resp.status_code == 200
     listed = list_resp.json()
     assert len(listed) == 3
-    assert [p["phase_id"] for p in listed] == ["backlog", "testing", "requirements"]
+    assert [p["phase_id"] for p in listed] == ["backlog", "uat_deploy", "requirements"]
     requirements = next(p for p in listed if p["phase_id"] == "requirements")
     assert requirements["sequence_override"] == 5
 

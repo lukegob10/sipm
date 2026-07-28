@@ -380,7 +380,7 @@ Major route groups:
 - `teams.py`: teams and team members.
 - `users.py`: user directory, global admins, admin password reset, API tokens, import/export.
 - `spaces.py`: spaces and space memberships.
-- `phases.py`: fixed seven-phase reference data and legacy solution-phase API compatibility.
+- `phases.py`: fixed 17-phase reference data and legacy solution-phase API compatibility.
 - `analytics.py`: telemetry ingest and analytics dashboard APIs.
 - `audit.py`: change log reads.
 - `sync.py`: realtime status and WebSocket endpoint.

@@ -676,8 +676,24 @@ describe("simple route rendering", () => {
           { program_id: "program-2", program_name: "Transformation / Risk" },
         ],
         projects: [
-          { project_id: "project-1", program_id: "program-1", project_name: "Data Sourcing - APIs", status: "active", sponsor: "Sam Sponsor" },
-          { project_id: "project-2", program_id: "program-2", project_name: "Risk Warehouse", status: "active", sponsor_user_soeid: "abc123" },
+          {
+            project_id: "project-1",
+            program_id: "program-1",
+            project_name: "Data Sourcing - APIs",
+            function: "Treasury Operations",
+            area: "Data Quality",
+            status: "active",
+            sponsor: "Sam Sponsor",
+          },
+          {
+            project_id: "project-2",
+            program_id: "program-2",
+            project_name: "Risk Warehouse",
+            function: "Risk Management",
+            area: "Controls",
+            status: "active",
+            sponsor_user_soeid: "abc123",
+          },
           { project_id: "project-3", program_id: "program-3", project_name: "Other Program Project", status: "active" },
         ],
         solutions: [
@@ -727,6 +743,14 @@ describe("simple route rendering", () => {
     expect(root.textContent).not.toContain("Other Program Project");
     expect(root.textContent).not.toContain("Confidential");
     expect(root.textContent).not.toContain("Internal Use Only");
+    expect(root.querySelector('[data-program-dashboard-program-id="program-1"] .program-dashboard-function-cell').textContent).toBe("-");
+    expect(root.querySelector('[data-program-dashboard-program-id="program-1"] .program-dashboard-area-cell').textContent).toBe("-");
+    expect(root.querySelector('[data-program-dashboard-project-id="project-1"] .program-dashboard-function-cell').textContent).toBe("Treasury Operations");
+    expect(root.querySelector('[data-program-dashboard-project-id="project-1"] .program-dashboard-area-cell').textContent).toBe("Data Quality");
+    expect(root.querySelector('[data-program-dashboard-solution-id="solution-1"] .program-dashboard-function-cell').textContent).toBe("Treasury Operations");
+    expect(root.querySelector('[data-program-dashboard-solution-id="solution-1"] .program-dashboard-area-cell').textContent).toBe("Data Quality");
+    expect(root.querySelector('[data-program-dashboard-project-id="project-2"] .program-dashboard-function-cell').textContent).toBe("Risk Management");
+    expect(root.querySelector('[data-program-dashboard-project-id="project-2"] .program-dashboard-area-cell').textContent).toBe("Controls");
     expect([...root.querySelectorAll(".program-dashboard-grid-header [role='columnheader']")].map((cell) => cell.textContent)).toEqual([
       "Deliverable",
       "Function",

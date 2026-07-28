@@ -78,7 +78,8 @@ def build_program_dashboard_report_xlsx(
     collapsed_program_ids: set[str],
     collapsed_project_ids: set[str],
 ) -> bytes:
-    """Build a formatted Excel snapshot matching the visible dashboard hierarchy."""
+    """Build a formatted Excel report for every row under the selected programs."""
+    del collapsed_program_ids, collapsed_project_ids
     output = BytesIO()
     workbook = xlsxwriter.Workbook(
         output,
@@ -95,6 +96,7 @@ def build_program_dashboard_report_xlsx(
     worksheet.set_margins(left=0.25, right=0.25, top=0.5, bottom=0.5)
     worksheet.set_header("&LProgram Dashboard Report&RPage &P of &N")
     worksheet.set_footer("&LSIPM program phasing snapshot&RGenerated &D &T")
+    worksheet.outline_settings(symbols_below=False)
 
     navy = "#152956"
     blue = "#286FE8"
@@ -153,24 +155,25 @@ def build_program_dashboard_report_xlsx(
         solutions_by_project.setdefault(str(solution.get("project_id") or ""), []).append(solution)
     phase_by_id = {str(phase.get("phase_id") or ""): phase for phase in phases}
 
-    visible_project_ids: set[str] = set()
-    visible_solutions: list[dict[str, object]] = []
-    for program in programs:
-        program_id = str(program.get("program_id") or "")
-        if program_id in collapsed_program_ids:
-            continue
-        for project in projects_by_program.get(program_id, []):
-            project_id = str(project.get("project_id") or "")
-            visible_project_ids.add(project_id)
-            if project_id not in collapsed_project_ids:
-                visible_solutions.extend(solutions_by_project.get(project_id, []))
+    # Collapse state is a screen preference, not an export filter. Program
+    # selection is the sole report scope; all descendant rows are included.
+    report_project_ids = {
+        str(project.get("project_id") or "")
+        for program in programs
+        for project in projects_by_program.get(str(program.get("program_id") or ""), [])
+    }
+    report_solutions = [
+        solution
+        for project_id in report_project_ids
+        for solution in solutions_by_project.get(project_id, [])
+    ]
 
-    complete_count = sum(1 for row in visible_solutions if str(row.get("status") or "").lower() == "complete")
+    complete_count = sum(1 for row in report_solutions if str(row.get("status") or "").lower() == "complete")
     active_count = sum(
-        1 for row in visible_solutions if str(row.get("status") or "").lower() in {"active", "in_progress"}
+        1 for row in report_solutions if str(row.get("status") or "").lower() in {"active", "in_progress"}
     )
     not_started_count = sum(
-        1 for row in visible_solutions if str(row.get("status") or "").lower() in {"", "not_started", "to_do"}
+        1 for row in report_solutions if str(row.get("status") or "").lower() in {"", "not_started", "to_do"}
     )
 
     last_col = len(REPORT_COLUMNS) - 1
@@ -184,8 +187,8 @@ def build_program_dashboard_report_xlsx(
     worksheet.set_row(1, 20)
 
     cards = (
-        ("Visible Projects", len(visible_project_ids)),
-        ("Visible Solutions", len(visible_solutions)),
+        ("Projects", len(report_project_ids)),
+        ("Solutions", len(report_solutions)),
         ("Active", active_count),
         ("Complete", complete_count),
         ("Not Started", not_started_count),
@@ -247,8 +250,6 @@ def build_program_dashboard_report_xlsx(
             "owner": "-", "stakeholder": "-", "start": "-", "end": "-", "status": "-",
             "phase": _phase_summary(program_solutions, phase_by_id), "escalation": "", "progress": program_progress,
         }, level=0)
-        if program_id in collapsed_program_ids:
-            continue
         for project in program_projects:
             project_id = str(project.get("project_id") or "")
             project_solutions = solutions_by_project.get(project_id, [])
@@ -274,8 +275,6 @@ def build_program_dashboard_report_xlsx(
                 ),
                 "escalation": "", "progress": project_progress,
             }, level=1)
-            if project_id in collapsed_project_ids:
-                continue
             for solution in project_solutions:
                 write_report_row("solution", {
                     "deliverable": f"    {_text(solution.get('solution_name'), 'Unnamed Solution')}",

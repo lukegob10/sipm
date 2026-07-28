@@ -61,6 +61,8 @@ def load_program_dashboard_report_data(
                 "project_id": row.project_id,
                 "program_id": row.program_id,
                 "project_name": row.project_name,
+                "function": row.function,
+                "area": row.area,
                 "description": row.description,
                 "status": row.status.value if hasattr(row.status, "value") else row.status,
                 "sponsor": row.sponsor,

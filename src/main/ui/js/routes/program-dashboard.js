@@ -1,4 +1,4 @@
-import { createProgramDashboardState, renderProgramDashboardView } from "./program-dashboard/render.js?v=program-dashboard-columns-v3";
+import { createProgramDashboardState, renderProgramDashboardView } from "./program-dashboard/render.js?v=program-dashboard-fields-v4";
 
 const programDashboardState = createProgramDashboardState();
 

@@ -345,7 +345,7 @@ def test_dashboard_and_program_dashboard_use_shared_status_and_rag_display_token
     assert 'import { statusPillMarkup } from "../../utils/display-tokens.js";' in render_text
     assert 'return statusPillMarkup(value, label, "program-dashboard-status");' in render_text
     assert "function statusTone" not in render_text
-    assert 'from "./program-dashboard/render.js?v=program-dashboard-columns-v3";' in route_text
+    assert 'from "./program-dashboard/render.js?v=program-dashboard-fields-v4";' in route_text
 
 
 def test_program_dashboard_projects_grid_uses_deliverable_column_only():
@@ -382,6 +382,12 @@ def test_program_dashboard_projects_grid_uses_deliverable_column_only():
     assert "const PROJECT_GRID_COLUMN_DEFS = [" in render_text
     assert "function projectGridRow" in render_text
     assert "function projectGridHeaderRow" in render_text
+    assert "const programFunction" not in render_text
+    assert "const programArea" not in render_text
+    assert "const projectFunction = esc(displayValue(project.function));" in render_text
+    assert "const projectArea = esc(displayValue(project.area));" in render_text
+    assert render_text.count("function: projectFunction") == 2
+    assert render_text.count("area: projectArea") == 2
 
 
 def test_program_dashboard_hides_phase_but_keeps_phase_data_for_progress():

@@ -6,42 +6,36 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Query, Session
 
 
-CANONICAL_PHASES: Final[tuple[tuple[str, str, int], ...]] = (
-    ("backlog", "Intake / Backlog", 1),
-    ("requirements", "Requirements / Specification", 2),
-    ("development", "Development", 3),
-    ("testing", "Testing", 4),
-    ("deployment", "Deployment", 5),
-    ("go_live", "Go Live", 6),
-    ("retired", "Retired", 7),
+CANONICAL_PHASES: Final[tuple[tuple[str, str, str, int], ...]] = (
+    ("backlog", "Backlog", "Backlog", 1),
+    ("requirements", "Planning", "Requirements", 2),
+    ("controls_scoping", "Planning", "Controls & Scoping", 3),
+    ("resourcing_timeline", "Planning", "Resourcing & Timeline", 4),
+    ("poc", "Planning", "Proof of Concept", 5),
+    ("delivery_success", "Planning", "Delivery and Success Criteria", 6),
+    ("design", "Development", "Design", 7),
+    ("build_docs", "Development", "Build & Documentation", 8),
+    ("sandbox_deploy", "Development", "Sandbox Deployment", 9),
+    ("socialization_signoff", "Development", "Socialization & Signoff", 10),
+    ("deployment_prep", "Deployment & Testing", "Deployment Preparation", 11),
+    ("dev_deploy", "Deployment & Testing", "DEV Deployment", 12),
+    ("uat_deploy", "Deployment & Testing", "UAT Deployment", 13),
+    ("prod_deploy", "Deployment & Testing", "PROD Deployment", 14),
+    ("go_live", "Closure", "Go Live", 15),
+    ("closure_signoff", "Closure", "Closure and Signoff", 16),
+    ("handoff_offboarding", "Closure", "Handoff and offboarding", 17),
 )
 
 CANONICAL_PHASE_IDS: Final[tuple[str, ...]] = tuple(row[0] for row in CANONICAL_PHASES)
 DEFAULT_PHASE_ID: Final[str] = "backlog"
 
 LEGACY_PHASE_ID_MAP: Final[dict[str, str]] = {
-    "backlog": "backlog",
-    "requirements": "requirements",
-    "controls_scoping": "requirements",
-    "resourcing_timeline": "requirements",
-    "poc": "requirements",
-    "delivery_success": "requirements",
-    "design": "requirements",
-    "build_docs": "development",
-    "sandbox_deploy": "development",
-    "development": "development",
-    "socialization_signoff": "testing",
-    "dev_deploy": "testing",
-    "uat": "testing",
-    "uat_deploy": "testing",
-    "testing": "testing",
-    "deployment_prep": "deployment",
-    "prod_deploy": "deployment",
-    "deployment": "deployment",
-    "go_live": "go_live",
-    "closure_signoff": "retired",
-    "handoff_offboarding": "retired",
-    "retired": "retired",
+    **{phase_id: phase_id for phase_id in CANONICAL_PHASE_IDS},
+    "development": "build_docs",
+    "testing": "uat_deploy",
+    "deployment": "prod_deploy",
+    "retired": "handoff_offboarding",
+    "uat": "uat_deploy",
 }
 
 

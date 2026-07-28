@@ -250,6 +250,11 @@ The router exposes these user-facing modules:
 
 The route modules are deliberately display-oriented. Most shared data fetching is handled by `data-store.js`, and most write behavior is delegated to entity controllers or route interaction modules.
 
+The Kanban route supports optimistic solution drag-and-drop between phase columns. A drop
+updates `current_phase` through `PATCH /solutions/{solution_id}`; the card is restored to its
+original phase and an error is shown if persistence fails. Drops remain within the solution's
+project swimlane, so changing phase never reassigns the solution to another project.
+
 ### Frontend Call Matrix
 
 | Caller | Calls | Purpose |

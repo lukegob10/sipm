@@ -20,18 +20,21 @@ from ..auth.auth import (
     verify_password,
 )
 from ..deps import ensure_token_not_revoked, get_db, require_global_admin, require_user
-from ..models import AuthSession, User
+from ..models import AuthSession, User, UserPreference
 from ..paths import API_PREFIX
 from ..schemas import (
     ActiveSpaceResponse,
     ActiveSpaceSwitchRequest,
     ForgotPasswordRequest,
+    LoginResponse,
     ResetPasswordRequest,
     SessionActivityRead,
     SessionPolicyRead,
     UserCreate,
     UserLogin,
+    UserPreferenceRead,
     UserRead,
+    SpaceRead,
 )
 from ..security import security_http_exception
 from ..services.password_reset import reset_password_with_temp_password
@@ -41,7 +44,13 @@ from ..services.auth_sessions import (
     require_auth_session,
     revoke_auth_session,
 )
-from ..services.spaces import ensure_space_membership, get_or_create_default_space, resolve_active_space_context
+from ..services.spaces import (
+    SpaceContext,
+    ensure_space_membership,
+    get_or_create_default_space,
+    list_user_spaces,
+    resolve_active_space_context,
+)
 from ..services.usage_analytics import usage_analytics_enabled
 
 router = APIRouter()
@@ -80,14 +89,41 @@ def _requested_space_id(request: Request) -> str | None:
     return request.headers.get("X-Space-Id") or request.cookies.get(ACTIVE_SPACE_COOKIE)
 
 
-def _issue_session(response: Response, session: Session, user: User, requested_space_id: str | None) -> None:
+def _issue_session(
+    response: Response,
+    session: Session,
+    user: User,
+    requested_space_id: str | None,
+) -> SpaceContext:
     auth_session = create_auth_session(session, user)
     access_token = create_token(user.user_id, user.role, "access", session_id=auth_session.session_id)
     refresh_token = create_token(user.user_id, user.role, "refresh", session_id=auth_session.session_id)
     set_auth_cookies(response, access_token, refresh_token)
     active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
     set_active_space_cookie(response, active_ctx.space_id)
-    session.commit()
+    return active_ctx
+
+
+def _preference_response(preference: UserPreference | None) -> UserPreferenceRead:
+    if preference is None:
+        return UserPreferenceRead()
+    return UserPreferenceRead(
+        developer_mode_enabled=bool(preference.developer_mode_enabled),
+        theme=preference.theme or "dark",
+        has_saved_preferences=True,
+    )
+
+
+def _active_space_response(ctx: SpaceContext) -> ActiveSpaceResponse:
+    return ActiveSpaceResponse(
+        space_id=ctx.space_id,
+        space_name=ctx.space_name,
+        space_role=ctx.space_role,
+        is_global_admin=ctx.is_global_admin,
+        space_kind=ctx.space_kind,
+        owner_user_id=ctx.owner_user_id,
+        usage_analytics_enabled=usage_analytics_enabled(),
+    )
 
 
 def _provision_self_registered_space(session: Session, user: User) -> None:
@@ -135,10 +171,11 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
 
     _provision_self_registered_space(session, user)
     _issue_session(response, session, user, requested_space_id=None)
+    session.commit()
     return user
 
 
-@router.post("/login", response_model=UserRead)
+@router.post("/login", response_model=LoginResponse)
 def login(payload: UserLogin, request: Request, response: Response, session: Session = Depends(get_db)):
     soeid_norm = str(payload.soeid).strip().lower()
     user = _get_user_by_soeid(session, soeid_norm)
@@ -191,11 +228,19 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
     user.locked_until = None
     user.last_login_at = now
     session.add(user)
-    session.commit()
-    session.refresh(user)
+    active_ctx = _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
 
-    _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
-    return user
+    preferences = _preference_response(session.get(UserPreference, user.user_id))
+    spaces = [SpaceRead.model_validate(space) for space in list_user_spaces(session, user)]
+    user_response = UserRead.model_validate(user)
+    login_response = LoginResponse(
+        **user_response.model_dump(),
+        preferences=preferences,
+        spaces=spaces,
+        active_space=_active_space_response(active_ctx),
+    )
+    session.commit()
+    return login_response
 
 
 @router.post("/refresh", response_model=UserRead)
@@ -373,15 +418,7 @@ def get_active_space(
     cookie_space_id = request.cookies.get(ACTIVE_SPACE_COOKIE)
     if cookie_space_id != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)
-    return ActiveSpaceResponse(
-        space_id=ctx.space_id,
-        space_name=ctx.space_name,
-        space_role=ctx.space_role,
-        is_global_admin=ctx.is_global_admin,
-        space_kind=ctx.space_kind,
-        owner_user_id=ctx.owner_user_id,
-        usage_analytics_enabled=usage_analytics_enabled(),
-    )
+    return _active_space_response(ctx)
 
 
 @router.post("/active-space", response_model=ActiveSpaceResponse)
@@ -399,12 +436,4 @@ def switch_active_space(
             message="Space is not accessible",
         )
     set_active_space_cookie(response, ctx.space_id)
-    return ActiveSpaceResponse(
-        space_id=ctx.space_id,
-        space_name=ctx.space_name,
-        space_role=ctx.space_role,
-        is_global_admin=ctx.is_global_admin,
-        space_kind=ctx.space_kind,
-        owner_user_id=ctx.owner_user_id,
-        usage_analytics_enabled=usage_analytics_enabled(),
-    )
+    return _active_space_response(ctx)

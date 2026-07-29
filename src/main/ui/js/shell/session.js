@@ -21,6 +21,7 @@ export function createSessionController({
   broadcastSessionLogout,
   refreshSpaceContext,
   loadUserPreferences = async () => null,
+  applyAuthBootstrap = () => false,
   resolvePostAuthView = (view) => view,
   onApiFailure = null,
   startLiveSync,
@@ -406,6 +407,25 @@ export function createSessionController({
     });
   }
 
+  function userFromAuthResponse(payload) {
+    if (!payload || typeof payload !== "object") return payload;
+    const user = { ...payload };
+    delete user.preferences;
+    delete user.spaces;
+    delete user.active_space;
+    return user;
+  }
+
+  async function finishAuthentication(payload) {
+    setAuthed(userFromAuthResponse(payload));
+    if (!applyAuthBootstrap(payload)) {
+      await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+    }
+    startLiveSync();
+    restoreRouteFromLocationAfterAuth();
+    setAuthVisible(false);
+  }
+
   function isResetPath() {
     return isResetPathname(window.location.pathname);
   }
@@ -428,13 +448,8 @@ export function createSessionController({
       showAuthNotice("");
       const form = new FormData(els.loginForm);
       await withPendingAuthAction("login", els.loginForm, async () => {
-        const user = await performLogin(form.get("soeid"), form.get("password"));
-        setAuthed(user);
-        await loadUserPreferences();
-        await refreshSpaceContext();
-        startLiveSync();
-        restoreRouteFromLocationAfterAuth();
-        setAuthVisible(false);
+        const result = await performLogin(form.get("soeid"), form.get("password"));
+        await finishAuthentication(result);
       }).catch((err) => {
         if (!handleAuthError(err)) showAuthError(loginErrorMessage(err));
       });
@@ -446,13 +461,8 @@ export function createSessionController({
       showAuthNotice("");
       const form = new FormData(els.registerForm);
       await withPendingAuthAction("register", els.registerForm, async () => {
-        const user = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
-        setAuthed(user);
-        await loadUserPreferences();
-        await refreshSpaceContext();
-        startLiveSync();
-        restoreRouteFromLocationAfterAuth();
-        setAuthVisible(false);
+        const result = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
+        await finishAuthentication(result);
       }).catch((err) => {
         if (!handleAuthError(err)) showAuthError(err.message || "Registration failed");
       });
@@ -516,8 +526,7 @@ export function createSessionController({
       return;
     }
     if (user) {
-      await loadUserPreferences();
-      await refreshSpaceContext();
+      await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
       startLiveSync();
       restoreRouteFromLocationAfterAuth();
       setAuthVisible(false);

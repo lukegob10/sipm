@@ -339,6 +339,12 @@ class ActiveSpaceResponse(BaseModel):
     usage_analytics_enabled: bool = False
 
 
+class LoginResponse(UserRead):
+    preferences: UserPreferenceRead
+    spaces: list[SpaceRead]
+    active_space: ActiveSpaceResponse
+
+
 class ChangeLogRead(TextLikeReadModel):
     model_config = ConfigDict(from_attributes=True)
 

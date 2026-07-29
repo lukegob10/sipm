@@ -7,6 +7,7 @@ import httpx
 import jwt
 import pytest
 from fastapi import HTTPException, Response
+from sqlalchemy import event
 from starlette.requests import Request
 
 from backend.app import deps as deps_module
@@ -481,6 +482,13 @@ async def test_local_login_sets_session_cookies_and_supports_register_refresh_lo
     assert logged_in["soeid"] == "abc1"
     assert logged_in["email"] == "abc1@citi.com"
     assert logged_in["display_name"] == "Alice Local"
+    assert logged_in["preferences"] == {
+        "developer_mode_enabled": False,
+        "theme": "dark",
+        "has_saved_preferences": False,
+    }
+    assert [space["space_id"] for space in logged_in["spaces"]] == ["test-main-space"]
+    assert logged_in["active_space"]["space_id"] == "test-main-space"
 
     set_cookies = resp.headers.get_list("set-cookie")
     assert any("access_token=" in cookie for cookie in set_cookies)
@@ -508,6 +516,78 @@ async def test_local_login_sets_session_cookies_and_supports_register_refresh_lo
         json={"soeid": "newlocal1", "display_name": "New Local", "password": "Password123"},
     )
     assert registered.status_code == 201, registered.text
+
+
+@pytest.mark.anyio
+async def test_local_login_bootstraps_ui_state_with_one_checkout_and_commit(
+    auth_client,
+    db_sessionmaker,
+):
+    with db_sessionmaker() as session:
+        user = User(
+            user_id="fast-login-user",
+            soeid="fastlogin1",
+            email="fastlogin1@citi.com",
+            display_name="Fast Login",
+            password_hash=hash_password("Password123"),
+            role="user",
+            is_active=True,
+        )
+        space = Space(
+            space_id="fast-login-space",
+            name="Fast Login Space",
+            slug="fast-login-space",
+            is_active=True,
+        )
+        session.add_all([user, space])
+        session.flush()
+        session.add(
+            SpaceMembership(
+                membership_id="fast-login-membership",
+                space_id=space.space_id,
+                user_id=user.user_id,
+                role="member",
+                status="active",
+            )
+        )
+        session.commit()
+
+    engine = db_sessionmaker.kw["bind"]
+    metrics = {"checkout": 0, "commit": 0, "rollback": 0, "sql": 0}
+
+    def count_checkout(*_args):
+        metrics["checkout"] += 1
+
+    def count_commit(*_args):
+        metrics["commit"] += 1
+
+    def count_rollback(*_args):
+        metrics["rollback"] += 1
+
+    def count_sql(*_args):
+        metrics["sql"] += 1
+
+    event.listen(engine.pool, "checkout", count_checkout)
+    event.listen(engine, "commit", count_commit)
+    event.listen(engine, "rollback", count_rollback)
+    event.listen(engine, "before_cursor_execute", count_sql)
+    try:
+        response = await auth_client.post(
+            "/project-manager/api/auth/login",
+            json={"soeid": "FASTLOGIN1", "password": "Password123"},
+        )
+    finally:
+        event.remove(engine.pool, "checkout", count_checkout)
+        event.remove(engine, "commit", count_commit)
+        event.remove(engine, "rollback", count_rollback)
+        event.remove(engine, "before_cursor_execute", count_sql)
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["user_id"] == "fast-login-user"
+    assert payload["active_space"]["space_id"] == "fast-login-space"
+    assert [item["space_id"] for item in payload["spaces"]] == ["fast-login-space"]
+    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 6}
 
 
 @pytest.mark.anyio

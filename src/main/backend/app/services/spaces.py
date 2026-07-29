@@ -60,16 +60,17 @@ def is_global_admin_role(value: str | None) -> bool:
 
 def _ensure_lobby_shape(session: Session, space: Space) -> Space:
     changed = False
-    name_conflict = (
-        session.query(Space)
-        .filter(Space.name == DEFAULT_SPACE_NAME)
-        .filter(Space.space_id != space.space_id)
-        .filter(Space.deleted_at.is_(None))
-        .first()
-    )
-    if space.name != DEFAULT_SPACE_NAME and not name_conflict:
-        space.name = DEFAULT_SPACE_NAME
-        changed = True
+    if space.name != DEFAULT_SPACE_NAME:
+        name_conflict = (
+            session.query(Space)
+            .filter(Space.name == DEFAULT_SPACE_NAME)
+            .filter(Space.space_id != space.space_id)
+            .filter(Space.deleted_at.is_(None))
+            .first()
+        )
+        if not name_conflict:
+            space.name = DEFAULT_SPACE_NAME
+            changed = True
     if normalize_space_kind(getattr(space, "space_kind", None)) != SPACE_KIND_LOBBY:
         space.space_kind = SPACE_KIND_LOBBY
         changed = True
@@ -205,10 +206,10 @@ def resolve_active_space_context(
     user: User,
     requested_space_id: Optional[str],
 ) -> SpaceContext:
-    default_space = get_or_create_default_space(session)
     is_global_admin = is_global_admin_role(user.role)
 
     if is_global_admin:
+        default_space = get_or_create_default_space(session)
         target = None
         if requested_space_id:
             target = (

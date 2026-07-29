@@ -25,6 +25,8 @@ function createHarness(overrides = {}) {
   const viewFromLocationPath = vi.fn(() => "team-capacity");
   const setView = vi.fn();
   const refreshSpaceContext = vi.fn().mockResolvedValue(undefined);
+  const loadUserPreferences = vi.fn().mockResolvedValue(undefined);
+  const applyAuthBootstrap = overrides.applyAuthBootstrap || vi.fn(() => false);
   const startLiveSync = vi.fn();
   const setAuthVisible = vi.fn();
   const stopLiveSync = vi.fn();
@@ -32,6 +34,10 @@ function createHarness(overrides = {}) {
   const showAuthError = vi.fn();
   const showResetError = vi.fn();
   const setStatus = vi.fn();
+  const setAuthed = vi.fn((user) => {
+    state.user = user;
+    state.authed = !!user;
+  });
   const controller = createSessionController({
     state,
     els,
@@ -42,10 +48,7 @@ function createHarness(overrides = {}) {
     viewFromLocationPath,
     setView,
     setAuthMode: vi.fn(),
-    setAuthed: vi.fn((user) => {
-      state.user = user;
-      state.authed = !!user;
-    }),
+    setAuthed,
     setStatus,
     setAuthVisible,
     setResetVisible: vi.fn(),
@@ -57,6 +60,8 @@ function createHarness(overrides = {}) {
     noteSessionActivity: vi.fn(),
     broadcastSessionLogout: vi.fn(),
     refreshSpaceContext,
+    loadUserPreferences,
+    applyAuthBootstrap,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
     startLiveSync,
     stopLiveSync,
@@ -65,7 +70,10 @@ function createHarness(overrides = {}) {
     controller,
     viewFromLocationPath,
     setView,
+    setAuthed,
     refreshSpaceContext,
+    loadUserPreferences,
+    applyAuthBootstrap,
     startLiveSync,
     stopLiveSync,
     setAuthVisible,
@@ -283,6 +291,47 @@ describe("session controller", () => {
 
     expect(submitButton.disabled).toBe(false);
     expect(submitButton.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  it("uses the login bootstrap payload without redundant context requests", async () => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = `
+      <input name="soeid" value="user1" />
+      <input name="password" value="Password123" />
+      <button type="submit">Log in</button>
+    `;
+    const loginPayload = {
+      user_id: "user-1",
+      display_name: "User 1",
+      preferences: { developer_mode_enabled: false, theme: "dark", has_saved_preferences: true },
+      spaces: [{ space_id: "space-1", name: "Space 1" }],
+      active_space: { space_id: "space-1", space_name: "Space 1" },
+    };
+    const fetchMock = vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/login")) return jsonResponse(loginPayload);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const applyAuthBootstrap = vi.fn(() => true);
+    const {
+      controller,
+      setAuthed,
+      loadUserPreferences,
+      refreshSpaceContext,
+      startLiveSync,
+      setAuthVisible,
+    } = createHarness({ els: { loginForm }, applyAuthBootstrap });
+
+    controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(setAuthVisible).toHaveBeenCalledWith(false));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(applyAuthBootstrap).toHaveBeenCalledWith(loginPayload);
+    expect(setAuthed).toHaveBeenCalledWith({ user_id: "user-1", display_name: "User 1" });
+    expect(loadUserPreferences).not.toHaveBeenCalled();
+    expect(refreshSpaceContext).not.toHaveBeenCalled();
+    expect(startLiveSync).toHaveBeenCalledTimes(1);
   });
 
   it("keeps login failures on the form error surface", async () => {

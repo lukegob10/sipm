@@ -741,6 +741,7 @@ function initShellControllers() {
     broadcastSessionLogout: () => activitySessionController.broadcastLogout(),
     refreshSpaceContext,
     loadUserPreferences,
+    applyAuthBootstrap,
     resolvePostAuthView,
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
@@ -991,10 +992,65 @@ async function switchActiveSpace(targetSpaceId) {
 }
 
 
+function applySpaceContext(spaces, activeSpace, options = {}) {
+  const previousActiveSpaceId = state.activeSpace?.space_id || "";
+  const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
+  state.spaces = Array.isArray(spaces) ? spaces : [];
+  state.activeSpace = activeSpace || null;
+  if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
+    state.requestableSpacesLoaded = false;
+    state.spaceAccessRequestsLoaded = false;
+    state.reviewableAccessRequestsLoaded = false;
+  }
+  telemetryController?.syncRuntimeContext?.();
+  if (state.activeSpace?.space_id && !state.spaces.some((space) => space.space_id === state.activeSpace.space_id)) {
+    state.spaces.unshift({
+      space_id: state.activeSpace.space_id,
+      name: state.activeSpace.space_name || state.activeSpace.space_id,
+      slug: "",
+      is_active: true,
+      space_kind: state.activeSpace.space_kind || "collaboration",
+      owner_user_id: state.activeSpace.owner_user_id || null,
+    });
+  }
+  const visibleSpaceIds = new Set(state.spaces.map((space) => space.space_id));
+  Object.keys(state.spaceMembersBySpace || {}).forEach((spaceId) => {
+    if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersBySpace[spaceId];
+  });
+  Object.keys(state.spaceMembersLoadedBySpace || {}).forEach((spaceId) => {
+    if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersLoadedBySpace[spaceId];
+  });
+  if (!state.spaceMembershipSpaceId || !visibleSpaceIds.has(state.spaceMembershipSpaceId)) {
+    state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaces[0]?.space_id || "";
+  }
+  state.spaceRecentIds = readRecentSpaceIds().filter((spaceId) => visibleSpaceIds.has(spaceId));
+  persistRecentSpaceIds();
+  restoreWorkspaceViewPreferences();
+  restoreMasterViewState();
+  restoreCalendarViewState();
+  restoreGanttViewState();
+  restoreKanbanViewState();
+  restoreTeamCapacityViewState();
+  restoreSpaceGovernanceViewState();
+  restoreTasksWorkbenchUiState();
+  renderSpaceSwitcher();
+  loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
+  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
+  const nextActiveSpaceId = state.activeSpace?.space_id || "";
+  if (
+    !suppressLiveSyncRestart
+    && state.authed
+    && previousActiveSpaceId
+    && nextActiveSpaceId
+    && previousActiveSpaceId !== nextActiveSpaceId
+  ) {
+    startLiveSync({ force: true });
+  }
+}
+
+
 async function refreshSpaceContext(options = {}) {
   const apiOptions = options.apiOptions || {};
-  const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
-  const previousActiveSpaceId = state.activeSpace?.space_id || "";
   if (!state.authed) {
     state.spaces = [];
     state.activeSpace = null;
@@ -1042,57 +1098,7 @@ async function refreshSpaceContext(options = {}) {
     api("/spaces", apiOptions),
     api("/auth/active-space", apiOptions),
   ]);
-  state.spaces = Array.isArray(spaces) ? spaces : [];
-  state.activeSpace = activeSpace || null;
-  if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
-    state.requestableSpacesLoaded = false;
-    state.spaceAccessRequestsLoaded = false;
-    state.reviewableAccessRequestsLoaded = false;
-  }
-  telemetryController?.syncRuntimeContext?.();
-  if (state.activeSpace?.space_id && !state.spaces.some((s) => s.space_id === state.activeSpace.space_id)) {
-    state.spaces.unshift({
-      space_id: state.activeSpace.space_id,
-      name: state.activeSpace.space_name || state.activeSpace.space_id,
-      slug: "",
-      is_active: true,
-      space_kind: state.activeSpace.space_kind || "collaboration",
-      owner_user_id: state.activeSpace.owner_user_id || null,
-    });
-  }
-  const visibleSpaceIds = new Set((state.spaces || []).map((space) => space.space_id));
-  Object.keys(state.spaceMembersBySpace || {}).forEach((spaceId) => {
-    if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersBySpace[spaceId];
-  });
-  Object.keys(state.spaceMembersLoadedBySpace || {}).forEach((spaceId) => {
-    if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersLoadedBySpace[spaceId];
-  });
-  if (!state.spaceMembershipSpaceId || !visibleSpaceIds.has(state.spaceMembershipSpaceId)) {
-    state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaces[0]?.space_id || "";
-  }
-  state.spaceRecentIds = readRecentSpaceIds().filter((spaceId) => visibleSpaceIds.has(spaceId));
-  persistRecentSpaceIds();
-  restoreWorkspaceViewPreferences();
-  restoreMasterViewState();
-  restoreCalendarViewState();
-  restoreGanttViewState();
-  restoreKanbanViewState();
-  restoreTeamCapacityViewState();
-  restoreSpaceGovernanceViewState();
-  restoreTasksWorkbenchUiState();
-  renderSpaceSwitcher();
-  loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
-  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
-  const nextActiveSpaceId = state.activeSpace?.space_id || "";
-  if (
-    !suppressLiveSyncRestart
-    && state.authed
-    && previousActiveSpaceId
-    && nextActiveSpaceId
-    && previousActiveSpaceId !== nextActiveSpaceId
-  ) {
-    startLiveSync({ force: true });
-  }
+  applySpaceContext(spaces, activeSpace, options);
 }
 
 
@@ -1288,23 +1294,45 @@ function syncDeveloperModeUi() {
   els.navRepositories?.classList.toggle("hidden", !enabled);
 }
 
-async function loadUserPreferences() {
-  if (!state.authed) return state.userPreferences;
-  const storedTheme = readThemePreference();
-  let preferences = await api("/users/me/preferences");
-  if (!preferences.has_saved_preferences && storedTheme !== "dark") {
-    preferences = await api("/users/me/preferences", {
-      method: "PATCH",
-      body: JSON.stringify({ theme: storedTheme }),
-    });
-  }
+function applyUserPreferences(preferences) {
   state.userPreferences = {
-    developer_mode_enabled: !!preferences.developer_mode_enabled,
-    theme: normalizeTheme(preferences.theme),
+    developer_mode_enabled: !!preferences?.developer_mode_enabled,
+    theme: normalizeTheme(preferences?.theme),
   };
   applyTheme(state.userPreferences.theme);
   syncDeveloperModeUi();
   return state.userPreferences;
+}
+
+function applyPreferencesWithStoredTheme(preferences) {
+  const storedTheme = readThemePreference();
+  if (!preferences?.has_saved_preferences && storedTheme !== "dark") {
+    applyUserPreferences({ ...preferences, theme: storedTheme });
+    void updateUserPreferences({ theme: storedTheme }).catch((err) => {
+      console.warn("Stored theme preference migration failed", err);
+    });
+    return state.userPreferences;
+  }
+  return applyUserPreferences(preferences);
+}
+
+function applyAuthBootstrap(payload) {
+  if (
+    !payload?.preferences
+    || !Array.isArray(payload.spaces)
+    || !payload.active_space
+  ) {
+    return false;
+  }
+  applyPreferencesWithStoredTheme(payload.preferences);
+  applySpaceContext(payload.spaces, payload.active_space);
+  return true;
+}
+
+async function loadUserPreferences() {
+  if (!state.authed) return state.userPreferences;
+  const preferences = await api("/users/me/preferences");
+  return applyPreferencesWithStoredTheme(preferences);
 }
 
 async function updateUserPreferences(patch) {
@@ -1312,13 +1340,7 @@ async function updateUserPreferences(patch) {
     method: "PATCH",
     body: JSON.stringify(patch),
   });
-  state.userPreferences = {
-    developer_mode_enabled: !!updated.developer_mode_enabled,
-    theme: normalizeTheme(updated.theme),
-  };
-  applyTheme(state.userPreferences.theme);
-  syncDeveloperModeUi();
-  return state.userPreferences;
+  return applyUserPreferences(updated);
 }
 
 function resolvePostAuthView(requestedView, pathname = window.location.pathname) {

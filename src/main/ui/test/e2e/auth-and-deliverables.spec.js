@@ -44,6 +44,48 @@ test("password recovery provides a visible return to sign in", async ({ page }) 
 });
 
 
+test("local login becomes usable without follow-up context requests", async ({ page }) => {
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const soeid = `login${suffix}`.replace(/[^a-z0-9]/g, "").slice(0, 20);
+  const register = await page.request.post("/project-manager/api/auth/register", {
+    data: {
+      soeid,
+      display_name: "Login Performance User",
+      password: "Password123",
+    },
+  });
+  expect(register.ok()).toBeTruthy();
+  const logout = await page.request.post("/project-manager/api/auth/logout");
+  expect(logout.ok()).toBeTruthy();
+
+  await page.goto("/");
+  await expect(page.locator("#auth-screen")).toBeVisible();
+
+  const loginRequests = [];
+  const redundantContextRequests = [];
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname === "/project-manager/api/auth/login") loginRequests.push(pathname);
+    if (
+      pathname === "/project-manager/api/users/me/preferences"
+      || pathname === "/project-manager/api/spaces"
+      || pathname === "/project-manager/api/auth/active-space"
+    ) {
+      redundantContextRequests.push(pathname);
+    }
+  });
+
+  await page.locator('#login-form input[name="soeid"]').fill(soeid);
+  await page.locator('#login-form input[name="password"]').fill("Password123");
+  await page.locator('#login-form input[name="password"]').press("Enter");
+
+  await expect(page.locator("#app-shell")).toBeVisible();
+  await expect(page.locator("#view-spaces")).toHaveClass(/active/);
+  expect(loginRequests).toHaveLength(1);
+  expect(redundantContextRequests).toEqual([]);
+});
+
+
 test("local login reaches deliverables and creates a project", async ({ page }) => {
   const suffix = Date.now().toString();
   const projectName = `UI Project ${suffix}`;

@@ -52,6 +52,8 @@ export function createDataStoreController({
       state.myWork.editingTaskId = "";
       state.myWork.draggingTaskId = "";
       state.myWork.savingPrivateTaskId = "";
+      state.myWork.detailTab = "task";
+      state.myWork.privateNotice = null;
       state.myWork.sharedActions = null;
     }
     if (state.repositoryInventory) {

@@ -76,7 +76,11 @@ describe("My Work", () => {
 
     renderMyWork(ctx);
 
-    expect(ctx.els.myWorkRoot.textContent).toContain("Your workday");
+    expect(ctx.els.myWorkRoot.textContent).toContain("Plan");
+    expect([...ctx.els.myWorkRoot.querySelectorAll(".my-work-lane-heading h2")].map((node) => node.textContent)).toEqual([
+      "Today",
+      "Later",
+    ]);
     expect(ctx.els.myWorkRoot.textContent).toContain("Resolve <contract>");
     expect(ctx.els.myWorkRoot.textContent).toContain("Developer Experience / Developer Mode / My Work");
     expect(ctx.els.myWorkRoot.textContent).toContain("Product decision");
@@ -147,7 +151,7 @@ describe("My Work", () => {
 
     renderMyWork(ctx);
 
-    const card = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-1']");
+    const card = ctx.els.myWorkRoot.querySelector("[data-my-work-card='task-1']");
     expect(card.getAttribute("draggable")).toBe("true");
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='later']")).toBeTruthy();
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-focus]")).toBeNull();
@@ -279,9 +283,9 @@ describe("My Work", () => {
     const ctx = context(records);
     ctx.api.mockImplementation(async (path) => path === "/my-work" ? records : {});
     renderMyWork(ctx);
-    const source = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-now']");
+    const source = ctx.els.myWorkRoot.querySelector("[data-my-work-card='task-now']");
     const target = ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='later']");
-    const targetCard = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-next']");
+    const targetCard = ctx.els.myWorkRoot.querySelector("[data-my-work-card='task-next']");
     const dataTransfer = {
       effectAllowed: "",
       dropEffect: "",

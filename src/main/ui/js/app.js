@@ -286,6 +286,8 @@ const state = {
     editingTaskId: "",
     draggingTaskId: "",
     savingPrivateTaskId: "",
+    detailTab: "task",
+    privateNotice: null,
     sharedActions: null,
   },
   repositoryInventory: {

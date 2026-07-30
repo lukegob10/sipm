@@ -90,10 +90,10 @@
 
 .my-work-layout {
   display: grid;
-  grid-template-columns: minmax(340px, 0.95fr) minmax(560px, 2.05fr);
+  grid-template-columns: minmax(600px, 1.35fr) minmax(420px, 0.85fr);
   gap: 18px;
   align-items: stretch;
-  height: clamp(680px, calc(100vh - 260px), 780px);
+  height: clamp(660px, calc(100dvh - 250px), 840px);
   min-height: 0;
 }
 
@@ -128,28 +128,27 @@
   margin: 0;
 }
 
-.my-work-sections {
+.my-work-lanes {
   display: grid;
-  gap: 10px;
-  align-content: start;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
   min-height: 0;
-  overflow-y: auto;
-  padding: 10px;
-  scrollbar-gutter: stable;
+  overflow: hidden;
+  padding: 12px;
 }
 
-.my-work-section {
+.my-work-lane {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   background: var(--surface-sunken);
 }
 
-.my-work-section.is-attention {
-  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-soft));
-}
-
-.my-work-section-heading {
+.my-work-lane-heading {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -159,21 +158,22 @@
   background: var(--surface-2);
 }
 
-.my-work-section-heading h2,
-.my-work-section-heading p {
+.my-work-lane-heading h2,
+.my-work-lane-heading p {
   margin: 0;
 }
 
-.my-work-section-heading h2 {
+.my-work-lane-heading h2 {
   color: var(--text-strong);
-  font-size: 0.86rem;
+  font-size: 0.92rem;
 }
 
-.my-work-section-heading p {
-  margin-top: 2px;
+.my-work-lane-heading p {
+  max-width: 26ch;
+  margin-top: 3px;
   color: var(--text-subtle);
-  font-size: 0.7rem;
-  line-height: 1.35;
+  font-size: 0.74rem;
+  line-height: 1.4;
 }
 
 .my-work-queue-heading h2 {
@@ -201,21 +201,21 @@
 
 .my-work-card-list {
   display: grid;
-  grid-auto-rows: 116px;
+  grid-auto-rows: max-content;
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-content: start;
-  min-height: 48px;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 8px;
+  padding: 10px;
   scrollbar-gutter: stable;
   transition: background 120ms ease, box-shadow 120ms ease;
 }
 
-.my-work-section .my-work-card-list {
-  overflow: visible;
-  padding: 7px;
+.my-work-card-list:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -3px;
 }
 
 .my-work-card-list.is-drop-zone.is-drag-over {
@@ -226,24 +226,21 @@
 .my-work-card {
   position: relative;
   display: grid;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
   width: 100%;
-  height: 116px;
-  min-height: 116px;
-  max-height: 116px;
+  min-height: 104px;
   box-sizing: border-box;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 13px 14px;
   border: 1px solid var(--border-soft);
   border-radius: 9px;
   background: var(--table-row-bg);
   color: var(--text);
-  text-align: left;
   box-shadow: none;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
 .my-work-card:hover,
-.my-work-card:focus-visible {
+.my-work-card:focus-within {
   border-color: var(--hover-border);
   background: var(--hover-strong);
 }
@@ -262,6 +259,46 @@
 .my-work-card.needs-attention.is-selected {
   border-color: var(--danger);
   box-shadow: inset 3px 0 0 var(--danger), var(--selected-ring);
+}
+
+.my-work-card-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 4px 12px 13px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  box-shadow: none;
+}
+
+.my-work-card-main:hover,
+.my-work-card-main:focus-visible {
+  background: transparent;
+  box-shadow: none;
+}
+
+.my-work-card-move {
+  align-self: center;
+  min-width: 70px;
+  min-height: 32px;
+  margin-right: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.my-work-card-move:hover,
+.my-work-card-move:focus-visible {
+  border-color: var(--accent-strong);
+  background: var(--hover-strong);
 }
 
 .my-work-card[draggable="true"] {
@@ -327,14 +364,24 @@
   font-weight: 650;
 }
 
-.my-work-card-due.is-attention {
-  color: var(--danger);
+.my-work-card-meta > span:not(:last-child)::after {
+  margin-left: 8px;
+  color: var(--border-strong);
+  content: "·";
 }
 
-.my-work-card-meta > span:not(:last-child)::after {
-  margin-left: 10px;
-  color: var(--border-strong);
-  content: "•";
+.my-work-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: center;
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.my-work-card-signal.is-attention {
+  color: var(--danger);
 }
 
 .my-work-empty-bucket {
@@ -388,17 +435,17 @@
   overflow-y: auto;
 }
 
-.my-work-sections::-webkit-scrollbar,
+.my-work-card-list::-webkit-scrollbar,
 .my-work-detail::-webkit-scrollbar {
   width: 10px;
 }
 
-.my-work-sections::-webkit-scrollbar-track,
+.my-work-card-list::-webkit-scrollbar-track,
 .my-work-detail::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.my-work-sections::-webkit-scrollbar-thumb,
+.my-work-card-list::-webkit-scrollbar-thumb,
 .my-work-detail::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
@@ -470,6 +517,58 @@
   color: var(--text-subtle);
   font-size: 0.82rem;
   line-height: 1.5;
+}
+
+.my-work-detail-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+
+.my-work-detail-tabs button {
+  position: relative;
+  min-height: 38px;
+  padding: 8px 12px 10px;
+  border: 0;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: none;
+}
+
+.my-work-detail-tabs button:hover,
+.my-work-detail-tabs button:focus-visible {
+  background: var(--hover-strong);
+  color: var(--text-strong);
+}
+
+.my-work-detail-tabs button[aria-selected="true"] {
+  background: var(--surface-1);
+  color: var(--text-strong);
+}
+
+.my-work-detail-tabs button[aria-selected="true"]::after {
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  background: var(--accent-strong);
+  content: "";
+}
+
+.my-work-note-indicator {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 7px;
+  border-radius: 50%;
+  background: var(--accent-strong);
+  vertical-align: middle;
 }
 
 .my-work-detail-section h3 {
@@ -562,38 +661,41 @@
   display: none;
 }
 
-.my-work-private-plan {
-  padding: 17px 18px;
-  border-bottom: 1px solid var(--border-soft);
-  background: color-mix(in srgb, var(--accent-strong) 4%, var(--surface-1));
+.my-work-notes-panel {
+  min-height: calc(100% - 130px);
+  padding: 22px;
+  background: color-mix(in srgb, var(--accent-strong) 3%, var(--surface-1));
 }
 
-.my-work-private-heading {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  align-items: flex-start;
-  margin-bottom: 12px;
+.my-work-notes-heading {
+  margin-bottom: 18px;
 }
 
-.my-work-private-heading h3 {
-  margin: 4px 0 0;
+.my-work-notes-heading h3,
+.my-work-notes-heading p {
+  margin: 0;
+}
+
+.my-work-notes-heading h3 {
+  margin-top: 5px;
   color: var(--text-strong);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
-.my-work-private-plan form {
+.my-work-notes-heading p {
+  max-width: 56ch;
+  margin-top: 7px;
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.my-work-notes-panel form {
   display: grid;
-  gap: 11px;
+  gap: 14px;
 }
 
-.my-work-private-grid {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1.3fr);
-  gap: 10px;
-}
-
-.my-work-private-plan input[type="datetime-local"] {
+.my-work-notes-panel input[type="datetime-local"] {
   width: 100%;
   min-width: 0;
   min-height: 40px;
@@ -607,13 +709,14 @@
   font: inherit;
 }
 
-body.theme-light .my-work-private-plan input[type="datetime-local"] {
+body.theme-light .my-work-notes-panel input[type="datetime-local"] {
   color-scheme: light;
 }
 
-.my-work-private-plan textarea {
+.my-work-notes-panel textarea {
   width: 100%;
   min-width: 0;
+  min-height: 260px;
   box-sizing: border-box;
   padding: 9px 11px;
   border: 1px solid var(--border);
@@ -625,14 +728,18 @@ body.theme-light .my-work-private-plan input[type="datetime-local"] {
   resize: vertical;
 }
 
-.my-work-private-plan input:focus,
-.my-work-private-plan textarea:focus {
+.my-work-notes-panel input:focus,
+.my-work-notes-panel textarea:focus {
   border-color: var(--accent-strong);
   box-shadow: var(--selected-ring-strong);
   outline: none;
 }
 
-.my-work-private-actions {
+.my-work-reminder-field {
+  max-width: 320px;
+}
+
+.my-work-notes-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -831,7 +938,7 @@ body.theme-light .my-work-private-plan input[type="datetime-local"] {
 
   .my-work-queue,
   .my-work-queue-panel {
-    height: min(520px, calc(100vh - 220px));
+    height: min(620px, calc(100dvh - 220px));
   }
 
   .my-work-detail {
@@ -850,11 +957,28 @@ body.theme-light .my-work-private-plan input[type="datetime-local"] {
     grid-template-columns: 1fr;
   }
 
+  .my-work-queue,
+  .my-work-queue-panel {
+    height: auto;
+  }
+
+  .my-work-lanes {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .my-work-lane {
+    min-height: 360px;
+  }
+
+  .my-work-card-list {
+    max-height: 420px;
+  }
+
   .my-work-edit-grid {
     grid-template-columns: 1fr;
   }
 
-  .my-work-private-grid,
   .my-work-edit-assignment-grid,
   .my-work-edit-copy-grid {
     grid-template-columns: 1fr;

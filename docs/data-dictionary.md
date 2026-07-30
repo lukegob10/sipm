@@ -21,9 +21,12 @@ erDiagram
   TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACE_MEMBERSHIPS : has
   TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACE_ACCESS_REQUESTS : requests
   TB_TA_PM_USERS ||--o{ TB_TA_PM_SPACES : owns
+  TB_TA_PM_USERS ||--o{ TB_TA_PM_USER_TASK_STATES : organizes
   TB_TA_PM_SPACES ||--o{ TB_TA_PM_PROJECTS : scopes
+  TB_TA_PM_SPACES ||--o{ TB_TA_PM_USER_TASK_STATES : scopes
   TB_TA_PM_PROJECTS ||--o{ TB_TA_PM_SOLUTIONS : owns
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_TASKS : owns
+  TB_TA_PM_TASKS ||--o{ TB_TA_PM_USER_TASK_STATES : personalizes
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_DOCUMENTS : stores
   TB_TA_PM_PHASES ||--o{ TB_TA_PM_SOLUTION_PHASES : configures
   TB_TA_PM_SOLUTIONS ||--o{ TB_TA_PM_SOLUTION_PHASES : enables
@@ -79,6 +82,32 @@ Used by:
 - Space memberships.
 - Work allocation people.
 - Analytics identity rollups.
+
+#### `TB_TA_PM_USER_TASK_STATES`
+
+SQLAlchemy model: `UserTaskState`
+
+Purpose: stores one developer's private My Work organization for an assigned task. It is not shared task state and is never exposed through task, export, manager, audit, or agent APIs.
+
+Key fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `user_task_state_id` | string PK | Private state identifier. |
+| `user_id` | FK users | The only user allowed to read or change this state through My Work. |
+| `space_id` | FK spaces | Space boundary used by every private-state query. |
+| `task_id` | FK tasks | Assigned shared task being organized. |
+| `bucket` | string | Personal placement: `today` or `later`. Derived Attention, Waiting, and Upcoming sections do not overwrite this value. |
+| `sort_rank` | integer | Personal ordering within a movable My Work section. |
+| `reminder_at` | datetime nullable | User-selected reminder instant, stored as UTC. |
+| `private_note` | text nullable | Private planning note, limited to the owning user's My Work API. |
+
+Important constraints and behavior:
+
+- Unique `(user_id, task_id)`; task identifiers are globally unique, while all application queries additionally enforce `space_id`.
+- `PATCH /api/my-work/tasks/{task_id}/state` updates only explicitly supplied fields; `null` clears reminders and notes.
+- An overdue private reminder can surface the task in the owning user's Attention section without changing the shared task.
+- Private state is not written to the shared change log and does not produce workspace broadcasts.
 
 #### `TB_TA_PM_API_TOKENS`
 

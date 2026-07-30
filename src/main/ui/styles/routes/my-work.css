@@ -1,3 +1,5 @@
+@import "./my-work-actions.css";
+
 .my-work-panel {
   min-height: calc(100vh - 112px);
 }
@@ -88,7 +90,7 @@
 
 .my-work-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 0.85fr) minmax(560px, 2.15fr);
+  grid-template-columns: minmax(340px, 0.95fr) minmax(560px, 2.05fr);
   gap: 18px;
   align-items: stretch;
   height: clamp(680px, calc(100vh - 260px), 780px);
@@ -126,6 +128,54 @@
   margin: 0;
 }
 
+.my-work-sections {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  scrollbar-gutter: stable;
+}
+
+.my-work-section {
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.my-work-section.is-attention {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-soft));
+}
+
+.my-work-section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 11px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-2);
+}
+
+.my-work-section-heading h2,
+.my-work-section-heading p {
+  margin: 0;
+}
+
+.my-work-section-heading h2 {
+  color: var(--text-strong);
+  font-size: 0.86rem;
+}
+
+.my-work-section-heading p {
+  margin-top: 2px;
+  color: var(--text-subtle);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
 .my-work-queue-heading h2 {
   color: var(--text-strong);
   font-size: 0.98rem;
@@ -161,6 +211,11 @@
   padding: 8px;
   scrollbar-gutter: stable;
   transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.my-work-section .my-work-card-list {
+  overflow: visible;
+  padding: 7px;
 }
 
 .my-work-card-list.is-drop-zone.is-drag-over {
@@ -219,6 +274,10 @@
 
 .my-work-card.is-dragging {
   opacity: 0.42;
+}
+
+.my-work-card.is-closed {
+  opacity: 0.68;
 }
 
 .my-work-card.drop-before::before,
@@ -286,6 +345,30 @@
   text-align: center;
 }
 
+.my-work-filter-empty {
+  display: grid;
+  min-height: 260px;
+  padding: 24px;
+  place-content: center;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.my-work-filter-empty h2,
+.my-work-filter-empty p {
+  margin: 0;
+}
+
+.my-work-filter-empty h2 {
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.my-work-filter-empty p {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+
 .my-work-detail {
   position: sticky;
   top: 82px;
@@ -301,23 +384,21 @@
 }
 
 .my-work-detail-view {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-  overflow: hidden;
-  scrollbar-gutter: auto;
+  display: block;
+  overflow-y: auto;
 }
 
-.my-work-card-list::-webkit-scrollbar,
+.my-work-sections::-webkit-scrollbar,
 .my-work-detail::-webkit-scrollbar {
   width: 10px;
 }
 
-.my-work-card-list::-webkit-scrollbar-track,
+.my-work-sections::-webkit-scrollbar-track,
 .my-work-detail::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.my-work-card-list::-webkit-scrollbar-thumb,
+.my-work-sections::-webkit-scrollbar-thumb,
 .my-work-detail::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
@@ -399,7 +480,7 @@
 .my-work-detail-copy {
   display: grid;
   grid-template-rows: repeat(2, minmax(0, 1fr));
-  min-height: 0;
+  min-height: 220px;
   border-bottom: 1px solid var(--border-soft);
 }
 
@@ -438,7 +519,7 @@
 
 .my-work-detail-facts {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 8px;
 }
 
@@ -479,6 +560,83 @@
 
 .my-work-detail-footer .form-notice:empty {
   display: none;
+}
+
+.my-work-private-plan {
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--accent-strong) 4%, var(--surface-1));
+}
+
+.my-work-private-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.my-work-private-heading h3 {
+  margin: 4px 0 0;
+  color: var(--text-strong);
+  font-size: 0.9rem;
+}
+
+.my-work-private-plan form {
+  display: grid;
+  gap: 11px;
+}
+
+.my-work-private-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(220px, 1.3fr);
+  gap: 10px;
+}
+
+.my-work-private-plan input[type="datetime-local"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--field-bg);
+  color: var(--text);
+  color-scheme: dark;
+  font: inherit;
+}
+
+body.theme-light .my-work-private-plan input[type="datetime-local"] {
+  color-scheme: light;
+}
+
+.my-work-private-plan textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--field-bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.my-work-private-plan input:focus,
+.my-work-private-plan textarea:focus {
+  border-color: var(--accent-strong);
+  box-shadow: var(--selected-ring-strong);
+  outline: none;
+}
+
+.my-work-private-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .my-work-detail-actions {
@@ -696,6 +854,7 @@
     grid-template-columns: 1fr;
   }
 
+  .my-work-private-grid,
   .my-work-edit-assignment-grid,
   .my-work-edit-copy-grid {
     grid-template-columns: 1fr;

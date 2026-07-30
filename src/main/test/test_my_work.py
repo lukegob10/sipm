@@ -150,6 +150,11 @@ async def test_my_work_is_assigned_active_context_with_private_queue_order(clien
     assert records[1]["needs_attention"] is False
     assert records[1]["program_name"] == "Developer Experience"
     assert records[1]["task"]["effective_github_repo_url"] == "https://github.com/example/sipm"
+    assert records[1]["private_bucket"] == "later"
+    assert records[1]["private_sort_rank"] == 0
+    assert records[1]["private_reminder_at"] is None
+    assert records[1]["private_note"] is None
+    assert records[1]["reminder_due"] is False
 
     focused = await client.patch(
         "/project-manager/api/my-work/tasks/task-assigned/state",
@@ -157,7 +162,13 @@ async def test_my_work_is_assigned_active_context_with_private_queue_order(clien
         json={"sort_rank": 10},
     )
     assert focused.status_code == 200
-    assert focused.json() == {"task_id": "task-assigned", "sort_rank": 10}
+    assert focused.json() == {
+        "task_id": "task-assigned",
+        "bucket": "later",
+        "sort_rank": 10,
+        "reminder_at": None,
+        "private_note": None,
+    }
 
     refreshed = await client.get("/project-manager/api/my-work", headers={"X-Space-Id": "test-space"})
     assigned_record = next(row for row in refreshed.json() if row["task"]["task_id"] == "task-assigned")

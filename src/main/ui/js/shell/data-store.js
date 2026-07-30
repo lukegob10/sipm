@@ -47,7 +47,12 @@ export function createDataStoreController({
       state.myWork.loading = false;
       state.myWork.error = "";
       state.myWork.selectedTaskId = "";
+      state.myWork.search = "";
       state.myWork.repository = "";
+      state.myWork.editingTaskId = "";
+      state.myWork.draggingTaskId = "";
+      state.myWork.savingPrivateTaskId = "";
+      state.myWork.sharedActions = null;
     }
     if (state.repositoryInventory) {
       state.repositoryInventory.records = null;
@@ -203,7 +208,11 @@ export function createDataStoreController({
           errors.push(result.reason);
           return;
         }
-        applyEntityData(effectiveEntities[idx], result.value);
+        const entityKey = effectiveEntities[idx];
+        applyEntityData(entityKey, result.value);
+        if (entityKey === "tasks" && state.myWork) {
+          state.myWork.records = null;
+        }
         changed = true;
       });
       if (errors.length) {

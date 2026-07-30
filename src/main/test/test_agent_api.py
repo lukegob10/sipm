@@ -629,6 +629,10 @@ async def test_agent_assigned_work_is_shared_scoped_paginated_and_private_state_
     assert record["solution_name"] == "Agent Solution"
     assert record["needs_attention"] is True
     assert "private_sort_rank" not in record
+    assert "private_bucket" not in record
+    assert "private_reminder_at" not in record
+    assert "private_note" not in record
+    assert "reminder_due" not in record
 
     second = await agent_client.get(
         "/project-manager/api/agent/assigned-work",

@@ -76,14 +76,14 @@ describe("My Work", () => {
 
     renderMyWork(ctx);
 
-    expect(ctx.els.myWorkRoot.textContent).toContain("Task queue");
+    expect(ctx.els.myWorkRoot.textContent).toContain("Your workday");
     expect(ctx.els.myWorkRoot.textContent).toContain("Resolve <contract>");
     expect(ctx.els.myWorkRoot.textContent).toContain("Developer Experience / Developer Mode / My Work");
     expect(ctx.els.myWorkRoot.textContent).toContain("Product decision");
     const attentionCard = ctx.els.myWorkRoot.querySelector(".my-work-card.needs-attention");
     expect(attentionCard).toBeTruthy();
     expect(attentionCard.textContent).toContain("Clarify the API behavior");
-    expect(attentionCard.textContent).toContain("Due soon");
+    expect(attentionCard.textContent).toContain("Blocked");
     expect(attentionCard.textContent).not.toContain("In Progress");
     expect(attentionCard.textContent).not.toContain("Developer Experience");
     expect(attentionCard.querySelector(".pill")).toBeNull();
@@ -149,7 +149,7 @@ describe("My Work", () => {
 
     const card = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-1']");
     expect(card.getAttribute("draggable")).toBe("true");
-    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='queue']")).toBeTruthy();
+    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='later']")).toBeTruthy();
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-focus]")).toBeNull();
   });
 
@@ -280,7 +280,7 @@ describe("My Work", () => {
     ctx.api.mockImplementation(async (path) => path === "/my-work" ? records : {});
     renderMyWork(ctx);
     const source = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-now']");
-    const target = ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='queue']");
+    const target = ctx.els.myWorkRoot.querySelector("[data-my-work-drop-zone='later']");
     const targetCard = ctx.els.myWorkRoot.querySelector("[data-my-work-select='task-next']");
     const dataTransfer = {
       effectAllowed: "",

@@ -175,6 +175,54 @@ describe("data store controller", () => {
     await vi.waitFor(() => expect(renderActiveView).toHaveBeenCalledTimes(2));
   });
 
+  it("invalidates My Work when authoritative task data refreshes", async () => {
+    const { controller, state } = createHarness((path) => {
+      if (path === "/tasks") return Promise.resolve([{ task_id: "task-1", status: "in_progress" }]);
+      return Promise.resolve([]);
+    });
+    state.myWork = {
+      records: [{ task: { task_id: "task-1", status: "to_do" } }],
+      selectedTaskId: "task-1",
+    };
+
+    await controller.refreshFromServer("tasks");
+
+    expect(state.tasks).toEqual([{ task_id: "task-1", status: "in_progress" }]);
+    expect(state.myWork.records).toBeNull();
+    expect(state.myWork.selectedTaskId).toBe("task-1");
+  });
+
+  it("clears private My Work interaction state with the session data", () => {
+    const { controller, state } = createHarness(() => Promise.resolve([]));
+    state.myWork = {
+      records: [{ task: { task_id: "task-1" } }],
+      loading: true,
+      error: "failed",
+      selectedTaskId: "task-1",
+      search: "private text",
+      repository: "repo",
+      editingTaskId: "task-1",
+      draggingTaskId: "task-1",
+      savingPrivateTaskId: "task-1",
+      sharedActions: { blockDraft: "private blocker draft" },
+    };
+
+    controller.clearDataState();
+
+    expect(state.myWork).toMatchObject({
+      records: null,
+      loading: false,
+      error: "",
+      selectedTaskId: "",
+      search: "",
+      repository: "",
+      editingTaskId: "",
+      draggingTaskId: "",
+      savingPrivateTaskId: "",
+      sharedActions: null,
+    });
+  });
+
   it("rechecks loaded entities before running delayed prefetches", async () => {
     vi.useFakeTimers();
     const api = vi.fn((path) => {

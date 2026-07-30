@@ -24,6 +24,7 @@ function buildRouterHarness() {
     authed: true,
     currentView: "master",
     activeSpace: { space_id: "space-1", space_role: "space_admin" },
+    userPreferences: { developer_mode_enabled: false },
     tasksWorkbench: {},
   };
   const els = {
@@ -91,6 +92,18 @@ describe("router controller", () => {
     expect(controller.resolveAccessibleView("team-capacity")).toBe("team-capacity");
     expect(controller.resolveAccessibleView("spaces")).toBe("spaces");
     expect(controller.resolveAccessibleView("access")).toBe("master");
+  });
+
+  it("keeps developer routes behind the Developer Mode preference", () => {
+    const { controller, state } = buildRouterHarness();
+
+    expect(controller.resolveAccessibleView("my-work")).toBe("master");
+    expect(controller.resolveAccessibleView("repositories")).toBe("master");
+
+    state.userPreferences.developer_mode_enabled = true;
+
+    expect(controller.resolveAccessibleView("my-work")).toBe("my-work");
+    expect(controller.resolveAccessibleView("repositories")).toBe("repositories");
   });
 
   it("allows analytics for global admins when the feature is enabled", () => {

@@ -1,0 +1,73 @@
+.my-work-shared-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.my-work-shared-actions[aria-busy="true"] {
+  opacity: 0.78;
+}
+
+.my-work-action-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.my-work-block-composer {
+  display: grid;
+  gap: 9px;
+  width: min(100%, 560px);
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface-2));
+}
+
+.my-work-block-composer label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-subtle);
+  font-size: var(--font-size-label);
+  font-weight: 650;
+}
+
+.my-work-block-composer textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+}
+
+.my-work-block-composer textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.my-work-block-composer .form-notice:empty {
+  display: none;
+}
+
+.my-work-block-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.my-work-action-notice {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-subtle);
+  font-size: 0.8rem;
+}
+
+.my-work-action-notice.is-success {
+  border-color: color-mix(in srgb, var(--positive) 42%, var(--border));
+  color: var(--positive);
+}
+
+.my-work-action-notice.is-error {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border));
+  color: var(--danger);
+}

@@ -24,6 +24,7 @@ export function createRouterController({
   const DATA_ENTITIES = ["phases", "programs", "projects", "solutions", "tasks", "teams", "users"];
   const ADMIN_VIEWS = new Set(["spaces", "access"]);
   const GLOBAL_ADMIN_VIEWS = new Set(["analytics"]);
+  const DEVELOPER_MODE_VIEWS = new Set(["my-work", "repositories"]);
   const PROGRAM_DASHBOARD_ROUTE_VERSION = "program-dashboard-fields-v4";
   const ROUTE_MODULE_LOADERS = routeModuleLoaders || {
     "my-work": () => import("../routes/my-work.js"),
@@ -96,6 +97,9 @@ export function createRouterController({
     const normalized = normalizeView(view);
     if (isLobbyActive() && !["spaces", "access"].includes(normalized)) {
       return false;
+    }
+    if (DEVELOPER_MODE_VIEWS.has(normalized)) {
+      return state.authed && !!state.userPreferences?.developer_mode_enabled;
     }
     if (normalized === "analytics") {
       return state.authed && userIsGlobalAdmin() && usageAnalyticsEnabled();

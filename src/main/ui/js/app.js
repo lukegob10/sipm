@@ -283,6 +283,10 @@ const state = {
     selectedTaskId: "",
     search: "",
     repository: "",
+    editingTaskId: "",
+    draggingTaskId: "",
+    savingPrivateTaskId: "",
+    sharedActions: null,
   },
   repositoryInventory: {
     records: null,
@@ -1507,9 +1511,45 @@ function createMyWorkRouteContext() {
     escapeHtml,
     formatStatus,
     renderExternalRepoLink,
+    openTaskInWorkbench,
     setView,
     showCompletedOperationalWork,
   });
+}
+
+function openTaskInWorkbench(task) {
+  const taskId = String(task?.task_id || "").trim();
+  if (!taskId) return;
+
+  // Route first because entering the workbench resets its drawer state.
+  setView("tasks-workbench");
+
+  const wb = state.tasksWorkbench;
+  wb.preset = "all";
+  wb.filters = {
+    search: "",
+    project_id: String(task?.project_id || ""),
+    solution_id: String(task?.solution_id || ""),
+    assignee: "",
+    assignee_name: "",
+    status: "",
+    priority_max: "",
+  };
+  wb.selected = new Set();
+  wb.selectedSavedViewId = "";
+  wb.activeTaskId = taskId;
+  wb.visibleIds = [];
+  wb.drawerOpen = true;
+  wb.drawerReturnTaskId = "";
+  wb.drawerReturnScrollY = null;
+  wb.suppressAutoScrollOnce = false;
+  persistTasksWorkbenchUiState();
+
+  // When task data was prefetched, open immediately. Otherwise loadData will
+  // render the targeted drawer after the Tasks route finishes loading.
+  if ((state.tasks || []).some((row) => row.task_id === taskId)) {
+    renderTasksWorkbench();
+  }
 }
 
 function renderMyWork() {

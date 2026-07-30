@@ -98,7 +98,10 @@ class UserTaskState(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
+    bucket: Mapped[str] = mapped_column(String(16), default="later", nullable=False)
     sort_rank: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    reminder_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    private_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class AuthSession(TimestampMixin, Base):

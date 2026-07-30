@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, constr, field_validator
 
@@ -95,6 +95,7 @@ class TextLikeReadModel(BaseModel):
         "blockers",
         "risks",
         "blocker_note",
+        "private_note",
         "acceptance_criteria",
         "done_criteria",
         mode="before",
@@ -633,21 +634,48 @@ class TaskRead(TextLikeReadModel):
 
 
 class UserTaskStateUpdate(BaseModel):
-    sort_rank: int = 0
+    bucket: Literal["today", "later"] = "later"
+    sort_rank: int = Field(default=0, ge=0, le=2_147_483_647)
+    reminder_at: Optional[datetime] = None
+    private_note: Optional[str] = Field(default=None, max_length=10_000)
+
+    @field_validator("reminder_at")
+    @classmethod
+    def _require_reminder_timezone(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("reminder_at must include a timezone offset")
+        return value
+
+    @field_validator("private_note", mode="before")
+    @classmethod
+    def _normalize_private_note(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("private_note must be a string or null")
+        normalized = value.strip()
+        return normalized or None
 
 
-class UserTaskStateRead(BaseModel):
+class UserTaskStateRead(TextLikeReadModel):
     task_id: str
+    bucket: Literal["today", "later"] = "later"
     sort_rank: int = 0
+    reminder_at: Optional[datetime] = None
+    private_note: Optional[str] = None
 
 
-class MyWorkItemRead(BaseModel):
+class MyWorkItemRead(TextLikeReadModel):
     task: TaskRead
     program_id: Optional[str] = None
     program_name: Optional[str] = None
     project_name: str
     solution_name: str
+    private_bucket: Literal["today", "later"] = "later"
     private_sort_rank: int = 0
+    private_reminder_at: Optional[datetime] = None
+    private_note: Optional[str] = None
+    reminder_due: bool = False
     needs_attention: bool = False
 
 

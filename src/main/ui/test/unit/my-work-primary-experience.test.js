@@ -36,7 +36,23 @@ function taskRecord(taskId, overrides = {}) {
 
 function context(records, { showCompleted = false } = {}) {
   document.body.innerHTML = '<div id="my-work-root"></div>';
-  const ctx = {
+  const api = vi.fn(async (path, options = {}) => {
+    if (path === "/my-work") return records;
+    if (path.startsWith("/my-work/tasks/") && options.method === "PATCH") {
+      const taskId = decodeURIComponent(path.split("/").at(-2));
+      const record = records.find((item) => item.task.task_id === taskId);
+      const payload = JSON.parse(options.body);
+      return {
+        task_id: taskId,
+        bucket: payload.bucket ?? record.private_bucket,
+        sort_rank: payload.sort_rank ?? record.private_sort_rank,
+        reminder_at: Object.hasOwn(payload, "reminder_at") ? payload.reminder_at : record.private_reminder_at,
+        private_note: Object.hasOwn(payload, "private_note") ? payload.private_note : record.private_note,
+      };
+    }
+    return {};
+  });
+  return {
     state: {
       myWork: {
         records,
@@ -48,10 +64,12 @@ function context(records, { showCompleted = false } = {}) {
         editingTaskId: "",
         draggingTaskId: "",
         savingPrivateTaskId: "",
+        detailTab: "task",
+        privateNotice: null,
       },
     },
     els: { myWorkRoot: document.getElementById("my-work-root") },
-    api: vi.fn(async (path) => path === "/my-work" ? records : {}),
+    api,
     escapeHtml: (value) => String(value ?? "")
       .replaceAll("&", "&amp;")
       .replaceAll("<", "&lt;")
@@ -62,12 +80,15 @@ function context(records, { showCompleted = false } = {}) {
     setView: vi.fn(),
     showCompletedOperationalWork: () => showCompleted,
   };
-  return ctx;
 }
 
-function sectionTaskIds(root, section) {
-  return [...root.querySelectorAll(`[data-my-work-section-panel="${section}"] [data-my-work-select]`)]
+function laneTaskIds(root, lane) {
+  return [...root.querySelectorAll(`[data-my-work-lane-panel="${lane}"] [data-my-work-select]`)]
     .map((card) => card.dataset.myWorkSelect);
+}
+
+function card(root, taskId) {
+  return root.querySelector(`[data-my-work-card="${taskId}"]`);
 }
 
 function drag(source, target, taskId) {
@@ -88,74 +109,60 @@ function drag(source, target, taskId) {
   target.dispatchEvent(drop);
 }
 
-describe("My Work", () => {
+describe("My Work simplified planning", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
   });
 
-  it("classifies every task once using Attention, Waiting, Today, Upcoming, Later precedence", () => {
+  it("uses only Today and Later while retaining urgency as card context", () => {
     const records = [
       taskRecord("blocked-today", {
         task: { blocked: true, urgency_score: 40 },
         private_bucket: "today",
         needs_attention: true,
       }),
-      taskRecord("overdue-waiting", {
-        task: { status: "on_hold", is_overdue: true, due_date: "2026-07-20", urgency_score: 60 },
-        needs_attention: true,
-      }),
-      taskRecord("reminder", {
-        private_reminder_at: "2026-07-29T12:00:00Z",
-        reminder_due: true,
-      }),
       taskRecord("waiting-today", {
         task: { status: "on_hold" },
         private_bucket: "today",
       }),
-      taskRecord("today-upcoming", {
-        task: { is_due_soon: true, due_date: "2026-08-01" },
-        private_bucket: "today",
-      }),
-      taskRecord("upcoming", {
-        task: { is_due_soon: true, due_date: "2026-08-02" },
-      }),
+      taskRecord("upcoming", { task: { is_due_soon: true, due_date: "2026-08-02" } }),
       taskRecord("later"),
     ];
     const ctx = context(records);
 
     renderMyWork(ctx);
 
-    expect(sectionTaskIds(ctx.els.myWorkRoot, "attention")).toEqual([
-      "overdue-waiting",
+    expect(laneTaskIds(ctx.els.myWorkRoot, "today")).toEqual(expect.arrayContaining([
       "blocked-today",
-      "reminder",
-    ]);
-    expect(sectionTaskIds(ctx.els.myWorkRoot, "waiting")).toEqual(["waiting-today"]);
-    expect(sectionTaskIds(ctx.els.myWorkRoot, "today")).toEqual(["today-upcoming"]);
-    expect(sectionTaskIds(ctx.els.myWorkRoot, "upcoming")).toEqual(["upcoming"]);
-    expect(sectionTaskIds(ctx.els.myWorkRoot, "later")).toEqual(["later"]);
+      "waiting-today",
+    ]));
+    expect(laneTaskIds(ctx.els.myWorkRoot, "later")).toEqual(expect.arrayContaining([
+      "upcoming",
+      "later",
+    ]));
     expect(ctx.els.myWorkRoot.querySelectorAll("[data-my-work-select]")).toHaveLength(records.length);
-    expect([...ctx.els.myWorkRoot.querySelectorAll(".my-work-section-heading h2")].map((node) => node.textContent)).toEqual([
-      "Attention",
+    expect([...ctx.els.myWorkRoot.querySelectorAll(".my-work-lane-heading h2")].map((node) => node.textContent)).toEqual([
       "Today",
-      "Upcoming",
-      "Waiting",
       "Later",
     ]);
+    expect(card(ctx.els.myWorkRoot, "blocked-today").textContent).toContain("Blocked");
+    expect(card(ctx.els.myWorkRoot, "upcoming").textContent).toContain("Due soon");
   });
 
-  it("shows useful empty messages for all five sections", () => {
-    const ctx = context([taskRecord("today", { private_bucket: "today" })]);
+  it("gives both lanes useful, action-oriented empty states", () => {
+    const ctx = context([]);
+    ctx.state.myWork.search = "anything";
 
     renderMyWork(ctx);
 
-    expect(ctx.els.myWorkRoot.textContent).toContain("Nothing needs attention");
-    expect(ctx.els.myWorkRoot.textContent).toContain("No work due in the next 14 days");
-    expect(ctx.els.myWorkRoot.textContent).toContain("Nothing is on hold");
-    expect(ctx.els.myWorkRoot.textContent).toContain("No other assigned work");
+    expect(ctx.els.myWorkRoot.textContent).toContain("No work matches these filters");
+
+    const oneTaskCtx = context([taskRecord("today", { private_bucket: "today" })]);
+    renderMyWork(oneTaskCtx);
+    expect(oneTaskCtx.els.myWorkRoot.textContent).toContain("No tasks are waiting for later");
   });
 
-  it("shows one filtered-empty state and moves selection to the first visible result", () => {
+  it("moves selection to the first visible filtered result", () => {
     const records = [
       taskRecord("alpha", { task: { task_name: "Alpha work" } }),
       taskRecord("beta", { task: { task_name: "Beta work" }, private_bucket: "today" }),
@@ -170,63 +177,49 @@ describe("My Work", () => {
     expect(ctx.state.myWork.selectedTaskId).toBe("beta");
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='alpha']")).toBeNull();
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='beta']")).toBeTruthy();
-
-    const filteredSearch = ctx.els.myWorkRoot.querySelector("[data-my-work-search]");
-    filteredSearch.value = "no match";
-    filteredSearch.dispatchEvent(new Event("input", { bubbles: true }));
-
-    expect(ctx.els.myWorkRoot.querySelectorAll(".my-work-filter-empty")).toHaveLength(1);
-    expect(ctx.els.myWorkRoot.querySelectorAll(".my-work-section")).toHaveLength(0);
   });
 
-  it("keeps completed work hidden by default and puts it after active Later work when enabled", () => {
+  it("keeps completed work hidden by default and stages visible closed work in Later", () => {
     const records = [
-      taskRecord("closed-blocked", {
-        task: {
-          status: "complete",
-          blocked: true,
-          updated_at: "2026-07-29T14:00:00Z",
-        },
+      taskRecord("closed", {
+        task: { status: "complete", updated_at: "2026-07-29T14:00:00Z" },
         private_bucket: "today",
-        needs_attention: true,
       }),
-      taskRecord("active-later"),
+      taskRecord("active", { private_bucket: "later" }),
     ];
 
     const defaultCtx = context(records);
     renderMyWork(defaultCtx);
-    expect(defaultCtx.els.myWorkRoot.querySelector("[data-my-work-select='closed-blocked']")).toBeNull();
+    expect(card(defaultCtx.els.myWorkRoot, "closed")).toBeNull();
 
     const completedCtx = context(records, { showCompleted: true });
     renderMyWork(completedCtx);
-    expect(sectionTaskIds(completedCtx.els.myWorkRoot, "attention")).toEqual([]);
-    expect(sectionTaskIds(completedCtx.els.myWorkRoot, "today")).toEqual([]);
-    expect(sectionTaskIds(completedCtx.els.myWorkRoot, "later")).toEqual(["active-later", "closed-blocked"]);
+    expect(laneTaskIds(completedCtx.els.myWorkRoot, "today")).toEqual([]);
+    expect(laneTaskIds(completedCtx.els.myWorkRoot, "later")).toEqual(["active", "closed"]);
+    expect(card(completedCtx.els.myWorkRoot, "closed").hasAttribute("draggable")).toBe(false);
   });
 
-  it("makes only unfiltered Today and Later cards draggable", () => {
+  it("makes every active unfiltered task draggable regardless of urgency", () => {
     const records = [
       taskRecord("attention", { task: { blocked: true }, needs_attention: true }),
       taskRecord("today", { private_bucket: "today" }),
       taskRecord("upcoming", { task: { is_due_soon: true } }),
-      taskRecord("later"),
     ];
     const ctx = context(records);
     renderMyWork(ctx);
 
-    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='attention']").hasAttribute("draggable")).toBe(false);
-    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='upcoming']").hasAttribute("draggable")).toBe(false);
-    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='today']").getAttribute("draggable")).toBe("true");
-    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='later']").getAttribute("draggable")).toBe("true");
+    records.forEach((record) => {
+      expect(card(ctx.els.myWorkRoot, record.task.task_id).getAttribute("draggable")).toBe("true");
+    });
 
     const search = ctx.els.myWorkRoot.querySelector("[data-my-work-search]");
     search.value = "Task";
     search.dispatchEvent(new Event("input", { bubbles: true }));
-
     expect(ctx.els.myWorkRoot.querySelectorAll('[draggable="true"]')).toHaveLength(0);
+    expect(ctx.els.myWorkRoot.querySelectorAll("[data-my-work-move]")).toHaveLength(3);
   });
 
-  it("persists cross-bucket drag order in rank increments of 100", async () => {
+  it("moves a card immediately and persists its cross-lane order", async () => {
     const records = [
       taskRecord("today-1", { private_bucket: "today", private_sort_rank: 100 }),
       taskRecord("today-2", { private_bucket: "today", private_sort_rank: 200 }),
@@ -235,71 +228,72 @@ describe("My Work", () => {
     const ctx = context(records);
     renderMyWork(ctx);
 
-    const source = ctx.els.myWorkRoot.querySelector("[data-my-work-select='today-2']");
-    const target = ctx.els.myWorkRoot.querySelector("[data-my-work-select='later-1']");
-    drag(source, target, "today-2");
+    drag(card(ctx.els.myWorkRoot, "today-2"), card(ctx.els.myWorkRoot, "later-1"), "today-2");
 
+    expect(laneTaskIds(ctx.els.myWorkRoot, "later")).toEqual(["later-1", "today-2"]);
     await vi.waitFor(() => {
-      const movingCall = ctx.api.mock.calls.find(([path, options]) => (
-        path === "/my-work/tasks/today-2/state"
-        && options?.method === "PATCH"
-      ));
-      expect(movingCall).toBeTruthy();
-      expect(JSON.parse(movingCall[1].body)).toEqual({ bucket: "later", sort_rank: 200 });
+      expect(ctx.api).toHaveBeenCalledWith(
+        "/my-work/tasks/today-2/state",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ bucket: "later", sort_rank: 200 }),
+        }),
+      );
     });
-    const sourceCall = ctx.api.mock.calls.find(([path, options]) => (
-      path === "/my-work/tasks/today-1/state"
-      && options?.method === "PATCH"
-    ));
-    expect(JSON.parse(sourceCall[1].body)).toEqual({ bucket: "today", sort_rank: 100 });
   });
 
-  it("saves a timezone-aware reminder, bucket, and private note", async () => {
-    const record = taskRecord("private-plan", {
+  it("separates task-attached private notes from shared task details", async () => {
+    const record = taskRecord("private-note", {
       private_note: "Initial private note",
       private_reminder_at: "2026-07-29T14:00:00Z",
     });
-    const records = [record];
-    const ctx = context(records);
+    const ctx = context([record]);
     renderMyWork(ctx);
+
+    expect(ctx.els.myWorkRoot.querySelector("[data-my-work-private-form]")).toBeNull();
+    ctx.els.myWorkRoot.querySelector('[data-my-work-detail-tab="notes"]').click();
+
     const form = ctx.els.myWorkRoot.querySelector("[data-my-work-private-form]");
-    form.querySelector('[name="bucket"]').value = "today";
+    expect(form).toBeTruthy();
+    expect(ctx.els.myWorkRoot.textContent).toContain("They stay attached to this task");
+    expect(form.querySelector('[name="bucket"]')).toBeNull();
     form.querySelector('[name="reminder_at"]').value = "2026-07-30T09:15";
     form.querySelector('[name="private_note"]').value = "Remember the edge case";
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 
     await vi.waitFor(() => {
       const patchCall = ctx.api.mock.calls.find(([path, options]) => (
-        path === "/my-work/tasks/private-plan/state"
+        path === "/my-work/tasks/private-note/state"
         && options?.method === "PATCH"
       ));
-      expect(patchCall).toBeTruthy();
       expect(JSON.parse(patchCall[1].body)).toEqual({
-        bucket: "today",
         reminder_at: new Date("2026-07-30T09:15").toISOString(),
         private_note: "Remember the edge case",
       });
+      expect(ctx.els.myWorkRoot.textContent).toContain("Private note saved");
     });
   });
 
-  it("uses quick private planning without overriding a derived Attention section", async () => {
+  it("provides a working Move button even for attention tasks", async () => {
     const records = [taskRecord("blocked", {
       task: { blocked: true },
       needs_attention: true,
     })];
     const ctx = context(records);
     renderMyWork(ctx);
-    ctx.els.myWorkRoot.querySelector("[data-my-work-private-bucket='today']").click();
 
+    ctx.els.myWorkRoot.querySelector('[data-my-work-task="blocked"][data-my-work-move="today"]').click();
+
+    expect(laneTaskIds(ctx.els.myWorkRoot, "today")).toEqual(["blocked"]);
+    expect(card(ctx.els.myWorkRoot, "blocked").textContent).toContain("Blocked");
     await vi.waitFor(() => {
       expect(ctx.api).toHaveBeenCalledWith(
         "/my-work/tasks/blocked/state",
         expect.objectContaining({
           method: "PATCH",
-          body: JSON.stringify({ bucket: "today" }),
+          body: JSON.stringify({ bucket: "today", sort_rank: 100 }),
         }),
       );
-      expect(sectionTaskIds(ctx.els.myWorkRoot, "attention")).toEqual(["blocked"]);
     });
   });
 });

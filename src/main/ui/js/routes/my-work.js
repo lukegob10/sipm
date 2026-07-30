@@ -4,38 +4,18 @@ import {
   renderSharedActions,
 } from "./my-work/shared-actions.js";
 
-const SECTION_ORDER = ["attention", "today", "upcoming", "waiting", "later"];
+const LANE_ORDER = ["today", "later"];
 
-const SECTION_DEFINITIONS = {
-  attention: {
-    title: "Attention",
-    description: "Overdue, blocked, or due for a reminder.",
-    empty: "Nothing needs attention",
-    derived: true,
-  },
+const LANE_DEFINITIONS = {
   today: {
     title: "Today",
-    description: "Your private plan for focused work today.",
-    empty: "Nothing planned for today",
-    derived: false,
-  },
-  upcoming: {
-    title: "Upcoming",
-    description: "Assigned work due in the next 14 days.",
-    empty: "No work due in the next 14 days",
-    derived: true,
-  },
-  waiting: {
-    title: "Waiting",
-    description: "Shared work currently on hold.",
-    empty: "Nothing is on hold",
-    derived: true,
+    description: "The short list you intend to work on now.",
+    empty: "Drop a task here when you are ready to work on it.",
   },
   later: {
     title: "Later",
-    description: "Your remaining assigned work and private backlog.",
-    empty: "No other assigned work",
-    derived: false,
+    description: "Assigned work that is staged for another time.",
+    empty: "No tasks are waiting for later.",
   },
 };
 
@@ -53,9 +33,13 @@ function myWorkState(state) {
       editingTaskId: "",
       draggingTaskId: "",
       savingPrivateTaskId: "",
+      detailTab: "task",
+      privateNotice: null,
     };
   }
-  return state.myWork;
+  const work = state.myWork;
+  work.detailTab = work.detailTab === "notes" ? "notes" : "task";
+  return work;
 }
 
 function searchableText(record) {
@@ -90,14 +74,8 @@ function normalizedPrivateBucket(record) {
   return PRIVATE_BUCKETS.has(record?.private_bucket) ? record.private_bucket : "later";
 }
 
-function sectionForRecord(record) {
-  const task = record.task || {};
-  if (isClosedTask(task)) return "later";
-  if (record.needs_attention || record.reminder_due || task.is_overdue || task.blocked) return "attention";
-  if (String(task.status || "").toLowerCase() === "on_hold") return "waiting";
-  if (normalizedPrivateBucket(record) === "today") return "today";
-  if (task.is_due_soon) return "upcoming";
-  return "later";
+function laneForRecord(record) {
+  return isClosedTask(record?.task) ? "later" : normalizedPrivateBucket(record);
 }
 
 function numberOr(value, fallback) {
@@ -137,21 +115,18 @@ function compareClosed(a, b) {
   return compareFallback(a, b);
 }
 
-function sectionedRecords(records) {
-  const sections = Object.fromEntries(SECTION_ORDER.map((section) => [section, []]));
-  records.forEach((record) => sections[sectionForRecord(record)].push(record));
-  sections.attention.sort(compareFallback);
-  sections.waiting.sort(compareFallback);
-  sections.upcoming.sort(compareFallback);
-  sections.today.sort(comparePrivate);
-  const activeLater = sections.later.filter((record) => !isClosedTask(record.task)).sort(comparePrivate);
-  const closedLater = sections.later.filter((record) => isClosedTask(record.task)).sort(compareClosed);
-  sections.later = [...activeLater, ...closedLater];
-  return sections;
+function plannedRecords(records) {
+  const lanes = Object.fromEntries(LANE_ORDER.map((lane) => [lane, []]));
+  records.forEach((record) => lanes[laneForRecord(record)].push(record));
+  lanes.today.sort(comparePrivate);
+  const activeLater = lanes.later.filter((record) => !isClosedTask(record.task)).sort(comparePrivate);
+  const closedLater = lanes.later.filter((record) => isClosedTask(record.task)).sort(compareClosed);
+  lanes.later = [...activeLater, ...closedLater];
+  return lanes;
 }
 
-function recordsInDisplayOrder(sections) {
-  return SECTION_ORDER.flatMap((section) => sections[section]);
+function recordsInDisplayOrder(lanes) {
+  return LANE_ORDER.flatMap((lane) => lanes[lane]);
 }
 
 function statusLabel(ctx, value) {
@@ -243,49 +218,56 @@ function renderRepo(ctx, task) {
   });
 }
 
-function attentionLabel(record) {
+function taskSignal(ctx, record) {
   const task = record.task || {};
-  if (record.reminder_due) return `Reminder due · ${reminderLabel(record.private_reminder_at)}`;
-  if (task.is_overdue) return dueLabel(task);
   if (task.blocked) return "Blocked";
-  return dueLabel(task);
+  if (task.is_overdue) return "Overdue";
+  if (record.reminder_due) return "Reminder due";
+  if (String(task.status || "").toLowerCase() === "on_hold") return "Waiting";
+  if (task.is_due_soon) return "Due soon";
+  return statusLabel(ctx, task.status);
 }
 
-function taskCard(ctx, record, selected, section, reorderEnabled) {
+function taskCard(ctx, record, selected, lane, reorderEnabled) {
   const task = record.task;
-  const attention = section === "attention";
-  const draggable = reorderEnabled && ["today", "later"].includes(section) && !isClosedTask(task);
-  const cardLabel = attention ? attentionLabel(record) : dueLabel(task);
+  const closed = isClosedTask(task);
+  const attention = !closed && !!(record.needs_attention || record.reminder_due || task.is_overdue || task.blocked);
+  const draggable = reorderEnabled && !closed;
+  const saving = myWorkState(ctx.state).savingPrivateTaskId === task.task_id;
+  const targetLane = lane === "today" ? "later" : "today";
   return `
-    <button type="button" class="my-work-card${selected ? " is-selected" : ""}${attention ? " needs-attention" : ""}${isClosedTask(task) ? " is-closed" : ""}" data-my-work-select="${ctx.escapeHtml(task.task_id)}" data-my-work-section="${section}" aria-pressed="${selected ? "true" : "false"}"${draggable ? ' draggable="true"' : ""}>
-      <span class="my-work-task-title">${ctx.escapeHtml(task.task_name)}</span>
-      <span class="my-work-task-description">${ctx.escapeHtml(task.description || "No description provided.")}</span>
-      <span class="my-work-card-due${attention ? " is-attention" : ""}">${ctx.escapeHtml(cardLabel)}</span>
-    </button>
+    <article class="my-work-card${selected ? " is-selected" : ""}${attention ? " needs-attention" : ""}${closed ? " is-closed" : ""}" data-my-work-card="${ctx.escapeHtml(task.task_id)}" data-my-work-lane="${lane}" role="listitem"${draggable ? ' draggable="true"' : ""}>
+      <button type="button" class="my-work-card-main" data-my-work-select="${ctx.escapeHtml(task.task_id)}" aria-pressed="${selected ? "true" : "false"}">
+        <span class="my-work-task-title">${ctx.escapeHtml(task.task_name)}</span>
+        <span class="my-work-task-description">${ctx.escapeHtml(task.description || "No description provided.")}</span>
+        <span class="my-work-card-meta">
+          <span class="my-work-card-signal${attention ? " is-attention" : ""}">${ctx.escapeHtml(taskSignal(ctx, record))}</span>
+          <span class="my-work-card-due">${ctx.escapeHtml(dueLabel(task))}</span>
+        </span>
+      </button>
+      ${closed ? "" : `<button type="button" class="my-work-card-move" data-my-work-move="${targetLane}" data-my-work-task="${ctx.escapeHtml(task.task_id)}" aria-label="Move ${ctx.escapeHtml(task.task_name)} to ${LANE_DEFINITIONS[targetLane].title}"${saving ? " disabled" : ""}>${targetLane === "today" ? "← Today" : "Later →"}</button>`}
+    </article>
   `;
 }
 
-function renderSection(ctx, section, records, selectedTaskId, reorderEnabled) {
-  const definition = SECTION_DEFINITIONS[section];
-  const dropAttributes = definition.derived
-    ? ""
-    : ` is-drop-zone" data-my-work-drop-zone="${section}`;
+function renderLane(ctx, lane, records, selectedTaskId, reorderEnabled) {
+  const definition = LANE_DEFINITIONS[lane];
   return `
-    <section class="my-work-section is-${section}" data-my-work-section-panel="${section}">
-      <div class="my-work-section-heading">
+    <section class="my-work-lane is-${lane}" data-my-work-lane-panel="${lane}">
+      <div class="my-work-lane-heading">
         <div>
           <h2>${definition.title}</h2>
           <p>${definition.description}</p>
         </div>
         <span class="my-work-count">${records.length}</span>
       </div>
-      <div class="my-work-card-list${dropAttributes}">
+      <div class="my-work-card-list is-drop-zone" data-my-work-drop-zone="${lane}" role="list" tabindex="0" aria-label="${definition.title} tasks">
         ${records.length
           ? records.map((record) => taskCard(
             ctx,
             record,
             record.task.task_id === selectedTaskId,
-            section,
+            lane,
             reorderEnabled,
           )).join("")
           : `<p class="my-work-empty-bucket">${definition.empty}</p>`}
@@ -294,7 +276,7 @@ function renderSection(ctx, section, records, selectedTaskId, reorderEnabled) {
   `;
 }
 
-function renderQueue(ctx, sections, records, selectedTaskId) {
+function renderQueue(ctx, lanes, records, selectedTaskId) {
   const work = myWorkState(ctx.state);
   const filtered = !!work.search.trim() || !!work.repository;
   const reorderEnabled = !filtered;
@@ -312,16 +294,16 @@ function renderQueue(ctx, sections, records, selectedTaskId) {
     <section class="my-work-queue-panel">
       <div class="my-work-queue-heading">
         <div>
-          <h2>Your workday</h2>
-          <p>${reorderEnabled ? "Drag Today and Later to update your private plan." : "Clear filters to reorder Today and Later."}</p>
+          <h2>Plan</h2>
+          <p>${reorderEnabled ? "Drag to prioritize, or use each task's Move button." : "Clear filters to drag and reorder. Move buttons still work."}</p>
         </div>
         <span class="my-work-count">${records.length}</span>
       </div>
-      <div class="my-work-sections">
-        ${SECTION_ORDER.map((section) => renderSection(
+      <div class="my-work-lanes">
+        ${LANE_ORDER.map((lane) => renderLane(
           ctx,
-          section,
-          sections[section],
+          lane,
+          lanes[lane],
           selectedTaskId,
           reorderEnabled,
         )).join("")}
@@ -375,70 +357,44 @@ function editTaskForm(ctx, record) {
   `;
 }
 
-function privatePlanningForm(ctx, record) {
-  const bucket = normalizedPrivateBucket(record);
-  const nextBucket = bucket === "today" ? "later" : "today";
-  const nextBucketLabel = nextBucket === "today" ? "Add to Today" : "Move to Later";
+function notesPanel(ctx, record) {
+  const work = myWorkState(ctx.state);
   const saving = myWorkState(ctx.state).savingPrivateTaskId === record.task.task_id;
+  const notice = work.privateNotice?.taskId === record.task.task_id
+    ? work.privateNotice.message
+    : "";
   return `
-    <section class="my-work-private-plan">
-      <div class="my-work-private-heading">
+    <section id="my-work-notes-panel" class="my-work-notes-panel" role="tabpanel" aria-labelledby="my-work-notes-tab">
+      <div class="my-work-notes-heading">
         <div>
-          <span class="eyebrow">Private to you</span>
-          <h3>Personal plan</h3>
+          <span class="eyebrow">Private workspace</span>
+          <h3>Notes for ${ctx.escapeHtml(record.task.task_name)}</h3>
+          <p>Only you can see this note and reminder. They stay attached to this task.</p>
         </div>
-        <button type="button" class="secondary" data-my-work-private-bucket="${nextBucket}"${saving ? " disabled" : ""}>${nextBucketLabel}</button>
       </div>
       <form data-my-work-private-form>
-        <div class="my-work-private-grid">
-          <label class="my-work-edit-field"><span>Plan</span><select class="app-select" name="bucket">
-            <option value="today"${bucket === "today" ? " selected" : ""}>Today</option>
-            <option value="later"${bucket === "later" ? " selected" : ""}>Later</option>
-          </select></label>
-          <label class="my-work-edit-field"><span>Reminder</span><input type="datetime-local" name="reminder_at" value="${ctx.escapeHtml(datetimeLocalValue(record.private_reminder_at))}" /></label>
-        </div>
-        <label class="my-work-edit-field"><span>Private note</span><textarea name="private_note" rows="3" placeholder="Add personal context that only you can see.">${ctx.escapeHtml(record.private_note || "")}</textarea></label>
-        <div class="my-work-private-actions">
-          <button type="submit"${saving ? " disabled" : ""}>Save personal plan</button>
+        <label class="my-work-edit-field"><span>Private note for this task</span><textarea name="private_note" rows="12" placeholder="Capture your working notes, decisions to revisit, or next steps.">${ctx.escapeHtml(record.private_note || "")}</textarea></label>
+        <label class="my-work-edit-field my-work-reminder-field"><span>Reminder</span><input type="datetime-local" name="reminder_at" value="${ctx.escapeHtml(datetimeLocalValue(record.private_reminder_at))}" /></label>
+        <div class="my-work-notes-actions">
+          <button type="submit"${saving ? " disabled" : ""}>Save note</button>
           <button type="button" class="secondary" data-my-work-clear-reminder${record.private_reminder_at ? "" : " disabled"}>Clear reminder</button>
         </div>
-        <p class="form-notice" data-my-work-private-feedback role="status" aria-live="polite"></p>
+        <p class="form-notice" data-my-work-private-feedback role="status" aria-live="polite">${ctx.escapeHtml(notice)}</p>
       </form>
     </section>
   `;
 }
 
-function detailPane(ctx, record) {
-  if (!record) {
-    return `
-      <aside class="my-work-detail my-work-detail-empty">
-        <div>
-          <span class="my-work-detail-icon" aria-hidden="true">↗</span>
-          <h2>Select a task</h2>
-          <p>Review context, update shared status, or organize your private focus.</p>
-        </div>
-      </aside>
-    `;
-  }
-  const work = myWorkState(ctx.state);
-  if (work.editingTaskId === record.task.task_id) return editTaskForm(ctx, record);
+function taskDetailPanel(ctx, record) {
   const task = record.task;
   return `
-    <aside class="my-work-detail my-work-detail-view">
-      <div class="my-work-detail-head">
-        <div class="my-work-detail-head-copy">
-          <span class="eyebrow">Shared SIPM Task</span>
-          <h2>${ctx.escapeHtml(task.task_name)}</h2>
-          <p>${ctx.escapeHtml(record.program_name || "Unmapped Program")} / ${ctx.escapeHtml(record.project_name)} / ${ctx.escapeHtml(record.solution_name)}</p>
-        </div>
-        <button type="button" class="secondary" data-my-work-edit>Edit Task</button>
-      </div>
+    <div id="my-work-task-panel" role="tabpanel" aria-labelledby="my-work-task-tab">
       <div class="my-work-detail-section">
         <div class="my-work-detail-facts">
           <span><small>Status</small><strong>${ctx.escapeHtml(statusLabel(ctx, task.status))}</strong></span>
           <span><small>Due</small><strong>${ctx.escapeHtml(dueLabel(task))}</strong></span>
           <span><small>Priority</small><strong>${ctx.escapeHtml(task.priority)}</strong></span>
-          <span><small>Private plan</small><strong>${ctx.escapeHtml(SECTION_DEFINITIONS[normalizedPrivateBucket(record)].title)}</strong></span>
+          <span><small>Plan</small><strong>${ctx.escapeHtml(LANE_DEFINITIONS[laneForRecord(record)].title)}</strong></span>
           <span><small>Reminder</small><strong>${ctx.escapeHtml(reminderLabel(record.private_reminder_at))}</strong></span>
         </div>
         ${task.blocked ? `<div class="my-work-blocker"><strong>Blocked</strong><span>${ctx.escapeHtml(task.blocker_note || "No blocker detail provided")}</span></div>` : ""}
@@ -458,11 +414,45 @@ function detailPane(ctx, record) {
         <p>${renderRepo(ctx, task)}</p>
         ${task.effective_github_repo_url ? `<span class="muted">${ctx.escapeHtml(task.repo_source === "override" ? "Task override" : "Inherited from Solution")}</span>` : ""}
       </div>
-      ${privatePlanningForm(ctx, record)}
       <div class="my-work-detail-footer">
         <p class="form-notice" data-my-work-feedback role="status" aria-live="polite"></p>
         ${renderSharedActions(ctx, record)}
       </div>
+    </div>
+  `;
+}
+
+function detailPane(ctx, record) {
+  if (!record) {
+    return `
+      <aside class="my-work-detail my-work-detail-empty">
+        <div>
+          <span class="my-work-detail-icon" aria-hidden="true">↗</span>
+          <h2>Select a task</h2>
+          <p>Review context, update shared status, or organize your private focus.</p>
+        </div>
+      </aside>
+    `;
+  }
+  const work = myWorkState(ctx.state);
+  if (work.editingTaskId === record.task.task_id) return editTaskForm(ctx, record);
+  const task = record.task;
+  const notesSelected = work.detailTab === "notes";
+  return `
+    <aside class="my-work-detail my-work-detail-view">
+      <div class="my-work-detail-head">
+        <div class="my-work-detail-head-copy">
+          <span class="eyebrow">Shared SIPM Task</span>
+          <h2>${ctx.escapeHtml(task.task_name)}</h2>
+          <p>${ctx.escapeHtml(record.program_name || "Unmapped Program")} / ${ctx.escapeHtml(record.project_name)} / ${ctx.escapeHtml(record.solution_name)}</p>
+        </div>
+        ${notesSelected ? "" : '<button type="button" class="secondary" data-my-work-edit>Edit Task</button>'}
+      </div>
+      <div class="my-work-detail-tabs" role="tablist" aria-label="Selected task workspace">
+        <button id="my-work-task-tab" type="button" role="tab" aria-selected="${notesSelected ? "false" : "true"}" aria-controls="my-work-task-panel" data-my-work-detail-tab="task">Task details</button>
+        <button id="my-work-notes-tab" type="button" role="tab" aria-selected="${notesSelected ? "true" : "false"}" aria-controls="my-work-notes-panel" data-my-work-detail-tab="notes">My notes${record.private_note ? '<span class="my-work-note-indicator" aria-label="Has a saved private note"></span>' : ""}</button>
+      </div>
+      ${notesSelected ? notesPanel(ctx, record) : taskDetailPanel(ctx, record)}
     </aside>
   `;
 }
@@ -489,21 +479,33 @@ async function refreshMyWork(ctx) {
 async function patchPrivateState(ctx, taskId, patch) {
   const work = myWorkState(ctx.state);
   work.savingPrivateTaskId = taskId;
+  work.privateNotice = null;
   const feedback = ctx.els.myWorkRoot.querySelector("[data-my-work-private-feedback]");
-  if (feedback) feedback.textContent = "Saving your private plan…";
+  if (feedback) feedback.textContent = "Saving your note…";
   try {
-    await ctx.api(`/my-work/tasks/${encodeURIComponent(taskId)}/state`, {
+    const saved = await ctx.api(`/my-work/tasks/${encodeURIComponent(taskId)}/state`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+    const record = (work.records || []).find((item) => item.task.task_id === taskId);
+    if (record) {
+      record.private_bucket = saved.bucket;
+      record.private_sort_rank = saved.sort_rank;
+      record.private_reminder_at = saved.reminder_at;
+      record.private_note = saved.private_note;
+      record.reminder_due = !!saved.reminder_at && new Date(saved.reminder_at).getTime() <= Date.now();
+      record.needs_attention = !isClosedTask(record.task) && !!(
+        record.reminder_due || record.task.is_overdue || record.task.blocked
+      );
+    }
     work.savingPrivateTaskId = "";
-    work.records = null;
     work.error = "";
+    work.privateNotice = { taskId, message: "Private note saved." };
     renderMyWork(ctx);
   } catch (err) {
     work.savingPrivateTaskId = "";
-    if (feedback) feedback.textContent = err.message || "Your private plan could not be saved.";
-    else work.error = err.message || "Your private plan could not be saved.";
+    if (feedback) feedback.textContent = err.message || "Your private note could not be saved.";
+    else work.error = err.message || "Your private note could not be saved.";
   } finally {
     work.savingPrivateTaskId = "";
   }
@@ -512,16 +514,15 @@ async function patchPrivateState(ctx, taskId, patch) {
 async function moveInPrivateLanes(ctx, taskId, targetBucket, targetTaskId, insertAfter) {
   if (!PRIVATE_BUCKETS.has(targetBucket)) return;
   const work = myWorkState(ctx.state);
-  if (work.search.trim() || work.repository) return;
-  const allSections = sectionedRecords((work.records || []).filter((record) => !isClosedTask(record.task)));
+  const allLanes = plannedRecords((work.records || []).filter((record) => !isClosedTask(record.task)));
   const moving = (work.records || []).find((record) => record.task.task_id === taskId);
-  const sourceBucket = sectionForRecord(moving || {});
-  if (!moving || !PRIVATE_BUCKETS.has(sourceBucket)) return;
+  const sourceBucket = normalizedPrivateBucket(moving || {});
+  if (!moving) return;
 
-  const sourceRecords = allSections[sourceBucket].filter((record) => record.task.task_id !== taskId);
+  const sourceRecords = allLanes[sourceBucket].filter((record) => record.task.task_id !== taskId);
   const targetRecords = sourceBucket === targetBucket
     ? sourceRecords
-    : allSections[targetBucket].filter((record) => record.task.task_id !== taskId);
+    : allLanes[targetBucket].filter((record) => record.task.task_id !== taskId);
   let insertionIndex = targetRecords.length;
   if (targetTaskId) {
     const targetIndex = targetRecords.findIndex((record) => record.task.task_id === targetTaskId);
@@ -529,22 +530,42 @@ async function moveInPrivateLanes(ctx, taskId, targetBucket, targetTaskId, inser
   }
   targetRecords.splice(insertionIndex, 0, moving);
 
-  const laneUpdates = sourceBucket === targetBucket
-    ? [[targetBucket, targetRecords]]
-    : [[sourceBucket, sourceRecords], [targetBucket, targetRecords]];
+  const previousState = new Map(targetRecords.map((record) => [record.task.task_id, {
+    bucket: record.private_bucket,
+    sortRank: record.private_sort_rank,
+  }]));
+  const updates = [];
+  targetRecords.forEach((record, index) => {
+    const desiredRank = (index + 1) * 100;
+    if (normalizedPrivateBucket(record) !== targetBucket || numberOr(record.private_sort_rank, 0) !== desiredRank) {
+      updates.push({ record, bucket: targetBucket, sortRank: desiredRank });
+    }
+    record.private_bucket = targetBucket;
+    record.private_sort_rank = desiredRank;
+  });
+  work.savingPrivateTaskId = taskId;
+  work.privateNotice = null;
+  renderMyWork(ctx);
   try {
-    await Promise.all(laneUpdates.flatMap(([bucket, records]) => records.map((record, index) => ctx.api(
-      `/my-work/tasks/${encodeURIComponent(record.task.task_id)}/state`,
+    await Promise.all(updates.map((update) => ctx.api(
+      `/my-work/tasks/${encodeURIComponent(update.record.task.task_id)}/state`,
       {
         method: "PATCH",
-        body: JSON.stringify({ bucket, sort_rank: (index + 1) * 100 }),
+        body: JSON.stringify({ bucket: update.bucket, sort_rank: update.sortRank }),
       },
-    ))));
-    work.records = null;
+    )));
+    work.savingPrivateTaskId = "";
     work.error = "";
     renderMyWork(ctx);
   } catch (err) {
     const saveError = err.message || "Private work order could not be saved.";
+    previousState.forEach((previous, previousTaskId) => {
+      const record = (work.records || []).find((item) => item.task.task_id === previousTaskId);
+      if (!record) return;
+      record.private_bucket = previous.bucket;
+      record.private_sort_rank = previous.sortRank;
+    });
+    work.savingPrivateTaskId = "";
     try {
       work.records = await ctx.api("/my-work");
       work.error = saveError;
@@ -568,7 +589,7 @@ function bindQueueDragging(ctx) {
   const work = myWorkState(ctx.state);
   root.querySelectorAll('.my-work-card[draggable="true"]').forEach((card) => {
     card.addEventListener("dragstart", (event) => {
-      work.draggingTaskId = card.dataset.myWorkSelect || "";
+      work.draggingTaskId = card.dataset.myWorkCard || "";
       card.classList.add("is-dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("text/plain", work.draggingTaskId);
@@ -589,8 +610,8 @@ function bindQueueDragging(ctx) {
       root.querySelectorAll(".drop-before, .drop-after").forEach((card) => {
         card.classList.remove("drop-before", "drop-after");
       });
-      const targetCard = event.target.closest("[data-my-work-select]");
-      if (!targetCard || targetCard.dataset.myWorkSelect === work.draggingTaskId) return;
+      const targetCard = event.target.closest("[data-my-work-card]");
+      if (!targetCard || targetCard.dataset.myWorkCard === work.draggingTaskId) return;
       const insertAfter = event.clientY > targetCard.getBoundingClientRect().top
         + targetCard.getBoundingClientRect().height / 2;
       targetCard.classList.add(insertAfter ? "drop-after" : "drop-before");
@@ -601,8 +622,8 @@ function bindQueueDragging(ctx) {
     zone.addEventListener("drop", (event) => {
       event.preventDefault();
       const taskId = work.draggingTaskId || event.dataTransfer.getData("text/plain");
-      const targetCard = event.target.closest("[data-my-work-select]");
-      const targetTaskId = targetCard?.dataset.myWorkSelect || "";
+      const targetCard = event.target.closest("[data-my-work-card]");
+      const targetTaskId = targetCard?.dataset.myWorkCard || "";
       const targetBucket = zone.dataset.myWorkDropZone || "";
       const insertAfter = targetCard ? targetCard.classList.contains("drop-after") : true;
       work.draggingTaskId = "";
@@ -700,19 +721,12 @@ function bindPrivatePlanning(ctx, selected) {
     reminderInput.value = "";
     reminderInput.focus();
   });
-  root.querySelector("[data-my-work-private-bucket]")?.addEventListener("click", (event) => {
-    const bucket = event.currentTarget.dataset.myWorkPrivateBucket;
-    if (!PRIVATE_BUCKETS.has(bucket)) return;
-    void patchPrivateState(ctx, selected.task.task_id, { bucket });
-  });
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
     const data = new FormData(form);
-    const bucket = String(data.get("bucket") || "later");
     const feedback = form.querySelector("[data-my-work-private-feedback]");
     try {
       const patch = {
-        bucket: PRIVATE_BUCKETS.has(bucket) ? bucket : "later",
         reminder_at: reminderUtcValue(String(data.get("reminder_at") || "")),
         private_note: String(data.get("private_note") || "").trim() || null,
       };
@@ -739,7 +753,25 @@ function bindInteractions(ctx, selected) {
     button.addEventListener("click", () => {
       work.selectedTaskId = button.dataset.myWorkSelect || "";
       work.editingTaskId = "";
+      work.detailTab = "task";
+      work.privateNotice = null;
       renderMyWork(ctx);
+    });
+  });
+  root.querySelectorAll("[data-my-work-move]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetLane = button.dataset.myWorkMove || "";
+      const taskId = button.dataset.myWorkTask || "";
+      if (!PRIVATE_BUCKETS.has(targetLane) || !taskId) return;
+      void moveInPrivateLanes(ctx, taskId, targetLane, "", true);
+    });
+  });
+  root.querySelectorAll("[data-my-work-detail-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      work.detailTab = button.dataset.myWorkDetailTab === "notes" ? "notes" : "task";
+      work.editingTaskId = "";
+      renderMyWork(ctx);
+      if (work.detailTab === "notes") root.querySelector('[name="private_note"]')?.focus();
     });
   });
   bindQueueDragging(ctx);
@@ -763,8 +795,8 @@ export function renderMyWork(ctx) {
   }
   if (work.loading) return;
   const records = visibleRecords(ctx);
-  const sections = sectionedRecords(records);
-  const displayRecords = recordsInDisplayOrder(sections);
+  const lanes = plannedRecords(records);
+  const displayRecords = recordsInDisplayOrder(lanes);
   const selected = displayRecords.find((record) => record.task.task_id === work.selectedTaskId)
     || displayRecords[0]
     || null;
@@ -789,7 +821,7 @@ export function renderMyWork(ctx) {
     ${work.error ? `<div class="route-error-card"><strong>My Work unavailable</strong><p>${ctx.escapeHtml(work.error)}</p></div>` : ""}
     ${!work.error && !records.length && !work.search && !work.repository ? `<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>${ctx.escapeHtml(emptyMessage)}</p></div>` : `
       <div class="my-work-layout">
-        <div class="my-work-queue">${renderQueue(ctx, sections, records, selected?.task?.task_id || "")}</div>
+        <div class="my-work-queue">${renderQueue(ctx, lanes, records, selected?.task?.task_id || "")}</div>
         ${detailPane(ctx, selected)}
       </div>`}
   `;

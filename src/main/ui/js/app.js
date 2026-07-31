@@ -289,6 +289,7 @@ const state = {
     detailTab: "task",
     privateNotice: null,
     sharedActions: null,
+    planLayout: null,
   },
   repositoryInventory: {
     records: null,

@@ -95,6 +95,7 @@ def _issue_session(
     user: User,
     requested_space_id: str | None,
 ) -> SpaceContext:
+    get_or_create_default_space(session, commit=False)
     auth_session = create_auth_session(session, user)
     access_token = create_token(user.user_id, user.role, "access", session_id=auth_session.session_id)
     refresh_token = create_token(user.user_id, user.role, "refresh", session_id=auth_session.session_id)

@@ -90,16 +90,98 @@
 
 .my-work-layout {
   display: grid;
-  grid-template-columns: minmax(600px, 1.35fr) minmax(420px, 0.85fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, var(--my-work-plan-width, 58%)) 18px minmax(0, 1fr);
+  gap: 0;
   align-items: stretch;
   height: clamp(660px, calc(100dvh - 250px), 840px);
   min-height: 0;
 }
 
+.my-work-layout.is-plan-collapsed {
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 18px;
+}
+
 .my-work-queue {
   height: 100%;
+  min-width: 0;
   min-height: 0;
+}
+
+.my-work-plan-resizer {
+  position: relative;
+  display: grid;
+  width: 18px;
+  min-height: 0;
+  place-items: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.my-work-plan-resizer::before {
+  width: 3px;
+  height: 52px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  content: "";
+  transition: height 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.my-work-plan-resizer:hover::before,
+.my-work-plan-resizer:focus-visible::before {
+  height: 82px;
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-strong) 14%, transparent);
+}
+
+.my-work-plan-resizer:focus-visible {
+  outline: none;
+}
+
+body.my-work-plan-is-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.my-work-plan-collapsed {
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--surface-1);
+}
+
+.my-work-plan-collapsed > button {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 14px 8px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--surface-2);
+  color: var(--text-strong);
+  box-shadow: none;
+}
+
+.my-work-plan-collapsed > button:hover,
+.my-work-plan-collapsed > button:focus-visible {
+  background: var(--hover-strong);
+}
+
+.my-work-plan-expand-icon {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.my-work-plan-collapsed-label {
+  writing-mode: vertical-rl;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .my-work-queue-panel {
@@ -121,6 +203,32 @@
   padding: 13px 15px;
   border-bottom: 1px solid var(--border-soft);
   background: var(--surface-2);
+}
+
+.my-work-plan-controls,
+.my-work-plan-size-controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.my-work-plan-controls {
+  flex: 0 0 auto;
+}
+
+.my-work-plan-size-controls button {
+  width: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 4px;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.my-work-plan-collapse {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 0.74rem;
 }
 
 .my-work-queue-heading h2,
@@ -420,6 +528,7 @@
   position: sticky;
   top: 82px;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   box-sizing: border-box;
   overflow-y: auto;
@@ -931,14 +1040,37 @@ body.theme-light .my-work-notes-panel input[type="datetime-local"] {
 }
 
 @media (max-width: 1180px) {
-  .my-work-layout {
+  .my-work-layout,
+  .my-work-layout.is-plan-collapsed {
     grid-template-columns: 1fr;
+    gap: 18px;
     height: auto;
+  }
+
+  .my-work-plan-resizer,
+  .my-work-plan-size-controls {
+    display: none;
   }
 
   .my-work-queue,
   .my-work-queue-panel {
     height: min(620px, calc(100dvh - 220px));
+  }
+
+  .my-work-queue.is-collapsed,
+  .my-work-plan-collapsed {
+    height: auto;
+  }
+
+  .my-work-plan-collapsed > button {
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 9px 12px;
+  }
+
+  .my-work-plan-collapsed-label {
+    writing-mode: horizontal-tb;
   }
 
   .my-work-detail {

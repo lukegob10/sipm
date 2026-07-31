@@ -587,7 +587,7 @@ async def test_local_login_bootstraps_ui_state_with_one_checkout_and_commit(
     assert payload["user_id"] == "fast-login-user"
     assert payload["active_space"]["space_id"] == "fast-login-space"
     assert [item["space_id"] for item in payload["spaces"]] == ["fast-login-space"]
-    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 6}
+    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 8}
 
 
 @pytest.mark.anyio

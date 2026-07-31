@@ -58,7 +58,7 @@ def is_global_admin_role(value: str | None) -> bool:
     return normalize_global_role(value) == "global_admin"
 
 
-def _ensure_lobby_shape(session: Session, space: Space) -> Space:
+def _ensure_lobby_shape(session: Session, space: Space, *, commit: bool = True) -> Space:
     changed = False
     if space.name != DEFAULT_SPACE_NAME:
         name_conflict = (
@@ -84,12 +84,13 @@ def _ensure_lobby_shape(session: Session, space: Space) -> Space:
     if changed:
         space.updated_at = datetime.now(timezone.utc)
         session.add(space)
-        session.commit()
-        session.refresh(space)
+        if commit:
+            session.commit()
+            session.refresh(space)
     return space
 
 
-def get_or_create_default_space(session: Session) -> Space:
+def get_or_create_default_space(session: Session, *, commit: bool = True) -> Space:
     space = (
         session.query(Space)
         .filter(Space.slug == DEFAULT_SPACE_SLUG)
@@ -97,7 +98,7 @@ def get_or_create_default_space(session: Session) -> Space:
         .first()
     )
     if space:
-        return _ensure_lobby_shape(session, space)
+        return _ensure_lobby_shape(session, space, commit=commit)
 
     now = datetime.now(timezone.utc)
     space = Space(
@@ -110,6 +111,10 @@ def get_or_create_default_space(session: Session) -> Space:
         created_at=now,
         updated_at=now,
     )
+    if not commit:
+        session.add(space)
+        return space
+
     try:
         session.add(space)
         session.commit()

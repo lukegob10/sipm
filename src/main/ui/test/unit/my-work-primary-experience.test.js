@@ -112,6 +112,7 @@ function drag(source, target, taskId) {
 describe("My Work simplified planning", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    window.localStorage.clear();
   });
 
   it("uses only Today and Later while retaining urgency as card context", () => {

@@ -3,6 +3,14 @@ import {
   renderSharedActionNotice,
   renderSharedActions,
 } from "./my-work/shared-actions.js";
+import {
+  clampPlanWidth,
+  ensureMyWorkPlanLayout,
+  MAX_PLAN_WIDTH,
+  MIN_PLAN_WIDTH,
+  persistMyWorkPlanLayout,
+  PLAN_WIDTH_STEP,
+} from "./my-work/layout.js";
 
 const LANE_ORDER = ["today", "later"];
 
@@ -35,10 +43,12 @@ function myWorkState(state) {
       savingPrivateTaskId: "",
       detailTab: "task",
       privateNotice: null,
+      planLayout: null,
     };
   }
   const work = state.myWork;
   work.detailTab = work.detailTab === "notes" ? "notes" : "task";
+  ensureMyWorkPlanLayout(work);
   return work;
 }
 
@@ -276,20 +286,43 @@ function renderLane(ctx, lane, records, selectedTaskId, reorderEnabled) {
   `;
 }
 
-function renderQueue(ctx, lanes, records, selectedTaskId) {
+function planControls(layout, recordCount) {
+  return `
+    <div class="my-work-plan-controls">
+      <span class="my-work-count" aria-label="${recordCount} planned tasks">${recordCount}</span>
+      <div class="my-work-plan-size-controls" role="group" aria-label="Plan width">
+        <button type="button" class="secondary" data-my-work-plan-size="smaller" aria-label="Make Plan narrower" title="Make Plan narrower"${layout.width <= MIN_PLAN_WIDTH ? " disabled" : ""}>&#8722;</button>
+        <button type="button" class="secondary" data-my-work-plan-size="larger" aria-label="Make Plan wider" title="Make Plan wider"${layout.width >= MAX_PLAN_WIDTH ? " disabled" : ""}>+</button>
+      </div>
+      <button type="button" class="secondary my-work-plan-collapse" data-my-work-plan-toggle aria-expanded="true">Collapse</button>
+    </div>
+  `;
+}
+
+function renderCollapsedPlan(recordCount) {
+  return `
+    <section class="my-work-plan-collapsed" aria-label="Plan is collapsed">
+      <button type="button" data-my-work-plan-toggle aria-expanded="false" aria-label="Expand Plan">
+        <span class="my-work-plan-expand-icon" aria-hidden="true">&#8250;</span>
+        <span class="my-work-plan-collapsed-label">Plan</span>
+        <span class="my-work-count" aria-label="${recordCount} planned tasks">${recordCount}</span>
+      </button>
+    </section>
+  `;
+}
+
+function renderPlanResizer(layout) {
+  return `
+    <div class="my-work-plan-resizer" data-my-work-plan-resizer role="separator" tabindex="0" aria-label="Resize Plan" aria-orientation="vertical" aria-valuemin="${MIN_PLAN_WIDTH}" aria-valuemax="${MAX_PLAN_WIDTH}" aria-valuenow="${layout.width}" aria-valuetext="Plan uses ${layout.width}% of the workspace">
+      <span aria-hidden="true"></span>
+    </div>
+  `;
+}
+
+function renderQueue(ctx, lanes, records, selectedTaskId, layout) {
   const work = myWorkState(ctx.state);
   const filtered = !!work.search.trim() || !!work.repository;
   const reorderEnabled = !filtered;
-  if (!records.length && filtered) {
-    return `
-      <section class="my-work-queue-panel">
-        <div class="my-work-filter-empty">
-          <h2>No work matches these filters</h2>
-          <p>Adjust the search or repository filter to see assigned work.</p>
-        </div>
-      </section>
-    `;
-  }
   return `
     <section class="my-work-queue-panel">
       <div class="my-work-queue-heading">
@@ -297,17 +330,22 @@ function renderQueue(ctx, lanes, records, selectedTaskId) {
           <h2>Plan</h2>
           <p>${reorderEnabled ? "Drag to prioritize, or use each task's Move button." : "Clear filters to drag and reorder. Move buttons still work."}</p>
         </div>
-        <span class="my-work-count">${records.length}</span>
+        ${planControls(layout, records.length)}
       </div>
-      <div class="my-work-lanes">
-        ${LANE_ORDER.map((lane) => renderLane(
-          ctx,
-          lane,
-          lanes[lane],
-          selectedTaskId,
-          reorderEnabled,
-        )).join("")}
-      </div>
+      ${!records.length && filtered
+        ? `<div class="my-work-filter-empty">
+            <h2>No work matches these filters</h2>
+            <p>Adjust the search or repository filter to see assigned work.</p>
+          </div>`
+        : `<div class="my-work-lanes">
+            ${LANE_ORDER.map((lane) => renderLane(
+              ctx,
+              lane,
+              lanes[lane],
+              selectedTaskId,
+              reorderEnabled,
+            )).join("")}
+          </div>`}
     </section>
   `;
 }
@@ -737,6 +775,78 @@ function bindPrivatePlanning(ctx, selected) {
   });
 }
 
+function applyRenderedPlanWidth(root, work, value, shouldPersist = false) {
+  const width = clampPlanWidth(value);
+  work.planLayout = { ...work.planLayout, width };
+  root.querySelector(".my-work-layout")?.style.setProperty("--my-work-plan-width", `${width}%`);
+  const resizer = root.querySelector("[data-my-work-plan-resizer]");
+  resizer?.setAttribute("aria-valuenow", String(width));
+  resizer?.setAttribute("aria-valuetext", `Plan uses ${width}% of the workspace`);
+  root.querySelector('[data-my-work-plan-size="smaller"]')?.toggleAttribute("disabled", width <= MIN_PLAN_WIDTH);
+  root.querySelector('[data-my-work-plan-size="larger"]')?.toggleAttribute("disabled", width >= MAX_PLAN_WIDTH);
+  if (shouldPersist) work.planLayout = persistMyWorkPlanLayout(work.planLayout);
+}
+
+function bindPlanLayout(ctx) {
+  const root = ctx.els.myWorkRoot;
+  const work = myWorkState(ctx.state);
+  root.querySelector("[data-my-work-plan-toggle]")?.addEventListener("click", () => {
+    work.planLayout = persistMyWorkPlanLayout({
+      ...work.planLayout,
+      collapsed: !work.planLayout.collapsed,
+    });
+    renderMyWork(ctx);
+    root.querySelector("[data-my-work-plan-toggle]")?.focus();
+  });
+
+  root.querySelectorAll("[data-my-work-plan-size]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const direction = button.dataset.myWorkPlanSize === "smaller" ? -1 : 1;
+      applyRenderedPlanWidth(root, work, work.planLayout.width + direction * PLAN_WIDTH_STEP, true);
+    });
+  });
+
+  const resizer = root.querySelector("[data-my-work-plan-resizer]");
+  resizer?.addEventListener("keydown", (event) => {
+    const widthByKey = {
+      ArrowLeft: work.planLayout.width - PLAN_WIDTH_STEP,
+      ArrowRight: work.planLayout.width + PLAN_WIDTH_STEP,
+      Home: MIN_PLAN_WIDTH,
+      End: MAX_PLAN_WIDTH,
+    };
+    if (!(event.key in widthByKey)) return;
+    event.preventDefault();
+    applyRenderedPlanWidth(root, work, widthByKey[event.key], true);
+  });
+  resizer?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const layout = resizer.closest(".my-work-layout");
+    const bounds = layout?.getBoundingClientRect();
+    if (!bounds?.width) return;
+    event.preventDefault();
+    const pointerId = event.pointerId;
+    if (Number.isInteger(pointerId)) resizer.setPointerCapture?.(pointerId);
+    document.body.classList.add("my-work-plan-is-resizing");
+
+    const resize = (moveEvent) => {
+      if (Number.isInteger(pointerId) && moveEvent.pointerId !== pointerId) return;
+      const nextWidth = ((moveEvent.clientX - bounds.left) / bounds.width) * 100;
+      applyRenderedPlanWidth(root, work, nextWidth);
+    };
+    const finish = (finishEvent) => {
+      if (Number.isInteger(pointerId) && finishEvent.pointerId !== pointerId) return;
+      document.body.classList.remove("my-work-plan-is-resizing");
+      resizer.removeEventListener("pointermove", resize);
+      resizer.removeEventListener("pointerup", finish);
+      resizer.removeEventListener("pointercancel", finish);
+      work.planLayout = persistMyWorkPlanLayout(work.planLayout);
+    };
+    resizer.addEventListener("pointermove", resize);
+    resizer.addEventListener("pointerup", finish);
+    resizer.addEventListener("pointercancel", finish);
+  });
+}
+
 function bindInteractions(ctx, selected) {
   const root = ctx.els.myWorkRoot;
   const work = myWorkState(ctx.state);
@@ -774,6 +884,7 @@ function bindInteractions(ctx, selected) {
       if (work.detailTab === "notes") root.querySelector('[name="private_note"]')?.focus();
     });
   });
+  bindPlanLayout(ctx);
   bindQueueDragging(ctx);
   bindTaskEditing(ctx);
   bindPrivatePlanning(ctx, selected);
@@ -788,6 +899,7 @@ export function renderMyWork(ctx) {
   const root = ctx.els.myWorkRoot;
   if (!root) return;
   const work = myWorkState(ctx.state);
+  const planLayout = work.planLayout;
   if (work.records === null && !work.loading) {
     root.innerHTML = '<div class="my-work-loading"><span class="spinner" aria-hidden="true"></span><p>Loading your assigned work…</p></div>';
     void refreshMyWork(ctx);
@@ -820,8 +932,11 @@ export function renderMyWork(ctx) {
     ${renderSharedActionNotice(ctx)}
     ${work.error ? `<div class="route-error-card"><strong>My Work unavailable</strong><p>${ctx.escapeHtml(work.error)}</p></div>` : ""}
     ${!work.error && !records.length && !work.search && !work.repository ? `<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>${ctx.escapeHtml(emptyMessage)}</p></div>` : `
-      <div class="my-work-layout">
-        <div class="my-work-queue">${renderQueue(ctx, lanes, records, selected?.task?.task_id || "")}</div>
+      <div class="my-work-layout${planLayout.collapsed ? " is-plan-collapsed" : ""}" style="--my-work-plan-width: ${planLayout.width}%">
+        <div class="my-work-queue${planLayout.collapsed ? " is-collapsed" : ""}">${planLayout.collapsed
+          ? renderCollapsedPlan(records.length)
+          : renderQueue(ctx, lanes, records, selected?.task?.task_id || "", planLayout)}</div>
+        ${planLayout.collapsed ? "" : renderPlanResizer(planLayout)}
         ${detailPane(ctx, selected)}
       </div>`}
   `;

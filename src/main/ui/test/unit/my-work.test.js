@@ -36,6 +36,7 @@ function context(records, { showCompleted = false } = {}) {
 describe("My Work", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    window.localStorage.clear();
   });
 
   it("renders a clean task queue while retaining full shared context in the detail pane", () => {

@@ -19,7 +19,7 @@
     "test:ui:smoke": "playwright test"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.2",
+    "@playwright/test": "^1.62.1",
     "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^10.8.0",
     "globals": "^15.15.0",

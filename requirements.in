@@ -2,6 +2,7 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 oracledb
+cryptography>=50.0.0
 python-multipart
 httpx
 PyJWT

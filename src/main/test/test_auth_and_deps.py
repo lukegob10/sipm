@@ -591,6 +591,65 @@ async def test_local_login_bootstraps_ui_state_with_one_checkout_and_commit(
 
 
 @pytest.mark.anyio
+async def test_login_creates_conflict_safe_lobby_when_home_name_is_taken(
+    auth_client,
+    db_sessionmaker,
+):
+    with db_sessionmaker() as session:
+        session.add(
+            Space(
+                space_id="legacy-home-space",
+                name="Home",
+                slug="legacy-home",
+                is_active=True,
+                space_kind="collaboration",
+            )
+        )
+        session.commit()
+
+    await _login_local_session(auth_client, db_sessionmaker, soeid="homeconflict1")
+
+    with db_sessionmaker() as session:
+        legacy = session.query(Space).filter(Space.space_id == "legacy-home-space").one()
+        lobby = session.query(Space).filter(Space.slug == "home").one()
+        assert legacy.name == "Home"
+        assert legacy.space_kind == "collaboration"
+        assert lobby.name == "Home Lobby"
+        assert lobby.space_kind == "lobby"
+
+
+@pytest.mark.anyio
+async def test_login_revives_soft_deleted_default_lobby(
+    auth_client,
+    db_sessionmaker,
+):
+    deleted_at = datetime.now(timezone.utc) - timedelta(days=1)
+    with db_sessionmaker() as session:
+        session.add(
+            Space(
+                space_id="deleted-home-space",
+                name="Old Home",
+                slug="home",
+                is_active=False,
+                space_kind="collaboration",
+                deleted_at=deleted_at,
+                archived_at=deleted_at,
+            )
+        )
+        session.commit()
+
+    await _login_local_session(auth_client, db_sessionmaker, soeid="revivelobby1")
+
+    with db_sessionmaker() as session:
+        lobby = session.query(Space).filter(Space.space_id == "deleted-home-space").one()
+        assert lobby.slug == "home"
+        assert lobby.name == "Home"
+        assert lobby.space_kind == "lobby"
+        assert lobby.is_active is True
+        assert lobby.deleted_at is None
+
+
+@pytest.mark.anyio
 async def test_interactive_session_policy_activity_refresh_and_logout(
     auth_client,
     db_sessionmaker,

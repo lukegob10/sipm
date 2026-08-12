@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Iterable, Optional
 from uuid import uuid4
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import status
@@ -14,6 +15,7 @@ from ..security import security_http_exception
 
 
 DEFAULT_SPACE_NAME = "Home"
+DEFAULT_SPACE_FALLBACK_NAME = "Home Lobby"
 DEFAULT_SPACE_SLUG = "home"
 ACTIVE_SPACE_COOKIE = "active_space_id"
 SPACE_KIND_COLLABORATION = "collaboration"
@@ -58,6 +60,20 @@ def is_global_admin_role(value: str | None) -> bool:
     return normalize_global_role(value) == "global_admin"
 
 
+def _available_default_space_name(session: Session, *, occupied_names: set[str] | None = None) -> str:
+    occupied = set(occupied_names or ())
+    candidate = DEFAULT_SPACE_NAME
+    suffix = 1
+    while candidate in occupied:
+        suffix += 1
+        candidate = DEFAULT_SPACE_FALLBACK_NAME if suffix == 2 else f"{DEFAULT_SPACE_FALLBACK_NAME} {suffix}"
+        if candidate not in occupied and suffix > 2:
+            conflict = session.query(Space.space_id).filter(Space.name == candidate).first()
+            if conflict is not None:
+                occupied.add(candidate)
+    return candidate
+
+
 def _ensure_lobby_shape(session: Session, space: Space, *, commit: bool = True) -> Space:
     changed = False
     if space.name != DEFAULT_SPACE_NAME:
@@ -65,7 +81,6 @@ def _ensure_lobby_shape(session: Session, space: Space, *, commit: bool = True) 
             session.query(Space)
             .filter(Space.name == DEFAULT_SPACE_NAME)
             .filter(Space.space_id != space.space_id)
-            .filter(Space.deleted_at.is_(None))
             .first()
         )
         if not name_conflict:
@@ -81,6 +96,9 @@ def _ensure_lobby_shape(session: Session, space: Space, *, commit: bool = True) 
         space.is_active = True
         space.archived_at = None
         changed = True
+    if space.deleted_at is not None:
+        space.deleted_at = None
+        changed = True
     if changed:
         space.updated_at = datetime.now(timezone.utc)
         session.add(space)
@@ -91,19 +109,24 @@ def _ensure_lobby_shape(session: Session, space: Space, *, commit: bool = True) 
 
 
 def get_or_create_default_space(session: Session, *, commit: bool = True) -> Space:
-    space = (
+    matches = (
         session.query(Space)
-        .filter(Space.slug == DEFAULT_SPACE_SLUG)
-        .filter(Space.deleted_at.is_(None))
-        .first()
+        .filter(
+            or_(
+                Space.slug == DEFAULT_SPACE_SLUG,
+                Space.name.in_((DEFAULT_SPACE_NAME, DEFAULT_SPACE_FALLBACK_NAME)),
+            )
+        )
+        .all()
     )
+    space = next((row for row in matches if row.slug == DEFAULT_SPACE_SLUG), None)
     if space:
         return _ensure_lobby_shape(session, space, commit=commit)
 
     now = datetime.now(timezone.utc)
     space = Space(
         space_id=str(uuid4()),
-        name=DEFAULT_SPACE_NAME,
+        name=_available_default_space_name(session, occupied_names={row.name for row in matches}),
         slug=DEFAULT_SPACE_SLUG,
         is_active=True,
         space_kind=SPACE_KIND_LOBBY,
@@ -125,7 +148,6 @@ def get_or_create_default_space(session: Session, *, commit: bool = True) -> Spa
         existing = (
             session.query(Space)
             .filter(Space.slug == DEFAULT_SPACE_SLUG)
-            .filter(Space.deleted_at.is_(None))
             .first()
         )
         if existing:

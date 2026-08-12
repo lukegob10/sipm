@@ -59,6 +59,17 @@ def _redis_url(required: bool) -> str:
     return value
 
 
+def _redis_timeout_seconds() -> float:
+    raw = str(os.getenv("SIPM_REDIS_TIMEOUT_SECONDS", "5")).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise RuntimeError("SIPM_REDIS_TIMEOUT_SECONDS must be a positive number.") from exc
+    if value <= 0:
+        raise RuntimeError("SIPM_REDIS_TIMEOUT_SECONDS must be a positive number.")
+    return value
+
+
 class CoordinationBackend:
     backend_name = "memory"
 
@@ -123,8 +134,18 @@ class RedisCoordinationBackend(CoordinationBackend):
                 "Redis coordination requires the `redis` package. Add it to requirements.in."
             ) from exc
 
-        self._redis = redis.Redis.from_url(redis_url, decode_responses=True)
-        self._aredis = redis_asyncio.Redis.from_url(redis_url, decode_responses=True)
+        self._timeout_seconds = _redis_timeout_seconds()
+        self._redis = redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=self._timeout_seconds,
+            socket_timeout=self._timeout_seconds,
+        )
+        self._aredis = redis_asyncio.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+            socket_connect_timeout=self._timeout_seconds,
+        )
         self._listener_task: Optional[asyncio.Task] = None
         self._pubsub = None
         self._handler: Optional[Callable[[str, str | None], Awaitable[None]]] = None
@@ -185,7 +206,17 @@ class RedisCoordinationBackend(CoordinationBackend):
             return
         self._handler = handler
         self._pubsub = self._aredis.pubsub(ignore_subscribe_messages=True)
-        await self._pubsub.subscribe(_REFRESH_CHANNEL)
+        try:
+            await asyncio.wait_for(
+                self._pubsub.subscribe(_REFRESH_CHANNEL),
+                timeout=self._timeout_seconds,
+            )
+        except BaseException:
+            with suppress(Exception):
+                await asyncio.wait_for(self._pubsub.aclose(), timeout=self._timeout_seconds)
+            self._pubsub = None
+            self._handler = None
+            raise
         self._listener_task = asyncio.create_task(self._listen(), name="sipm-redis-refresh-listener")
 
     async def _listen(self) -> None:
@@ -218,9 +249,12 @@ class RedisCoordinationBackend(CoordinationBackend):
                 await task
         if self._pubsub is not None:
             with suppress(Exception):
-                await self._pubsub.unsubscribe(_REFRESH_CHANNEL)
+                await asyncio.wait_for(
+                    self._pubsub.unsubscribe(_REFRESH_CHANNEL),
+                    timeout=self._timeout_seconds,
+                )
             with suppress(Exception):
-                await self._pubsub.aclose()
+                await asyncio.wait_for(self._pubsub.aclose(), timeout=self._timeout_seconds)
             self._pubsub = None
         self._handler = None
 

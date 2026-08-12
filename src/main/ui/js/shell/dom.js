@@ -44,6 +44,7 @@ export function queryShellElements() {
     accountMenuToggle: document.getElementById("account-menu-toggle"),
     accountMenuPanel: document.getElementById("account-menu-panel"),
     appShell: document.getElementById("app-shell"),
+    startupScreen: document.getElementById("startup-screen"),
     authScreen: document.getElementById("auth-screen"),
     authTabLogin: document.getElementById("auth-tab-login"),
     authTabRegister: document.getElementById("auth-tab-register"),

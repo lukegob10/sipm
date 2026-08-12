@@ -176,6 +176,8 @@ export function createSessionController({
     const allowLoggedOut = !!options.allowLoggedOut;
     const silentFailure = !!options.silentFailure;
     const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
+    const refreshContext = options.refreshContext !== false;
+    const throwOnFailure = !!options.throwOnFailure;
 
     if (!force && !state.authed && !allowLoggedOut) return null;
     if (!force && Date.now() - lastSessionRefreshAt < accessRefreshIntervalMs) {
@@ -192,33 +194,26 @@ export function createSessionController({
 
     sessionRefreshPromise = (async () => {
       try {
-        const res = await fetch(`${apiBase}/auth/refresh`, {
+        const data = await api("/auth/refresh", {
           method: "POST",
-          credentials: "include",
           headers,
+          skipAuthRefresh: true,
         });
-        const text = await res.text();
-        let data = null;
-        try {
-          data = text ? JSON.parse(text) : null;
-        } catch {
-          data = text || null;
-        }
-
-        if (!res.ok) throw errorFromResponse(res, data, "/auth/refresh");
 
         if (data && typeof data === "object") {
           setAuthed(data);
         }
         lastSessionRefreshAt = Date.now();
 
-        try {
-          await refreshSpaceContext({
-            apiOptions: { skipAuthRefresh: true },
-            suppressLiveSyncRestart,
-          });
-        } catch (err) {
-          console.warn("Space context refresh after token refresh failed", err);
+        if (refreshContext) {
+          try {
+            await refreshSpaceContext({
+              apiOptions: { skipAuthRefresh: true },
+              suppressLiveSyncRestart,
+            });
+          } catch (err) {
+            console.warn("Space context refresh after token refresh failed", err);
+          }
         }
 
         return data || {};
@@ -228,6 +223,7 @@ export function createSessionController({
         } else if (!silentFailure) {
           console.warn("Session refresh failed", err);
         }
+        if (throwOnFailure && !isTerminalAuthFailure(err)) throw err;
         return null;
       } finally {
         sessionRefreshPromise = null;
@@ -371,7 +367,7 @@ export function createSessionController({
 
   async function fetchCurrentUser() {
     try {
-      const me = await api("/auth/me");
+      const me = await api("/auth/me", { skipAuthRefresh: true });
       setAuthed(me);
       return me;
     } catch (err) {
@@ -380,6 +376,8 @@ export function createSessionController({
           force: true,
           allowLoggedOut: true,
           silentFailure: true,
+          refreshContext: false,
+          throwOnFailure: true,
         });
         if (refreshed) return state.user;
         setAuthed(null);
@@ -418,12 +416,18 @@ export function createSessionController({
 
   async function finishAuthentication(payload) {
     setAuthed(userFromAuthResponse(payload));
-    if (!applyAuthBootstrap(payload)) {
-      await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+    try {
+      if (!applyAuthBootstrap(payload)) {
+        await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+      }
+      startLiveSync();
+      restoreRouteFromLocationAfterAuth();
+      setAuthVisible(false);
+    } catch (err) {
+      clearLocalSession();
+      setAuthVisible(true);
+      throw err;
     }
-    startLiveSync();
-    restoreRouteFromLocationAfterAuth();
-    setAuthVisible(false);
   }
 
   function isResetPath() {
@@ -508,32 +512,34 @@ export function createSessionController({
       return;
     }
     setStatus("Checking session...", "warn");
+    void api("/auth/session-policy", { skipAuthRefresh: true })
+      .then((policy) => configureSessionPolicy?.(policy))
+      .catch((err) => {
+        if (!isNetworkOrTimeoutFailure(err)) console.warn("Session policy load failed", err);
+      });
     try {
-      const policy = await api("/auth/session-policy", { skipAuthRefresh: true });
-      configureSessionPolicy?.(policy);
+      const user = await fetchCurrentUser();
+      if (user) {
+        await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+        startLiveSync();
+        restoreRouteFromLocationAfterAuth();
+        setAuthVisible(false);
+        return;
+      }
+      setAuthVisible(true);
+      setStatus("Sign in required", "warn");
     } catch (err) {
-      if (!isNetworkOrTimeoutFailure(err)) console.warn("Session policy load failed", err);
-    }
-    let user = null;
-    try {
-      user = await fetchCurrentUser();
-    } catch (err) {
-      if (!isNetworkOrTimeoutFailure(err)) throw err;
       clearLocalSession();
       setAuthVisible(true);
-      setStatus("Connection issue", "warn");
-      showAuthNotice(err.message || "Unable to reach the server. Check your connection and try again.");
-      return;
+      if (isNetworkOrTimeoutFailure(err)) {
+        setStatus("Connection issue", "warn");
+        showAuthNotice(err.message || "Unable to reach the server. Check your connection and try again.");
+      } else {
+        console.warn("Session bootstrap failed", err);
+        setStatus("Unable to open session", "warn");
+        showAuthNotice("SIPM could not finish opening your session. Sign in again or retry in a moment.");
+      }
     }
-    if (user) {
-      await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
-      startLiveSync();
-      restoreRouteFromLocationAfterAuth();
-      setAuthVisible(false);
-      return;
-    }
-    setAuthVisible(true);
-    setStatus("Sign in required", "warn");
   }
 
   return {

@@ -188,6 +188,87 @@ describe("session controller", () => {
     );
   });
 
+  it("keeps bootstrap server failures on a visible sign-in surface", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
+      if (String(url).endsWith("/auth/me")) {
+        return jsonResponse({ detail: "Database unavailable" }, { status: 503 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const { controller, showAuthNotice, setAuthVisible, setStatus } = createHarness();
+    await expect(controller.bootstrapAuth()).resolves.toBeUndefined();
+
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+    expect(setStatus).toHaveBeenCalledWith("Unable to open session", "warn");
+    expect(showAuthNotice).toHaveBeenCalledWith(
+      "SIPM could not finish opening your session. Sign in again or retry in a moment.",
+    );
+  });
+
+  it("does not let session policy loading block the sign-in screen", async () => {
+    vi.stubGlobal("fetch", vi.fn((url) => {
+      if (String(url).endsWith("/auth/session-policy")) return new Promise(() => {});
+      if (String(url).endsWith("/auth/me")) {
+        return Promise.resolve(jsonResponse({ detail: "Not authenticated" }, { status: 401 }));
+      }
+      if (String(url).endsWith("/auth/refresh")) {
+        return Promise.resolve(jsonResponse({ detail: "Not authenticated" }, { status: 401 }));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const { controller, setAuthVisible } = createHarness();
+    await controller.bootstrapAuth();
+
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+  });
+
+  it("bounds startup refresh and loads space context only once", async () => {
+    const refreshSpaceContext = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
+      if (String(url).endsWith("/auth/me")) {
+        return jsonResponse({ detail: "Expired" }, { status: 401, errorCode: "TOKEN_EXPIRED" });
+      }
+      if (String(url).endsWith("/auth/refresh")) {
+        expect(options.signal).toBeInstanceOf(AbortSignal);
+        return jsonResponse({ user_id: "user-1", display_name: "User 1" });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const harness = createHarness();
+    harness.refreshSpaceContext.mockImplementation(refreshSpaceContext);
+    await harness.controller.bootstrapAuth();
+
+    expect(harness.refreshSpaceContext).toHaveBeenCalledTimes(1);
+    expect(harness.setAuthVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  it("surfaces space-context bootstrap failures instead of leaving the shell hidden", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
+      if (String(url).endsWith("/auth/me")) return jsonResponse({ user_id: "user-1" });
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+    const contextError = Object.assign(new Error("No active space"), {
+      status: 403,
+      code: "NO_ACTIVE_SPACE",
+    });
+    const { controller, refreshSpaceContext, setAuthVisible, showAuthNotice } = createHarness();
+    refreshSpaceContext.mockRejectedValue(contextError);
+
+    await controller.bootstrapAuth();
+
+    expect(setAuthVisible).toHaveBeenCalledWith(true);
+    expect(showAuthNotice).toHaveBeenCalledWith(
+      "SIPM could not finish opening your session. Sign in again or retry in a moment.",
+    );
+  });
+
   it("clears local realtime session state when session expiry is handled", () => {
     const { controller, stopLiveSync, setAuthVisible } = createHarness();
 

@@ -65,7 +65,6 @@ _environment.load_repo_env()
 from backend.app.auth.auth import validate_auth_configuration
 from backend.app.agent_errors import install_agent_error_handlers
 from backend.app.db.db import check_db_connection, init_db, warm_db_pool
-from backend.app.db.phase_catalog_data import ensure_phase_catalog
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -271,7 +270,6 @@ async def lifespan(app: FastAPI):
 
         if not disable_startup and not running_tests:
             init_db()
-            ensure_phase_catalog()
             prewarm_connection_count = _db_prewarm_connection_count()
             if prewarm_connection_count:
                 warm_db_pool(connection_count=prewarm_connection_count)

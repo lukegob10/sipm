@@ -36,7 +36,7 @@ No sample teams, people, or tasks are auto-created.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
 - SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
-- `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup.
+- `SIPM_COORDINATION_BACKEND=redis` requires `SIPM_REDIS_URL`. `ENV=uat|prod` now requires the Redis backend at startup. `SIPM_REDIS_TIMEOUT_SECONDS` (default `5`) bounds Redis connection and startup subscription attempts.
 - Redis coordinates cross-instance refresh fanout. Live socket connection counts and limits are process-local unless a future change moves accounting into Redis.
 - Database connectivity uses TAConnection with Oracle. `ENV=dev|uat|prod` selects the TAConnection profile, and the readiness query is Oracle-safe.
 - Database pool tuning is controlled by `SIPM_DB_POOL_SIZE`, `SIPM_DB_MAX_OVERFLOW`, `SIPM_DB_POOL_TIMEOUT_SECONDS`, `SIPM_DB_POOL_RECYCLE_SECONDS`, `SIPM_DB_POOL_PRE_PING`, and `SIPM_DB_POOL_USE_LIFO`.
@@ -47,6 +47,7 @@ No sample teams, people, or tasks are auto-created.
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
 - Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
 - First-deploy reference data SQL lives in [`docs/sql/first_deploy_reference_data.sql`](../../docs/sql/first_deploy_reference_data.sql). Run it after the canonical schema is created so required phase rows exist.
+- Existing environments must run `python -m backend.app.db.phase_catalog_data` as an explicit deployment migration when phase-catalog repair is needed; the application no longer repeats that database-wide repair before serving traffic.
 - First-time global admin bootstrap SQL lives in [`docs/sql/first_time_global_admin.sql`](../../docs/sql/first_time_global_admin.sql).
 - CI/CD packaging, deployment manifests, environment injection, secret delivery, platform healthcheck wiring, log shipping, dashboards, and alert routing are external platform responsibilities.
 

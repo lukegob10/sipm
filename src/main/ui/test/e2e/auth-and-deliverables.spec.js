@@ -44,6 +44,24 @@ test("password recovery provides a visible return to sign in", async ({ page }) 
 });
 
 
+test("startup stays visible and recovers to sign in when session bootstrap fails", async ({ page }) => {
+  await page.route("**/project-manager/api/auth/me", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Session store unavailable" }),
+    });
+  });
+
+  await page.goto("/");
+  await expect(page.locator("#startup-screen")).toBeVisible();
+  await expect(page.locator("#auth-screen")).toBeVisible();
+  await expect(page.locator("#auth-notice")).toContainText("could not finish opening your session");
+  await expect(page.locator("#startup-screen")).toBeHidden();
+});
+
+
 test("local login becomes usable without follow-up context requests", async ({ page }) => {
   const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const soeid = `login${suffix}`.replace(/[^a-z0-9]/g, "").slice(0, 20);

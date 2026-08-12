@@ -202,8 +202,16 @@ export function createSpaceGovernanceController({
       .then((rows) => {
         state.requestableSpaces = Array.isArray(rows) ? rows : [];
         state.requestableSpacesLoaded = true;
+        state.requestableSpacesError = "";
         if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
         return state.requestableSpaces;
+      })
+      .catch((err) => {
+        state.requestableSpaces = [];
+        state.requestableSpacesLoaded = true;
+        state.requestableSpacesError = err?.message || "Failed to load available spaces.";
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        throw err;
       })
       .finally(() => {
         requestableSpacesInFlight = null;
@@ -219,8 +227,16 @@ export function createSpaceGovernanceController({
       .then((rows) => {
         state.spaceAccessRequests = Array.isArray(rows) ? rows : [];
         state.spaceAccessRequestsLoaded = true;
+        state.spaceAccessRequestsError = "";
         if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
         return state.spaceAccessRequests;
+      })
+      .catch((err) => {
+        state.spaceAccessRequests = [];
+        state.spaceAccessRequestsLoaded = true;
+        state.spaceAccessRequestsError = err?.message || "Failed to load access requests.";
+        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        throw err;
       })
       .finally(() => {
         accessRequestsInFlight = null;
@@ -275,6 +291,23 @@ export function createSpaceGovernanceController({
   async function handleSpaceGovernanceAction(button) {
     if (!button) return false;
     const action = button.getAttribute("data-space-action") || "";
+    if (action === "refresh-lobby-data") {
+      state.requestableSpacesLoaded = false;
+      state.requestableSpacesError = "";
+      state.spaceAccessRequestsLoaded = false;
+      state.spaceAccessRequestsError = "";
+      renderGovernanceHub();
+      try {
+        await Promise.all([
+          refreshRequestableSpaces({ force: true }),
+          refreshAccessRequests({ force: true }),
+        ]);
+        setSpaceGovernanceNotice("Space access data refreshed.", "success", 3000);
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Failed to refresh space access data.", "error", 7000);
+      }
+      return true;
+    }
     if (action === "refresh-agent-change-requests") {
       try {
         await refreshAgentChangeRequests({ force: true });

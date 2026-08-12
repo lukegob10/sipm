@@ -247,7 +247,9 @@ export function createSpaceGovernanceRenderer({
       if (!requestSearch) return true;
       return normalize(`${space.name || ""} ${space.slug || ""} ${space.space_id || ""}`).includes(requestSearch);
     }).length;
-    const requestRows = state.spaceAccessRequestsLoaded
+    const requestRows = state.spaceAccessRequestsError
+      ? `<tr><td colspan='4' class='muted'>${esc(state.spaceAccessRequestsError)}</td></tr>`
+      : state.spaceAccessRequestsLoaded
       ? ((state.spaceAccessRequests || []).length
         ? (state.spaceAccessRequests || []).map((row) => `
           <tr>
@@ -263,7 +265,9 @@ export function createSpaceGovernanceRenderer({
         `).join("")
         : "<tr><td colspan='4' class='muted'>No access requests yet.</td></tr>")
       : "<tr><td colspan='4' class='muted'>Loading requests...</td></tr>";
-    const requestableRows = state.requestableSpacesLoaded
+    const requestableRows = state.requestableSpacesError
+      ? `<tr><td colspan='3' class='muted'>${esc(state.requestableSpacesError)}</td></tr>`
+      : state.requestableSpacesLoaded
       ? ((state.requestableSpaces || []).length
         ? `${requestableSpaces.map((space) => {
           const pending = pendingBySpaceId.get(space.space_id);
@@ -295,6 +299,7 @@ export function createSpaceGovernanceRenderer({
           </div>
           <div class="space-hero-actions">
             <span class="pill muted">Lobby</span>
+            <button type="button" class="secondary" data-space-action="refresh-lobby-data">Refresh</button>
           </div>
         </div>
         <div class="space-summary-grid">

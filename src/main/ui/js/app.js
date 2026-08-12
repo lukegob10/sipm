@@ -233,8 +233,10 @@ const state = {
   agentChangeRequestModalId: "",
   requestableSpaces: [],
   requestableSpacesLoaded: false,
+  requestableSpacesError: "",
   spaceAccessRequests: [],
   spaceAccessRequestsLoaded: false,
+  spaceAccessRequestsError: "",
   reviewableAccessRequests: [],
   reviewableAccessRequestsLoaded: false,
   lobbyPersonalSpaceCreating: false,
@@ -841,11 +843,13 @@ function setDeliverableFormNotice(statusEl, message, tone = "info", autoClearMs 
 }
 
 function setAuthVisible(show) {
+  if (els.startupScreen) els.startupScreen.classList.add("hidden");
   if (els.authScreen) els.authScreen.classList.toggle("hidden", !show);
   if (els.appShell) els.appShell.classList.toggle("hidden", show);
 }
 
 function setResetVisible(show) {
+  if (els.startupScreen) els.startupScreen.classList.add("hidden");
   if (els.resetScreen) els.resetScreen.classList.toggle("hidden", !show);
   if (els.authScreen) els.authScreen.classList.toggle("hidden", show);
   if (els.appShell) els.appShell.classList.toggle("hidden", show);
@@ -1006,7 +1010,9 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   state.activeSpace = activeSpace || null;
   if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
     state.requestableSpacesLoaded = false;
+    state.requestableSpacesError = "";
     state.spaceAccessRequestsLoaded = false;
+    state.spaceAccessRequestsError = "";
     state.reviewableAccessRequestsLoaded = false;
   }
   telemetryController?.syncRuntimeContext?.();
@@ -1080,8 +1086,10 @@ async function refreshSpaceContext(options = {}) {
     state.globalAdminsLoaded = false;
     state.requestableSpaces = [];
     state.requestableSpacesLoaded = false;
+    state.requestableSpacesError = "";
     state.spaceAccessRequests = [];
     state.spaceAccessRequestsLoaded = false;
+    state.spaceAccessRequestsError = "";
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
     state.agentChangeRequestModalId = "";
@@ -1155,8 +1163,10 @@ function setAuthed(user) {
     state.globalAdminsLoaded = false;
     state.requestableSpaces = [];
     state.requestableSpacesLoaded = false;
+    state.requestableSpacesError = "";
     state.spaceAccessRequests = [];
     state.spaceAccessRequestsLoaded = false;
+    state.spaceAccessRequestsError = "";
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
     state.agentChangeRequestModalId = "";
@@ -3806,7 +3816,13 @@ function init() {
   if (!isResetPath()) {
     syncPathForView(initialView, true);
   }
-  bootstrapAuth();
+  void bootstrapAuth().catch((err) => {
+    console.error("Authentication bootstrap failed", err);
+    setAuthed(null);
+    setAuthVisible(true);
+    setStatus("Unable to open session", "warn");
+    showAuthNotice("SIPM could not finish opening your session. Sign in again or retry in a moment.");
+  });
 }
 
 init();

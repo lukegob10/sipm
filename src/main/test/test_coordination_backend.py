@@ -29,6 +29,27 @@ def test_prod_like_env_requires_redis(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_redis_coordination_uses_bounded_connection_timeouts(monkeypatch):
+    monkeypatch.setenv("SIPM_REDIS_TIMEOUT_SECONDS", "2.5")
+    backend = coordination.RedisCoordinationBackend("redis://127.0.0.1:6379/0")
+    try:
+        sync_options = backend._redis.connection_pool.connection_kwargs
+        async_options = backend._aredis.connection_pool.connection_kwargs
+        assert sync_options["socket_connect_timeout"] == 2.5
+        assert sync_options["socket_timeout"] == 2.5
+        assert async_options["socket_connect_timeout"] == 2.5
+    finally:
+        await backend.aclose()
+
+
+def test_redis_coordination_rejects_invalid_timeout(monkeypatch):
+    monkeypatch.setenv("SIPM_REDIS_TIMEOUT_SECONDS", "0")
+
+    with pytest.raises(RuntimeError, match="must be a positive number"):
+        coordination.RedisCoordinationBackend("redis://127.0.0.1:6379/0")
+
+
+@pytest.mark.anyio
 @pytest.mark.integration
 async def test_redis_coordination_propagates_scope_versions_and_refresh_events(monkeypatch):
     redis_url = str(os.getenv("SIPM_REDIS_URL", "")).strip()

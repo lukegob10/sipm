@@ -148,9 +148,9 @@ database, run the SQL artifacts in this order:
 3. `docs/sql/first_time_global_admin.sql`, after the first user row exists
 
 `first_deploy_reference_data.sql` seeds the canonical phase catalog required by
-the solution phase workflows. Normal application startup also runs the
-equivalent idempotent catalog synchronization so an environment with only a
-partial phase seed is repaired before it serves requests.
+the solution phase workflows. Existing environments with a partial phase seed
+must run the equivalent idempotent catalog synchronization explicitly during
+deployment, before starting the application.
 
 ## Oracle Migration Repairs
 
@@ -160,9 +160,9 @@ Before deploying the canonical seven-phase workflow to an existing database, run
 
 The migration maps legacy solution phases into Intake / Backlog, Requirements /
 Specification, Development, Testing, Deployment, Go Live, or Retired. It also
-normalizes every solution to the same ordered catalog. Every normal application
-startup runs the equivalent idempotent synchronization; the Home Lab deployment
-also runs it explicitly before starting the application.
+normalizes every solution to the same ordered catalog. Application startup does
+not repeat this database-wide migration; the Home Lab deployment runs it
+explicitly before starting the application.
 
 Before deploying Project function and area fields to an existing database, run:
 

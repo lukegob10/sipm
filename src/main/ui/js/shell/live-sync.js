@@ -206,6 +206,7 @@ export function createLiveSyncController({
       try {
         await refreshSpaceContext({
           apiOptions: { skipAuthRefresh: true },
+          suppressDataInvalidation: true,
           suppressLiveSyncRestart: true,
         });
       } catch (err) {

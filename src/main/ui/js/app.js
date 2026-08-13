@@ -7,7 +7,10 @@ import {
   buildWsUrl,
   formatDateTime,
 } from "./shell/paths.js";
-import { createShellContext } from "./shell/context.js";
+import {
+  createShellContext,
+  invalidateDataForSpaceContextChange,
+} from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
 import { createDataStoreController } from "./shell/data-store.js";
@@ -1011,15 +1014,23 @@ async function switchActiveSpace(targetSpaceId) {
 function applySpaceContext(spaces, activeSpace, options = {}) {
   const previousActiveSpaceId = state.activeSpace?.space_id || "";
   const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
+  const suppressDataInvalidation = !!options.suppressDataInvalidation;
   state.spaces = Array.isArray(spaces) ? spaces : [];
   state.activeSpace = activeSpace || null;
-  if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
+  const nextActiveSpaceId = state.activeSpace?.space_id || "";
+  if (nextActiveSpaceId !== previousActiveSpaceId) {
     state.requestableSpacesLoaded = false;
     state.requestableSpacesError = "";
     state.spaceAccessRequestsLoaded = false;
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequestsLoaded = false;
   }
+  invalidateDataForSpaceContextChange({
+    previousSpaceId: previousActiveSpaceId,
+    nextSpaceId: nextActiveSpaceId,
+    clearDataState,
+    suppress: suppressDataInvalidation,
+  });
   telemetryController?.syncRuntimeContext?.();
   if (state.activeSpace?.space_id && !state.spaces.some((space) => space.space_id === state.activeSpace.space_id)) {
     state.spaces.unshift({
@@ -1054,7 +1065,6 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   renderSpaceSwitcher();
   loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
   updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
-  const nextActiveSpaceId = state.activeSpace?.space_id || "";
   if (
     !suppressLiveSyncRestart
     && state.authed

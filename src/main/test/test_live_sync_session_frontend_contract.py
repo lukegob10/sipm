@@ -54,6 +54,21 @@ def test_bootstrap_auth_reapplies_requested_route_from_location_after_session_re
     assert "setView," in app_text
 
 
+def test_context_refresh_invalidates_data_when_the_active_space_changes():
+    app_text = APP_JS.read_text(encoding="utf-8")
+    live_sync_text = LIVE_SYNC_JS.read_text(encoding="utf-8")
+    apply_context_block = app_text[
+        app_text.index("function applySpaceContext"):app_text.index("async function refreshSpaceContext")
+    ]
+
+    assert "invalidateDataForSpaceContextChange({" in apply_context_block
+    assert "previousSpaceId: previousActiveSpaceId," in apply_context_block
+    assert "nextSpaceId: nextActiveSpaceId," in apply_context_block
+    assert "clearDataState," in apply_context_block
+    assert "suppress: suppressDataInvalidation," in apply_context_block
+    assert "suppressDataInvalidation: true," in live_sync_text
+
+
 def test_session_controller_preserves_auth_error_codes_and_terminal_messages():
     text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "session.js").read_text(encoding="utf-8")
 

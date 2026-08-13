@@ -12,11 +12,13 @@ function createError(message, status = 500) {
 function createHarness(apiImpl, overrides = {}) {
   const state = {
     authed: true,
+    activeSpace: { space_id: "space-a", space_name: "Space A" },
     currentView: "master",
     loading: false,
     pendingRefresh: false,
     loadedEntities: new Set(),
     phases: [],
+    programs: [],
     projects: [],
     solutions: [],
     tasks: [],
@@ -25,11 +27,16 @@ function createHarness(apiImpl, overrides = {}) {
     capacitySelectedSoeid: "",
     teamCapacity: {},
     tasksWorkbench: null,
+    ...(overrides.state || {}),
   };
   const setStatus = overrides.setStatus || vi.fn();
+  const setAuthVisible = overrides.setAuthVisible || vi.fn();
   const renderActiveView = overrides.renderActiveView || vi.fn();
   const populateSelects = overrides.populateSelects || vi.fn();
   const restoreSelections = overrides.restoreSelections || vi.fn();
+  const handleAuthError = overrides.handleAuthError || vi.fn(() => false);
+  const onViewDataLoaded = overrides.onViewDataLoaded || vi.fn();
+  const api = vi.fn(apiImpl);
   const controller = createDataStoreController({
     state,
     els: {
@@ -37,20 +44,32 @@ function createHarness(apiImpl, overrides = {}) {
       solutionForm: null,
       taskForm: null,
     },
-    api: vi.fn(apiImpl),
+    api,
     setStatus,
-    setAuthVisible: vi.fn(),
+    setAuthVisible,
     renderActiveView,
     populateSelects,
     restoreSelections,
-    handleAuthError: vi.fn(() => false),
+    handleAuthError,
     loadTeamCapacityData: vi.fn(),
+    onViewDataLoaded,
     entitiesForView: overrides.entitiesForView || vi.fn(() => ["projects", "solutions"]),
     isKnownEntity: (entity) => ["phases", "projects", "solutions", "tasks", "teams", "users"].includes(entity),
     dataEntities: ["phases", "projects", "solutions", "tasks", "teams", "users"],
     viewPrefetchTarget: overrides.viewPrefetchTarget || {},
   });
-  return { controller, state, setStatus, renderActiveView, populateSelects, restoreSelections };
+  return {
+    controller,
+    state,
+    api,
+    setStatus,
+    setAuthVisible,
+    renderActiveView,
+    populateSelects,
+    restoreSelections,
+    handleAuthError,
+    onViewDataLoaded,
+  };
 }
 
 function deferred() {
@@ -140,7 +159,7 @@ describe("data store controller", () => {
     expect(setStatus).toHaveBeenCalledWith("Loaded with UI sync issue: select sync exploded", "warn");
   });
 
-  it("preserves queued route readiness when a route load starts during another load", async () => {
+  it("awaits the actual queued load and its route readiness", async () => {
     const firstProjects = deferred();
     const secondTasks = deferred();
     const routeReady = deferred();
@@ -161,18 +180,90 @@ describe("data store controller", () => {
     const firstLoad = controller.loadData({ entities: ["projects"], silent: true });
     await Promise.resolve();
     state.currentView = "gantt";
-    await controller.loadData({ entities: ["tasks"], routeReady: routeReady.promise, silent: true });
+    let queuedLoadSettled = false;
+    const queuedLoad = controller.loadData({ entities: ["tasks"], routeReady: routeReady.promise, silent: true });
+    void queuedLoad.then(() => {
+      queuedLoadSettled = true;
+    });
+
+    expect(queuedLoadSettled).toBe(false);
 
     firstProjects.resolve([{ project_id: "project-1" }]);
     await firstLoad;
-    await vi.waitFor(() => expect(api).toHaveBeenCalledWith("/tasks"));
+    await vi.waitFor(() => expect(api).toHaveBeenCalledWith(
+      "/tasks",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ));
+    expect(queuedLoadSettled).toBe(false);
+
     secondTasks.resolve([{ task_id: "task-1" }]);
     await vi.waitFor(() => expect(state.tasks).toEqual([{ task_id: "task-1" }]));
-
+    expect(queuedLoadSettled).toBe(false);
     expect(renderActiveView).toHaveBeenCalledTimes(1);
 
     routeReady.resolve({});
-    await vi.waitFor(() => expect(renderActiveView).toHaveBeenCalledTimes(2));
+    await queuedLoad;
+
+    expect(queuedLoadSettled).toBe(true);
+    expect(renderActiveView).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts the replacement-space load immediately and discards stale results", async () => {
+    const oldSpaceProjects = deferred();
+    const newSpaceProjects = deferred();
+    const requestSignals = [];
+    let requestCount = 0;
+    const harness = createHarness((_path, options = {}) => {
+      requestSignals.push(options.signal);
+      requestCount += 1;
+      return requestCount === 1 ? oldSpaceProjects.promise : newSpaceProjects.promise;
+    });
+    const {
+      controller,
+      state,
+      api,
+      setStatus,
+      renderActiveView,
+      populateSelects,
+      onViewDataLoaded,
+    } = harness;
+
+    const oldLoad = controller.loadData({ entities: ["projects"] });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+
+    state.activeSpace = { space_id: "space-b", space_name: "Space B" };
+    controller.clearDataState();
+    const replacementLoad = controller.loadData({ entities: ["projects"] });
+    await Promise.resolve();
+
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(requestSignals[0]).toBeInstanceOf(AbortSignal);
+    expect(requestSignals[0].aborted).toBe(true);
+    expect(requestSignals[1].aborted).toBe(false);
+
+    let replacementSettled = false;
+    void replacementLoad.then(() => {
+      replacementSettled = true;
+    });
+    expect(replacementSettled).toBe(false);
+
+    newSpaceProjects.resolve([{ project_id: "project-b" }]);
+    await replacementLoad;
+
+    expect(replacementSettled).toBe(true);
+    expect(state.projects).toEqual([{ project_id: "project-b" }]);
+    const renderCountAfterReplacement = renderActiveView.mock.calls.length;
+    const statusCountAfterReplacement = setStatus.mock.calls.length;
+
+    oldSpaceProjects.resolve([{ project_id: "project-a" }]);
+    await oldLoad;
+
+    expect(state.projects).toEqual([{ project_id: "project-b" }]);
+    expect(populateSelects).toHaveBeenCalledTimes(1);
+    expect(renderActiveView).toHaveBeenCalledTimes(renderCountAfterReplacement);
+    expect(onViewDataLoaded).toHaveBeenCalledTimes(1);
+    expect(setStatus).toHaveBeenCalledTimes(statusCountAfterReplacement);
+    expect(setStatus.mock.calls.filter(([message]) => message === "Online")).toHaveLength(1);
   });
 
   it("invalidates My Work when authoritative task data refreshes", async () => {
@@ -190,6 +281,69 @@ describe("data store controller", () => {
     expect(state.tasks).toEqual([{ task_id: "task-1", status: "in_progress" }]);
     expect(state.myWork.records).toBeNull();
     expect(state.myWork.selectedTaskId).toBe("task-1");
+  });
+
+  it("coalesces refreshes within the current data context", async () => {
+    const projectsRefresh = deferred();
+    const tasksRefresh = deferred();
+    const { controller, state, api } = createHarness((path) => {
+      if (path === "/projects") return projectsRefresh.promise;
+      if (path === "/tasks") return tasksRefresh.promise;
+      return Promise.resolve([]);
+    });
+
+    const firstRefresh = controller.refreshFromServer("projects");
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    void controller.refreshFromServer("tasks");
+
+    expect(api).toHaveBeenCalledTimes(1);
+
+    projectsRefresh.resolve([{ project_id: "project-1" }]);
+    await firstRefresh;
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+
+    tasksRefresh.resolve([{ task_id: "task-1" }]);
+    await vi.waitFor(() => expect(state.tasks).toEqual([{ task_id: "task-1" }]));
+
+    expect(state.projects).toEqual([{ project_id: "project-1" }]);
+    expect(state.tasks).toEqual([{ task_id: "task-1" }]);
+  });
+
+  it("does not let an old-space refresh overwrite the replacement space", async () => {
+    const oldSpaceRefresh = deferred();
+    const newSpaceRefresh = deferred();
+    const requestSignals = [];
+    const requestPaths = [];
+    let requestCount = 0;
+    const { controller, state, api, populateSelects, renderActiveView } = createHarness((path, options = {}) => {
+      requestPaths.push(path);
+      requestSignals.push(options.signal);
+      requestCount += 1;
+      return requestCount === 1 ? oldSpaceRefresh.promise : newSpaceRefresh.promise;
+    });
+
+    const oldRefresh = controller.refreshFromServer("projects");
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    void controller.refreshFromServer("tasks");
+    expect(api).toHaveBeenCalledTimes(1);
+
+    state.activeSpace = { space_id: "space-b", space_name: "Space B" };
+    controller.clearDataState();
+    const replacementRefresh = controller.refreshFromServer("projects");
+    await Promise.resolve();
+
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(requestSignals[0].aborted).toBe(true);
+
+    newSpaceRefresh.resolve([{ project_id: "project-b" }]);
+    await replacementRefresh;
+    oldSpaceRefresh.resolve([{ project_id: "project-a" }]);
+    await oldRefresh;
+
+    expect(state.projects).toEqual([{ project_id: "project-b" }]);
+    expect(requestPaths).toEqual(["/projects", "/projects"]);
+    expect(populateSelects).toHaveBeenCalledTimes(1);
+    expect(renderActiveView).toHaveBeenCalledTimes(1);
   });
 
   it("clears private My Work interaction state with the session data", () => {
@@ -242,5 +396,84 @@ describe("data store controller", () => {
 
     expect(api).not.toHaveBeenCalled();
     expect(populateSelects).not.toHaveBeenCalled();
+  });
+
+  it("cancels a scheduled prefetch when session data is cleared", async () => {
+    vi.useFakeTimers();
+    const { controller, api } = createHarness(() => Promise.resolve([{ project_id: "project-a" }]), {
+      entitiesForView: vi.fn(() => ["projects"]),
+      viewPrefetchTarget: { master: "next" },
+    });
+
+    controller.scheduleViewPrefetch("master");
+    controller.clearDataState();
+    await vi.runOnlyPendingTimersAsync();
+
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it("discards an in-flight prefetch after the active space changes", async () => {
+    vi.useFakeTimers();
+    const oldSpacePrefetch = deferred();
+    let requestSignal = null;
+    const { controller, state, api, populateSelects } = createHarness((_path, options = {}) => {
+      requestSignal = options.signal;
+      return oldSpacePrefetch.promise;
+    }, {
+      entitiesForView: vi.fn(() => ["projects"]),
+      viewPrefetchTarget: { master: "next" },
+    });
+
+    controller.scheduleViewPrefetch("master");
+    await vi.advanceTimersByTimeAsync(450);
+    expect(api).toHaveBeenCalledTimes(1);
+
+    state.activeSpace = { space_id: "space-b", space_name: "Space B" };
+    controller.clearDataState();
+    expect(requestSignal.aborted).toBe(true);
+
+    oldSpacePrefetch.resolve([{ project_id: "project-a" }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.projects).toEqual([]);
+    expect(state.loadedEntities.has("projects")).toBe(false);
+    expect(populateSelects).not.toHaveBeenCalled();
+  });
+
+  it("invalidates in-flight loads when logout clears local data", async () => {
+    const oldSpaceProjects = deferred();
+    let requestSignal = null;
+    const {
+      controller,
+      state,
+      api,
+      setStatus,
+      renderActiveView,
+      populateSelects,
+      onViewDataLoaded,
+    } = createHarness((_path, options = {}) => {
+      requestSignal = options.signal;
+      return oldSpaceProjects.promise;
+    });
+
+    const oldLoad = controller.loadData({ entities: ["projects"], silent: true });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+
+    state.teamCapacity.requestId = 7;
+    state.authed = false;
+    controller.clearDataState();
+    expect(requestSignal.aborted).toBe(true);
+    expect(state.teamCapacity.requestId).toBe(8);
+
+    oldSpaceProjects.resolve([{ project_id: "project-a" }]);
+    await oldLoad;
+
+    expect(state.projects).toEqual([]);
+    expect(state.loadedEntities.has("projects")).toBe(false);
+    expect(populateSelects).not.toHaveBeenCalled();
+    expect(renderActiveView).not.toHaveBeenCalled();
+    expect(onViewDataLoaded).not.toHaveBeenCalled();
+    expect(setStatus).not.toHaveBeenCalled();
   });
 });

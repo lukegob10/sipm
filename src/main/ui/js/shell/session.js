@@ -256,18 +256,34 @@ export function createSessionController({
       headers["Content-Type"] = "application/json";
     }
     const timeoutMs = Number.isFinite(timeoutOption) ? timeoutOption : 15000;
+    const callerSignal = requestOptions.signal;
     let controller = null;
     let timeoutId = null;
-    if (!requestOptions.signal && timeoutMs > 0) {
+    let callerAbortListener = null;
+    let timedOut = false;
+    if (callerSignal || timeoutMs > 0) {
       controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      if (callerSignal) {
+        callerAbortListener = () => controller.abort(callerSignal.reason);
+        if (callerSignal.aborted) {
+          callerAbortListener();
+        } else {
+          callerSignal.addEventListener("abort", callerAbortListener, { once: true });
+        }
+      }
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, timeoutMs);
+      }
     }
     try {
       const res = await fetch(`${apiBase}${path}`, {
         credentials: "include",
         ...requestOptions,
         headers,
-        signal: requestOptions.signal || controller?.signal,
+        signal: controller?.signal,
       });
       const text = await res.text();
       let data = null;
@@ -295,6 +311,7 @@ export function createSessionController({
       }
       return data;
     } catch (err) {
+      if (err?.name === "AbortError" && callerSignal?.aborted && !timedOut) throw err;
       if (err && (err.name === "AbortError" || err.name === "TypeError")) {
         const timeoutErr = networkError(path, err);
         if (typeof onApiFailure === "function") {
@@ -309,6 +326,9 @@ export function createSessionController({
       throw err;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      if (callerSignal && callerAbortListener) {
+        callerSignal.removeEventListener("abort", callerAbortListener);
+      }
     }
   }
 

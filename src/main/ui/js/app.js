@@ -10,6 +10,7 @@ import {
 import {
   createShellContext,
   invalidateDataForSpaceContextChange,
+  refreshSpaceContextData,
 } from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
@@ -1025,7 +1026,7 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequestsLoaded = false;
   }
-  invalidateDataForSpaceContextChange({
+  const dataInvalidated = invalidateDataForSpaceContextChange({
     previousSpaceId: previousActiveSpaceId,
     nextSpaceId: nextActiveSpaceId,
     clearDataState,
@@ -1074,6 +1075,7 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   ) {
     startLiveSync({ force: true });
   }
+  return dataInvalidated;
 }
 
 
@@ -1124,11 +1126,14 @@ async function refreshSpaceContext(options = {}) {
     updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
     return;
   }
-  const [spaces, activeSpace] = await Promise.all([
-    api("/spaces", apiOptions),
-    api("/auth/active-space", apiOptions),
-  ]);
-  applySpaceContext(spaces, activeSpace, options);
+  return refreshSpaceContextData({
+    loadSpaces: () => api("/spaces", apiOptions),
+    loadActiveSpace: () => api("/auth/active-space", apiOptions),
+    applySpaceContext,
+    reloadCurrentViewData,
+    renderActiveView,
+    options,
+  });
 }
 
 

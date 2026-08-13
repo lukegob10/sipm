@@ -17,3 +17,31 @@ export function invalidateDataForSpaceContextChange({
   clearDataState();
   return true;
 }
+
+export async function refreshSpaceContextData({
+  loadSpaces,
+  loadActiveSpace,
+  applySpaceContext,
+  reloadCurrentViewData,
+  renderActiveView,
+  options = {},
+} = {}) {
+  const [spaces, activeSpace] = await Promise.all([
+    loadSpaces(),
+    loadActiveSpace(),
+  ]);
+  const dataInvalidated = applySpaceContext(spaces, activeSpace, options);
+  if (!dataInvalidated) return false;
+
+  const nextSpaceId = String(activeSpace?.space_id || "").trim();
+  if (!nextSpaceId) {
+    renderActiveView();
+    return true;
+  }
+
+  await reloadCurrentViewData({
+    force: true,
+    preserveCapacitySelection: false,
+  });
+  return true;
+}

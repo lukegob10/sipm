@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
 import os
 
@@ -38,6 +38,11 @@ from ..schemas import (
 )
 from ..security import security_http_exception
 from ..services.password_reset import reset_password_with_temp_password
+from ..services.authentication_state import (
+    is_user_locked,
+    record_failed_login_attempt,
+    try_record_successful_login,
+)
 from ..services.auth_sessions import (
     create_auth_session,
     record_activity,
@@ -62,22 +67,6 @@ _DUMMY_LOGIN_PASSWORD_HASH = hash_password("not-the-real-password")
 
 def _get_user_by_soeid(session: Session, soeid: str) -> Optional[User]:
     return session.query(User).filter(User.soeid == soeid.lower()).first()
-
-
-def _is_user_locked(user: User, now: datetime) -> bool:
-    locked_until = user.locked_until
-    if not locked_until:
-        return False
-    if locked_until.tzinfo is None:
-        locked_until = locked_until.replace(tzinfo=timezone.utc)
-    return locked_until > now
-
-
-def _clear_expired_lockout(user: User, now: datetime) -> None:
-    if not user.locked_until or _is_user_locked(user, now):
-        return
-    user.failed_attempts = 0
-    user.locked_until = None
 
 
 def _email_from_soeid(soeid: str) -> str:
@@ -197,21 +186,37 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Login failed. Check your username or password.",
         )
 
-    if _is_user_locked(user, now):
+    if is_user_locked(user, now):
         raise security_http_exception(
             status_code=status.HTTP_423_LOCKED,
             code="ACCOUNT_LOCKED",
             message="Account locked. Try again later.",
         )
 
-    _clear_expired_lockout(user, now)
-
     if not verify_password(payload.password, user.password_hash):
-        user.failed_attempts += 1
-        if user.failed_attempts >= MAX_FAILED_ATTEMPTS:
-            user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
-        session.add(user)
+        recorded = record_failed_login_attempt(
+            session,
+            user=user,
+            password_hash=user.password_hash,
+            now=now,
+            max_failed_attempts=MAX_FAILED_ATTEMPTS,
+            lockout_minutes=LOCKOUT_MINUTES,
+        )
         session.commit()
+        if not recorded:
+            current_user = _get_user_by_soeid(session, soeid_norm)
+            if current_user and not current_user.is_active:
+                raise security_http_exception(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    code="USER_INACTIVE",
+                    message="Login failed. Check your username or password.",
+                )
+            if current_user and is_user_locked(current_user, now):
+                raise security_http_exception(
+                    status_code=status.HTTP_423_LOCKED,
+                    code="ACCOUNT_LOCKED",
+                    message="Account locked. Try again later.",
+                )
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="LOGIN_FAILED",
@@ -225,10 +230,37 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Password reset required",
         )
 
-    user.failed_attempts = 0
-    user.locked_until = None
-    user.last_login_at = now
-    session.add(user)
+    if not try_record_successful_login(
+        session,
+        user=user,
+        password_hash=user.password_hash,
+        now=now,
+    ):
+        session.rollback()
+        current_user = _get_user_by_soeid(session, soeid_norm)
+        if current_user and not current_user.is_active:
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="USER_INACTIVE",
+                message="Login failed. Check your username or password.",
+            )
+        if current_user and is_user_locked(current_user, now):
+            raise security_http_exception(
+                status_code=status.HTTP_423_LOCKED,
+                code="ACCOUNT_LOCKED",
+                message="Account locked. Try again later.",
+            )
+        if current_user and current_user.force_password_reset:
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN,
+                code="PASSWORD_RESET_REQUIRED",
+                message="Password reset required",
+            )
+        raise security_http_exception(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            code="LOGIN_FAILED",
+            message="Login failed. Check your username or password.",
+        )
     active_ctx = _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
 
     preferences = _preference_response(session.get(UserPreference, user.user_id))
@@ -276,7 +308,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             code="PASSWORD_RESET_REQUIRED",
             message="Password reset required",
         )
-    if _is_user_locked(user, datetime.now(timezone.utc)):
+    if is_user_locked(user, datetime.now(timezone.utc)):
         raise security_http_exception(
             status_code=status.HTTP_423_LOCKED,
             code="ACCOUNT_LOCKED",

@@ -33,6 +33,7 @@ from ..services.spaces import (
     normalize_space_kind,
 )
 from ..services.smart_cache import invalidate_space
+from ..services.user_admin_guards import lock_space_admin_spaces
 
 router = APIRouter()
 
@@ -55,7 +56,17 @@ def _space_or_404(session: Session, space_id: str) -> Space:
 
 
 def _space_or_404_for_membership_mutation(session: Session, space_id: str) -> Space:
-    space = _space_or_404(session, space_id)
+    locked_spaces = lock_space_admin_spaces(session, [space_id])
+    space = next(
+        (
+            locked_space
+            for locked_space in locked_spaces
+            if locked_space.space_id == space_id and locked_space.deleted_at is None
+        ),
+        None,
+    )
+    if not space:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Space not found")
     if not space.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -67,6 +78,7 @@ def _space_or_404_for_membership_mutation(session: Session, space_id: str) -> Sp
 def _membership_or_404(session: Session, membership_id: str) -> SpaceMembership:
     row = (
         session.query(SpaceMembership)
+        .populate_existing()
         .filter(SpaceMembership.membership_id == membership_id)
         .filter(SpaceMembership.deleted_at.is_(None))
         .first()

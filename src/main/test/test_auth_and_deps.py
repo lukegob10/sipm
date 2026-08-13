@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import importlib
 from datetime import datetime, timedelta, timezone
+from threading import Barrier, Event
 
 import httpx
 import jwt
 import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import event
+from sqlalchemy.dialects import oracle
 from starlette.requests import Request
 
 from backend.app import deps as deps_module
@@ -20,6 +23,9 @@ from backend.app.auth.auth import (
     verify_password,
 )
 from backend.app.models import ApiToken, AuthSession, Space, SpaceMembership, User
+from backend.app.schemas import UserLogin
+from backend.app.services import authentication_state as authentication_state_module
+from backend.app.services import password_reset as password_reset_module
 from backend.app.services.spaces import SpaceContext
 from backend.main import app as fastapi_app
 
@@ -876,6 +882,261 @@ async def test_login_clears_expired_lockout_before_counting_new_failures(auth_cl
     assert correct.status_code == 200, correct.text
 
 
+def test_concurrent_login_failures_are_counted_atomically(db_sessionmaker, monkeypatch):
+    attempt_count = 8
+    verification_barrier = Barrier(attempt_count)
+
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="loginrace1",
+                email="loginrace1@citi.com",
+                display_name="Login Race",
+                password_hash=hash_password("CorrectPassword123"),
+                role="user",
+                is_active=True,
+            )
+        )
+        session.commit()
+
+    def synchronized_failure(_plain_password, _password_hash):
+        verification_barrier.wait(timeout=10)
+        return False
+
+    monkeypatch.setattr(auth_routes_module, "verify_password", synchronized_failure)
+
+    def attempt_login(_attempt):
+        with db_sessionmaker() as session:
+            try:
+                auth_routes_module.login(
+                    UserLogin(soeid="loginrace1", password="WrongPassword123"),
+                    Request(
+                        {
+                            "type": "http",
+                            "method": "POST",
+                            "path": "/project-manager/api/auth/login",
+                            "headers": [],
+                        }
+                    ),
+                    Response(),
+                    session,
+                )
+            except HTTPException as exc:
+                return exc.status_code, (exc.headers or {}).get("X-Error-Code")
+        raise AssertionError("Failed login unexpectedly succeeded")
+
+    with ThreadPoolExecutor(max_workers=attempt_count) as executor:
+        results = list(executor.map(attempt_login, range(attempt_count)))
+
+    assert results.count((401, "LOGIN_FAILED")) == 5
+    assert results.count((423, "ACCOUNT_LOCKED")) == attempt_count - 5
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "loginrace1").one()
+        assert user.failed_attempts == 5
+        assert user.locked_until is not None
+
+
+def test_atomic_authentication_updates_are_oracle_safe():
+    class CapturedResult:
+        rowcount = 1
+
+    class CapturingSession:
+        def __init__(self):
+            self.statements = []
+
+        def execute(self, statement, execution_options=None):
+            self.statements.append(statement)
+            return CapturedResult()
+
+    now = datetime(2026, 8, 12, 12, tzinfo=timezone.utc)
+    user = User(
+        user_id="oracle-auth-user",
+        soeid="oracleauth",
+        email="oracleauth@citi.com",
+        display_name="Oracle Auth",
+        password_hash="password-hash",
+        role="user",
+        is_active=True,
+        force_password_reset=True,
+        temp_password_hash="temp-password-hash",
+        temp_password_expires_at=now + timedelta(minutes=15),
+    )
+    session = CapturingSession()
+
+    authentication_state_module.record_failed_login_attempt(
+        session,
+        user=user,
+        password_hash=user.password_hash,
+        now=now,
+        max_failed_attempts=5,
+        lockout_minutes=15,
+    )
+    authentication_state_module.record_failed_temp_password_attempt(
+        session,
+        user=user,
+        temp_password_hash=user.temp_password_hash,
+        now=now,
+        max_failed_attempts=5,
+        lockout_minutes=15,
+    )
+    authentication_state_module.try_record_successful_login(
+        session,
+        user=user,
+        password_hash=user.password_hash,
+        now=now,
+    )
+    authentication_state_module.try_complete_temp_password_reset(
+        session,
+        user=user,
+        temp_password_hash=user.temp_password_hash,
+        new_password_hash="new-password-hash",
+        now=now,
+    )
+
+    compiled = [statement.compile(dialect=oracle.dialect()) for statement in session.statements]
+    sql = [str(statement) for statement in compiled]
+    assert len(sql) == 4
+    for statement in sql:
+        assert statement.startswith('UPDATE "TB_TA_PM_USERS"')
+        assert '"TB_TA_PM_USERS".is_active = 1' in statement
+        assert "is_active IS 1" not in statement
+        assert "force_password_reset IS 0" not in statement
+        assert "INTERVAL" not in statement
+
+    for failure_statement in sql[:2]:
+        assert failure_statement.count("CASE WHEN") == 2
+        assert '"TB_TA_PM_USERS".locked_until <=' in failure_statement
+    assert '"TB_TA_PM_USERS".password_hash =' in sql[0]
+    assert '"TB_TA_PM_USERS".temp_password_hash =' in sql[1]
+    assert '"TB_TA_PM_USERS".temp_password_expires_at >=' in sql[1]
+    assert '"TB_TA_PM_USERS".force_password_reset = 0' in sql[2]
+    assert '"TB_TA_PM_USERS".temp_password_expires_at >=' in sql[3]
+
+    failure_dates = [value for value in compiled[0].params.values() if isinstance(value, datetime)]
+    assert now in failure_dates
+    assert now + timedelta(minutes=15) in failure_dates
+    assert now in compiled[2].params.values()
+    assert now in compiled[3].params.values()
+
+
+def test_concurrent_login_cannot_bypass_new_lockout(db_sessionmaker, monkeypatch):
+    verification_barrier = Barrier(2)
+    failed_attempt_completed = Event()
+
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="loginrace2",
+                email="loginrace2@citi.com",
+                display_name="Login Lock Race",
+                password_hash=hash_password("CorrectPassword123"),
+                role="user",
+                is_active=True,
+                failed_attempts=4,
+            )
+        )
+        session.commit()
+
+    def synchronized_verification(plain_password, _password_hash):
+        verification_barrier.wait(timeout=10)
+        if plain_password == "CorrectPassword123":
+            assert failed_attempt_completed.wait(timeout=10)
+            return True
+        return False
+
+    monkeypatch.setattr(auth_routes_module, "verify_password", synchronized_verification)
+
+    def attempt_login(password):
+        try:
+            with db_sessionmaker() as session:
+                auth_routes_module.login(
+                    UserLogin(soeid="loginrace2", password=password),
+                    Request(
+                        {
+                            "type": "http",
+                            "method": "POST",
+                            "path": "/project-manager/api/auth/login",
+                            "headers": [],
+                        }
+                    ),
+                    Response(),
+                    session,
+                )
+        except HTTPException as exc:
+            return exc.status_code, (exc.headers or {}).get("X-Error-Code")
+        finally:
+            if password != "CorrectPassword123":
+                failed_attempt_completed.set()
+        raise AssertionError("Login unexpectedly succeeded")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        wrong_result = executor.submit(attempt_login, "WrongPassword123")
+        correct_result = executor.submit(attempt_login, "CorrectPassword123")
+
+    assert wrong_result.result() == (401, "LOGIN_FAILED")
+    assert correct_result.result() == (423, "ACCOUNT_LOCKED")
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "loginrace2").one()
+        assert user.failed_attempts == 5
+        assert user.locked_until is not None
+        assert session.query(AuthSession).filter(AuthSession.user_id == user.user_id).count() == 0
+
+
+@pytest.mark.parametrize(
+    ("password", "guard_name"),
+    [
+        ("WrongPassword123", "record_failed_login_attempt"),
+        ("CorrectPassword123", "try_record_successful_login"),
+    ],
+)
+def test_login_race_preserves_inactive_user_response(
+    db_sessionmaker,
+    monkeypatch,
+    password,
+    guard_name,
+):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="loginrace3",
+                email="loginrace3@citi.com",
+                display_name="Login Inactive Race",
+                password_hash=hash_password("CorrectPassword123"),
+                role="user",
+                is_active=True,
+            )
+        )
+        session.commit()
+
+    def concurrently_deactivate(session, **_kwargs):
+        current_user = session.query(User).filter(User.soeid == "loginrace3").one()
+        current_user.is_active = False
+        session.commit()
+        return False
+
+    monkeypatch.setattr(auth_routes_module, guard_name, concurrently_deactivate)
+
+    with db_sessionmaker() as session:
+        with pytest.raises(HTTPException) as exc:
+            auth_routes_module.login(
+                UserLogin(soeid="loginrace3", password=password),
+                Request(
+                    {
+                        "type": "http",
+                        "method": "POST",
+                        "path": "/project-manager/api/auth/login",
+                        "headers": [],
+                    }
+                ),
+                Response(),
+                session,
+            )
+
+    assert exc.value.status_code == 403
+    assert (exc.value.headers or {})["X-Error-Code"] == "USER_INACTIVE"
+    assert exc.value.detail == "Login failed. Check your username or password."
+
+
 @pytest.mark.anyio
 async def test_login_only_reports_password_reset_required_after_password_verification(auth_client, db_sessionmaker):
     with db_sessionmaker() as session:
@@ -957,6 +1218,215 @@ async def test_temp_password_reset_attempts_lock_account_after_repeated_failures
     )
     assert locked.status_code == 423
     assert locked.headers["X-Error-Code"] == "ACCOUNT_LOCKED"
+
+
+def test_concurrent_temp_password_failures_are_counted_atomically(db_sessionmaker, monkeypatch):
+    attempt_count = 8
+    verification_barrier = Barrier(attempt_count)
+
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="temprace1",
+                email="temprace1@citi.com",
+                display_name="Temp Race",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+                temp_password_hash=hash_password("TempPassword123"),
+                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+            )
+        )
+        session.commit()
+
+    def synchronized_failure(_plain_password, _password_hash):
+        verification_barrier.wait(timeout=10)
+        return False
+
+    monkeypatch.setattr(password_reset_module, "verify_password", synchronized_failure)
+
+    def attempt_reset(_attempt):
+        with db_sessionmaker() as session:
+            try:
+                password_reset_module.reset_password_with_temp_password(
+                    session,
+                    soeid="temprace1",
+                    temp_password="WrongTempPassword123",
+                    new_password="NewPassword123",
+                )
+            except HTTPException as exc:
+                return exc.status_code, (exc.headers or {}).get("X-Error-Code")
+        raise AssertionError("Invalid temporary password unexpectedly succeeded")
+
+    with ThreadPoolExecutor(max_workers=attempt_count) as executor:
+        results = list(executor.map(attempt_reset, range(attempt_count)))
+
+    assert results.count((401, "TEMP_PASSWORD_INVALID")) == 5
+    assert results.count((423, "ACCOUNT_LOCKED")) == attempt_count - 5
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "temprace1").one()
+        assert user.failed_attempts == 5
+        assert user.locked_until is not None
+
+
+def test_temp_password_reset_cannot_bypass_new_lockout(db_sessionmaker, monkeypatch):
+    verification_barrier = Barrier(2)
+    failed_attempt_completed = Event()
+
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="temprace2",
+                email="temprace2@citi.com",
+                display_name="Temp Lock Race",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+                temp_password_hash=hash_password("TempPassword123"),
+                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                failed_attempts=4,
+            )
+        )
+        session.commit()
+
+    def synchronized_verification(plain_password, _password_hash):
+        verification_barrier.wait(timeout=10)
+        if plain_password == "TempPassword123":
+            assert failed_attempt_completed.wait(timeout=10)
+            return True
+        return False
+
+    monkeypatch.setattr(password_reset_module, "verify_password", synchronized_verification)
+
+    def attempt_reset(temp_password):
+        try:
+            with db_sessionmaker() as session:
+                password_reset_module.reset_password_with_temp_password(
+                    session,
+                    soeid="temprace2",
+                    temp_password=temp_password,
+                    new_password="NewPassword123",
+                )
+        except HTTPException as exc:
+            return exc.status_code, (exc.headers or {}).get("X-Error-Code")
+        finally:
+            if temp_password != "TempPassword123":
+                failed_attempt_completed.set()
+        raise AssertionError("Temporary-password reset unexpectedly succeeded")
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        wrong_result = executor.submit(attempt_reset, "WrongTempPassword123")
+        correct_result = executor.submit(attempt_reset, "TempPassword123")
+
+    assert wrong_result.result() == (401, "TEMP_PASSWORD_INVALID")
+    assert correct_result.result() == (423, "ACCOUNT_LOCKED")
+    with db_sessionmaker() as session:
+        user = session.query(User).filter(User.soeid == "temprace2").one()
+        assert user.failed_attempts == 5
+        assert user.locked_until is not None
+        assert user.temp_password_hash is not None
+        assert verify_password("OldPassword123", user.password_hash) is True
+
+
+@pytest.mark.parametrize(
+    ("guard_name", "credential_is_valid", "state_change", "expected_code", "expected_detail"),
+    [
+        (
+            "record_failed_temp_password_attempt",
+            False,
+            "inactive",
+            "USER_INACTIVE_OR_MISSING",
+            "User inactive or missing",
+        ),
+        (
+            "record_failed_temp_password_attempt",
+            False,
+            "expired",
+            "TEMP_PASSWORD_EXPIRED",
+            "Temporary password expired",
+        ),
+        (
+            "record_failed_temp_password_attempt",
+            False,
+            "replaced",
+            "TEMP_PASSWORD_INVALID",
+            "Temporary password is invalid",
+        ),
+        (
+            "try_complete_temp_password_reset",
+            True,
+            "expired",
+            "TEMP_PASSWORD_EXPIRED",
+            "Temporary password expired",
+        ),
+        (
+            "try_complete_temp_password_reset",
+            True,
+            "replaced",
+            "TEMP_PASSWORD_INVALID",
+            "Temporary password is invalid",
+        ),
+    ],
+)
+def test_temp_password_race_preserves_current_state_response(
+    db_sessionmaker,
+    monkeypatch,
+    guard_name,
+    credential_is_valid,
+    state_change,
+    expected_code,
+    expected_detail,
+):
+    with db_sessionmaker() as session:
+        session.add(
+            User(
+                soeid="temprace3",
+                email="temprace3@citi.com",
+                display_name="Temp State Race",
+                password_hash=hash_password("OldPassword123"),
+                role="user",
+                is_active=True,
+                force_password_reset=True,
+                temp_password_hash=hash_password("TempPassword123"),
+                temp_password_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        password_reset_module,
+        "verify_password",
+        lambda _plain_password, _password_hash: credential_is_valid,
+    )
+
+    def concurrently_change_state(session, **_kwargs):
+        current_user = session.query(User).filter(User.soeid == "temprace3").one()
+        if state_change == "inactive":
+            current_user.is_active = False
+        elif state_change == "expired":
+            current_user.temp_password_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        else:
+            current_user.temp_password_hash = hash_password("ReplacementPassword123")
+            current_user.temp_password_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        session.commit()
+        return False
+
+    monkeypatch.setattr(password_reset_module, guard_name, concurrently_change_state)
+
+    with db_sessionmaker() as session:
+        with pytest.raises(HTTPException) as exc:
+            password_reset_module.reset_password_with_temp_password(
+                session,
+                soeid="temprace3",
+                temp_password="TempPassword123" if credential_is_valid else "WrongTempPassword123",
+                new_password="NewPassword123",
+            )
+
+    assert exc.value.status_code == 401
+    assert (exc.value.headers or {})["X-Error-Code"] == expected_code
+    assert exc.value.detail == expected_detail
 
 
 @pytest.mark.anyio

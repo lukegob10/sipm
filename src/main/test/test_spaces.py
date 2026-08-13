@@ -1,10 +1,20 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Event
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.dialects import oracle
 
 from backend.app import deps as deps_module
 from backend.app.models import Space, SpaceMembership, User
+from backend.app.routes import spaces as spaces_routes
+from backend.app.routes import users as users_routes
+from backend.app.schemas import SpaceMembershipUpdate, UserUpdate
 from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext, resolve_active_space_context
+from backend.app.services import user_admin_guards
+from backend.app.services.user_admin_guards import _space_admin_lock_statement
 from backend.main import app as fastapi_app
 
 
@@ -216,6 +226,165 @@ async def test_space_admin_can_toggle_public_program_dashboard(client, db_sessio
         assert disabled.json()["public_program_dashboard_enabled"] is False
     finally:
         _restore_current_space_override(original_current_space)
+
+
+def test_space_admin_guard_uses_ordered_oracle_row_lock():
+    statement = _space_admin_lock_statement(["space-b", "space-a", "space-b"])
+
+    sql = " ".join(
+        str(statement.compile(dialect=oracle.dialect(), compile_kwargs={"literal_binds": True}))
+        .replace('"', "")
+        .split()
+    ).lower()
+
+    assert "space_id in ('space-a', 'space-b')" in sql
+    assert sql.endswith("order by tb_ta_pm_spaces.space_id asc for update")
+
+
+def test_membership_mutation_reloads_stale_row_after_space_lock(db_sessionmaker):
+    space_id, admin_memberships, member_membership_id = _seed_space_with_members(
+        db_sessionmaker,
+        admin_count=1,
+        include_member=True,
+    )
+    admin_membership_id = admin_memberships[0]
+    ctx = SpaceContext(
+        space_id=space_id,
+        space_name="Admin Guard Space",
+        is_global_admin=False,
+        space_role="space_admin",
+    )
+
+    with db_sessionmaker() as stale_session:
+        stale_member = (
+            stale_session.query(SpaceMembership)
+            .filter(SpaceMembership.membership_id == member_membership_id)
+            .one()
+        )
+        assert stale_member.role == "member"
+
+        with db_sessionmaker() as competing_session:
+            spaces_routes.update_space_member(
+                space_id,
+                member_membership_id,
+                SpaceMembershipUpdate(role="space_admin"),
+                session=competing_session,
+                ctx=ctx,
+            )
+            spaces_routes.update_space_member(
+                space_id,
+                admin_membership_id,
+                SpaceMembershipUpdate(role="member"),
+                session=competing_session,
+                ctx=ctx,
+            )
+
+        with pytest.raises(HTTPException) as exc:
+            spaces_routes.delete_space_member(
+                space_id,
+                member_membership_id,
+                session=stale_session,
+                ctx=ctx,
+            )
+
+        assert exc.value.status_code == 400
+        assert exc.value.detail == "Space must retain at least one active space_admin"
+
+    with db_sessionmaker() as verification_session:
+        current_member = (
+            verification_session.query(SpaceMembership)
+            .filter(SpaceMembership.membership_id == member_membership_id)
+            .one()
+        )
+        assert current_member.role == "space_admin"
+        assert current_member.deleted_at is None
+
+
+def test_concurrent_demote_and_user_deactivation_retain_space_admin(db_sessionmaker, monkeypatch):
+    space_id, admin_memberships, _ = _seed_space_with_members(db_sessionmaker, admin_count=2)
+    first_membership_id, second_membership_id = admin_memberships
+    ctx = SpaceContext(
+        space_id=space_id,
+        space_name="Admin Guard Space",
+        is_global_admin=False,
+        space_role="space_admin",
+    )
+    actor = SimpleNamespace(user_id="concurrent-actor", role="user")
+    first_has_lock = Event()
+    release_first = Event()
+    second_attempted_lock = Event()
+    real_lock = user_admin_guards.lock_space_admin_spaces
+
+    def lock_first_then_pause(session, space_ids):
+        locked_spaces = real_lock(session, space_ids)
+        first_has_lock.set()
+        if not release_first.wait(timeout=10):
+            raise AssertionError("Timed out waiting to release the first space-admin mutation")
+        return locked_spaces
+
+    def record_second_lock_attempt(session, space_ids):
+        second_attempted_lock.set()
+        return real_lock(session, space_ids)
+
+    monkeypatch.setattr(spaces_routes, "lock_space_admin_spaces", lock_first_then_pause)
+    monkeypatch.setattr(user_admin_guards, "lock_space_admin_spaces", record_second_lock_attempt)
+
+    def demote_first_admin():
+        with db_sessionmaker() as session:
+            row = spaces_routes.update_space_member(
+                space_id,
+                first_membership_id,
+                SpaceMembershipUpdate(role="member"),
+                session=session,
+                ctx=ctx,
+            )
+            return row.role
+
+    def deactivate_second_admin():
+        with db_sessionmaker() as session:
+            try:
+                users_routes.update_user(
+                    "admin-user-1",
+                    UserUpdate(is_active=False),
+                    session=session,
+                    space_ctx=ctx,
+                    current_user=actor,
+                    _authz=ctx,
+                )
+            except HTTPException as exc:
+                session.rollback()
+                return exc.status_code, exc.detail
+            return 200, None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(demote_first_admin)
+        second_future = None
+        try:
+            assert first_has_lock.wait(timeout=10)
+            second_future = executor.submit(deactivate_second_admin)
+            assert second_attempted_lock.wait(timeout=10)
+        finally:
+            release_first.set()
+
+        assert first_future.result(timeout=10) == "member"
+        assert second_future is not None
+        assert second_future.result(timeout=10) == (
+            400,
+            "Space must retain at least one active space_admin",
+        )
+
+    with db_sessionmaker() as session:
+        active_admins = (
+            session.query(SpaceMembership)
+            .join(User, User.user_id == SpaceMembership.user_id)
+            .filter(SpaceMembership.space_id == space_id)
+            .filter(SpaceMembership.deleted_at.is_(None))
+            .filter(SpaceMembership.status == "active")
+            .filter(SpaceMembership.role == "space_admin")
+            .filter(User.is_active)
+            .all()
+        )
+        assert [row.membership_id for row in active_admins] == [second_membership_id]
 
 
 @pytest.mark.anyio

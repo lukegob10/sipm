@@ -156,6 +156,7 @@ CREATE TABLE "TB_TA_PM_AGENT_CHANGE_REQUESTS" (
 	created_at DATE NOT NULL,
 	updated_at DATE NOT NULL,
 	PRIMARY KEY (change_request_id),
+	CONSTRAINT uix_agent_cr_idempotency UNIQUE (space_id, proposed_by_user_id, idempotency_key),
 	FOREIGN KEY(space_id) REFERENCES "TB_TA_PM_SPACES" (space_id),
 	FOREIGN KEY(proposed_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id),
 	FOREIGN KEY(reviewed_by_user_id) REFERENCES "TB_TA_PM_USERS" (user_id)

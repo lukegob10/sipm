@@ -23,6 +23,10 @@ PUBLIC_PROGRAM_DASHBOARD_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/
 AUTH_SESSIONS_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260715_auth_sessions_v1.sql"
 TASK_DESCRIPTION_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260718_task_description_v1.sql"
 PROJECT_FUNCTION_AREA_SQL_PATH = Path(__file__).resolve().parents[3] / "docs/sql/20260722_project_function_area_v1.sql"
+AGENT_CHANGE_REQUEST_IDEMPOTENCY_SQL_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "docs/sql/20260812_agent_change_request_idempotency_v1.sql"
+)
 CREATE_TABLE_PATTERN = re.compile(r'CREATE TABLE "([^"]+)" \((.*?)\);', re.S)
 CREATE_INDEX_PATTERN = re.compile(r'CREATE INDEX "?([A-Za-z0-9_]+)"? ON "([^"]+)"', re.S)
 
@@ -216,6 +220,36 @@ def test_oracle_schema_document_matches_model_uniques_and_indexes():
     for table_name in doc_tables:
         assert doc_tables[table_name]["unique_constraints"] == model_tables[table_name]["unique_constraints"]
     assert doc_indexes == model_indexes
+
+
+def test_agent_change_request_idempotency_constraint_and_migration_contract():
+    table = models.AgentChangeRequest.__table__
+    oracle_ddl = _normalize_sql(
+        str(CreateTable(table).compile(dialect=oracle.dialect()))
+    )
+    canonical_ddl = _normalize_sql(SCHEMA_DOC_PATH.read_text(encoding="utf-8"))
+    migration = _normalize_sql(
+        AGENT_CHANGE_REQUEST_IDEMPOTENCY_SQL_PATH.read_text(encoding="utf-8")
+    )
+    constraint_sql = (
+        "CONSTRAINT uix_agent_cr_idempotency "
+        "UNIQUE (space_id, proposed_by_user_id, idempotency_key)"
+    )
+
+    assert constraint_sql in oracle_ddl
+    assert constraint_sql in canonical_ddl
+    assert "FROM user_constraints" in migration
+    assert "WHERE table_name = 'TB_TA_PM_AGENT_CHANGE_REQUESTS'" in migration
+    assert "AND constraint_name = 'UIX_AGENT_CR_IDEMPOTENCY'" in migration
+    assert "IF object_count = 0 THEN" in migration
+    assert "HAVING COUNT(*) > 1" in migration
+    assert "RAISE_APPLICATION_ERROR" in migration
+    assert "DELETE FROM" not in migration
+    assert "UPDATE " not in migration
+    assert (
+        'ALTER TABLE "TB_TA_PM_AGENT_CHANGE_REQUESTS" ADD '
+        f"{constraint_sql}" in migration
+    )
 
 
 def test_oracle_schema_document_creates_indexes_after_target_tables():

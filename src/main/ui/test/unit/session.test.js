@@ -34,6 +34,7 @@ function createHarness(overrides = {}) {
   const showAuthError = vi.fn();
   const showResetError = vi.fn();
   const setStatus = vi.fn();
+  const onApiFailure = overrides.onApiFailure || vi.fn();
   const setAuthed = vi.fn((user) => {
     state.user = user;
     state.authed = !!user;
@@ -63,6 +64,7 @@ function createHarness(overrides = {}) {
     loadUserPreferences,
     applyAuthBootstrap,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
+    onApiFailure,
     startLiveSync,
     stopLiveSync,
   });
@@ -81,6 +83,7 @@ function createHarness(overrides = {}) {
     showAuthError,
     showResetError,
     setStatus,
+    onApiFailure,
   };
 }
 
@@ -93,6 +96,55 @@ describe("session controller", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("honors caller cancellation without reporting it as a network failure", async () => {
+    let requestSignal = null;
+    vi.stubGlobal("fetch", vi.fn((_url, options = {}) => {
+      requestSignal = options.signal;
+      return new Promise((_resolve, reject) => {
+        options.signal.addEventListener("abort", () => {
+          const error = new Error("cancelled");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      });
+    }));
+    const caller = new AbortController();
+    const { controller, onApiFailure } = createHarness();
+
+    const request = controller.api("/projects", { signal: caller.signal, timeoutMs: 10_000 });
+    const rejection = expect(request).rejects.toMatchObject({ name: "AbortError", message: "cancelled" });
+    await Promise.resolve();
+    caller.abort();
+
+    await rejection;
+    expect(requestSignal).toBeInstanceOf(AbortSignal);
+    expect(requestSignal).not.toBe(caller.signal);
+    expect(requestSignal.aborted).toBe(true);
+    expect(onApiFailure).not.toHaveBeenCalled();
+  });
+
+  it("keeps the request timeout when a caller cancellation signal is supplied", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn((_url, options = {}) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        const error = new Error("timed out");
+        error.name = "AbortError";
+        reject(error);
+      }, { once: true });
+    })));
+    const caller = new AbortController();
+    const { controller, onApiFailure } = createHarness();
+
+    const request = controller.api("/projects", { signal: caller.signal, timeoutMs: 50 });
+    const rejection = expect(request).rejects.toMatchObject({ status: 408, code: "NETWORK_UNAVAILABLE" });
+    await vi.advanceTimersByTimeAsync(50);
+
+    await rejection;
+    expect(caller.signal.aborted).toBe(false);
+    expect(onApiFailure).toHaveBeenCalledWith({ path: "/projects", status: 408, kind: "timeout" });
   });
 
   it("restores the requested route from the URL after bootstrap auth succeeds", async () => {

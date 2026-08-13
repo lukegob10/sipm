@@ -65,8 +65,16 @@ class StubWebSocket:
 
 
 class SessionStub:
+    def __init__(self):
+        self.close_calls = 0
+        self.events: list[str] = []
+
     def query(self, *_args, **_kwargs):
         return None
+
+    def close(self):
+        self.close_calls += 1
+        self.events.append("session-close")
 
 
 class DummyUser:
@@ -187,6 +195,40 @@ async def test_websocket_endpoint_unregisters_on_disconnect():
 async def test_websocket_endpoint_unregisters_on_unexpected_exception():
     ws = StubWebSocket(receive_exc=RuntimeError("boom"))
     await websocket_endpoint(ws)
+    assert ws.accepted is True
+    assert ws not in realtime.connections
+
+
+@pytest.mark.anyio
+async def test_websocket_endpoint_closes_session_before_receive_loop(monkeypatch):
+    session = SessionStub()
+    ws = StubWebSocket(cookies={"access_token": "good-token"})
+    receive_started = False
+
+    monkeypatch.setattr(
+        sync_route,
+        "authenticate_access_token",
+        lambda _session, _token: DummyUser(),
+    )
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    async def disconnect_after_session_cleanup():
+        nonlocal receive_started
+        receive_started = True
+        session.events.append("receive-start")
+        raise WebSocketDisconnect()
+
+    monkeypatch.setattr(ws, "receive_text", disconnect_after_session_cleanup)
+
+    await websocket_endpoint(ws, session=session)
+
+    assert receive_started is True
+    assert session.close_calls == 1
+    assert session.events == ["session-close", "receive-start"]
     assert ws.accepted is True
     assert ws not in realtime.connections
 

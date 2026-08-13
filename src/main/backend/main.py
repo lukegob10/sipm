@@ -204,7 +204,9 @@ def _readiness_payload() -> tuple[int, dict]:
         checks["auth"] = {"status": "error", "detail": str(exc)}
 
     try:
-        checks["coordination"] = {"status": "ok", "backend": coordination.validate_configuration()}
+        backend_name = coordination.validate_configuration()
+        coordination.check_health()
+        checks["coordination"] = {"status": "ok", "backend": backend_name}
     except Exception as exc:
         ready = False
         checks["coordination"] = {"status": "error", "detail": str(exc)}

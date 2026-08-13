@@ -129,6 +129,41 @@ async def test_readiness_returns_503_when_coordination_config_fails(client, monk
 
 
 @pytest.mark.anyio
+async def test_readiness_degrades_and_recovers_with_redis_coordination_health(client, monkeypatch):
+    coordination_healthy = False
+
+    def check_health() -> None:
+        if not coordination_healthy:
+            raise RuntimeError("Redis coordination listener is unavailable: redis disconnected")
+
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: "redis")
+    monkeypatch.setattr(main_module.coordination, "check_health", check_health)
+
+    degraded_response = await client.get("/health/ready")
+
+    assert degraded_response.status_code == 503
+    assert degraded_response.json()["checks"]["coordination"] == {
+        "status": "error",
+        "detail": "Redis coordination listener is unavailable: redis disconnected",
+    }
+
+    coordination_healthy = True
+    recovered_response = await client.get("/health/ready")
+
+    assert recovered_response.status_code == 200
+    assert recovered_response.json() == {
+        "status": "ok",
+        "checks": {
+            "auth": {"status": "ok"},
+            "coordination": {"status": "ok", "backend": "redis"},
+            "frontend": {"status": "ok"},
+            "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
+        },
+    }
+
+
+@pytest.mark.anyio
 async def test_unhandled_exception_logging_includes_request_id_and_redacts_sensitive_headers(client, caplog):
     def _boom():
         raise RuntimeError("boom")

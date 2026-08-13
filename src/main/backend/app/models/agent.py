@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db.table_names import fk_target, physical_table_name
@@ -12,6 +12,12 @@ from .base import Base, TimestampMixin
 class AgentChangeRequest(TimestampMixin, Base):
     __tablename__ = physical_table_name("agent_change_requests")
     __table_args__ = (
+        UniqueConstraint(
+            "space_id",
+            "proposed_by_user_id",
+            "idempotency_key",
+            name="uix_agent_cr_idempotency",
+        ),
         Index("idx_agent_cr_space_status", "space_id", "status", "created_at"),
         Index("idx_agent_cr_proposer", "proposed_by_user_id", "created_at"),
     )

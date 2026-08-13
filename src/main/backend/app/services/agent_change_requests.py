@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import AgentChangeRequest, Program, Project, Solution, Task, User
@@ -86,6 +87,41 @@ def _same_idempotent_request(
     operations_json: str,
 ) -> bool:
     return row.reason == reason and row.operations_json == operations_json
+
+
+def _find_idempotent_request(
+    session: Session,
+    *,
+    space_id: str,
+    proposed_by_user_id: str,
+    idempotency_key: str,
+) -> AgentChangeRequest | None:
+    return (
+        session.query(AgentChangeRequest)
+        .filter(AgentChangeRequest.space_id == space_id)
+        .filter(AgentChangeRequest.proposed_by_user_id == proposed_by_user_id)
+        .filter(AgentChangeRequest.idempotency_key == idempotency_key)
+        .one_or_none()
+    )
+
+
+def _idempotent_response(
+    row: AgentChangeRequest,
+    *,
+    current_user: User,
+    reason: str,
+    operations_json: str,
+) -> AgentChangeRequestRead:
+    if _same_idempotent_request(
+        row,
+        reason=reason,
+        operations_json=operations_json,
+    ):
+        return _row_to_read(row, users_by_id={current_user.user_id: current_user})
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="idempotency_key has already been used with a different request",
+    )
 
 
 def _stored_payload(row: AgentChangeRequest) -> AgentPatchRequest:
@@ -268,24 +304,18 @@ def create_change_request(
         operations=payload.operations,
     )
     operations_json = _dumps(_operation_payloads(effective_payload))
-    existing = (
-        session.query(AgentChangeRequest)
-        .filter(AgentChangeRequest.space_id == space_ctx.space_id)
-        .filter(AgentChangeRequest.proposed_by_user_id == current_user.user_id)
-        .filter(AgentChangeRequest.idempotency_key == idempotency_key)
-        .order_by(AgentChangeRequest.created_at.desc())
-        .one_or_none()
+    existing = _find_idempotent_request(
+        session,
+        space_id=space_ctx.space_id,
+        proposed_by_user_id=current_user.user_id,
+        idempotency_key=idempotency_key,
     )
     if existing:
-        if _same_idempotent_request(
+        return _idempotent_response(
             existing,
+            current_user=current_user,
             reason=reason,
             operations_json=operations_json,
-        ):
-            return _row_to_read(existing, users_by_id={current_user.user_id: current_user})
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="idempotency_key has already been used with a different request",
         )
 
     validation = validate_patch_plan(session, space_ctx, effective_payload)
@@ -306,7 +336,24 @@ def create_change_request(
         diff_json=_dumps(diff),
     )
     session.add(row)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        existing = _find_idempotent_request(
+            session,
+            space_id=space_ctx.space_id,
+            proposed_by_user_id=current_user.user_id,
+            idempotency_key=idempotency_key,
+        )
+        if existing is None:
+            raise
+        return _idempotent_response(
+            existing,
+            current_user=current_user,
+            reason=reason,
+            operations_json=operations_json,
+        )
     session.refresh(row)
     _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id={current_user.user_id: current_user})

@@ -154,6 +154,17 @@ deployment, before starting the application.
 
 ## Oracle Migration Repairs
 
+Before deploying database-enforced agent change-request idempotency to an
+existing database, run:
+
+1. `docs/sql/20260812_agent_change_request_idempotency_v1.sql`
+
+The migration is idempotent and adds the unique constraint for each space,
+proposer, and idempotency-key combination. Apply it before starting the updated
+application so concurrent submissions can recover from the database conflict.
+It does not delete historical rows and stops with a diagnostic if duplicate
+combinations must be reconciled before the constraint can be added.
+
 Before deploying the canonical seven-phase workflow to an existing database, run:
 
 1. `docs/sql/20260728_simplify_solution_phases_v1.sql`

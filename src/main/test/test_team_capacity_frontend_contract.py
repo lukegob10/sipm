@@ -41,7 +41,10 @@ def test_team_capacity_loader_is_space_aware_and_uses_extended_timeout():
     assert "return teamCapacityRouteController.loadTeamCapacityData(options);" in app_text
     assert 'const requestedSpaceId = state.activeSpace?.space_id || "";' in interactions_text
     assert 'const spaceHeaders = { "X-Space-Id": requestedSpaceId };' in interactions_text
-    assert 'api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders })' in interactions_text
+    assert 'api("/users?active_only=true", {' in interactions_text
+    assert "timeoutMs: 45000," in interactions_text
+    assert "headers: spaceHeaders," in interactions_text
+    assert "signal: options.signal," in interactions_text
     assert 'state.teamCapacity.lastLoadedSpaceId = requestedSpaceId;' in interactions_text
 
 
@@ -50,7 +53,12 @@ def test_space_switch_reload_uses_team_capacity_pipeline_when_needed():
     data_store_text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "data-store.js").read_text(encoding="utf-8")
     assert "await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });" in app_text
     assert 'if (state.currentView === "team-capacity") {' in data_store_text
-    assert "await loadTeamCapacityData({ force, preserveSelection: preserveCapacitySelection });" in data_store_text
+    assert "return await loadTeamCapacityData({" in data_store_text
+    assert "preserveSelection: preserveCapacitySelection," in data_store_text
+    assert "signal: controller?.signal," in data_store_text
+    switch_block = app_text[app_text.index("async function switchActiveSpace"):app_text.index("function applySpaceContext")]
+    assert switch_block.count("clearDataState();") == 1
+    assert switch_block.count("await reloadCurrentViewData(") == 1
 
 
 def test_route_module_imports_use_standard_paths():

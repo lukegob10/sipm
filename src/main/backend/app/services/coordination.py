@@ -25,6 +25,8 @@ _PROFILE_ALIASES = {
 }
 _REFRESH_CHANNEL = "sipm:realtime:refresh"
 _SCOPE_VERSION_KEY_PREFIX = "sipm:cache:scope:"
+_LISTENER_RECONNECT_INITIAL_DELAY_SECONDS = 0.25
+_LISTENER_RECONNECT_MAX_DELAY_SECONDS = 5.0
 
 
 def _running_tests() -> bool:
@@ -91,6 +93,9 @@ class CoordinationBackend:
     async def stop_refresh_listener(self) -> None:
         return None
 
+    def check_health(self) -> None:
+        return None
+
     def clear_state(self) -> None:
         return None
 
@@ -149,6 +154,10 @@ class RedisCoordinationBackend(CoordinationBackend):
         self._listener_task: Optional[asyncio.Task] = None
         self._pubsub = None
         self._handler: Optional[Callable[[str, str | None], Awaitable[None]]] = None
+        self._listener_live = False
+        self._listener_last_error: str | None = None
+        self._listener_lifecycle_lock = asyncio.Lock()
+        self._listener_sleep = asyncio.sleep
         self._fallback_scope_versions: dict[str, int] = {}
         self._lock = threading.RLock()
 
@@ -202,61 +211,200 @@ class RedisCoordinationBackend(CoordinationBackend):
         self,
         handler: Callable[[str, str | None], Awaitable[None]],
     ) -> None:
-        if self._listener_task is not None:
-            return
-        self._handler = handler
-        self._pubsub = self._aredis.pubsub(ignore_subscribe_messages=True)
+        first_attempt_done: asyncio.Event | None = None
+        listener_task: asyncio.Task | None = None
+        async with self._listener_lifecycle_lock:
+            with self._lock:
+                existing_task = self._listener_task
+            if existing_task is not None and not existing_task.done():
+                return
+            if existing_task is not None:
+                self._consume_task_result(existing_task)
+
+            stale_pubsub = self._detach_listener_state(existing_task)
+            if stale_pubsub is not None:
+                await self._close_pubsub(stale_pubsub)
+
+            first_attempt_done = asyncio.Event()
+            with self._lock:
+                self._handler = handler
+                listener_task = asyncio.create_task(
+                    self._supervise_refresh_listener(handler, first_attempt_done),
+                    name="sipm-redis-refresh-listener",
+                )
+                self._listener_task = listener_task
+            listener_task.add_done_callback(lambda _task: first_attempt_done.set())
+
         try:
+            await first_attempt_done.wait()
+        except asyncio.CancelledError:
+            await self._stop_listener_if_current(listener_task)
+            raise
+
+    @staticmethod
+    def _consume_task_result(task: asyncio.Task) -> None:
+        try:
+            task.result()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    @staticmethod
+    def _error_detail(exc: BaseException) -> str:
+        message = " ".join(str(exc).split())
+        if not message:
+            return type(exc).__name__
+        return f"{type(exc).__name__}: {message}"[:500]
+
+    def _detach_listener_state(self, expected_task: asyncio.Task | None = None):
+        with self._lock:
+            if expected_task is not None and self._listener_task is not expected_task:
+                return None
+            pubsub = self._pubsub
+            self._listener_task = None
+            self._pubsub = None
+            self._listener_live = False
+            return pubsub
+
+    async def _close_pubsub(self, pubsub) -> None:
+        with suppress(Exception):
             await asyncio.wait_for(
-                self._pubsub.subscribe(_REFRESH_CHANNEL),
+                pubsub.unsubscribe(_REFRESH_CHANNEL),
                 timeout=self._timeout_seconds,
             )
-        except BaseException:
-            with suppress(Exception):
-                await asyncio.wait_for(self._pubsub.aclose(), timeout=self._timeout_seconds)
-            self._pubsub = None
-            self._handler = None
-            raise
-        self._listener_task = asyncio.create_task(self._listen(), name="sipm-redis-refresh-listener")
+        with suppress(Exception):
+            await asyncio.wait_for(pubsub.aclose(), timeout=self._timeout_seconds)
 
-    async def _listen(self) -> None:
-        assert self._pubsub is not None
+    def _record_listener_failure(self, pubsub, exc: BaseException) -> str:
+        detail = self._error_detail(exc)
+        with self._lock:
+            if self._pubsub is pubsub or pubsub is None:
+                self._listener_live = False
+                self._listener_last_error = detail
+        return detail
+
+    async def _supervise_refresh_listener(
+        self,
+        handler: Callable[[str, str | None], Awaitable[None]],
+        first_attempt_done: asyncio.Event,
+    ) -> None:
+        delay = _LISTENER_RECONNECT_INITIAL_DELAY_SECONDS
+        current_task = asyncio.current_task()
         try:
-            async for message in self._pubsub.listen():
-                if not isinstance(message, dict) or message.get("type") != "message":
-                    continue
+            while True:
+                pubsub = None
+                received_message = False
                 try:
-                    payload = json.loads(message.get("data") or "{}")
-                except json.JSONDecodeError:
-                    logger.warning("Ignoring invalid realtime coordination payload: %r", message.get("data"))
-                    continue
-                entity = str(payload.get("entity") or "all")
-                space_id = str(payload.get("space_id") or "").strip() or None
-                if self._handler is not None:
-                    await self._handler(entity, space_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Redis realtime coordination listener stopped unexpectedly.")
-            raise
+                    pubsub = self._aredis.pubsub(ignore_subscribe_messages=True)
+                    with self._lock:
+                        if self._listener_task is not current_task:
+                            return
+                        self._pubsub = pubsub
+                        self._listener_live = False
+                    await asyncio.wait_for(
+                        pubsub.subscribe(_REFRESH_CHANNEL),
+                        timeout=self._timeout_seconds,
+                    )
+                    with self._lock:
+                        if self._listener_task is not current_task or self._pubsub is not pubsub:
+                            return
+                        self._listener_live = True
+                        self._listener_last_error = None
+                    first_attempt_done.set()
+
+                    async for message in pubsub.listen():
+                        if not isinstance(message, dict) or message.get("type") != "message":
+                            continue
+                        received_message = True
+                        try:
+                            payload = json.loads(message.get("data") or "{}")
+                        except json.JSONDecodeError:
+                            logger.warning(
+                                "Ignoring invalid realtime coordination payload: %r",
+                                message.get("data"),
+                            )
+                            continue
+                        entity = str(payload.get("entity") or "all")
+                        space_id = str(payload.get("space_id") or "").strip() or None
+                        await handler(entity, space_id)
+                    raise RuntimeError("Redis realtime coordination subscription ended.")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    detail = self._record_listener_failure(pubsub, exc)
+                    first_attempt_done.set()
+                    logger.warning(
+                        "Redis realtime coordination listener failed; retrying in %.2f seconds: %s",
+                        delay,
+                        detail,
+                        exc_info=True,
+                    )
+                finally:
+                    if pubsub is not None:
+                        await self._close_pubsub(pubsub)
+                    with self._lock:
+                        if self._pubsub is pubsub:
+                            self._pubsub = None
+                            self._listener_live = False
+
+                if received_message:
+                    delay = _LISTENER_RECONNECT_INITIAL_DELAY_SECONDS
+                await self._listener_sleep(delay)
+                delay = min(delay * 2, _LISTENER_RECONNECT_MAX_DELAY_SECONDS)
+        finally:
+            first_attempt_done.set()
+            with self._lock:
+                if self._listener_task is current_task:
+                    self._listener_live = False
+
+    async def _stop_listener_if_current(self, expected_task: asyncio.Task | None) -> None:
+        async with self._listener_lifecycle_lock:
+            with self._lock:
+                task = self._listener_task
+            if task is not expected_task:
+                return
+            await self._stop_listener_locked(task)
+
+    async def _stop_listener_locked(self, task: asyncio.Task | None) -> None:
+        if task is not None and not task.done():
+            task.cancel()
+        if task is not None:
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        pubsub = self._detach_listener_state(task)
+        if pubsub is not None:
+            await self._close_pubsub(pubsub)
+        with self._lock:
+            if self._listener_task is None:
+                self._handler = None
+                self._listener_last_error = None
 
     async def stop_refresh_listener(self) -> None:
-        task = self._listener_task
-        self._listener_task = None
-        if task is not None:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-        if self._pubsub is not None:
-            with suppress(Exception):
-                await asyncio.wait_for(
-                    self._pubsub.unsubscribe(_REFRESH_CHANNEL),
-                    timeout=self._timeout_seconds,
-                )
-            with suppress(Exception):
-                await asyncio.wait_for(self._pubsub.aclose(), timeout=self._timeout_seconds)
-            self._pubsub = None
-        self._handler = None
+        async with self._listener_lifecycle_lock:
+            with self._lock:
+                task = self._listener_task
+            await self._stop_listener_locked(task)
+
+    def check_health(self) -> None:
+        with self._lock:
+            task = self._listener_task
+            listener_live = self._listener_live
+            last_error = self._listener_last_error
+        if task is None or task.done() or not listener_live:
+            detail = last_error or "listener is not subscribed"
+            raise RuntimeError(f"Redis coordination listener is unavailable: {detail}")
+        try:
+            redis_live = self._redis.ping()
+        except Exception as exc:
+            raise RuntimeError(f"Redis coordination ping failed: {self._error_detail(exc)}") from exc
+        if not redis_live:
+            raise RuntimeError("Redis coordination ping failed: Redis returned an unhealthy response")
+        with self._lock:
+            if self._listener_task is not task or task.done() or not self._listener_live:
+                detail = self._listener_last_error or "listener is not subscribed"
+                raise RuntimeError(f"Redis coordination listener is unavailable: {detail}")
 
     def clear_state(self) -> None:
         with self._lock:
@@ -338,6 +486,10 @@ def invalidate_scope_tokens(scope_tokens: Iterable[str]) -> None:
 
 def publish_refresh(entity: str, *, space_id: str | None = None) -> bool:
     return get_backend().publish_refresh(entity, space_id=space_id)
+
+
+def check_health() -> None:
+    get_backend().check_health()
 
 
 async def start_refresh_listener(

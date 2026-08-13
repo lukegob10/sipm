@@ -7,7 +7,11 @@ import {
   buildWsUrl,
   formatDateTime,
 } from "./shell/paths.js";
-import { createShellContext } from "./shell/context.js";
+import {
+  createShellContext,
+  invalidateDataForSpaceContextChange,
+  refreshSpaceContextData,
+} from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
 import { createDataStoreController } from "./shell/data-store.js";
@@ -25,6 +29,11 @@ import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
+import {
+  renderSolutionActivityItems,
+  renderSolutionTaskCard,
+  renderSolutionTaskRow,
+} from "./entities/solution-rendering.js";
 import {
   filteredDeliverables as filteredMasterDeliverables,
   normalizeMasterFilters,
@@ -1006,15 +1015,23 @@ async function switchActiveSpace(targetSpaceId) {
 function applySpaceContext(spaces, activeSpace, options = {}) {
   const previousActiveSpaceId = state.activeSpace?.space_id || "";
   const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
+  const suppressDataInvalidation = !!options.suppressDataInvalidation;
   state.spaces = Array.isArray(spaces) ? spaces : [];
   state.activeSpace = activeSpace || null;
-  if ((state.activeSpace?.space_id || "") !== previousActiveSpaceId) {
+  const nextActiveSpaceId = state.activeSpace?.space_id || "";
+  if (nextActiveSpaceId !== previousActiveSpaceId) {
     state.requestableSpacesLoaded = false;
     state.requestableSpacesError = "";
     state.spaceAccessRequestsLoaded = false;
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequestsLoaded = false;
   }
+  const dataInvalidated = invalidateDataForSpaceContextChange({
+    previousSpaceId: previousActiveSpaceId,
+    nextSpaceId: nextActiveSpaceId,
+    clearDataState,
+    suppress: suppressDataInvalidation,
+  });
   telemetryController?.syncRuntimeContext?.();
   if (state.activeSpace?.space_id && !state.spaces.some((space) => space.space_id === state.activeSpace.space_id)) {
     state.spaces.unshift({
@@ -1049,7 +1066,6 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   renderSpaceSwitcher();
   loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
   updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
-  const nextActiveSpaceId = state.activeSpace?.space_id || "";
   if (
     !suppressLiveSyncRestart
     && state.authed
@@ -1059,6 +1075,7 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   ) {
     startLiveSync({ force: true });
   }
+  return dataInvalidated;
 }
 
 
@@ -1109,11 +1126,14 @@ async function refreshSpaceContext(options = {}) {
     updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
     return;
   }
-  const [spaces, activeSpace] = await Promise.all([
-    api("/spaces", apiOptions),
-    api("/auth/active-space", apiOptions),
-  ]);
-  applySpaceContext(spaces, activeSpace, options);
+  return refreshSpaceContextData({
+    loadSpaces: () => api("/spaces", apiOptions),
+    loadActiveSpace: () => api("/auth/active-space", apiOptions),
+    applySpaceContext,
+    reloadCurrentViewData,
+    renderActiveView,
+    options,
+  });
 }
 
 
@@ -2391,14 +2411,7 @@ function renderSolutionTasks(solutionId) {
       .map(([status, items]) => {
         const cards = items.length
           ? items
-              .map(
-                (s) =>
-                  `<div class="swimlane-card" data-id="${s.task_id}">
-                    <div class="swimlane-title">${s.task_name}</div>
-                    <div class="swimlane-meta">${s.assignee || "—"} • P${s.priority ?? "–"}</div>
-                    <div class="swimlane-meta">Due ${s.due_date || "—"}</div>
-                  </div>`
-              )
+              .map(renderSolutionTaskCard)
               .join("")
           : "<p class='muted'>Empty</p>";
         return `<div class="swimlane-column"><h4>${formatStatus(status)}</h4>${cards}</div>`;
@@ -2408,17 +2421,7 @@ function renderSolutionTasks(solutionId) {
   } else {
     const sortPresentation = taskNameSortPresentation(state.taskSort);
     const rows = subs
-      .map(
-        (s) =>
-          `<tr data-id="${s.task_id}">
-            <td><button class="icon-btn edit-task-btn" data-id="${s.task_id}" title="Edit">✎</button></td>
-            <td>${s.task_name || "—"}</td>
-            <td>${formatStatus(s.status)}</td>
-            <td>${s.assignee || "—"}</td>
-            <td>${s.priority ?? "—"}</td>
-            <td>${s.due_date || ""}</td>
-          </tr>`
-      )
+      .map((task) => renderSolutionTaskRow(task, formatStatus(task.status)))
       .join("");
     els.solutionTaskTable.innerHTML = `
       ${hiddenNote}
@@ -2646,17 +2649,7 @@ async function renderSolutionActivity(solutionId) {
       els.solutionActivity.innerHTML = "<p class='muted'>No activity yet.</p>";
       return;
     }
-    const html = rows
-      .map((row) => {
-        const when = row.created_at ? new Date(row.created_at).toLocaleString() : "";
-        const field = row.field ? ` • ${row.field}` : "";
-        const change = row.new_value ? ` → ${row.new_value}` : "";
-        return `<div class="activity-item">
-          <div class="activity-title">${row.action}${field}${change}</div>
-          <div class="activity-meta">${row.user_id || "system"} • ${when}</div>
-        </div>`;
-      })
-      .join("");
+    const html = renderSolutionActivityItems(rows);
     els.solutionActivity.innerHTML = html;
   } catch (_err) {
     els.solutionActivity.innerHTML = `<p class='muted'>Unable to load activity.</p>`;

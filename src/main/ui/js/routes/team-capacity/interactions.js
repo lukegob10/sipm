@@ -126,7 +126,11 @@ export function createTeamCapacityRouteController({
 
     try {
       const spaceHeaders = { "X-Space-Id": requestedSpaceId };
-      const usersResult = await api("/users?active_only=true", { timeoutMs: 45000, headers: spaceHeaders });
+      const usersResult = await api("/users?active_only=true", {
+        timeoutMs: 45000,
+        headers: spaceHeaders,
+        signal: options.signal,
+      });
       if (state.teamCapacity.requestId !== requestId) return;
       if ((state.activeSpace?.space_id || "") !== requestedSpaceId) return;
 

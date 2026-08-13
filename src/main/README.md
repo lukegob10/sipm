@@ -24,7 +24,7 @@ No sample teams, people, or tasks are auto-created.
 ## Ops
 
 - `GET /health` is a shallow liveness check and remains the quick `{"status":"ok"}` endpoint.
-- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`.
+- `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, Redis connectivity/listener health, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`. The memory coordination backend remains network-free and ready by construction.
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
 - Request logs are emitted as compact JSON with `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, `space_id`, `user_id`, and `auth_method`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.

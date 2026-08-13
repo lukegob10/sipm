@@ -89,8 +89,13 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
         await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-mismatch")
         return
 
+    user_id = user.user_id
+    space_id = ctx.space_id
+    # FastAPI cannot finalize a yield dependency until this handler returns.
+    session.close()
+
     try:
-        await register(ws, user_id=user.user_id, space_id=ctx.space_id)
+        await register(ws, user_id=user_id, space_id=space_id)
     except WebSocketRejected as exc:
         await _reject_websocket(ws, code=exc.code, reason=exc.reason)
         return

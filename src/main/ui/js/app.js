@@ -26,6 +26,11 @@ import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
 import {
+  renderSolutionActivityItems,
+  renderSolutionTaskCard,
+  renderSolutionTaskRow,
+} from "./entities/solution-rendering.js";
+import {
   filteredDeliverables as filteredMasterDeliverables,
   normalizeMasterFilters,
 } from "./routes/master/filters.js";
@@ -2391,14 +2396,7 @@ function renderSolutionTasks(solutionId) {
       .map(([status, items]) => {
         const cards = items.length
           ? items
-              .map(
-                (s) =>
-                  `<div class="swimlane-card" data-id="${s.task_id}">
-                    <div class="swimlane-title">${s.task_name}</div>
-                    <div class="swimlane-meta">${s.assignee || "—"} • P${s.priority ?? "–"}</div>
-                    <div class="swimlane-meta">Due ${s.due_date || "—"}</div>
-                  </div>`
-              )
+              .map(renderSolutionTaskCard)
               .join("")
           : "<p class='muted'>Empty</p>";
         return `<div class="swimlane-column"><h4>${formatStatus(status)}</h4>${cards}</div>`;
@@ -2408,17 +2406,7 @@ function renderSolutionTasks(solutionId) {
   } else {
     const sortPresentation = taskNameSortPresentation(state.taskSort);
     const rows = subs
-      .map(
-        (s) =>
-          `<tr data-id="${s.task_id}">
-            <td><button class="icon-btn edit-task-btn" data-id="${s.task_id}" title="Edit">✎</button></td>
-            <td>${s.task_name || "—"}</td>
-            <td>${formatStatus(s.status)}</td>
-            <td>${s.assignee || "—"}</td>
-            <td>${s.priority ?? "—"}</td>
-            <td>${s.due_date || ""}</td>
-          </tr>`
-      )
+      .map((task) => renderSolutionTaskRow(task, formatStatus(task.status)))
       .join("");
     els.solutionTaskTable.innerHTML = `
       ${hiddenNote}
@@ -2646,17 +2634,7 @@ async function renderSolutionActivity(solutionId) {
       els.solutionActivity.innerHTML = "<p class='muted'>No activity yet.</p>";
       return;
     }
-    const html = rows
-      .map((row) => {
-        const when = row.created_at ? new Date(row.created_at).toLocaleString() : "";
-        const field = row.field ? ` • ${row.field}` : "";
-        const change = row.new_value ? ` → ${row.new_value}` : "";
-        return `<div class="activity-item">
-          <div class="activity-title">${row.action}${field}${change}</div>
-          <div class="activity-meta">${row.user_id || "system"} • ${when}</div>
-        </div>`;
-      })
-      .join("");
+    const html = renderSolutionActivityItems(rows);
     els.solutionActivity.innerHTML = html;
   } catch (_err) {
     els.solutionActivity.innerHTML = `<p class='muted'>Unable to load activity.</p>`;

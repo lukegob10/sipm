@@ -23,7 +23,7 @@
     "@vitest/coverage-v8": "^4.1.8",
     "eslint": "^10.8.0",
     "globals": "^15.15.0",
-    "jsdom": "^26.0.0",
+    "jsdom": "^30.0.1",
     "vitest": "^4.1.8"
   }
 }

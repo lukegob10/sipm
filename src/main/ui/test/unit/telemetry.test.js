@@ -142,4 +142,78 @@ describe("telemetry controller", () => {
       load_event_ms: 240,
     });
   });
+
+  it("collects buffered performance entries with valid per-type observer options", async () => {
+    const registrations = [];
+    const entries = {
+      paint: [{ entryType: "paint", name: "first-contentful-paint", startTime: 72 }],
+      "largest-contentful-paint": [{ entryType: "largest-contentful-paint", startTime: 135 }],
+      longtask: [{ entryType: "longtask", duration: 65 }],
+    };
+    vi.stubGlobal("PerformanceObserver", class {
+      static supportedEntryTypes = Object.keys(entries);
+      constructor(callback) { this.callback = callback; }
+      observe(options) {
+        if (options.buffered && !options.type) throw new TypeError("buffered requires type");
+        registrations.push(options);
+        this.callback({ getEntries: () => entries[options.type] || [] });
+      }
+    });
+    const { controller, fetchImpl } = buildHarness();
+
+    controller.syncRuntimeContext();
+    controller.syncRuntimeContext();
+    await controller.flush();
+
+    expect(registrations).toEqual([
+      { type: "paint", buffered: true },
+      { type: "largest-contentful-paint", buffered: true },
+      { type: "longtask", buffered: true },
+    ]);
+    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(payload.performance_samples[0]).toMatchObject({
+      first_contentful_paint_ms: 72,
+      largest_contentful_paint_ms: 135,
+      long_task_count: 1,
+      long_task_total_ms: 65,
+    });
+  });
+
+  it("keeps observing supported metrics when another observer cannot start", async () => {
+    vi.stubGlobal("PerformanceObserver", class {
+      static supportedEntryTypes = ["paint", "longtask"];
+      constructor(callback) { this.callback = callback; }
+      observe({ type }) {
+        if (type === "paint") throw new Error("Paint observer unavailable");
+        this.callback({ getEntries: () => [{ entryType: "longtask", duration: 80 }] });
+      }
+    });
+    const { controller, fetchImpl } = buildHarness();
+
+    controller.syncRuntimeContext();
+    await controller.flush();
+
+    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(payload.performance_samples[0]).toMatchObject({
+      first_contentful_paint_ms: null,
+      long_task_count: 1,
+      long_task_total_ms: 80,
+    });
+  });
+
+  it("defers observers until analytics is enabled", () => {
+    let enabled = false;
+    const observe = vi.fn();
+    vi.stubGlobal("PerformanceObserver", class {
+      static supportedEntryTypes = ["paint"];
+      observe = observe;
+    });
+    const { controller } = buildHarness({ isEnabled: () => enabled });
+
+    controller.syncRuntimeContext();
+    expect(observe).not.toHaveBeenCalled();
+    enabled = true;
+    controller.syncRuntimeContext();
+    expect(observe).toHaveBeenCalledOnce();
+  });
 });

@@ -53,6 +53,44 @@ for (const path of ["/project-manager/", "/project-manager/tasks-workbench", "/p
   });
 }
 
+test("login warms its requested screen while credentials are pending without private data reads", async ({ page }) => {
+  const soeid = await registerMember(page);
+  const program = await page.request.post("/project-manager/api/programs", { data: { program_name: "Preload Program" } });
+  expect(program.ok()).toBeTruthy();
+  const logout = await page.request.post("/project-manager/api/auth/logout");
+  expect(logout.ok()).toBeTruthy();
+  let releaseLogin;
+  const loginHeld = new Promise((resolve) => { releaseLogin = resolve; });
+  await page.route("**/api/auth/login", async (route) => {
+    await loginHeld;
+    await route.continue();
+  });
+  const privateRequests = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.includes("/api/") && !path.includes("/api/auth/")) privateRequests.push(path);
+  });
+  try {
+    await page.goto("/project-manager/");
+    await expect(page.locator("#auth-screen")).toBeVisible();
+    const moduleResponse = page.waitForResponse("**/js/routes/master.js");
+    await page.locator('#login-form [name="soeid"]').fill(soeid);
+    await page.locator('#login-form [name="password"]').fill("Password123");
+    await page.locator('#login-form button[type="submit"]').click();
+    expect((await moduleResponse).ok()).toBeTruthy();
+    await expect(page.locator('#login-form button[type="submit"]')).toBeDisabled();
+    await expect(page.locator("#auth-screen")).toBeVisible();
+    expect(privateRequests).toEqual([]);
+    releaseLogin();
+    await expect(page.locator("#master-table")).toContainText("Preload Program");
+    await page.locator("#filter-query").fill("Preload Program");
+    await expect(page.locator("#filter-query")).toHaveValue("Preload Program");
+    await expect(page.locator("#master-table")).toContainText("Preload Program");
+  } finally {
+    releaseLogin();
+  }
+});
+
 test("direct capacity entry binds once, preserves a draft on repeat navigation, and submits once", async ({ page }) => {
   await registerMember(page);
   await recordBindings(page);

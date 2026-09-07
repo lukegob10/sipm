@@ -23,6 +23,7 @@ export function createSessionController({
   loadUserPreferences = async () => null,
   applyAuthBootstrap = () => false,
   resolvePostAuthView = (view) => view,
+  preloadLoginRoute = () => null,
   onApiFailure = null,
   startLiveSync,
   stopLiveSync,
@@ -493,7 +494,12 @@ export function createSessionController({
       showAuthNotice("");
       const form = new FormData(els.loginForm);
       await withPendingAuthAction("login", els.loginForm, async () => {
-        const result = await performLogin(form.get("soeid"), form.get("password"));
+        const login = performLogin(form.get("soeid"), form.get("password"));
+        // Warm code while credentials are checked; authenticated routing remains authoritative.
+        void Promise.resolve()
+          .then(() => preloadLoginRoute(viewFromLocationPath(window.location.pathname)))
+          .catch(() => {});
+        const result = await login;
         await finishAuthentication(result);
       }).catch((err) => {
         if (!handleAuthError(err)) showAuthError(loginErrorMessage(err));

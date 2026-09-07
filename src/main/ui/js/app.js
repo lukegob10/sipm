@@ -768,6 +768,7 @@ function initShellControllers() {
     loadUserPreferences,
     applyAuthBootstrap,
     resolvePostAuthView,
+    preloadLoginRoute: (view) => ensureRouteModule(view),
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),

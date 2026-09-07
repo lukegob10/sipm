@@ -64,6 +64,7 @@ function createHarness(overrides = {}) {
     loadUserPreferences,
     applyAuthBootstrap,
     resolvePostAuthView: overrides.resolvePostAuthView,
+    preloadLoginRoute: overrides.preloadLoginRoute,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
     onApiFailure,
     startLiveSync,
@@ -583,6 +584,45 @@ describe("session controller", () => {
     });
 
     expect(showAuthNotice).toHaveBeenCalledWith("Your session expired. Sign in again to continue.");
+  });
+
+  it("warms the requested route during login without waiting for it or authenticating early", async () => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = '<input name="soeid" value="user"><input name="password" value="Password123"><button type="submit">Sign in</button>';
+    let resolveLogin;
+    const login = new Promise((resolve) => { resolveLogin = resolve; });
+    const fetchMock = vi.fn(() => login);
+    vi.stubGlobal("fetch", fetchMock);
+    const preloadLoginRoute = vi.fn(() => new Promise(() => {}));
+    const harness = createHarness({ els: { loginForm }, preloadLoginRoute, applyAuthBootstrap: vi.fn(() => true) });
+    harness.controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(preloadLoginRoute).toHaveBeenCalledExactlyOnceWith("team-capacity"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(preloadLoginRoute.mock.invocationCallOrder[0]);
+    expect(harness.setAuthed).not.toHaveBeenCalled();
+    expect(harness.setView).not.toHaveBeenCalled();
+    resolveLogin(jsonResponse({ user_id: "user" }));
+    await vi.waitFor(() => expect(harness.setAuthVisible).toHaveBeenCalledWith(false));
+    expect(harness.setView).toHaveBeenCalledExactlyOnceWith("team-capacity", { fromHistory: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["throw", "reject"])("keeps login successful when speculative route loading fails by %s", async (mode) => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = '<input name="soeid" value="user"><input name="password" value="Password123">';
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ user_id: "user" })));
+    const preloadLoginRoute = vi.fn(() => {
+      if (mode === "throw") throw new Error("Module unavailable");
+      return Promise.reject(new Error("Module unavailable"));
+    });
+    const harness = createHarness({ els: { loginForm }, preloadLoginRoute, applyAuthBootstrap: vi.fn(() => true) });
+    harness.controller.bindAuthUI();
+    loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(harness.setAuthVisible).toHaveBeenCalledWith(false));
+    expect(preloadLoginRoute).toHaveBeenCalledExactlyOnceWith("team-capacity");
+    expect(harness.showAuthError).not.toHaveBeenCalledWith("Module unavailable");
   });
 
   it("prevents duplicate login submissions while a request is pending", async () => {

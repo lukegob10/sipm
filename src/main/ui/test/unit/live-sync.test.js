@@ -42,6 +42,16 @@ class FakeWebSocket {
   }
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 
 describe("live sync controller", () => {
   beforeEach(() => {
@@ -62,6 +72,7 @@ describe("live sync controller", () => {
   function createHarness() {
     const state = {
       authed: true,
+      user: { user_id: "user-1" },
       activeSpace: { space_id: "space-1" },
       liveSync: {
         socketSpaceId: "",
@@ -93,6 +104,7 @@ describe("live sync controller", () => {
     });
     return {
       controller,
+      state,
       refreshAgentChangeRequests,
       refreshFromServer,
       refreshSessionTokens,
@@ -173,5 +185,110 @@ describe("live sync controller", () => {
       });
       expect(refreshAgentChangeRequests).toHaveBeenCalledWith({ force: true });
     });
+  });
+
+  it("subscribes immediately but lets the initial route finish before forced catch-up", async () => {
+    const { controller, state, reloadCurrentViewData, refreshAgentChangeRequests } = createHarness();
+    const initialLoad = deferred();
+
+    controller.startLiveSync({ catchUpAfter: initialLoad.promise });
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    const socket = FakeWebSocket.instances[0];
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+
+    expect(state.liveSync.phase).toBe("live");
+    expect(reloadCurrentViewData).not.toHaveBeenCalled();
+    expect(refreshAgentChangeRequests).not.toHaveBeenCalled();
+
+    initialLoad.resolve();
+    await vi.waitFor(() => expect(reloadCurrentViewData).toHaveBeenCalledExactlyOnceWith({
+      force: true, silent: true, preserveCapacitySelection: false,
+    }));
+    expect(refreshAgentChangeRequests).toHaveBeenCalledExactlyOnceWith({ force: true });
+  });
+
+  it.each(["before open", "after open"])("still catches up when the initial route rejects %s", async (timing) => {
+    const { controller, reloadCurrentViewData, refreshAgentChangeRequests } = createHarness();
+    const initialLoad = deferred();
+    controller.startLiveSync({ catchUpAfter: initialLoad.promise });
+
+    if (timing === "before open") {
+      initialLoad.reject(new Error("Initial route failed"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(reloadCurrentViewData).not.toHaveBeenCalled();
+    }
+    const socket = FakeWebSocket.instances[0];
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+    if (timing === "after open") {
+      expect(reloadCurrentViewData).not.toHaveBeenCalled();
+      initialLoad.reject(new Error("Initial route failed"));
+    }
+
+    await vi.waitFor(() => expect(reloadCurrentViewData).toHaveBeenCalledOnce());
+    expect(refreshAgentChangeRequests).toHaveBeenCalledOnce();
+  });
+
+  it("processes refresh messages and heartbeats while initial catch-up is waiting", async () => {
+    const { controller, reloadCurrentViewData, refreshFromServer, refreshAgentChangeRequests } = createHarness();
+    const initialLoad = deferred();
+    controller.startLiveSync({ catchUpAfter: initialLoad.promise });
+    const socket = FakeWebSocket.instances[0];
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+
+    socket.emit("message", { data: JSON.stringify({ type: "refresh", entity: "tasks" }) });
+    socket.emit("message", { data: JSON.stringify({ type: "refresh", entity: "agent_change_requests" }) });
+    vi.advanceTimersByTime(60000);
+
+    expect(refreshFromServer).toHaveBeenCalledExactlyOnceWith("tasks");
+    expect(refreshAgentChangeRequests).toHaveBeenCalledExactlyOnceWith({ force: true });
+    expect(socket.sent).toEqual([JSON.stringify({ type: "ping" })]);
+    expect(reloadCurrentViewData).not.toHaveBeenCalled();
+
+    initialLoad.resolve();
+    await vi.waitFor(() => expect(reloadCurrentViewData).toHaveBeenCalledOnce());
+    expect(refreshAgentChangeRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it("catches up a replacement socket immediately and discards the obsolete wait", async () => {
+    const { controller, reloadCurrentViewData, refreshAgentChangeRequests } = createHarness();
+    const initialLoad = deferred();
+    controller.startLiveSync({ catchUpAfter: initialLoad.promise });
+    const oldSocket = FakeWebSocket.instances[0];
+    oldSocket.readyState = FakeWebSocket.OPEN;
+    oldSocket.emit("open");
+
+    controller.startLiveSync({ force: true });
+    const replacement = FakeWebSocket.instances[1];
+    replacement.readyState = FakeWebSocket.OPEN;
+    replacement.emit("open");
+    expect(reloadCurrentViewData).toHaveBeenCalledOnce();
+    expect(refreshAgentChangeRequests).toHaveBeenCalledOnce();
+
+    initialLoad.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reloadCurrentViewData).toHaveBeenCalledOnce();
+    expect(refreshAgentChangeRequests).toHaveBeenCalledOnce();
+  });
+
+  it.each(["stop", "logout", "space", "user"])("discards delayed catch-up after %s", async (change) => {
+    const { controller, state, reloadCurrentViewData, refreshAgentChangeRequests } = createHarness();
+    const initialLoad = deferred();
+    controller.startLiveSync({ catchUpAfter: initialLoad.promise });
+    const socket = FakeWebSocket.instances[0];
+    socket.readyState = FakeWebSocket.OPEN;
+    socket.emit("open");
+
+    if (change === "stop") controller.stopLiveSync();
+    if (change === "logout") state.authed = false;
+    if (change === "space") state.activeSpace = { space_id: "space-2" };
+    if (change === "user") state.user = { user_id: "user-2" };
+    initialLoad.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(reloadCurrentViewData).not.toHaveBeenCalled();
+    expect(refreshAgentChangeRequests).not.toHaveBeenCalled();
   });
 });

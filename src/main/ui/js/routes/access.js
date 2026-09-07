@@ -1,3 +1,5 @@
+export { createSpaceGovernanceController, createSpaceGovernanceRenderer } from "./spaces.js";
+
 export function renderAccess(ctx) {
   const { renderGovernanceHub } = ctx;
   if (typeof renderGovernanceHub === "function") {

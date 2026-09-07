@@ -67,16 +67,32 @@ function inventoryRows(ctx, records) {
 async function refreshInventory(ctx) {
   const inventory = inventoryState(ctx.state);
   if (inventory.loading) return;
+  const requestId = (Number(inventory.loadRequestId) || 0) + 1;
+  const userId = ctx.state.user?.user_id;
+  const spaceId = ctx.state.activeSpace?.space_id;
+  const authed = ctx.state.authed;
+  inventory.loadRequestId = requestId;
   inventory.loading = true;
   inventory.error = "";
+  // Clearing session data resets loading even before a replacement request starts.
+  const isCurrentRequest = () => ctx.state.repositoryInventory === inventory
+    && inventory.loading && inventory.loadRequestId === requestId
+    && ctx.state.authed === authed
+    && ctx.state.user?.user_id === userId
+    && ctx.state.activeSpace?.space_id === spaceId;
   try {
-    inventory.records = await ctx.api("/repository-inventory");
+    const records = await ctx.api("/repository-inventory");
+    if (!isCurrentRequest()) return;
+    inventory.records = records;
   } catch (err) {
+    if (!isCurrentRequest()) return;
     inventory.records = [];
     inventory.error = err.message || "Repository inventory could not be loaded.";
   } finally {
-    inventory.loading = false;
-    renderRepositories(ctx);
+    if (isCurrentRequest()) {
+      inventory.loading = false;
+      renderRepositories(ctx);
+    }
   }
 }
 

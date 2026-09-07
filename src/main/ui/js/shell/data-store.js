@@ -17,13 +17,16 @@ export function createDataStoreController({
 }) {
   let dataGeneration = 0;
   const activeRequestControllers = new Set();
+  const entityReads = new Map();
+  const entityVersions = new Map();
+  const activePrefetchReads = new Set();
   let loadOperation = null;
   let refreshOperation = null;
   const pendingRefreshEntities = new Set();
   const ignoreNextRefresh = new Set();
   let viewPrefetchTimer = null;
-  let pendingLoadOptions = null;
-  let pendingLoadCompletion = null;
+  let prefetchGeneration = 0;
+  let selectsNeedSync = false;
 
   function createTeamCapacityState(requestId = 0) {
     return {
@@ -44,21 +47,17 @@ export function createDataStoreController({
     return {
       generation: dataGeneration,
       spaceId: currentSpaceId(),
+      userId: String(state.user?.soeid || state.user?.email || ""),
     };
   }
 
   function isDataContextCurrent(context) {
-    return context.generation === dataGeneration && context.spaceId === currentSpaceId();
+    return context.generation === dataGeneration && context.spaceId === currentSpaceId()
+      && context.userId === String(state.user?.soeid || state.user?.email || "");
   }
 
-  function createDeferred() {
-    let resolve;
-    let reject;
-    const promise = new Promise((resolvePromise, rejectPromise) => {
-      resolve = resolvePromise;
-      reject = rejectPromise;
-    });
-    return { promise, resolve, reject };
+  function hasPendingForegroundLoad() {
+    return loadOperation && isDataContextCurrent(loadOperation.context) && loadOperation.view === state.currentView;
   }
 
   function createRequestController(context) {
@@ -73,6 +72,7 @@ export function createDataStoreController({
   }
 
   function cancelViewPrefetch() {
+    prefetchGeneration += 1;
     if (!viewPrefetchTimer) return;
     window.clearTimeout(viewPrefetchTimer);
     viewPrefetchTimer = null;
@@ -83,13 +83,14 @@ export function createDataStoreController({
     cancelViewPrefetch();
     activeRequestControllers.forEach((controller) => controller.abort());
     activeRequestControllers.clear();
+    entityReads.clear();
+    entityVersions.clear();
+    activePrefetchReads.clear();
+    selectsNeedSync = false;
     loadOperation = null;
     refreshOperation = null;
     pendingRefreshEntities.clear();
     ignoreNextRefresh.clear();
-    pendingLoadOptions = null;
-    pendingLoadCompletion?.resolve();
-    pendingLoadCompletion = null;
     state.loading = false;
     state.pendingRefresh = false;
   }
@@ -176,51 +177,126 @@ export function createDataStoreController({
       state.users = Array.isArray(data) ? data : [];
     }
     state.loadedEntities.add(entity);
+    selectsNeedSync = true;
+  }
+
+  function syncSelects() {
+    populateSelects();
+    selectsNeedSync = false;
+  }
+
+  function invalidateEntity(entity) {
+    entityVersions.set(entity, (entityVersions.get(entity) || 0) + 1);
+    state.loadedEntities.delete(entity);
+    // A read started before this invalidation cannot satisfy any consumer's freshness requirement.
+    entityReads.get(entity)?.controller?.abort();
+    entityReads.delete(entity);
+  }
+
+  async function readEntity(entity, context, canContinue = () => true) {
+    while (isDataContextCurrent(context)) {
+      const version = entityVersions.get(entity) || 0;
+      if (state.loadedEntities.has(entity)) return { status: "fulfilled", version };
+      if (!canContinue()) break;
+      let read = entityReads.get(entity);
+      // These collection endpoints have no query parameters. Sharing is limited to the
+      // same identity, space, generation, entity endpoint, and invalidation version.
+      if (!read || !isDataContextCurrent(read.context) || read.version !== version) {
+        read = { context, version, controller: createRequestController(context) };
+        const request = read;
+        request.promise = (async () => {
+          try {
+            const data = await fetchEntityData(entity, request.controller ? { signal: request.controller.signal } : {});
+            if (isDataContextCurrent(context) && version === (entityVersions.get(entity) || 0)) {
+              applyEntityData(entity, data);
+            }
+          } finally {
+            releaseRequestController(request.controller);
+            if (entityReads.get(entity) === request) entityReads.delete(entity);
+          }
+        })();
+        entityReads.set(entity, request);
+      }
+      try {
+        await read.promise;
+      } catch (err) {
+        if (!isDataContextCurrent(context)) break;
+        if (version === (entityVersions.get(entity) || 0)) return { status: "rejected", reason: err, version };
+      }
+      // A force/reload or live invalidation during this read requires the newer read.
+      // Existing callers keep awaiting it instead of accepting the obsolete response.
+    }
+    return { status: "cancelled" };
+  }
+
+  async function readEntities(entities, context, routeReady = Promise.resolve()) {
+    const results = await Promise.all(entities.map((entity) => readEntity(entity, context)));
+    await routeReady;
+    // Recheck even cached dependencies: one collection may have been invalidated
+    // while another collection or the route module was still pending.
+    while (isDataContextCurrent(context)) {
+      const invalidated = entities.filter((entity, idx) => results[idx].version !== (entityVersions.get(entity) || 0));
+      if (!invalidated.length) break;
+      const retried = await Promise.all(invalidated.map((entity) => readEntity(entity, context)));
+      invalidated.forEach((entity, idx) => {
+        results[entities.indexOf(entity)] = retried[idx];
+      });
+    }
+    return results;
   }
 
   function scheduleViewPrefetch(view) {
+    cancelViewPrefetch();
     const context = captureDataContext();
+    const generation = prefetchGeneration;
+    const sourceView = state.currentView;
     const targetView = viewPrefetchTarget[view] || viewPrefetchTarget.master;
     if (!targetView || !state.authed) return;
     const needed = entitiesForView(targetView).filter((entity) => !state.loadedEntities.has(entity));
     if (!needed.length) return;
-    cancelViewPrefetch();
     viewPrefetchTimer = window.setTimeout(async () => {
       viewPrefetchTimer = null;
-      if (!isDataContextCurrent(context) || !state.authed || state.loading || refreshOperation) return;
+      const canPrefetch = () => isDataContextCurrent(context) && state.authed
+        && generation === prefetchGeneration && state.currentView === sourceView
+        && !state.loading && !hasPendingForegroundLoad() && !refreshOperation
+        && document.visibilityState !== "hidden" && !navigator.connection?.saveData
+        && !["slow-2g", "2g"].includes(navigator.connection?.effectiveType);
+      if (!canPrefetch()) return;
       const entitiesToPrefetch = entitiesForView(targetView).filter((entity) => !state.loadedEntities.has(entity));
       if (!entitiesToPrefetch.length) return;
-      const controller = createRequestController(context);
+      let changed = false;
+      const prefetchNext = async () => {
+        while (entitiesToPrefetch.length && canPrefetch() && activePrefetchReads.size < 2) {
+          const entity = entitiesToPrefetch.shift();
+          const pending = readEntity(entity, context, canPrefetch);
+          activePrefetchReads.add(pending);
+          const result = await pending;
+          activePrefetchReads.delete(pending);
+          changed = result.status === "fulfilled" || changed;
+        }
+      };
       try {
-        const results = await Promise.allSettled(entitiesToPrefetch.map((entity) => (
-          fetchEntityData(entity, controller ? { signal: controller.signal } : {})
-        )));
+        // At most two speculative reads; navigation can share them and starts its own
+        // dependencies immediately without waiting for the rest of this queue.
+        await Promise.all([prefetchNext(), prefetchNext()]);
         if (!isDataContextCurrent(context)) return;
-        let changed = false;
-        results.forEach((result, idx) => {
-          if (result.status !== "fulfilled") return;
-          applyEntityData(entitiesToPrefetch[idx], result.value);
-          changed = true;
-        });
-        if (changed) populateSelects();
+        if (changed && !state.loading && !hasPendingForegroundLoad()) syncSelects();
       } catch (err) {
         if (isDataContextCurrent(context)) console.warn("Prefetch skipped", err);
-      } finally {
-        releaseRequestController(controller);
       }
     }, 450);
   }
 
   function syncUiAfterDataLoad({
-    selectedProjectId = "",
-    selectedSolutionId = "",
-    selectedTaskId = "",
     prefetchView = "",
   } = {}) {
+    const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
+    const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+    const selectedTaskId = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
     let uiSyncError = null;
 
     try {
-      populateSelects();
+      syncSelects();
     } catch (err) {
       uiSyncError = err;
       console.error("Post-load select population failed", err);
@@ -255,35 +331,26 @@ export function createDataStoreController({
   async function refreshFromServer(entity = "all") {
     const ent = (entity || "all").toString();
     if (!state.authed) return;
-    const context = captureDataContext();
 
     if (ignoreNextRefresh.has(ent)) {
       ignoreNextRefresh.delete(ent);
       return;
     }
 
-    if (refreshOperation && !isDataContextCurrent(refreshOperation.context)) {
-      refreshOperation = null;
-    }
-    if (state.loading || refreshOperation) {
-      pendingRefreshEntities.add(ent);
-      return;
-    }
+    const entities = isKnownEntity(ent) ? [ent] : dataEntities;
+    entities.forEach((key) => {
+      invalidateEntity(key);
+      pendingRefreshEntities.add(key);
+    });
+    return flushPendingRefreshes();
+  }
 
-    const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
-    const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    const selectedTaskId = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
-
-    const operation = {
-      context,
-      controller: createRequestController(context),
-    };
+  async function runRefresh(effectiveEntities) {
+    const context = captureDataContext();
+    const operation = { context };
     refreshOperation = operation;
     try {
-      const effectiveEntities = ent === "all" ? [...dataEntities] : (isKnownEntity(ent) ? [ent] : [...dataEntities]);
-      const results = await Promise.allSettled(effectiveEntities.map((key) => (
-        fetchEntityData(key, operation.controller ? { signal: operation.controller.signal } : {})
-      )));
+      const results = await readEntities(effectiveEntities, context);
       if (!isDataContextCurrent(context) || refreshOperation !== operation) return;
       const errors = [];
       let changed = false;
@@ -293,7 +360,6 @@ export function createDataStoreController({
           return;
         }
         const entityKey = effectiveEntities[idx];
-        applyEntityData(entityKey, result.value);
         if (entityKey === "tasks" && state.myWork) {
           state.myWork.records = null;
         }
@@ -307,12 +373,10 @@ export function createDataStoreController({
         }
         console.warn("Refresh failed", errors);
       }
+      // The foreground load owns rendering while its route module/data are pending.
+      if (state.loading || hasPendingForegroundLoad()) return;
       if (changed) {
-        const uiSyncError = syncUiAfterDataLoad({
-          selectedProjectId,
-          selectedSolutionId,
-          selectedTaskId,
-        });
+        const uiSyncError = syncUiAfterDataLoad();
         if (uiSyncError) {
           setStatus(`Refresh partially applied: ${uiSyncError.message || "UI sync failed"}`, "warn");
         }
@@ -326,45 +390,18 @@ export function createDataStoreController({
         setStatus("Portal sign-in required", "warn");
       }
     } finally {
-      releaseRequestController(operation.controller);
       if (refreshOperation !== operation) return;
       refreshOperation = null;
       if (!isDataContextCurrent(context)) return;
-      flushPendingRefreshes();
+      void flushPendingRefreshes();
     }
   }
 
   function flushPendingRefreshes() {
-    if (!pendingRefreshEntities.size) return;
+    if (!state.authed || state.loading || hasPendingForegroundLoad() || refreshOperation || !pendingRefreshEntities.size) return;
     const pending = Array.from(pendingRefreshEntities);
     pendingRefreshEntities.clear();
-    const entity = pending.includes("all") || pending.length > 1 ? "all" : pending[0];
-    void refreshFromServer(entity);
-  }
-
-  function rememberPendingLoad(options = {}) {
-    pendingLoadOptions = {
-      ...options,
-      force: !!options.force || !!pendingLoadOptions?.force,
-    };
-  }
-
-  function queuePendingLoad(options = {}) {
-    state.pendingRefresh = true;
-    rememberPendingLoad(options);
-    if (!pendingLoadCompletion) pendingLoadCompletion = createDeferred();
-    return pendingLoadCompletion.promise;
-  }
-
-  function startPendingLoad() {
-    if (!pendingLoadOptions || !pendingLoadCompletion) return;
-    const queuedOptions = pendingLoadOptions;
-    const completion = pendingLoadCompletion;
-    pendingLoadOptions = null;
-    pendingLoadCompletion = null;
-    state.pendingRefresh = false;
-    const queuedLoad = loadData(queuedOptions);
-    queuedLoad.then(completion.resolve, completion.reject);
+    return runRefresh(pending);
   }
 
   async function loadData(options = {}) {
@@ -374,6 +411,8 @@ export function createDataStoreController({
     const routeReady = options.routeReady || Promise.resolve(null);
     const requestedEntities = Array.isArray(options.entities) ? options.entities.filter(isKnownEntity) : null;
     const context = captureDataContext();
+    const view = state.currentView;
+    cancelViewPrefetch();
     if (!state.authed) {
       setStatus("Portal sign-in required", "warn");
       setAuthVisible(true);
@@ -381,56 +420,64 @@ export function createDataStoreController({
     }
     const targetEntities = requestedEntities && requestedEntities.length
       ? [...new Set(requestedEntities)]
-      : entitiesForView(state.currentView);
-    const entitiesToFetch = force
-      ? targetEntities
-      : targetEntities.filter((entity) => !state.loadedEntities.has(entity));
-    if (!entitiesToFetch.length) {
-      await routeReady;
-      if (!isDataContextCurrent(context)) return;
-      renderActiveView();
-      scheduleViewPrefetch(state.currentView);
-      if (typeof onViewDataLoaded === "function") {
-        onViewDataLoaded({ view: state.currentView, durationMs: 0, changed: false });
-      }
-      return;
-    }
-    if (loadOperation && !isDataContextCurrent(loadOperation.context)) {
-      loadOperation = null;
-      state.loading = false;
-    }
-    if (loadOperation) return queuePendingLoad(options);
-
-    const selectedProjectId = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
-    const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-    const selectedTaskId = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
+      : entitiesForView(view);
+    if (force) targetEntities.forEach(invalidateEntity);
+    const entitiesToFetch = targetEntities.filter((entity) => !state.loadedEntities.has(entity));
+    const versions = targetEntities.map((entity) => entityVersions.get(entity) || 0);
     const operation = {
       context,
-      controller: createRequestController(context),
+      view,
+      pendingStatus: (!silent && entitiesToFetch.length > 0)
+        || (loadOperation?.pendingStatus && isDataContextCurrent(loadOperation.context)),
+    };
+    const isActiveLoad = () => isDataContextCurrent(context) && loadOperation === operation
+      && state.currentView === view;
+    const setLoadedStatus = () => {
+      if ((requestedEntities == null || requestedEntities.includes("programs") || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
+        && !state.programs.length && !state.projects.length && !state.solutions.length) {
+        setStatus("No data loaded", "warn");
+      } else if (!silent || operation.pendingStatus) {
+        setStatus("Online", "positive");
+      }
     };
     loadOperation = operation;
-    state.loading = true;
+    state.loading = entitiesToFetch.length > 0;
     try {
-      if (!silent) setStatus("Loading...", "warn");
-      if (!silent) {
-        void routeReady.then(
-          () => {
-            if (isDataContextCurrent(context) && loadOperation === operation && state.loading) {
-              renderActiveView();
-            }
-          },
-          () => {},
-        );
+      if (!silent && state.loading) setStatus("Loading...", "warn");
+      void routeReady.then(
+        () => {
+          if (!silent && isActiveLoad() && state.loading) renderActiveView();
+        },
+        () => {},
+      );
+      const entityResults = await readEntities(targetEntities, context, routeReady);
+      if (!isDataContextCurrent(context)) return;
+      targetEntities.forEach((entity, idx) => {
+        if (versions[idx] !== entityResults[idx].version && !entitiesToFetch.includes(entity)) entitiesToFetch.push(entity);
+      });
+      const results = entitiesToFetch.map((entity) => entityResults[targetEntities.indexOf(entity)]);
+      const authError = results.find((result) => result.reason?.status === 401);
+      if (authError) {
+        handleAuthError(authError.reason);
+        return;
       }
-      const results = await Promise.allSettled(entitiesToFetch.map((entity) => (
-        fetchEntityData(entity, operation.controller ? { signal: operation.controller.signal } : {})
-      )));
-      if (!isDataContextCurrent(context) || loadOperation !== operation) return;
+      if (!isActiveLoad()) return;
+      if (!entitiesToFetch.length) {
+        // Another route can have supplied these collections before its remaining
+        // reads finish. Its eventual completion will not synchronize the current UI.
+        if (selectsNeedSync) syncSelects();
+        renderActiveView();
+        scheduleViewPrefetch(view);
+        if (operation.pendingStatus) setLoadedStatus();
+        if (typeof onViewDataLoaded === "function") {
+          onViewDataLoaded({ view, durationMs: 0, changed: false });
+        }
+        return;
+      }
       const errors = [];
       let changed = false;
       results.forEach((result, idx) => {
         if (result.status === "fulfilled") {
-          applyEntityData(entitiesToFetch[idx], result.value);
           changed = true;
         } else {
           errors.push({ key: entitiesToFetch[idx], error: result.reason });
@@ -438,11 +485,6 @@ export function createDataStoreController({
       });
 
       if (errors.length) {
-        const authError = errors.find((entry) => entry.error && entry.error.status === 401);
-        if (authError) {
-          handleAuthError(authError.error);
-          return;
-        }
         const labels = errors.map((entry) => entry.key).join(", ");
         console.error("Load failed", errors);
         if (!changed) {
@@ -452,12 +494,7 @@ export function createDataStoreController({
           }
           return;
         }
-        await routeReady;
-        if (!isDataContextCurrent(context) || loadOperation !== operation) return;
         const uiSyncError = syncUiAfterDataLoad({
-          selectedProjectId,
-          selectedSolutionId,
-          selectedTaskId,
           prefetchView: state.currentView,
         });
         const suffix = uiSyncError ? `; UI sync issue: ${uiSyncError.message || "render failed"}` : "";
@@ -468,12 +505,7 @@ export function createDataStoreController({
         return;
       }
 
-      await routeReady;
-      if (!isDataContextCurrent(context) || loadOperation !== operation) return;
       const uiSyncError = syncUiAfterDataLoad({
-        selectedProjectId,
-        selectedSolutionId,
-        selectedTaskId,
         prefetchView: state.currentView,
       });
       if (uiSyncError) {
@@ -483,17 +515,12 @@ export function createDataStoreController({
         }
         return;
       }
-      if ((requestedEntities == null || requestedEntities.includes("programs") || requestedEntities.includes("projects") || requestedEntities.includes("solutions"))
-        && !state.programs.length && !state.projects.length && !state.solutions.length) {
-        setStatus("No data loaded", "warn");
-      } else if (!silent) {
-        setStatus("Online", "positive");
-      }
+      setLoadedStatus();
       if (typeof onViewDataLoaded === "function") {
         onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: true });
       }
     } catch (err) {
-      if (!isDataContextCurrent(context) || loadOperation !== operation) return;
+      if (!isActiveLoad()) return;
       console.error("Load failed", err);
       if (!handleAuthError(err)) {
         setStatus(err.message || "Load failed", "danger");
@@ -502,13 +529,11 @@ export function createDataStoreController({
         onViewDataLoaded({ view: state.currentView, durationMs: Date.now() - loadStartedAt, changed: false });
       }
     } finally {
-      releaseRequestController(operation.controller);
       if (loadOperation !== operation) return;
       loadOperation = null;
       state.loading = false;
       if (!isDataContextCurrent(context)) return;
-      startPendingLoad();
-      flushPendingRefreshes();
+      void flushPendingRefreshes();
     }
   }
 

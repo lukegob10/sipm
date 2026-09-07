@@ -38,11 +38,6 @@ import {
   filteredDeliverables as filteredMasterDeliverables,
   normalizeMasterFilters,
 } from "./routes/master/filters.js";
-import { renderMasterQuickstart as renderMasterQuickstartView } from "./routes/master/quickstart.js";
-import {
-  bindDeliverablesControls as bindMasterDeliverablesControls,
-  bindDeliverablesTable as bindMasterDeliverablesTable,
-} from "./routes/master/interactions.js";
 import {
   clearTasksWorkbenchFilters as clearWorkbenchFilters,
   normalizeTasksWorkbenchUiState as normalizeWorkbenchUiState,
@@ -74,8 +69,6 @@ import { createCalendarRouteController } from "./routes/calendar/interactions.js
 import { createGanttRouteController } from "./routes/gantt/interactions.js";
 import { createKanbanRouteController } from "./routes/kanban/interactions.js";
 import { createTeamCapacityRouteController } from "./routes/team-capacity/interactions.js";
-import { createSpaceGovernanceController } from "./routes/spaces/interactions.js";
-import { createSpaceGovernanceRenderer } from "./routes/spaces/render.js";
 import { formatStatusLabel } from "./utils/display-tokens.js";
 import { safeExternalUrl } from "./utils/external-url.js";
 import {
@@ -528,58 +521,71 @@ const teamCapacityRouteController = createTeamCapacityRouteController({
   onViewDataLoaded: ({ view, durationMs }) => telemetryController?.noteRouteDataLoaded?.(view, durationMs),
   trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
-const spaceGovernanceController = createSpaceGovernanceController({
-  state,
-  els,
-  api,
-  normalize,
-  normalizeGovernanceSection,
-  userIsGlobalAdmin,
-  activeSpaceId,
-  canManageSpaceMembership,
-  effectiveDirectorySpaces,
-  spaceNameForId,
-  clearDeliverableFormNotice,
-  setDeliverableFormNotice,
-  setSpaceGovernanceNotice,
-  renderGovernanceHub,
-  renderSpaceDirectoryModal,
-  isSpaceGovernanceView,
-  refreshSpaceContext,
-  refreshFromServer,
-  switchActiveSpace,
-  showConfirmModal,
-  copyText,
-  buildAppUrl,
-  buildResetPageUrl,
-  trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
-});
-const spaceGovernanceRenderer = createSpaceGovernanceRenderer({
-  state,
-  els,
-  normalize,
-  normalizeSpaceRole,
-  activeSpaceId,
-  userIsGlobalAdmin,
-  currentSpaceRoleLabel,
-  canManageSpaceMembership,
-  esc,
-  escapeAttr,
-  formatDateTime,
-  effectiveDirectorySpaces,
-  governanceSections,
-  resolveGovernanceSection,
-  refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
-  refreshAccessRequests: (...args) => refreshAccessRequests(...args),
-  refreshApiTokens: (...args) => refreshApiTokens(...args),
-  refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
-  refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
-  refreshRequestableSpaces: (...args) => refreshRequestableSpaces(...args),
-  refreshReviewableAccessRequests: (...args) => refreshReviewableAccessRequests(...args),
-  closeSpaceDirectoryModal,
-  setSpaceGovernanceNotice,
-  buildAppUrl,
-});
+let spaceGovernanceController = null;
+let spaceGovernanceRenderer = null;
+
+// The router calls this once, before publishing a module as ready to render.
+// Spaces and Platform Access share the same controller and modal bindings.
+function initializeRouteModule(view, mod) {
+  if (view === "master") {
+    mod.bindDeliverablesControls(createMasterRouteContext());
+    mod.bindDeliverablesTable(createMasterRouteContext());
+  } else if ((view === "spaces" || view === "access") && !spaceGovernanceController) {
+    spaceGovernanceController = mod.createSpaceGovernanceController({
+      state,
+      els,
+      api,
+      normalize,
+      normalizeGovernanceSection,
+      userIsGlobalAdmin,
+      activeSpaceId,
+      canManageSpaceMembership,
+      effectiveDirectorySpaces,
+      spaceNameForId,
+      clearDeliverableFormNotice,
+      setDeliverableFormNotice,
+      setSpaceGovernanceNotice,
+      renderGovernanceHub,
+      renderSpaceDirectoryModal,
+      isSpaceGovernanceView,
+      refreshSpaceContext,
+      refreshFromServer,
+      switchActiveSpace,
+      showConfirmModal,
+      copyText,
+      buildAppUrl,
+      buildResetPageUrl,
+      trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
+    });
+    spaceGovernanceRenderer = mod.createSpaceGovernanceRenderer({
+      state,
+      els,
+      normalize,
+      normalizeSpaceRole,
+      activeSpaceId,
+      userIsGlobalAdmin,
+      currentSpaceRoleLabel,
+      canManageSpaceMembership,
+      esc,
+      escapeAttr,
+      formatDateTime,
+      effectiveDirectorySpaces,
+      governanceSections,
+      resolveGovernanceSection,
+      refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
+      refreshAccessRequests: (...args) => refreshAccessRequests(...args),
+      refreshApiTokens: (...args) => refreshApiTokens(...args),
+      refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
+      refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
+      refreshRequestableSpaces: (...args) => refreshRequestableSpaces(...args),
+      refreshReviewableAccessRequests: (...args) => refreshReviewableAccessRequests(...args),
+      closeSpaceDirectoryModal,
+      setSpaceGovernanceNotice,
+      buildAppUrl,
+    });
+    spaceGovernanceController.bindSpaceAdminControls();
+  }
+}
 
 const topbarCreateController = createTopbarCreateController({
   state,
@@ -699,6 +705,7 @@ function initShellControllers() {
     state,
     els,
     renderActiveView,
+    initializeRouteModule,
     userIsGlobalAdmin,
     isSpaceAdminRole,
     usageAnalyticsEnabled,
@@ -761,6 +768,8 @@ function initShellControllers() {
     loadUserPreferences,
     applyAuthBootstrap,
     resolvePostAuthView,
+    // The first live-sync catch-up also needs governance code, regardless of landing route.
+    preloadLoginRoute: (view) => Promise.all([ensureRouteModule(view), ensureRouteModule("spaces")]),
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),
@@ -1673,7 +1682,7 @@ function createMasterRouteContext(overrides = {}) {
   }, { view: "master" });
   return createShellContext(base, {
     filteredDeliverables: () => filteredMasterDeliverables(base),
-    renderMasterQuickstart: (rowCount = 0) => renderMasterQuickstartView(base, rowCount),
+    renderMasterQuickstart: (rowCount = 0) => getRouteModule("master").renderMasterQuickstart(base, rowCount),
     ...overrides,
   });
 }
@@ -2029,13 +2038,15 @@ function renderMasterTable() {
   mod.renderMasterTable(createMasterRouteContext());
 }
 
-function bindDebouncedInput(element, onChange, delayMs = 180) {
+function bindDebouncedInput(element, onChange, delayMs = 180, onInput = null) {
   if (!element || typeof onChange !== "function") return;
   let timerId = 0;
   element.addEventListener("input", () => {
+    const value = element.value || "";
+    onInput?.(value);
     if (timerId) window.clearTimeout(timerId);
     timerId = window.setTimeout(() => {
-      onChange(element.value || "");
+      onChange(value);
     }, delayMs);
   });
 }
@@ -3650,22 +3661,23 @@ function effectiveDirectorySpaces() {
 }
 
 function closeSpaceCreateModal() {
-  return spaceGovernanceController.closeSpaceCreateModal();
+  return spaceGovernanceController?.closeSpaceCreateModal();
 }
 
 function closeSpaceMemberModal() {
-  return spaceGovernanceController.closeSpaceMemberModal();
+  return spaceGovernanceController?.closeSpaceMemberModal();
 }
 
 function closeSpaceDirectoryModal() {
-  return spaceGovernanceController.closeSpaceDirectoryModal();
+  return spaceGovernanceController?.closeSpaceDirectoryModal();
 }
 
 function renderSpaceDirectoryModal() {
-  return spaceGovernanceRenderer.renderSpaceDirectoryModal();
+  return spaceGovernanceRenderer?.renderSpaceDirectoryModal();
 }
 
 function renderGovernanceHub(preferredSection = "") {
+  if (!spaceGovernanceRenderer) return;
   const result = spaceGovernanceRenderer.renderGovernanceHub(preferredSection);
   persistSpaceGovernanceViewState();
   return result;
@@ -3688,6 +3700,14 @@ async function refreshSpaceMembers(spaceId, options = {}) {
 }
 
 async function refreshAgentChangeRequests(options = {}) {
+  // Live-sync catch-up can request governance data before the route is visited.
+  if (!spaceGovernanceController) {
+    const user = state.user;
+    const spaceId = activeSpaceId();
+    const mod = await ensureRouteModule("spaces");
+    if (!state.authed || state.user !== user || activeSpaceId() !== spaceId) return;
+    if (!mod) throw new Error("Space governance module failed to load.");
+  }
   return spaceGovernanceController.refreshAgentChangeRequests(options);
 }
 
@@ -3697,10 +3717,6 @@ async function refreshRequestableSpaces(options = {}) {
 
 async function refreshReviewableAccessRequests(options = {}) {
   return spaceGovernanceController.refreshReviewableAccessRequests(options);
-}
-
-function bindSpaceAdminControls() {
-  return spaceGovernanceController.bindSpaceAdminControls();
 }
 
 function renderTeamCapacity() {
@@ -3790,8 +3806,6 @@ function init() {
   bindConfirmModal();
   renderTopbarStatus();
   renderSpaceSwitcher();
-  bindMasterDeliverablesControls(createMasterRouteContext());
-  bindMasterDeliverablesTable(createMasterRouteContext());
   bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
@@ -3802,10 +3816,9 @@ function init() {
   bindModalShortcuts();
   bindCalendarControls();
   bindCapacityUsers();
-  bindSpaceAdminControls();
   initTasksWorkbench();
   const initialView = viewFromLocationPath();
-  setView(initialView, { fromHistory: true });
+  setView(initialView, { fromHistory: true, loadContent: false });
   if (!isResetPath()) {
     syncPathForView(initialView, true);
   }

@@ -28,6 +28,7 @@ function toIsoTimestamp(value = Date.now()) {
 }
 
 function finiteNumberOrNull(value) {
+  if (value == null) return null;
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 }
@@ -280,37 +281,39 @@ export function createTelemetryController({
   function startPerformanceObservers() {
     if (performanceObserversStarted || typeof PerformanceObserver !== "function") return;
     performanceObserversStarted = true;
-    try {
-      const observer = new PerformanceObserver((list) => {
-        list.getEntries().forEach((entry) => {
-          if (entry.entryType === "paint") {
-            if (entry.name === "first-paint") {
-              navigationMetrics.firstPaintMs = safeDurationMs(entry.startTime);
+    const entryTypes = ["paint", "largest-contentful-paint", "layout-shift", "longtask"];
+    const supportedTypes = PerformanceObserver.supportedEntryTypes;
+    entryTypes.forEach((type) => {
+      if (supportedTypes && !supportedTypes.includes(type)) return;
+      try {
+        const observer = new PerformanceObserver((list) => {
+          list.getEntries().forEach((entry) => {
+            if (entry.entryType === "paint") {
+              if (entry.name === "first-paint") {
+                navigationMetrics.firstPaintMs = safeDurationMs(entry.startTime);
+              }
+              if (entry.name === "first-contentful-paint") {
+                navigationMetrics.firstContentfulPaintMs = safeDurationMs(entry.startTime);
+              }
             }
-            if (entry.name === "first-contentful-paint") {
-              navigationMetrics.firstContentfulPaintMs = safeDurationMs(entry.startTime);
+            if (entry.entryType === "largest-contentful-paint") {
+              navigationMetrics.largestContentfulPaintMs = safeDurationMs(entry.startTime);
             }
-          }
-          if (entry.entryType === "largest-contentful-paint") {
-            navigationMetrics.largestContentfulPaintMs = safeDurationMs(entry.startTime);
-          }
-          if (entry.entryType === "layout-shift" && !entry.hadRecentInput) {
-            const nextScore = Number(navigationMetrics.clsScore || 0) + Number(entry.value || 0);
-            navigationMetrics.clsScore = Math.round(nextScore * 10_000) / 10_000;
-          }
-          if (entry.entryType === "longtask") {
-            navigationMetrics.longTaskCount += 1;
-            navigationMetrics.longTaskTotalMs += safeDurationMs(entry.duration) || 0;
-          }
+            if (entry.entryType === "layout-shift" && !entry.hadRecentInput) {
+              const nextScore = Number(navigationMetrics.clsScore || 0) + Number(entry.value || 0);
+              navigationMetrics.clsScore = Math.round(nextScore * 10_000) / 10_000;
+            }
+            if (entry.entryType === "longtask") {
+              navigationMetrics.longTaskCount += 1;
+              navigationMetrics.longTaskTotalMs += safeDurationMs(entry.duration) || 0;
+            }
+          });
         });
-      });
-      observer.observe({
-        entryTypes: ["paint", "largest-contentful-paint", "layout-shift", "longtask"],
-        buffered: true,
-      });
-    } catch {
-      // Best-effort only.
-    }
+        observer.observe({ type, buffered: true });
+      } catch {
+        // A missing metric must not prevent collecting the other supported types.
+      }
+    });
   }
 
   function bindLifecycleFlushes() {
@@ -327,9 +330,9 @@ export function createTelemetryController({
   }
 
   function syncRuntimeContext() {
+    if (!enabled()) return;
     startPerformanceObservers();
     bindLifecycleFlushes();
-    if (!enabled()) return;
     ensureFlushTimer();
     if (!bootTracked) {
       enqueueEvent({

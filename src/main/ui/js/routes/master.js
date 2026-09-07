@@ -1,3 +1,6 @@
+export { bindDeliverablesControls, bindDeliverablesTable } from "./master/interactions.js";
+export { renderMasterQuickstart } from "./master/quickstart.js";
+
 import { bindMasterTableInteractions, buildMasterTable } from "./master/table.js";
 
 function esc(value) {

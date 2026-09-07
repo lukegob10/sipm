@@ -498,19 +498,35 @@ function detailPane(ctx, record) {
 async function refreshMyWork(ctx) {
   const work = myWorkState(ctx.state);
   if (work.loading) return;
+  const requestId = (Number(work.loadRequestId) || 0) + 1;
+  const userId = ctx.state.user?.user_id;
+  const spaceId = ctx.state.activeSpace?.space_id;
+  const authed = ctx.state.authed;
+  work.loadRequestId = requestId;
   work.loading = true;
   work.error = "";
+  // Clearing session data resets loading even before a replacement request starts.
+  const isCurrentRequest = () => ctx.state.myWork === work
+    && work.loading && work.loadRequestId === requestId
+    && ctx.state.authed === authed
+    && ctx.state.user?.user_id === userId
+    && ctx.state.activeSpace?.space_id === spaceId;
   try {
-    work.records = await ctx.api("/my-work");
+    const records = await ctx.api("/my-work");
+    if (!isCurrentRequest()) return;
+    work.records = records;
     if (!work.selectedTaskId || !work.records.some((record) => record.task.task_id === work.selectedTaskId)) {
       work.selectedTaskId = work.records[0]?.task?.task_id || "";
     }
   } catch (err) {
+    if (!isCurrentRequest()) return;
     work.error = err.message || "My Work could not be loaded.";
     work.records = [];
   } finally {
-    work.loading = false;
-    renderMyWork(ctx);
+    if (isCurrentRequest()) {
+      work.loading = false;
+      renderMyWork(ctx);
+    }
   }
 }
 

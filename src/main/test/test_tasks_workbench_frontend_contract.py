@@ -321,7 +321,8 @@ def test_workbench_interactions_own_filter_and_selection_bindings():
     assert "function bindTasksWorkbenchControls(ctx) {" in interactions_text
     assert "function updateTasksWorkbenchSolutionOptions(ctx, projectId) {" in interactions_text
     assert 'const presetButtons = document.querySelectorAll(".scwb-preset[data-preset]");' in interactions_text
-    assert 'bindDebouncedInput(els.tasksWorkbenchSearch, (value) => {' in interactions_text
+    assert 'bindDebouncedInput(els.tasksWorkbenchSearch, () => {' in interactions_text
+    assert 'wb.filters.search = value;' in interactions_text
     assert 'els.tasksWorkbenchProject.addEventListener("change", () => {' in interactions_text
     assert 'wb.filters.project_id = els.tasksWorkbenchProject.value || "";' in interactions_text
     assert "updateTasksWorkbenchSolutionOptions(ctx, wb.filters.project_id);" in interactions_text

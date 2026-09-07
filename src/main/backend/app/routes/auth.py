@@ -19,8 +19,8 @@ from ..auth.auth import (
     set_auth_cookies,
     verify_password,
 )
-from ..deps import ensure_token_not_revoked, get_db, require_global_admin, require_user
-from ..models import AuthSession, User, UserPreference
+from ..deps import ensure_token_not_revoked, get_db, require_global_admin, require_interactive_user, require_user
+from ..models import AuthSession, Space, User, UserPreference
 from ..paths import API_PREFIX
 from ..schemas import (
     ActiveSpaceResponse,
@@ -53,8 +53,8 @@ from ..services.spaces import (
     SpaceContext,
     ensure_space_membership,
     get_or_create_default_space,
-    list_user_spaces,
     resolve_active_space_context,
+    resolve_auth_space_context,
 )
 from ..services.usage_analytics import usage_analytics_enabled
 
@@ -83,15 +83,15 @@ def _issue_session(
     session: Session,
     user: User,
     requested_space_id: str | None,
-) -> SpaceContext:
+) -> tuple[SpaceContext, list[Space]]:
     get_or_create_default_space(session, commit=False)
     auth_session = create_auth_session(session, user)
     access_token = create_token(user.user_id, user.role, "access", session_id=auth_session.session_id)
     refresh_token = create_token(user.user_id, user.role, "refresh", session_id=auth_session.session_id)
     set_auth_cookies(response, access_token, refresh_token)
-    active_ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+    active_ctx, spaces = resolve_auth_space_context(session, user, requested_space_id=requested_space_id)
     set_active_space_cookie(response, active_ctx.space_id)
-    return active_ctx
+    return active_ctx, spaces
 
 
 def _preference_response(preference: UserPreference | None) -> UserPreferenceRead:
@@ -113,6 +113,17 @@ def _active_space_response(ctx: SpaceContext) -> ActiveSpaceResponse:
         space_kind=ctx.space_kind,
         owner_user_id=ctx.owner_user_id,
         usage_analytics_enabled=usage_analytics_enabled(),
+    )
+
+
+def _auth_bootstrap_response(
+    session: Session, user: User, ctx: SpaceContext, spaces: list[Space],
+) -> LoginResponse:
+    return LoginResponse(
+        **UserRead.model_validate(user).model_dump(),
+        preferences=_preference_response(session.get(UserPreference, user.user_id)),
+        spaces=[SpaceRead.model_validate(space) for space in spaces],
+        active_space=_active_space_response(ctx),
     )
 
 
@@ -261,17 +272,8 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             code="LOGIN_FAILED",
             message="Login failed. Check your username or password.",
         )
-    active_ctx = _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
-
-    preferences = _preference_response(session.get(UserPreference, user.user_id))
-    spaces = [SpaceRead.model_validate(space) for space in list_user_spaces(session, user)]
-    user_response = UserRead.model_validate(user)
-    login_response = LoginResponse(
-        **user_response.model_dump(),
-        preferences=preferences,
-        spaces=spaces,
-        active_space=_active_space_response(active_ctx),
-    )
+    active_ctx, spaces = _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
+    login_response = _auth_bootstrap_response(session, user, active_ctx, spaces)
     session.commit()
     return login_response
 
@@ -437,6 +439,19 @@ def logout(request: Request, response: Response, session: Session = Depends(get_
 @router.get("/me", response_model=UserRead)
 def me(user: User = Depends(require_user)):
     return user
+
+
+@router.get("/bootstrap", response_model=LoginResponse)
+def bootstrap(
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_db),
+    current_user: User = Depends(require_interactive_user),
+):
+    ctx, spaces = resolve_auth_space_context(session, current_user, _requested_space_id(request))
+    if request.cookies.get(ACTIVE_SPACE_COOKIE) != ctx.space_id:
+        set_active_space_cookie(response, ctx.space_id)
+    return _auth_bootstrap_response(session, current_user, ctx, spaces)
 
 
 @router.get("/active-space", response_model=ActiveSpaceResponse)

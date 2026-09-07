@@ -40,6 +40,7 @@ def test_space_governance_hub_and_modals_exist_in_html():
 
 def test_space_governance_app_logic_tracks_recents_and_access_alias():
     app_text = APP_JS.read_text(encoding="utf-8")
+    spaces_text = SPACES_ROUTE.read_text(encoding="utf-8")
     interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
     router_text = ROUTER_JS.read_text(encoding="utf-8")
@@ -60,8 +61,8 @@ def test_space_governance_app_logic_tracks_recents_and_access_alias():
     assert 'data-space-action="issue-password-reset"' in render_text
     assert 'data-space-action="copy-temp-password"' in render_text
     assert 'data-space-action="copy-reset-link"' in render_text
-    assert 'from "./routes/spaces/interactions.js' in app_text
-    assert 'from "./routes/spaces/render.js' in app_text
+    assert 'export { createSpaceGovernanceController } from "./spaces/interactions.js";' in spaces_text
+    assert 'export { createSpaceGovernanceRenderer } from "./spaces/render.js";' in spaces_text
     assert 'event.composedPath()' in interactions_text
     assert 'classList.contains("space-member-actions")' in interactions_text
     assert "Workspace atlas" in render_text
@@ -135,8 +136,12 @@ def test_space_governance_controls_move_into_route_local_module():
     interactions_text = SPACES_INTERACTIONS.read_text(encoding="utf-8")
     render_text = SPACES_RENDER.read_text(encoding="utf-8")
 
-    assert 'from "./routes/spaces/interactions.js' in app_text
-    assert "const spaceGovernanceController = createSpaceGovernanceController({" in app_text
+    assert 'from "./routes/spaces/interactions.js' not in app_text
+    assert 'from "./routes/spaces/render.js' not in app_text
+    assert "function initializeRouteModule(view, mod) {" in app_text
+    assert "spaceGovernanceController = mod.createSpaceGovernanceController({" in app_text
+    assert "spaceGovernanceRenderer = mod.createSpaceGovernanceRenderer({" in app_text
+    assert "spaceGovernanceController.bindSpaceAdminControls();" in app_text
     assert "function closeSpaceDirectoryModal() {" in interactions_text
     assert "async function refreshGlobalAdmins() {" in interactions_text
     assert "async function refreshSpaceMembers(spaceId, options = {}) {" in interactions_text

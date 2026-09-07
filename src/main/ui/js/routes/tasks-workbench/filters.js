@@ -28,9 +28,18 @@ function hideClosedTasksWorkbench(ctx) {
 export function tasksWorkbenchRows(ctx) {
   const { state, deriveTaskActionability, normalize, isCompletedTaskStatus, numberOr } = ctx;
   const wb = state.tasksWorkbench;
+  // Rebuild for each pass so edits stay fresh; keep the first match, as Array.find did.
+  const projectsById = new Map();
+  const solutionsById = new Map();
+  for (const project of state.projects) {
+    if (!projectsById.has(project.project_id)) projectsById.set(project.project_id, project);
+  }
+  for (const solution of state.solutions) {
+    if (!solutionsById.has(solution.solution_id)) solutionsById.set(solution.solution_id, solution);
+  }
   const rows = (state.tasks || []).map((task) => {
-    const project = state.projects.find((row) => row.project_id === task.project_id);
-    const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
+    const project = projectsById.get(task.project_id);
+    const solution = solutionsById.get(task.solution_id);
     return {
       ...task,
       ...deriveTaskActionability(task),

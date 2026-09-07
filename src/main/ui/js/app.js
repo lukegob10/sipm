@@ -2038,13 +2038,15 @@ function renderMasterTable() {
   mod.renderMasterTable(createMasterRouteContext());
 }
 
-function bindDebouncedInput(element, onChange, delayMs = 180) {
+function bindDebouncedInput(element, onChange, delayMs = 180, onInput = null) {
   if (!element || typeof onChange !== "function") return;
   let timerId = 0;
   element.addEventListener("input", () => {
+    const value = element.value || "";
+    onInput?.(value);
     if (timerId) window.clearTimeout(timerId);
     timerId = window.setTimeout(() => {
-      onChange(element.value || "");
+      onChange(value);
     }, delayMs);
   });
 }

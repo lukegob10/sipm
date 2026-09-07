@@ -200,10 +200,10 @@ test("Tasks accepts a query while its first renderer import is still pending", a
   await page.locator('.nav-btn[data-view="tasks-workbench"]').click();
   const search = page.locator("#tasks-workbench-search");
   await search.fill("query entered before renderer");
-  await expect.poll(() => page.evaluate(() => Object.values(localStorage).some((value) => value.includes("query entered before renderer")))).toBe(true);
   releaseModule();
   await expect(page.locator("#tasks-workbench-table")).toContainText("No tasks match");
   await expect(search).toHaveValue("query entered before renderer");
+  await expect.poll(() => page.evaluate(() => Object.values(localStorage).some((value) => value.includes("query entered before renderer")))).toBe(true);
 });
 
 test("Deliverables creates and binds its query control only after its renderer is ready", async ({ page }) => {

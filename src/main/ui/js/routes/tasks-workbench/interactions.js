@@ -57,10 +57,12 @@ export function bindTasksWorkbenchControls(ctx) {
 
   bindTasksWorkbenchSavedViewControls(ctx);
 
-  bindDebouncedInput(els.tasksWorkbenchSearch, (value) => {
-    wb.filters.search = value || "";
+  bindDebouncedInput(els.tasksWorkbenchSearch, () => {
     persistTasksWorkbenchUiState();
     renderTasksWorkbench();
+  }, 180, (value) => {
+    // Refresh/module completion must see the draft before the render debounce expires.
+    wb.filters.search = value;
   });
 
   if (els.tasksWorkbenchProject && !els.tasksWorkbenchProject._bound) {
@@ -108,10 +110,11 @@ export function bindTasksWorkbenchControls(ctx) {
   }
 
   if (els.tasksWorkbenchPriority && !els.tasksWorkbenchPriority._bound) {
-    bindDebouncedInput(els.tasksWorkbenchPriority, (value) => {
-      wb.filters.priority_max = value || "";
+    bindDebouncedInput(els.tasksWorkbenchPriority, () => {
       persistTasksWorkbenchUiState();
       renderTasksWorkbench();
+    }, 180, (value) => {
+      wb.filters.priority_max = value;
     });
     els.tasksWorkbenchPriority._bound = true;
   }

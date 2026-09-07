@@ -1,3 +1,6 @@
+export { createSpaceGovernanceController } from "./spaces/interactions.js";
+export { createSpaceGovernanceRenderer } from "./spaces/render.js";
+
 export function renderSpaces(ctx) {
   const { renderGovernanceHub } = ctx;
   if (typeof renderGovernanceHub === "function") {

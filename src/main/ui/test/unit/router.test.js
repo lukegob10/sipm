@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createRouterController } from "../../js/shell/router.js";
 
 
-function buildRouterHarness() {
+function buildRouterHarness(options = {}) {
   document.body.innerHTML = `
     <button class="nav-btn" data-view="master"></button>
     <button class="nav-btn" data-view="gantt"></button>
@@ -54,6 +54,7 @@ function buildRouterHarness() {
     loadData,
     loadTeamCapacityData,
     routeModuleLoaders,
+    ...options,
   });
   return { controller, state, loadData, loadTeamCapacityData, renderActiveView, routeModuleLoaders };
 }
@@ -63,6 +64,59 @@ describe("router controller", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/project-manager/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  it("selects the startup shell without fetching or rendering hidden route content", async () => {
+    const { controller, state, loadData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
+    state.authed = false;
+
+    controller.setView("gantt", { fromHistory: true, loadContent: false });
+    await Promise.resolve();
+
+    expect(state.currentView).toBe("gantt");
+    expect(document.querySelector("#view-gantt").getAttribute("aria-hidden")).toBe("false");
+    expect(document.title).toBe("Roadmap · SIPM");
+    expect(routeModuleLoaders.gantt).not.toHaveBeenCalled();
+    expect(loadData).not.toHaveBeenCalled();
+    expect(renderActiveView).not.toHaveBeenCalled();
+
+    state.authed = true;
+    controller.setView("gantt", { fromHistory: true });
+    await controller.ensureRouteModule("gantt");
+    expect(routeModuleLoaders.gantt).toHaveBeenCalledTimes(1);
+    expect(loadData).toHaveBeenCalledTimes(1);
+  });
+
+  it("initializes route bindings once before exposing a shared loaded module", async () => {
+    let resolveModule;
+    const module = { render: vi.fn() };
+    const initializeRouteModule = vi.fn(() => {
+      expect(controller.getRouteModule("master")).toBeNull();
+    });
+    const { controller, routeModuleLoaders } = buildRouterHarness({ initializeRouteModule });
+    routeModuleLoaders.master.mockReturnValue(new Promise((resolve) => { resolveModule = resolve; }));
+
+    const first = controller.ensureRouteModule("master");
+    const concurrent = controller.ensureRouteModule("master");
+    expect(initializeRouteModule).not.toHaveBeenCalled();
+    resolveModule(module);
+    expect(await first).toBe(module);
+    expect(await concurrent).toBe(module);
+    expect(await controller.ensureRouteModule("master")).toBe(module);
+    expect(initializeRouteModule).toHaveBeenCalledExactlyOnceWith("master", module);
+    expect(routeModuleLoaders.master).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports initialization failures and allows the existing module retry path", async () => {
+    const initializeRouteModule = vi.fn().mockImplementationOnce(() => { throw new Error("Binding failed"); });
+    const onModuleLoadFailure = vi.fn();
+    const { controller } = buildRouterHarness({ initializeRouteModule, onModuleLoadFailure });
+
+    expect(await controller.ensureRouteModule("master")).toBeNull();
+    expect(controller.getRouteModule("master")).toBeNull();
+    expect(onModuleLoadFailure).toHaveBeenCalledWith({ view: "master", error: expect.any(Error) });
+    expect(await controller.ensureRouteModule("master")).toEqual({});
+    expect(initializeRouteModule).toHaveBeenCalledTimes(2);
   });
 
   it("normalizes context-path locations into route views", () => {

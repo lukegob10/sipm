@@ -11,6 +11,7 @@ export function createRouterController({
   state,
   els,
   renderActiveView,
+  initializeRouteModule = null,
   userIsGlobalAdmin,
   isSpaceAdminRole,
   usageAnalyticsEnabled = () => false,
@@ -62,6 +63,7 @@ export function createRouterController({
     if (routeModuleInFlight[key]) return routeModuleInFlight[key];
     routeModuleInFlight[key] = loader()
       .then((mod) => {
+        initializeRouteModule?.(key, mod);
         routeModuleCache[key] = mod || {};
         return routeModuleCache[key];
       })
@@ -244,6 +246,8 @@ export function createRouterController({
     if (!fromHistory || redirected) {
       syncPathForView(nextView, redirected ? true : replacePath);
     }
+    // Session discovery selects the shell route without loading hidden content.
+    if (options.loadContent === false) return;
     const routeModuleReady = viewHasLazyModule(nextView)
       ? ensureRouteModule(nextView)
       : Promise.resolve(null);

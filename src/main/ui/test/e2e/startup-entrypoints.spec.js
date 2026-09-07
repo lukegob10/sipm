@@ -95,6 +95,45 @@ test("login warms its requested screen while credentials are pending without pri
   }
 });
 
+test("initial session data finishes before subscribed catch-up starts replacement reads", async ({ page }) => {
+  await registerMember(page);
+  const program = await page.request.post("/project-manager/api/programs", { data: { program_name: "Initial Snapshot Program" } });
+  expect(program.ok()).toBeTruthy();
+  await page.addInitScript(() => {
+    const OriginalWebSocket = window.WebSocket;
+    window.benchmarkSocketOpened = false;
+    window.WebSocket = class extends OriginalWebSocket {
+      constructor(...args) {
+        super(...args);
+        this.addEventListener("open", () => { window.benchmarkSocketOpened = true; });
+      }
+    };
+  });
+  let releaseInitial;
+  const initialHeld = new Promise((resolve) => { releaseInitial = resolve; });
+  const taskRequests = [];
+  await page.route("**/api/tasks", async (route) => {
+    taskRequests.push(route.request());
+    if (taskRequests.length === 1) await initialHeld;
+    await route.continue();
+  });
+  try {
+    await page.goto("/project-manager/");
+    await expect.poll(() => page.evaluate(() => window.benchmarkSocketOpened)).toBe(true);
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(taskRequests).toHaveLength(1);
+    expect(taskRequests[0].failure()).toBeNull();
+    releaseInitial();
+    await expect(page.locator("#master-table")).toContainText("Initial Snapshot Program");
+    await expect.poll(() => taskRequests.length).toBe(2);
+    expect(taskRequests[0].failure()).toBeNull();
+    const catchUpResponse = await taskRequests[1].response();
+    expect(catchUpResponse.ok()).toBeTruthy();
+  } finally {
+    releaseInitial();
+  }
+});
+
 test("direct capacity entry binds once, preserves a draft on repeat navigation, and submits once", async ({ page }) => {
   await registerMember(page);
   await recordBindings(page);

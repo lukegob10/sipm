@@ -161,10 +161,9 @@ export function createSessionController({
     const resolvedView = resolvePostAuthView(nextView, window.location.pathname);
     const preferenceRedirect = resolvedView !== nextView;
     if (preferenceRedirect) {
-      setView(resolvedView, { fromHistory: false, replacePath: true });
-      return;
+      return setView(resolvedView, { fromHistory: false, replacePath: true });
     }
-    setView(nextView, { fromHistory: true });
+    return setView(nextView, { fromHistory: true });
   }
 
   function onAuthedChange(user) {
@@ -462,8 +461,8 @@ export function createSessionController({
       if (!applyAuthBootstrap(payload)) {
         await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
       }
-      startLiveSync();
-      restoreRouteFromLocationAfterAuth();
+      const initialLoad = restoreRouteFromLocationAfterAuth();
+      startLiveSync({ catchUpAfter: initialLoad });
       setAuthVisible(false);
     } catch (err) {
       clearLocalSession();
@@ -575,8 +574,8 @@ export function createSessionController({
           await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
         }
         if (generation !== authBootstrapGeneration) return;
-        startLiveSync();
-        restoreRouteFromLocationAfterAuth();
+        const initialLoad = restoreRouteFromLocationAfterAuth();
+        startLiveSync({ catchUpAfter: initialLoad });
         setAuthVisible(false);
         return;
       }

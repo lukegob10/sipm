@@ -253,18 +253,17 @@ export function createRouterController({
       : Promise.resolve(null);
     if (state.authed) {
       if (nextView === "team-capacity") {
-        routeModuleReady.then(() => {
+        return routeModuleReady.then(() => {
           if (state.currentView !== nextView) return null;
           return loadTeamCapacityData({ force: true });
         }).catch((err) => {
           console.warn("Team capacity load failed", err);
         });
       } else {
-        loadData({ entities: entitiesForView(nextView), routeReady: routeModuleReady }).catch((err) => {
+        return loadData({ entities: entitiesForView(nextView), routeReady: routeModuleReady }).catch((err) => {
           console.warn("View load failed", err);
         });
       }
-      return;
     }
     routeModuleReady.finally(() => {
       if (state.currentView === nextView) renderActiveView();

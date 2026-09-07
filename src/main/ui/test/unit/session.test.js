@@ -625,6 +625,24 @@ describe("session controller", () => {
     expect(harness.showAuthError).not.toHaveBeenCalledWith("Module unavailable");
   });
 
+  it.each(["login", "bootstrap"])("subscribes during %s with catch-up following foreground completion", async (entry) => {
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = '<input name="soeid" value="user"><input name="password" value="Password123">';
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ user_id: "user" })));
+    const harness = createHarness({ els: { loginForm }, applyAuthBootstrap: vi.fn(() => true) });
+    const initialLoad = new Promise(() => {});
+    harness.setView.mockReturnValue(initialLoad);
+    if (entry === "login") {
+      harness.controller.bindAuthUI();
+      loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    } else {
+      await harness.controller.bootstrapAuth();
+    }
+    await vi.waitFor(() => expect(harness.setAuthVisible).toHaveBeenCalledWith(false));
+    expect(harness.startLiveSync).toHaveBeenCalledExactlyOnceWith({ catchUpAfter: initialLoad });
+    expect(harness.setView.mock.invocationCallOrder[0]).toBeLessThan(harness.startLiveSync.mock.invocationCallOrder[0]);
+  });
+
   it("prevents duplicate login submissions while a request is pending", async () => {
     const loginForm = document.createElement("form");
     loginForm.innerHTML = `

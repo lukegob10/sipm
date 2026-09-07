@@ -66,6 +66,23 @@ describe("router controller", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
+  it.each(["master", "team-capacity"])("returns the %s foreground completion for startup coordination", async (view) => {
+    const harness = buildRouterHarness();
+    let resolveData;
+    const dataReady = new Promise((resolve) => { resolveData = resolve; });
+    const load = view === "team-capacity" ? harness.loadTeamCapacityData : harness.loadData;
+    load.mockReturnValue(dataReady);
+    const ready = harness.controller.setView(view);
+    expect(ready).toBeInstanceOf(Promise);
+    let completed = false;
+    void ready.then(() => { completed = true; });
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    expect(completed).toBe(false);
+    resolveData();
+    await ready;
+    expect(completed).toBe(true);
+  });
+
   it("selects the startup shell without fetching or rendering hidden route content", async () => {
     const { controller, state, loadData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
     state.authed = false;

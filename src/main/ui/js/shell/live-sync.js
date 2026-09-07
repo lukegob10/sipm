@@ -273,6 +273,10 @@ export function createLiveSyncController({
   function startLiveSync(options = {}) {
     const force = !!options.force;
     const preserveRecovery = !!options.preserveRecovery;
+    // Observe failures before the socket opens; either outcome still needs catch-up.
+    const catchUpAfter = options.catchUpAfter == null
+      ? null
+      : Promise.resolve(options.catchUpAfter).catch(() => {});
     if (!state.authed || isResetPath()) {
       stopLiveSync({ clearStatus: true });
       return;
@@ -287,6 +291,7 @@ export function createLiveSyncController({
     }
     clearLiveSyncRetry();
     const currentSpaceId = state.activeSpace.space_id;
+    const currentUserId = state.user?.user_id;
     const isOpenForCurrentSpace = !!liveSyncSocket
       && state.liveSync.socketSpaceId === currentSpaceId
       && (liveSyncSocket.readyState === WebSocket.CONNECTING || liveSyncSocket.readyState === WebSocket.OPEN);
@@ -304,7 +309,13 @@ export function createLiveSyncController({
       resetLiveSyncRecoveryFlags();
       startLiveSyncHeartbeat(socket);
       setLiveSyncPhase("live");
-      void catchUpLiveSync();
+      const catchUpIfCurrent = () => {
+        if (socket !== liveSyncSocket || socket.readyState !== WebSocket.OPEN || !state.authed
+          || state.activeSpace?.space_id !== currentSpaceId || state.user?.user_id !== currentUserId) return;
+        return catchUpLiveSync();
+      };
+      if (catchUpAfter) void catchUpAfter.then(catchUpIfCurrent);
+      else void catchUpIfCurrent();
     });
 
     socket.addEventListener("message", (event) => {

@@ -73,11 +73,15 @@ test("login warms its requested screen while credentials are pending without pri
   try {
     await page.goto("/project-manager/");
     await expect(page.locator("#auth-screen")).toBeVisible();
-    const moduleResponse = page.waitForResponse("**/js/routes/master.js");
+    const moduleResponses = Promise.all([
+      page.waitForResponse("**/js/routes/master.js"),
+      page.waitForResponse("**/js/routes/spaces/interactions.js"),
+      page.waitForResponse("**/js/routes/spaces/render.js"),
+    ]);
     await page.locator('#login-form [name="soeid"]').fill(soeid);
     await page.locator('#login-form [name="password"]').fill("Password123");
     await page.locator('#login-form button[type="submit"]').click();
-    expect((await moduleResponse).ok()).toBeTruthy();
+    expect((await moduleResponses).every((response) => response.ok())).toBeTruthy();
     await expect(page.locator('#login-form button[type="submit"]')).toBeDisabled();
     await expect(page.locator("#auth-screen")).toBeVisible();
     expect(privateRequests).toEqual([]);

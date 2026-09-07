@@ -768,7 +768,8 @@ function initShellControllers() {
     loadUserPreferences,
     applyAuthBootstrap,
     resolvePostAuthView,
-    preloadLoginRoute: (view) => ensureRouteModule(view),
+    // The first live-sync catch-up also needs governance code, regardless of landing route.
+    preloadLoginRoute: (view) => Promise.all([ensureRouteModule(view), ensureRouteModule("spaces")]),
     onApiFailure: (...args) => telemetryController?.trackApiFailure?.(...args),
     reloadCurrentViewData: (...args) => dataStoreController.reloadCurrentViewData(...args),
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),

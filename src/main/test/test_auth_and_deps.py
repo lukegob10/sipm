@@ -22,7 +22,7 @@ from backend.app.auth.auth import (
     hash_password,
     verify_password,
 )
-from backend.app.models import ApiToken, AuthSession, Space, SpaceMembership, User
+from backend.app.models import ApiToken, AuthSession, Space, SpaceMembership, User, UserPreference
 from backend.app.schemas import UserLogin
 from backend.app.services import authentication_state as authentication_state_module
 from backend.app.services import password_reset as password_reset_module
@@ -593,7 +593,7 @@ async def test_local_login_bootstraps_ui_state_with_one_checkout_and_commit(
     assert payload["user_id"] == "fast-login-user"
     assert payload["active_space"]["space_id"] == "fast-login-space"
     assert [item["space_id"] for item in payload["spaces"]] == ["fast-login-space"]
-    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 8}
+    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 7}
 
 
 @pytest.mark.anyio
@@ -1512,6 +1512,13 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
     assert bearer_me.status_code == 200, bearer_me.text
     assert bearer_me.json()["soeid"] == "svcpat1"
 
+    bootstrap = await auth_client.get(
+        "/project-manager/api/auth/bootstrap",
+        headers={"Authorization": f"Bearer {token_value}"},
+    )
+    assert bootstrap.status_code == 403
+    assert bootstrap.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
+
     with db_sessionmaker() as session:
         token_rows = session.query(ApiToken).all()
         assert len(token_rows) == 1
@@ -1853,3 +1860,148 @@ def test_get_db_yields_from_get_session(monkeypatch):
     gen = deps_module.get_db()
     assert next(gen) is sentinel
     gen.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("role", ["user", "global_admin"])
+async def test_bootstrap_matches_existing_context_without_reissuing_session(
+    auth_client, db_sessionmaker, role,
+):
+    login = await _login_local_session(auth_client, db_sessionmaker, soeid="bootstrap1", role=role)
+    user_id = login.json()["user_id"]
+    cookies_before = dict(auth_client.cookies)
+    with db_sessionmaker() as session:
+        session.add(UserPreference(user_id=user_id, developer_mode_enabled=True, theme="light"))
+        session.commit()
+        sessions_before = [(row.session_id, row.last_activity_at) for row in session.query(AuthSession).all()]
+
+    engine = db_sessionmaker.kw["bind"]
+    statements = []
+    checkouts = []
+
+    def count_sql(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    def count_checkout(*_args):
+        checkouts.append(1)
+
+    event.listen(engine, "before_cursor_execute", count_sql)
+    event.listen(engine.pool, "checkout", count_checkout)
+    try:
+        me = await auth_client.get("/project-manager/api/auth/me")
+        preferences = await auth_client.get("/project-manager/api/users/me/preferences")
+        spaces = await auth_client.get("/project-manager/api/spaces")
+        active_space = await auth_client.get("/project-manager/api/auth/active-space")
+        assert all(response.status_code == 200 for response in (me, preferences, spaces, active_space))
+        legacy_counts = (len(checkouts), len(statements))
+        checkouts.clear()
+        statements.clear()
+        bootstrap = await auth_client.get("/project-manager/api/auth/bootstrap")
+        bootstrap_counts = (len(checkouts), len(statements))
+    finally:
+        event.remove(engine, "before_cursor_execute", count_sql)
+        event.remove(engine.pool, "checkout", count_checkout)
+
+    assert bootstrap.status_code == 200, bootstrap.text
+    assert bootstrap.json() == {
+        **me.json(), "preferences": preferences.json(), "spaces": spaces.json(), "active_space": active_space.json(),
+    }
+    assert bootstrap.headers.get_list("set-cookie") == []
+    assert dict(auth_client.cookies) == cookies_before
+    assert bootstrap_counts[0] == 1
+    assert legacy_counts[0] == 4
+    if role == "user":
+        assert legacy_counts == (4, 11)
+        assert bootstrap_counts == (1, 4)
+    with db_sessionmaker() as session:
+        assert [(row.session_id, row.last_activity_at) for row in session.query(AuthSession).all()] == sessions_before
+
+
+@pytest.mark.anyio
+async def test_bootstrap_recovers_expired_access_using_existing_refresh_session(auth_client, db_sessionmaker):
+    await _login_local_session(auth_client, db_sessionmaker, soeid="bootstraprefresh1")
+    original = decode_token(auth_client.cookies.get("access_token"), expected_type="access")
+    expired = _encode_test_token({**original, "exp": datetime.now(timezone.utc) - timedelta(seconds=1)})
+    next(cookie for cookie in auth_client.cookies.jar if cookie.name == "access_token").value = expired
+    response = await auth_client.get("/project-manager/api/auth/bootstrap")
+    assert response.status_code == 401
+    assert response.headers["X-Error-Code"] == "TOKEN_EXPIRED"
+    refreshed = await auth_client.post("/project-manager/api/auth/refresh")
+    assert refreshed.status_code == 200
+    restored = await auth_client.get("/project-manager/api/auth/bootstrap")
+    assert restored.status_code == 200
+    assert restored.json()["user_id"] == original["sub"]
+    assert decode_token(auth_client.cookies.get("access_token"), expected_type="access")["sid"] == original["sid"]
+    with db_sessionmaker() as session:
+        assert session.query(AuthSession).count() == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure,code,status_code", [
+    ("idle", "SESSION_IDLE_EXPIRED", 401),
+    ("revoked", "SESSION_REVOKED", 401),
+    ("inactive", "USER_INACTIVE_OR_MISSING", 401),
+    ("locked", "ACCOUNT_LOCKED", 423),
+    ("password_changed", "TOKEN_REVOKED", 401),
+    ("no_membership", "NO_ACTIVE_SPACE", 403),
+    ("missing_cookie", "AUTH_REQUIRED", 401),
+])
+async def test_bootstrap_preserves_authentication_and_membership_checks(
+    auth_client, db_sessionmaker, failure, code, status_code,
+):
+    login = await _login_local_session(auth_client, db_sessionmaker, soeid="bootstrapfailure1")
+    with db_sessionmaker() as session:
+        user = session.get(User, login.json()["user_id"])
+        auth_session = session.query(AuthSession).one()
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if failure == "idle":
+            auth_session.last_activity_at = now - timedelta(minutes=31)
+        elif failure == "revoked":
+            auth_session.revoked_at = now
+        elif failure == "inactive":
+            user.is_active = False
+        elif failure == "locked":
+            user.locked_until = now + timedelta(minutes=5)
+        elif failure == "password_changed":
+            user.password_changed_at = now + timedelta(seconds=5)
+        elif failure == "no_membership":
+            session.query(SpaceMembership).filter_by(user_id=user.user_id).update({"status": "inactive"})
+        session.commit()
+    if failure == "missing_cookie":
+        auth_client.cookies.clear()
+    response = await auth_client.get("/project-manager/api/auth/bootstrap")
+    assert response.status_code == status_code
+    assert response.headers["X-Error-Code"] == code
+    assert response.headers.get_list("set-cookie") == []
+    assert "preferences" not in response.json()
+
+
+@pytest.mark.anyio
+async def test_bootstrap_uses_current_user_memberships_and_repairs_stale_cookie(auth_client, db_sessionmaker):
+    login = await _login_local_session(auth_client, db_sessionmaker, soeid="bootstrapspace1")
+    user_id = login.json()["user_id"]
+    with db_sessionmaker() as session:
+        session.add_all([
+            Space(space_id="bootstrap-other", name="A Other", slug="bootstrap-other", is_active=True),
+            Space(space_id="bootstrap-selected", name="Z Selected", slug="bootstrap-selected", is_active=True),
+        ])
+        session.flush()
+        session.add(SpaceMembership(space_id="bootstrap-selected", user_id=user_id, role="space_admin", status="active"))
+        session.commit()
+    selected = await auth_client.get("/project-manager/api/auth/bootstrap", headers={"X-Space-Id": "bootstrap-selected"})
+    assert selected.json()["active_space"]["space_id"] == "bootstrap-selected"
+    assert selected.json()["active_space"]["space_role"] == "space_admin"
+    assert auth_client.cookies.get("active_space_id") == "bootstrap-selected"
+    assert {space["space_id"] for space in selected.json()["spaces"]} == {"test-main-space", "bootstrap-selected"}
+    with db_sessionmaker() as session:
+        session.query(SpaceMembership).filter_by(user_id=user_id, space_id="bootstrap-selected").update({"status": "inactive"})
+        session.commit()
+    repaired = await auth_client.get("/project-manager/api/auth/bootstrap")
+    assert repaired.json()["active_space"]["space_id"] == "test-main-space"
+    assert [space["space_id"] for space in repaired.json()["spaces"]] == ["test-main-space"]
+    assert auth_client.cookies.get("active_space_id") == "test-main-space"
+    other_user = await _login_local_session(auth_client, db_sessionmaker, soeid="bootstrapspace2")
+    other = await auth_client.get("/project-manager/api/auth/bootstrap", headers={"X-Space-Id": "bootstrap-selected"})
+    assert other.json()["user_id"] == other_user.json()["user_id"]
+    assert other.json()["active_space"]["space_id"] == "test-main-space"
+    assert [space["space_id"] for space in other.json()["spaces"]] == ["test-main-space"]

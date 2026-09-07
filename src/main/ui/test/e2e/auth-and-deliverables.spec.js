@@ -45,7 +45,7 @@ test("password recovery provides a visible return to sign in", async ({ page }) 
 
 
 test("startup stays visible and recovers to sign in when session bootstrap fails", async ({ page }) => {
-  await page.route("**/project-manager/api/auth/me", async (route) => {
+  await page.route("**/project-manager/api/auth/bootstrap", async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     await route.fulfill({
       status: 503,
@@ -85,7 +85,8 @@ test("local login becomes usable without follow-up context requests", async ({ p
     const pathname = new URL(request.url()).pathname;
     if (pathname === "/project-manager/api/auth/login") loginRequests.push(pathname);
     if (
-      pathname === "/project-manager/api/users/me/preferences"
+      pathname === "/project-manager/api/auth/bootstrap"
+      || pathname === "/project-manager/api/users/me/preferences"
       || pathname === "/project-manager/api/spaces"
       || pathname === "/project-manager/api/auth/active-space"
     ) {
@@ -129,3 +130,32 @@ test("local login reaches deliverables and creates a project", async ({ page }) 
     await page.request.delete(`/project-manager/api/programs/${programId}`);
   }
 });
+
+for (const scenario of [
+  { name: "deliverables", path: "/project-manager/", view: "master", developerMode: false },
+  { name: "deep link", path: "/project-manager/team-capacity", view: "team-capacity", developerMode: false },
+  { name: "developer landing", path: "/project-manager/", view: "my-work", developerMode: true },
+]) {
+  test(`valid session reopening preserves ${scenario.name} with one context request`, async ({ page }) => {
+    await loadLocalAuthedApp(page);
+    const preferences = await page.request.patch("/project-manager/api/users/me/preferences", {
+      data: { developer_mode_enabled: scenario.developerMode },
+    });
+    expect(preferences.ok()).toBeTruthy();
+    const sessionCookies = (cookies) => cookies.filter((cookie) => ["access_token", "refresh_token"].includes(cookie.name));
+    const before = sessionCookies(await page.context().cookies());
+    const contextPaths = new Set([
+      "/auth/bootstrap", "/auth/me", "/auth/login", "/auth/refresh", "/spaces", "/auth/active-space", "/users/me/preferences",
+    ].map((path) => `/project-manager/api${path}`));
+    const requests = [];
+    page.on("request", (request) => {
+      const path = new URL(request.url()).pathname;
+      if (contextPaths.has(path)) requests.push(path);
+    });
+    await page.goto(scenario.path);
+    await expect(page.locator("#app-shell")).toBeVisible();
+    await expect(page.locator(`#view-${scenario.view}`)).toHaveClass(/active/);
+    expect(requests).toEqual(["/project-manager/api/auth/bootstrap"]);
+    expect(sessionCookies(await page.context().cookies())).toEqual(before);
+  });
+}

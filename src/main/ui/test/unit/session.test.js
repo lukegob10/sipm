@@ -63,6 +63,7 @@ function createHarness(overrides = {}) {
     refreshSpaceContext,
     loadUserPreferences,
     applyAuthBootstrap,
+    resolvePostAuthView: overrides.resolvePostAuthView,
     reloadCurrentViewData: vi.fn().mockResolvedValue(undefined),
     onApiFailure,
     startLiveSync,
@@ -97,6 +98,199 @@ describe("session controller", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it.each([false, true])("restores consolidated context with developer mode %s without follow-up reads", async (developerMode) => {
+    const payload = {
+      user_id: "user-1",
+      preferences: { developer_mode_enabled: developerMode, theme: "light" },
+      spaces: [{ space_id: "space-1" }],
+      active_space: { space_id: "space-1" },
+    };
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (url.endsWith("/auth/bootstrap")) return jsonResponse(payload);
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const applyAuthBootstrap = vi.fn(() => true);
+    const harness = createHarness({
+      applyAuthBootstrap,
+      resolvePostAuthView: (view) => {
+        expect(applyAuthBootstrap).toHaveBeenCalledWith(payload);
+        return developerMode ? "my-work" : view;
+      },
+    });
+    await harness.controller.bootstrapAuth();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/auth/session-policy", "/api/auth/bootstrap"]);
+    expect(harness.setAuthed).toHaveBeenCalledWith({ user_id: "user-1" });
+    expect(harness.loadUserPreferences).not.toHaveBeenCalled();
+    expect(harness.refreshSpaceContext).not.toHaveBeenCalled();
+    expect(harness.setView).toHaveBeenCalledWith(
+      developerMode ? "my-work" : "team-capacity",
+      developerMode ? { fromHistory: false, replacePath: true } : { fromHistory: true },
+    );
+  });
+
+  it.each([200, 401, 503])("bounds bootstrap recovery when the retried response is %s", async (retryStatus) => {
+    let reads = 0;
+    const payload = { user_id: "user-1", preferences: {}, spaces: [], active_space: {} };
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (url.endsWith("/auth/refresh")) return jsonResponse({ user_id: "user-1" });
+      if (url.endsWith("/auth/bootstrap")) {
+        const status = reads++ === 0 ? 401 : retryStatus;
+        return status === 200 ? jsonResponse(payload) : jsonResponse({ detail: "Failed" }, { status });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({ applyAuthBootstrap: vi.fn(() => true) });
+    await harness.controller.bootstrapAuth();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/auth/session-policy", "/api/auth/bootstrap", "/api/auth/refresh", "/api/auth/bootstrap",
+    ]);
+    expect(harness.loadUserPreferences).not.toHaveBeenCalled();
+    expect(harness.refreshSpaceContext).not.toHaveBeenCalled();
+    expect(harness.applyAuthBootstrap).toHaveBeenCalledTimes(retryStatus === 200 ? 1 : 0);
+    expect(harness.setAuthVisible).toHaveBeenLastCalledWith(retryStatus !== 200);
+  });
+
+  it("retains single-flight token refresh while restoring bootstrap context", async () => {
+    let releaseRefresh;
+    let reads = 0;
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (url.endsWith("/auth/bootstrap")) {
+        return reads++ === 0 ? jsonResponse({}, { status: 401 }) : jsonResponse({ user_id: "user-1" });
+      }
+      if (url.endsWith("/auth/refresh")) {
+        return new Promise((resolve) => { releaseRefresh = () => resolve(jsonResponse({ user_id: "user-1" })); });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({ applyAuthBootstrap: vi.fn(() => true) });
+    const opening = harness.controller.bootstrapAuth();
+    await vi.waitFor(() => expect(releaseRefresh).toBeTypeOf("function"));
+    const concurrent = harness.controller.refreshSessionTokens({ force: true, refreshContext: false });
+    releaseRefresh();
+    await Promise.all([opening, concurrent]);
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/auth/refresh"))).toHaveLength(1);
+    expect(harness.applyAuthBootstrap).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["logout", "space", "refresh-logout"])("discards late bootstrap context after %s", async (change) => {
+    const state = { authed: false, user: null, activeSpace: { space_id: "space-1" } };
+    let releaseResponse;
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (change === "refresh-logout" && url.endsWith("/auth/bootstrap")) return jsonResponse({}, { status: 401 });
+      return new Promise((resolve) => { releaseResponse = () => resolve(jsonResponse({ user_id: "old-user" })); });
+    }));
+    const harness = createHarness({ state, applyAuthBootstrap: vi.fn(() => true) });
+    const opening = harness.controller.bootstrapAuth();
+    await vi.waitFor(() => expect(releaseResponse).toBeTypeOf("function"));
+    if (change === "space") state.activeSpace = { space_id: "space-2" };
+    else await harness.controller.handleRemoteLogout();
+    harness.setAuthVisible.mockClear();
+    releaseResponse();
+    await opening;
+    expect(harness.setAuthed).not.toHaveBeenCalledWith({ user_id: "old-user" });
+    expect(harness.applyAuthBootstrap).not.toHaveBeenCalled();
+    expect(harness.startLiveSync).not.toHaveBeenCalled();
+    expect(harness.setView).not.toHaveBeenCalled();
+    expect(harness.setAuthVisible).not.toHaveBeenCalled();
+  });
+
+  it.each(["logout", "new login", "space"])("rejects a late ordinary refresh shared by bootstrap after %s", async (change) => {
+    const state = { authed: true, user: { user_id: "old-user" }, activeSpace: { space_id: "space-1" } };
+    const loginForm = document.createElement("form");
+    loginForm.innerHTML = '<input name="soeid" value="new-user"><input name="password" value="Password123">';
+    let releaseRefresh;
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (url.endsWith("/auth/bootstrap")) return jsonResponse({}, { status: 401 });
+      if (url.endsWith("/auth/login")) return jsonResponse({ user_id: "new-user" });
+      if (url.endsWith("/auth/refresh")) {
+        return new Promise((resolve) => { releaseRefresh = () => resolve(jsonResponse({ user_id: "old-user" })); });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({ state, els: { loginForm }, applyAuthBootstrap: vi.fn(() => true) });
+    const ordinaryRefresh = harness.controller.refreshSessionTokens({ force: true, refreshContext: false });
+    const opening = harness.controller.bootstrapAuth();
+    await vi.waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/auth/bootstrap"))).toHaveLength(1));
+    if (change === "space") state.activeSpace = { space_id: "space-2" };
+    else if (change === "logout") await harness.controller.handleRemoteLogout();
+    else {
+      harness.controller.bindAuthUI();
+      loginForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => expect(state.user?.user_id).toBe("new-user"));
+    }
+    harness.applyAuthBootstrap.mockClear();
+    harness.setView.mockClear();
+    releaseRefresh();
+    await Promise.all([ordinaryRefresh, opening]);
+    expect(harness.setAuthed).not.toHaveBeenCalledWith({ user_id: "old-user" });
+    expect(state.user?.user_id).toBe(change === "new login" ? "new-user" : change === "space" ? "old-user" : undefined);
+    expect(harness.applyAuthBootstrap).not.toHaveBeenCalled();
+    expect(harness.refreshSpaceContext).not.toHaveBeenCalled();
+    expect(harness.setView).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/auth/refresh"))).toHaveLength(1);
+  });
+
+  it("lets the newest bootstrap consume refresh shared with a superseded bootstrap", async () => {
+    let releaseRefresh;
+    let reads = 0;
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/session-policy")) return jsonResponse({});
+      if (url.endsWith("/auth/bootstrap")) {
+        return reads++ < 2 ? jsonResponse({}, { status: 401 }) : jsonResponse({ user_id: "user-1" });
+      }
+      if (url.endsWith("/auth/refresh")) {
+        return new Promise((resolve) => { releaseRefresh = () => resolve(jsonResponse({ user_id: "user-1" })); });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({ applyAuthBootstrap: vi.fn(() => true) });
+    const first = harness.controller.bootstrapAuth();
+    await vi.waitFor(() => expect(releaseRefresh).toBeTypeOf("function"));
+    const second = harness.controller.bootstrapAuth();
+    await vi.waitFor(() => expect(reads).toBe(2));
+    releaseRefresh();
+    await Promise.all([first, second]);
+    expect(reads).toBe(3);
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/auth/refresh"))).toHaveLength(1);
+    expect(harness.setAuthed).not.toHaveBeenCalledWith(null);
+    expect(harness.applyAuthBootstrap).toHaveBeenCalledTimes(1);
+    expect(harness.setAuthVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not let an obsolete refresh clear the replacement session's shared promise", async () => {
+    const state = { authed: true, user: { user_id: "old-user" }, activeSpace: { space_id: "space-1" } };
+    const releases = [];
+    const fetchMock = vi.fn(() => new Promise((resolve) => {
+      releases.push((user_id) => resolve(jsonResponse({ user_id })));
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({ state });
+    const options = { force: true, refreshContext: false };
+    const oldRefresh = harness.controller.refreshSessionTokens(options);
+    await harness.controller.handleRemoteLogout();
+    state.user = { user_id: "new-user" };
+    state.authed = true;
+    const newRefresh = harness.controller.refreshSessionTokens(options);
+    releases[0]("old-user");
+    await oldRefresh;
+    const joined = harness.controller.refreshSessionTokens(options);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    releases[1]("new-user");
+    await Promise.all([newRefresh, joined]);
+    expect(harness.setAuthed).not.toHaveBeenCalledWith({ user_id: "old-user" });
+    expect(harness.setAuthed).toHaveBeenLastCalledWith({ user_id: "new-user" });
   });
 
   it("honors caller cancellation without reporting it as a network failure", async () => {
@@ -152,7 +346,7 @@ describe("session controller", () => {
       if (String(url).endsWith("/auth/session-policy")) {
         return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
       }
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         return jsonResponse({ user_id: "user-1", display_name: "User 1" });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -176,7 +370,7 @@ describe("session controller", () => {
       if (String(url).endsWith("/auth/session-policy")) {
         return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
       }
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         return jsonResponse({ detail: "Not authenticated" }, { status: 401 });
       }
       if (String(url).endsWith("/auth/refresh")) {
@@ -200,7 +394,7 @@ describe("session controller", () => {
       if (String(url).endsWith("/auth/session-policy")) {
         return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
       }
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         return jsonResponse({ detail: "Account locked" }, { status: 423, errorCode: "ACCOUNT_LOCKED" });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -221,7 +415,7 @@ describe("session controller", () => {
       if (String(url).endsWith("/auth/session-policy")) {
         return jsonResponse({ idle_timeout_seconds: 1800, warning_seconds: 60, activity_heartbeat_seconds: 15 });
       }
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         throw new TypeError("Failed to fetch");
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -243,7 +437,7 @@ describe("session controller", () => {
   it("keeps bootstrap server failures on a visible sign-in surface", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         return jsonResponse({ detail: "Database unavailable" }, { status: 503 });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -262,7 +456,7 @@ describe("session controller", () => {
   it("does not let session policy loading block the sign-in screen", async () => {
     vi.stubGlobal("fetch", vi.fn((url) => {
       if (String(url).endsWith("/auth/session-policy")) return new Promise(() => {});
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
         return Promise.resolve(jsonResponse({ detail: "Not authenticated" }, { status: 401 }));
       }
       if (String(url).endsWith("/auth/refresh")) {
@@ -278,10 +472,12 @@ describe("session controller", () => {
   });
 
   it("bounds startup refresh and loads space context only once", async () => {
+    let bootstrapReads = 0;
     const refreshSpaceContext = vi.fn().mockResolvedValue(undefined);
     const fetchMock = vi.fn(async (url, options = {}) => {
       if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
-      if (String(url).endsWith("/auth/me")) {
+      if (String(url).endsWith("/auth/bootstrap")) {
+        if (bootstrapReads++ > 0) return jsonResponse({ user_id: "user-1" });
         return jsonResponse({ detail: "Expired" }, { status: 401, errorCode: "TOKEN_EXPIRED" });
       }
       if (String(url).endsWith("/auth/refresh")) {
@@ -303,7 +499,7 @@ describe("session controller", () => {
   it("surfaces space-context bootstrap failures instead of leaving the shell hidden", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url) => {
       if (String(url).endsWith("/auth/session-policy")) return jsonResponse({});
-      if (String(url).endsWith("/auth/me")) return jsonResponse({ user_id: "user-1" });
+      if (String(url).endsWith("/auth/bootstrap")) return jsonResponse({ user_id: "user-1" });
       throw new Error(`Unexpected fetch: ${url}`);
     }));
     const contextError = Object.assign(new Error("No active space"), {

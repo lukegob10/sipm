@@ -29,6 +29,8 @@ export function createSessionController({
 }) {
   let sessionRefreshPromise = null;
   let lastSessionRefreshAt = 0;
+  let authBootstrapGeneration = 0;
+  let sessionGeneration = 0;
   const pendingAuthActions = new Set();
 
   function authErrorMessage(err, fallback = "Session expired. Please sign in again.") {
@@ -167,6 +169,7 @@ export function createSessionController({
   function onAuthedChange(user) {
     lastSessionRefreshAt = user ? Date.now() : 0;
     if (!user) {
+      sessionGeneration += 1;
       sessionRefreshPromise = null;
     }
   }
@@ -187,12 +190,17 @@ export function createSessionController({
       return sessionRefreshPromise;
     }
 
+    const generation = sessionGeneration;
+    const spaceId = state.activeSpace?.space_id;
+    const userId = state.user?.user_id;
+    const isCurrent = () => generation === sessionGeneration
+      && spaceId === state.activeSpace?.space_id && userId === state.user?.user_id;
     const headers = {};
     if (state.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
 
-    sessionRefreshPromise = (async () => {
+    const refreshPromise = (async () => {
       try {
         const data = await api("/auth/refresh", {
           method: "POST",
@@ -200,6 +208,7 @@ export function createSessionController({
           skipAuthRefresh: true,
         });
 
+        if (!isCurrent()) return null;
         if (data && typeof data === "object") {
           setAuthed(data);
         }
@@ -218,6 +227,7 @@ export function createSessionController({
 
         return data || {};
       } catch (err) {
+        if (!isCurrent()) return null;
         if (!silentFailure && isTerminalAuthFailure(err)) {
           handleSessionExpired({ message: authErrorMessage(err) });
         } else if (!silentFailure) {
@@ -226,11 +236,12 @@ export function createSessionController({
         if (throwOnFailure && !isTerminalAuthFailure(err)) throw err;
         return null;
       } finally {
-        sessionRefreshPromise = null;
+        if (sessionRefreshPromise === refreshPromise) sessionRefreshPromise = null;
       }
     })();
 
-    return sessionRefreshPromise;
+    sessionRefreshPromise = refreshPromise;
+    return refreshPromise;
   }
 
   function maybeRefreshSessionOnActivity() {
@@ -340,6 +351,8 @@ export function createSessionController({
   }
 
   function clearLocalSession() {
+    sessionGeneration += 1;
+    authBootstrapGeneration += 1;
     stopLiveSync();
     sessionRefreshPromise = null;
     lastSessionRefreshAt = 0;
@@ -385,13 +398,15 @@ export function createSessionController({
     return false;
   }
 
-  async function fetchCurrentUser() {
+  async function fetchCurrentUser({ includeContext = false, retried = false, isCurrent = () => true } = {}) {
     try {
-      const me = await api("/auth/me", { skipAuthRefresh: true });
-      setAuthed(me);
+      const me = await api(includeContext ? "/auth/bootstrap" : "/auth/me", { skipAuthRefresh: true });
+      if (!isCurrent()) return null;
+      setAuthed(userFromAuthResponse(me));
       return me;
     } catch (err) {
-      if (err.status === 401) {
+      if (!isCurrent()) return null;
+      if (err.status === 401 && !retried) {
         const refreshed = await refreshSessionTokens({
           force: true,
           allowLoggedOut: true,
@@ -399,12 +414,16 @@ export function createSessionController({
           refreshContext: false,
           throwOnFailure: true,
         });
-        if (refreshed) return state.user;
+        if (!isCurrent()) return null;
+        if (refreshed) {
+          return includeContext ? fetchCurrentUser({ includeContext: true, retried: true, isCurrent }) : state.user;
+        }
         setAuthed(null);
         return null;
       }
       if (isTerminalAuthFailure(err)) {
         handleSessionExpired({ message: authErrorMessage(err) });
+        if (includeContext) setAuthVisible(true);
         return null;
       }
       throw err;
@@ -435,6 +454,8 @@ export function createSessionController({
   }
 
   async function finishAuthentication(payload) {
+    sessionGeneration += 1;
+    authBootstrapGeneration += 1;
     setAuthed(userFromAuthResponse(payload));
     try {
       if (!applyAuthBootstrap(payload)) {
@@ -531,6 +552,9 @@ export function createSessionController({
       setStatus("Password reset", "warn");
       return;
     }
+    const generation = ++authBootstrapGeneration;
+    const spaceId = state.activeSpace?.space_id;
+    const isCurrent = () => generation === authBootstrapGeneration && spaceId === state.activeSpace?.space_id;
     setStatus("Checking session...", "warn");
     void api("/auth/session-policy", { skipAuthRefresh: true })
       .then((policy) => configureSessionPolicy?.(policy))
@@ -538,9 +562,13 @@ export function createSessionController({
         if (!isNetworkOrTimeoutFailure(err)) console.warn("Session policy load failed", err);
       });
     try {
-      const user = await fetchCurrentUser();
+      const user = await fetchCurrentUser({ includeContext: true, isCurrent });
+      if (!isCurrent()) return;
       if (user) {
-        await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+        if (!applyAuthBootstrap(user)) {
+          await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+        }
+        if (generation !== authBootstrapGeneration) return;
         startLiveSync();
         restoreRouteFromLocationAfterAuth();
         setAuthVisible(false);
@@ -549,6 +577,7 @@ export function createSessionController({
       setAuthVisible(true);
       setStatus("Sign in required", "warn");
     } catch (err) {
+      if (generation !== authBootstrapGeneration) return;
       clearLocalSession();
       setAuthVisible(true);
       if (isNetworkOrTimeoutFailure(err)) {

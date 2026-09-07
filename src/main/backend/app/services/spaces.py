@@ -257,7 +257,11 @@ def resolve_active_space_context(
             owner_user_id=getattr(target, "owner_user_id", None),
         )
 
-    memberships = (
+    return _member_space_context(_active_space_memberships(session, user), requested_space_id)
+
+
+def _active_space_memberships(session: Session, user: User):
+    return (
         session.query(SpaceMembership, Space)
         .join(Space, Space.space_id == SpaceMembership.space_id)
         .filter(SpaceMembership.user_id == user.user_id)
@@ -268,6 +272,9 @@ def resolve_active_space_context(
         .order_by(Space.name.asc())
         .all()
     )
+
+
+def _member_space_context(memberships, requested_space_id: str | None) -> SpaceContext:
     if not memberships:
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -299,6 +306,17 @@ def resolve_active_space_context(
         space_kind=normalize_space_kind(getattr(space, "space_kind", None)),
         owner_user_id=getattr(space, "owner_user_id", None),
     )
+
+
+def resolve_auth_space_context(
+    session: Session, user: User, requested_space_id: str | None,
+) -> tuple[SpaceContext, list[Space]]:
+    """Build auth context from one request's authorized membership snapshot."""
+    if is_global_admin_role(user.role):
+        ctx = resolve_active_space_context(session, user, requested_space_id)
+        return ctx, list(list_user_spaces(session, user))
+    memberships = _active_space_memberships(session, user)
+    return _member_space_context(memberships, requested_space_id), [space for _, space in memberships]
 
 
 def build_space_slug(name: str) -> str:

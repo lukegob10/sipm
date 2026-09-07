@@ -286,9 +286,10 @@ test("Spaces and Platform Access reuse governance forms across route entries", a
   await recordBindings(page);
   // Exercise global-admin shell wiring with a local response fixture; the
   // actual permission enforcement remains covered by backend auth tests.
-  await page.route("**/api/auth/active-space", async (route) => {
+  await page.route("**/api/auth/bootstrap", async (route) => {
     const response = await route.fetch();
-    await route.fulfill({ json: { ...await response.json(), is_global_admin: true } });
+    const payload = await response.json();
+    await route.fulfill({ json: { ...payload, active_space: { ...payload.active_space, is_global_admin: true } } });
   });
   await page.route("**/api/users/global-admins?*", (route) => route.fulfill({ json: [] }));
   await page.goto("/project-manager/");

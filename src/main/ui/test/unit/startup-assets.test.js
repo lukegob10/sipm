@@ -12,7 +12,8 @@ function staticModuleGraph(entry) {
   const linter = new Linter();
   function visit(path) {
     if (files.has(path)) return;
-    const source = readFileSync(path, "utf8");
+    // Compare source budgets independently of Git's platform-specific line endings.
+    const source = readFileSync(path, "utf8").replace(/\r\n?/g, "\n");
     files.set(path, Buffer.byteLength(source));
     const dependencies = [];
     const collect = (node) => {
@@ -44,7 +45,7 @@ describe("startup assets", () => {
     ]) {
       expect(graph.has(resolve(root, deferred)), deferred).toBe(false);
     }
-    // Baseline commit: 41 static modules, 549,864 raw bytes. Allow bounded shell growth.
+    // Baseline commit: 41 static modules, 547,782 LF-normalized bytes. Allow bounded shell growth.
     expect(graph.size).toBeLessThanOrEqual(37);
     expect([...graph.values()].reduce((sum, bytes) => sum + bytes, 0)).toBeLessThan(425_000);
   });

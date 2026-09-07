@@ -172,8 +172,11 @@ unrounded measurements.
 }
 ```
 
-Integration note: when this patch is combined with the separate authenticated
-bootstrap endpoint change, the coordinator will migrate the global-admin browser
-fixture from `/auth/active-space` to `/auth/bootstrap` and override its
-`active_space.is_global_admin` property. This isolated checkout uses the existing
-`/auth/active-space` contract.
+Integration note: the coordinator migrated the global-admin browser fixture from
+`/auth/active-space` to `/auth/bootstrap` and overrides its
+`active_space.is_global_admin` property. The asset-budget test now normalizes
+line endings, matching the measurement above, and the older Python structural
+checks follow the new route exports. All 31 combined browser cases, 317 UI tests,
+and 212 backend/UI contract tests pass. See the [integration report](performance-integration-20260907.md)
+for combined measurements and validation; the package-level results above retain
+their original isolated scope.

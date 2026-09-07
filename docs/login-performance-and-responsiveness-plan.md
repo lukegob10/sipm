@@ -1,15 +1,15 @@
 # Login, Performance, and Responsiveness Plan
 
-Date: 2026-09-06  
-Review baseline: commit `3e77295`  
-Mode: performance optimization planning  
-Status: proposed; no application changes made
+Date: 2026-09-06
+Review baseline: commit `3e77295`
+Mode: performance optimization planning
+Status: original planning baseline; implementation progress is recorded in the [integration report](performance-integration-20260907.md)
 
 ## Intended outcome
 
 Make SIPM feel immediate when signing in, reopening a session, navigating, searching, editing, and switching workspaces. Every action should receive prompt feedback, and background work should preserve the user's current task.
 
-This document defines the implementation and measurement plan. It does not certify current performance or claim measured speed improvements. Findings come from source inspection, a local asset inventory, existing test inspection, and primary documentation. Browser timings, production traffic, Oracle execution plans, and deployed delivery settings have not been measured in this review.
+This document preserves the original implementation and measurement plan. It does not certify current performance. Its findings came from source inspection, a local asset inventory, existing test inspection, and primary documentation. The later [browser baseline](performance-baseline-20260907.md) and [integration report](performance-integration-20260907.md) record measured local results and implemented changes; production traffic, Oracle execution plans, and deployed delivery settings remain unmeasured.
 
 Recommended order: establish trustworthy measurements, improve session startup and foreground request scheduling, reduce startup assets, then optimize large-workspace rendering and API payloads where traces justify it. Keep changes in small, independently reviewable PRs.
 
@@ -59,7 +59,7 @@ Method: recursively follow relative static imports from `js/app.js` and CSS `@im
 
 ### Prioritized findings
 
-Severity describes potential user impact; it does not imply measured production latency. All items remain proposed.
+Severity describes potential user impact; it does not imply measured production latency. This table records the original proposed scope; use the integration report for current implementation status and remaining work.
 
 | ID | Severity / disposition | Confirmed behavior and implication | Planned response |
 |---|---|---|---|

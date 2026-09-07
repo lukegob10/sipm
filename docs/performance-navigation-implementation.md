@@ -1,8 +1,8 @@
 # Navigation data-loading implementation
 
-Date: 2026-09-07  
-Mode: performance optimization  
-Baseline: `3e77295342d4314539a151df294f62c6efabcc76`  
+Date: 2026-09-07
+Mode: performance optimization
+Baseline: `3e77295342d4314539a151df294f62c6efabcc76`
 Scope: PERF-03 and the request-coalescing portion of PERF-04, package 3 of the coordinating login-performance-and-responsiveness plan.
 
 ## Changes and preserved contracts
@@ -61,6 +61,8 @@ Backend, dependency-lock, Oracle, and Redis integration checks were not run: thi
 ## Integration limits and follow-up
 
 **Initial WebSocket catch-up is intentionally still fresh.** `live-sync.js` calls `reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false })` when the socket opens. A collection request begun before subscription cannot prove coverage of changes between its snapshot and subscription. This patch aborts that older request and starts the required fresh read; it does not claim that login or reopening issues only one set of collection reads. Eliminating this boundary safely requires a coordinated subscription/snapshot contract or proof that the foreground read began after subscription. The coordinating task agreed to retain the existing catch-up semantics.
+
+Final integration coordinates the timing of this first catch-up: the socket subscribes immediately, while its initial forced catch-up waits for the first foreground route load to settle. This restores the baseline's ability to render the first snapshot before background catch-up and avoids canceling/restarting it during login. Live messages, reconnects, and all forced-read freshness guards remain active. The fresh catch-up still runs after success or failure unless its socket/session/context has been replaced; it is not eliminated. See the [integration report](performance-integration-20260907.md) for the measured result and validation of this additional integration change.
 
 **Global form synchronization remains an integration boundary.** `app.js` owns `populateSelects()` and `restoreSelections()`. The latter reopens/refills project, solution, and task forms and can overwrite dirty fields on unrelated refreshes. This patch preserves those callbacks and fixes current-selection and cached-handoff behavior; it does not claim full dirty-editor protection. The minimal next integration is to pass changed entity types into the existing option-sync callback and make editor restoration conditional on the relevant entity and dirty state, preserving the draft/focus/scroll contract. Form-opening paths must populate deferred options before inactive collections or controls can safely be deferred. No inactive entity refreshes or cross-entity dependencies were dropped here.
 

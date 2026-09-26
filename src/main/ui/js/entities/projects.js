@@ -1,6 +1,5 @@
-import { nullableTextValue, textValue } from "../utils/form-values.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
 import { createFormDraftGuard } from "../utils/form-draft.js";
-import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./mutation-context.js";
 
 export function buildProjectPayload(data) {
   return {

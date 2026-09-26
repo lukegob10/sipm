@@ -6,6 +6,7 @@ import {
   fillTasksWorkbenchForm,
   saveTasksWorkbenchForm,
 } from "../../js/routes/tasks-workbench/drawer.js";
+import { updateTasksWorkbenchSolutionOptions } from "../../js/routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "../../js/routes/tasks-workbench/options.js";
 
 function taskRecord(taskId = "task-1", overrides = {}) {
@@ -110,6 +111,18 @@ function formValue(form, name) {
 }
 
 describe("tasks workbench route", () => {
+  it.each([
+    [{ acceptance_criteria: "Current criteria", done_criteria: "Legacy criteria" }, "Current criteria"],
+    [{ acceptance_criteria: null, done_criteria: "Legacy criteria" }, "Legacy criteria"],
+  ])("fills task descriptions and acceptance criteria in the editor", (criteria, expected) => {
+    const { ctx, form } = createWorkbenchEditor();
+
+    fillTasksWorkbenchForm(ctx, taskRecord("task-a", { description: "Task details", ...criteria }));
+
+    expect(formValue(form, "description").value).toBe("Task details");
+    expect(formValue(form, "acceptance_criteria").value).toBe(expected);
+  });
+
   it("preserves dirty same-task fields on refresh and resets them on an intentional task switch", () => {
     const { ctx, form } = createWorkbenchEditor();
     const taskA = taskRecord("task-a");
@@ -169,6 +182,25 @@ describe("tasks workbench route", () => {
     expect(cells[2].textContent).toContain("Platform Renewal");
     expect(cells[2].textContent).toContain("Case Management");
     expect(cells[2].querySelectorAll(".task-workbench-context-link")).toHaveLength(2);
+  });
+
+  it("renders solution options as text and keeps untrusted IDs inside the value attribute", () => {
+    document.body.innerHTML = '<select id="tasks-workbench-solution"><option value="">All Solutions</option></select>';
+    const solutionId = 'solution-1" data-injected="yes';
+    const solutionName = '</option><option value="injected">Injected</option><option>';
+    const select = document.getElementById("tasks-workbench-solution");
+
+    updateTasksWorkbenchSolutionOptions({
+      state: {
+        solutions: [{ solution_id: solutionId, solution_name: solutionName }],
+      },
+      els: { tasksWorkbenchSolution: select },
+    }, "");
+
+    expect(select.options).toHaveLength(2);
+    expect(select.options[1].value).toBe(solutionId);
+    expect(select.options[1].textContent).toBe(solutionName);
+    expect(select.options[1].hasAttribute("data-injected")).toBe(false);
   });
 
   it("saves a manually entered assignee SOEID for My Work assignment", async () => {

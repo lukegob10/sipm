@@ -29,7 +29,7 @@ import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
-import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./entities/mutation-context.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./utils/form-state.js";
 import {
   renderSolutionActivityItems,
   renderSolutionTaskCard,
@@ -48,22 +48,9 @@ import {
   updateTasksWorkbenchSelectionCount as updateWorkbenchSelectionCount,
 } from "./routes/tasks-workbench/filters.js";
 import {
-  applyTasksWorkbenchBulkAction as applyWorkbenchBulkAction,
-  syncTasksWorkbenchBulkInputs as syncWorkbenchBulkInputs,
-} from "./routes/tasks-workbench/bulk-actions.js";
-import {
-  fillTasksWorkbenchForm,
-  scrollActiveTaskIntoView,
-  syncTasksWorkbenchDrawer,
-} from "./routes/tasks-workbench/drawer.js";
-import {
   loadTasksWorkbenchSavedViews,
   updateTasksWorkbenchSavedViewsUI,
 } from "./routes/tasks-workbench/saved-views.js";
-import {
-  bindTasksWorkbenchControls as bindWorkbenchControls,
-  updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
-} from "./routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
 import { nextTaskNameSort, sortTasksByName, taskNameSortPresentation } from "./utils/task-sort.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
@@ -534,6 +521,15 @@ function initializeRouteModule(view, mod) {
   if (view === "master") {
     mod.bindDeliverablesControls(createMasterRouteContext());
     mod.bindDeliverablesTable(createMasterRouteContext());
+  } else if (view === "tasks-workbench") {
+    const ctx = createTasksWorkbenchContext();
+    mod.bindTasksWorkbenchControls({
+      ...ctx,
+      syncTasksWorkbenchBulkInputs: () => mod.syncTasksWorkbenchBulkInputs(ctx),
+      applyTasksWorkbenchBulkAction: () => mod.applyTasksWorkbenchBulkAction(ctx),
+      updateTasksWorkbenchSolutionOptions: (projectId) => mod.updateTasksWorkbenchSolutionOptions(ctx, projectId),
+    });
+    mod.updateTasksWorkbenchSolutionOptions(ctx, state.tasksWorkbench.filters.project_id || "");
   } else if ((view === "spaces" || view === "access") && !spaceGovernanceController) {
     spaceGovernanceController = mod.createSpaceGovernanceController({
       state,
@@ -1348,7 +1344,17 @@ async function handleLiveSyncVisibilityChange() {
 }
 
 function initTasksWorkbench() {
-  bindWorkbenchControls(createTasksWorkbenchContext());
+  bindDebouncedInput(
+    els.tasksWorkbenchSearch,
+    () => {
+      persistTasksWorkbenchUiState();
+      renderTasksWorkbench();
+    },
+    180,
+    (value) => {
+      state.tasksWorkbench.filters.search = value;
+    },
+  );
 }
 
 async function bootstrapAuth() {
@@ -1755,10 +1761,11 @@ function createTasksWorkbenchContext(overrides = {}) {
     updateTasksWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(ctx),
     updateTasksWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(ctx),
     clearTasksWorkbenchFilters: () => clearWorkbenchFilters(ctx),
-    syncTasksWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(ctx),
-    applyTasksWorkbenchBulkAction: () => applyWorkbenchBulkAction(ctx),
+    syncTasksWorkbenchBulkInputs: () => getRouteModule("tasks-workbench")?.syncTasksWorkbenchBulkInputs(ctx),
+    applyTasksWorkbenchBulkAction: () => getRouteModule("tasks-workbench")?.applyTasksWorkbenchBulkAction(ctx),
     normalizeTasksWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options),
-    updateTasksWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId),
+    updateTasksWorkbenchSolutionOptions: (projectId) => getRouteModule("tasks-workbench")
+      ?.updateTasksWorkbenchSolutionOptions(ctx, projectId),
     ...overrides,
   });
   return ctx;
@@ -1971,15 +1978,15 @@ function renderTasksWorkbench() {
   const active = wb.drawerOpen !== false && wb.activeTaskId
     ? (state.tasks || []).find((row) => row.task_id === wb.activeTaskId) || null
     : null;
-  syncTasksWorkbenchDrawer(workbenchCtx);
-  fillTasksWorkbenchForm(workbenchCtx, active);
+  mod.syncTasksWorkbenchDrawer(workbenchCtx);
+  mod.fillTasksWorkbenchForm(workbenchCtx, active);
   updateWorkbenchPresetButtons(workbenchCtx);
   updateWorkbenchSelectionCount(workbenchCtx);
   updateTasksWorkbenchSavedViewsUI(workbenchCtx);
   if (wb.suppressAutoScrollOnce) {
     wb.suppressAutoScrollOnce = false;
   } else {
-    window.setTimeout(() => scrollActiveTaskIntoView(workbenchCtx), 0);
+    window.setTimeout(() => mod.scrollActiveTaskIntoView(workbenchCtx), 0);
   }
 }
 
@@ -2071,16 +2078,27 @@ function renderMasterTable() {
   mod.renderMasterTable(createMasterRouteContext());
 }
 
+const debouncedInputBindings = new WeakMap();
+
 function bindDebouncedInput(element, onChange, delayMs = 180, onInput = null) {
   if (!element || typeof onChange !== "function") return;
-  let timerId = 0;
+  const existing = debouncedInputBindings.get(element);
+  if (existing) {
+    existing.onChange = onChange;
+    existing.delayMs = delayMs;
+    existing.onInput = onInput;
+    return;
+  }
+  const binding = { onChange, delayMs, onInput, timerId: 0 };
+  debouncedInputBindings.set(element, binding);
   element.addEventListener("input", () => {
     const value = element.value || "";
-    onInput?.(value);
-    if (timerId) window.clearTimeout(timerId);
-    timerId = window.setTimeout(() => {
-      onChange(value);
-    }, delayMs);
+    binding.onInput?.(value);
+    if (binding.timerId) window.clearTimeout(binding.timerId);
+    binding.timerId = window.setTimeout(() => {
+      binding.timerId = 0;
+      binding.onChange(value);
+    }, binding.delayMs);
   });
 }
 

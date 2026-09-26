@@ -8,6 +8,7 @@ APP_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js"
 DOM_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "dom.js"
 STYLES = REPO_ROOT / "src" / "main" / "ui" / "styles.css"
 WORKBENCH_ROUTE = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench.js"
+ROUTER_JS = REPO_ROOT / "src" / "main" / "ui" / "js" / "shell" / "router.js"
 WORKBENCH_FILTERS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "filters.js"
 WORKBENCH_BULK_ACTIONS = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "bulk-actions.js"
 WORKBENCH_DRAWER = REPO_ROOT / "src" / "main" / "ui" / "js" / "routes" / "tasks-workbench" / "drawer.js"
@@ -36,10 +37,16 @@ def test_workbench_route_renders_project_context_as_drilldown_link():
 
 def test_workbench_project_context_link_reuses_existing_project_modal():
     app_text = APP_JS.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    route_text = WORKBENCH_ROUTE.read_text(encoding="utf-8")
     drawer_text = WORKBENCH_DRAWER.read_text(encoding="utf-8")
     interactions_text = WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/tasks-workbench/drawer.js";' in app_text
+    assert '"tasks-workbench": () => import("../routes/tasks-workbench.js")' in router_text
+    assert "fillTasksWorkbenchForm," in route_text
+    assert "syncTasksWorkbenchDrawer," in route_text
+    assert "mod.fillTasksWorkbenchForm(workbenchCtx, active);" in app_text
+    assert "mod.syncTasksWorkbenchDrawer(workbenchCtx);" in app_text
     assert "handleTasksWorkbenchTableClick(ctx, event)" in interactions_text
     assert "handleTasksWorkbenchContextClick(ctx, event)" in interactions_text
     assert "await saveTasksWorkbenchForm(ctx);" in interactions_text
@@ -77,8 +84,7 @@ def test_workbench_editor_uses_centered_modal_shell():
     assert 'textarea name="acceptance_criteria"' in html_text
     assert '<label>Assignee SOEID' in html_text
     assert 'input type="text" name="assignee_user_soeid"' in html_text
-    assert 'setValue("description", task.description || "");' in drawer_text
-    assert 'setValue("acceptance_criteria", task.acceptance_criteria || task.done_criteria || "");' in drawer_text
+    # Field population is exercised against the DOM in tasks-workbench.test.js.
     assert 'description: data.get("description") || null,' in drawer_text
     assert 'acceptance_criteria: data.get("acceptance_criteria") || null,' in drawer_text
     assert 'String(data.get("assignee_user_soeid") || "").trim()' in drawer_text
@@ -315,9 +321,13 @@ def test_workbench_saved_views_corrupt_or_invalid_storage_is_rewritten():
 
 def test_workbench_interactions_own_filter_and_selection_bindings():
     app_text = APP_JS.read_text(encoding="utf-8")
+    router_text = ROUTER_JS.read_text(encoding="utf-8")
+    route_text = WORKBENCH_ROUTE.read_text(encoding="utf-8")
     interactions_text = WORKBENCH_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'from "./routes/tasks-workbench/interactions.js";' in app_text
+    assert '"tasks-workbench": () => import("../routes/tasks-workbench.js")' in router_text
+    assert "mod.bindTasksWorkbenchControls({" in app_text
+    assert "bindTasksWorkbenchControls," in route_text
     assert "function bindTasksWorkbenchControls(ctx) {" in interactions_text
     assert "function updateTasksWorkbenchSolutionOptions(ctx, projectId) {" in interactions_text
     assert 'const presetButtons = document.querySelectorAll(".scwb-preset[data-preset]");' in interactions_text
@@ -349,5 +359,7 @@ def test_workbench_context_wrappers_delegate_through_enriched_context():
     assert "let ctx = null;" in app_text
     assert "ctx = createShellContext(base, {" in app_text
     assert "normalizeTasksWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options)," in app_text
-    assert "updateTasksWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId)," in app_text
+    assert 'syncTasksWorkbenchBulkInputs: () => getRouteModule("tasks-workbench")?.syncTasksWorkbenchBulkInputs(ctx)' in app_text
+    assert 'applyTasksWorkbenchBulkAction: () => getRouteModule("tasks-workbench")?.applyTasksWorkbenchBulkAction(ctx)' in app_text
+    assert "?.updateTasksWorkbenchSolutionOptions(ctx, projectId)" in app_text
     assert "clearTasksWorkbenchFilters: () => clearWorkbenchFilters(ctx)," in app_text

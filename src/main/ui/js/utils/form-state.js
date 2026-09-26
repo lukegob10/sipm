@@ -1,4 +1,13 @@
-function captureEntityMutationIdentity(state) {
+export function textValue(value) {
+  return String(value ?? "").trim();
+}
+
+export function nullableTextValue(value) {
+  const text = textValue(value);
+  return text || null;
+}
+
+export function captureEntityMutationContext(state) {
   const user = state.user || null;
   const activeSpace = state.activeSpace || null;
   return {
@@ -9,12 +18,8 @@ function captureEntityMutationIdentity(state) {
   };
 }
 
-export function captureEntityMutationContext(state) {
-  return captureEntityMutationIdentity(state);
-}
-
 export function isEntityMutationContextCurrent(state, context) {
-  const current = captureEntityMutationIdentity(state);
+  const current = captureEntityMutationContext(state);
   return current.userId === context.userId
     && current.spaceId === context.spaceId
     && current.userRef === context.userRef

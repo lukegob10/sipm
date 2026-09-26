@@ -1,5 +1,4 @@
-import { nullableTextValue, textValue } from "../utils/form-values.js";
-import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./mutation-context.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
 
 export function buildTaskPayload(
   data,

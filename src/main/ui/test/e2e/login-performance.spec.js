@@ -214,6 +214,7 @@ test("held login gives prompt busy feedback and rejects duplicate submission", a
   const metrics = await collectLoginMetrics(page);
   expect(metrics.loginFetchCount).toBe(1);
   expect(requests).toHaveLength(1);
+  expect(metrics.feedbackFrameMs).toBeLessThan(250);
   expect(metrics.authResponseMs).toBeGreaterThanOrEqual(syntheticDelayMs - 50);
   await attachMetrics(testInfo, `synthetic-delay-${syntheticDelayMs}ms`, metrics);
 });

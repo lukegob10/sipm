@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureEntityMutationContext,
   isEntityMutationContextCurrent,
-} from "../../js/entities/mutation-context.js";
+} from "../../js/utils/form-state.js";
 
 const appSource = readFileSync(resolve("src/main/ui/js/app.js"), "utf8");
 let deleteSource;

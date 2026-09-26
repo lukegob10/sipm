@@ -276,7 +276,8 @@ def _active_entity(
         query = _task_query(session, space_ctx).filter(Task.task_id == operation.id)
     if for_apply:
         query = query.with_for_update().populate_existing()
-    return query.first()
+    # Oracle does not allow row limiting together with FOR UPDATE.
+    return query.one_or_none()
 
 
 def _validate_archive(
@@ -386,7 +387,7 @@ def _validate_program(
         )
         if for_apply:
             program_query = program_query.with_for_update().populate_existing()
-        program = program_query.first()
+        program = program_query.one_or_none()
         if not program:
             return _invalid(operation, "PROGRAM_NOT_FOUND", "Program not found")
         if not _timestamp_matches(program.updated_at, operation.if_updated_at):
@@ -465,7 +466,7 @@ def _validate_project(
         )
         if for_apply:
             project_query = project_query.with_for_update().populate_existing()
-        project = project_query.first()
+        project = project_query.one_or_none()
         if not project:
             return _invalid(operation, "PROJECT_NOT_FOUND", "Project not found")
         if not _timestamp_matches(project.updated_at, operation.if_updated_at):
@@ -558,7 +559,7 @@ def _validate_solution(
         )
         if for_apply:
             solution_query = solution_query.with_for_update().populate_existing()
-        solution = solution_query.first()
+        solution = solution_query.one_or_none()
         if not solution:
             return _invalid(operation, "SOLUTION_NOT_FOUND", "Solution not found")
         if not _timestamp_matches(solution.updated_at, operation.if_updated_at):
@@ -662,7 +663,7 @@ def _validate_task(
         )
         if for_apply:
             task_query = task_query.with_for_update().populate_existing()
-        task = task_query.first()
+        task = task_query.one_or_none()
         if not task:
             return _invalid(
                 operation, "TASK_NOT_FOUND", "Task not found"

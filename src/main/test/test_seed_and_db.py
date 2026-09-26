@@ -67,6 +67,28 @@ def test_get_session_yields_and_closes(monkeypatch):
     assert session.closed is True
 
 
+def test_dispose_db_engine_disposes_only_an_initialized_engine(monkeypatch):
+    calls = {"dispose": 0}
+
+    class _DummyEngine:
+        def dispose(self):
+            calls["dispose"] += 1
+
+    monkeypatch.setattr(db_module, "engine", None)
+    monkeypatch.setattr(
+        db_module,
+        "_ensure_session_local",
+        lambda: (_ for _ in ()).throw(AssertionError("dispose must not initialize the engine")),
+    )
+
+    db_module.dispose_db_engine()
+    assert calls["dispose"] == 0
+
+    monkeypatch.setattr(db_module, "engine", _DummyEngine())
+    db_module.dispose_db_engine()
+    assert calls["dispose"] == 1
+
+
 @pytest.mark.anyio
 async def test_health_endpoint(client):
     resp = await client.get("/health")

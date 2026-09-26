@@ -64,7 +64,7 @@ _environment.load_repo_env()
 
 from backend.app.auth.auth import validate_auth_configuration
 from backend.app.agent_errors import install_agent_error_handlers
-from backend.app.db.db import check_db_connection, init_db, warm_db_pool
+from backend.app.db.db import check_db_connection, dispose_db_engine, init_db, warm_db_pool
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -282,20 +282,29 @@ async def lifespan(app: FastAPI):
                 db_keepwarm_task = asyncio.create_task(_db_keepwarm_loop(keepwarm_interval_seconds))
         yield
     finally:
-        await stop_realtime_runtime()
-        if db_keepwarm_task:
-            db_keepwarm_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await db_keepwarm_task
-        if keepalive_task:
-            keepalive_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await keepalive_task
-        if patched_run_sync is not None and original_run_sync is not None:
-            import anyio.to_thread
+        try:
+            await stop_realtime_runtime()
+        finally:
+            try:
+                if db_keepwarm_task:
+                    db_keepwarm_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await db_keepwarm_task
+            finally:
+                try:
+                    if keepalive_task:
+                        keepalive_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await keepalive_task
+                finally:
+                    try:
+                        dispose_db_engine()
+                    finally:
+                        if patched_run_sync is not None and original_run_sync is not None:
+                            import anyio.to_thread
 
-            if anyio.to_thread.run_sync is patched_run_sync:
-                anyio.to_thread.run_sync = original_run_sync  # type: ignore[assignment]
+                            if anyio.to_thread.run_sync is patched_run_sync:
+                                anyio.to_thread.run_sync = original_run_sync  # type: ignore[assignment]
 
 
 app = FastAPI(

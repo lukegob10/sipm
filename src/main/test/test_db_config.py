@@ -355,6 +355,41 @@ def test_warm_db_pool_opens_requested_connection_count(monkeypatch):
     assert captured == {"open_now": 0, "max_open": 2, "execute": 2, "commit": 2, "close": 2}
 
 
+@pytest.mark.parametrize("failure_phase", ["execute", "commit"])
+def test_warm_db_pool_closes_all_acquired_connections_when_healthcheck_fails(monkeypatch, failure_phase):
+    module = _reload_db_module()
+    module.SessionLocal = object()
+    captured = {"connect": 0, "close": 0}
+
+    class FakeConnection:
+        def __init__(self, connection_number):
+            self.connection_number = connection_number
+
+        def execute(self, statement):
+            assert str(statement) == "SELECT 1 FROM DUAL"
+            if self.connection_number == 2 and failure_phase == "execute":
+                raise RuntimeError("healthcheck execute failed")
+
+        def commit(self):
+            if self.connection_number == 2 and failure_phase == "commit":
+                raise RuntimeError("healthcheck commit failed")
+
+        def close(self):
+            captured["close"] += 1
+
+    class FakeEngine:
+        def connect(self):
+            captured["connect"] += 1
+            return FakeConnection(captured["connect"])
+
+    module.engine = FakeEngine()
+
+    with pytest.raises(RuntimeError, match=f"healthcheck {failure_phase} failed"):
+        module.warm_db_pool(connection_count=2)
+
+    assert captured == {"connect": 2, "close": 2}
+
+
 def test_warm_db_pool_rejects_non_positive_connection_count():
     module = _reload_db_module()
 
@@ -499,6 +534,96 @@ async def test_app_lifespan_accepts_truthy_disable_threadpool_value(monkeypatch)
         assert patched_run_sync is not original_run_sync
         assert getattr(patched_run_sync, "_jira_lite_patched", False) is True
 
+    assert anyio.to_thread.run_sync is original_run_sync
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_cleans_up_runtime_resources_when_realtime_shutdown_fails(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "true")
+    monkeypatch.setenv("SIPM_DISABLE_THREADPOOL", "true")
+    monkeypatch.setenv("SIPM_KEEPALIVE_TASK", "true")
+
+    calls = {"dispose_db": 0}
+    tasks = []
+    original_run_sync = anyio.to_thread.run_sync
+    original_create_task = asyncio.create_task
+
+    def fake_dispose_db_engine() -> None:
+        calls["dispose_db"] += 1
+
+    async def fake_start_runtime() -> None:
+        return None
+
+    async def fake_stop_runtime() -> None:
+        raise RuntimeError("realtime shutdown failed")
+
+    def track_create_task(coro):
+        task = original_create_task(coro)
+        tasks.append(task)
+        return task
+
+    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(main_module, "dispose_db_engine", fake_dispose_db_engine)
+    monkeypatch.setattr(main_module.asyncio, "create_task", track_create_task)
+
+    with pytest.raises(RuntimeError, match="realtime shutdown failed"):
+        async with main_module.app.router.lifespan_context(main_module.app):
+            pass
+
+    assert tasks and all(task.cancelled() for task in tasks)
+    assert calls == {"dispose_db": 1}
+    assert anyio.to_thread.run_sync is original_run_sync
+
+
+@pytest.mark.anyio
+async def test_app_lifespan_cleans_up_runtime_resources_when_startup_fails(monkeypatch):
+    monkeypatch.setattr(main_module, "validate_auth_configuration", lambda: None)
+    monkeypatch.setattr(main_module.coordination, "validate_configuration", lambda: None)
+    monkeypatch.setattr(main_module, "sys", SimpleNamespace(modules={}))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv("SIPM_DISABLE_STARTUP", "false")
+    monkeypatch.setenv("SIPM_DISABLE_THREADPOOL", "true")
+    monkeypatch.setenv("SIPM_KEEPALIVE_TASK", "true")
+
+    calls = {"stop_realtime": 0, "dispose_db": 0}
+    tasks = []
+    original_run_sync = anyio.to_thread.run_sync
+    original_create_task = asyncio.create_task
+
+    async def fake_start_runtime() -> None:
+        return None
+
+    async def fake_stop_runtime() -> None:
+        calls["stop_realtime"] += 1
+
+    def fake_init_db() -> None:
+        raise RuntimeError("database startup failed")
+
+    def fake_dispose_db_engine() -> None:
+        calls["dispose_db"] += 1
+
+    def track_create_task(coro):
+        task = original_create_task(coro)
+        tasks.append(task)
+        return task
+
+    monkeypatch.setattr(main_module, "start_realtime_runtime", fake_start_runtime)
+    monkeypatch.setattr(main_module, "stop_realtime_runtime", fake_stop_runtime)
+    monkeypatch.setattr(main_module, "init_db", fake_init_db)
+    monkeypatch.setattr(main_module, "dispose_db_engine", fake_dispose_db_engine)
+    monkeypatch.setattr(main_module.asyncio, "create_task", track_create_task)
+
+    with pytest.raises(RuntimeError, match="database startup failed"):
+        async with main_module.app.router.lifespan_context(main_module.app):
+            pass
+
+    assert calls == {"stop_realtime": 1, "dispose_db": 1}
+    assert tasks and all(task.cancelled() for task in tasks)
     assert anyio.to_thread.run_sync is original_run_sync
 
 

@@ -105,6 +105,12 @@ def get_engine():
     return engine
 
 
+def dispose_db_engine() -> None:
+    """Dispose pooled connections when the application runtime shuts down."""
+    if engine is not None:
+        engine.dispose()
+
+
 def init_db(create_schema: bool = False) -> None:
     """
     Optional DB bootstrap helper for TA/Oracle deployments.
@@ -137,9 +143,9 @@ def warm_db_pool(connection_count: int = 1) -> None:
     try:
         for _ in range(connection_count):
             connection = engine.connect()
+            connections.append(connection)
             connection.execute(DB_HEALTHCHECK_SQL)
             connection.commit()
-            connections.append(connection)
     finally:
         while connections:
             connections.pop().close()

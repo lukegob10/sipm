@@ -1893,6 +1893,7 @@ async function deleteTasksById(taskIds, options = {}) {
     return { cancelled: true, deletedIds: [], failed: [] };
   }
 
+  markIgnoreRefresh("tasks");
   const deletedIds = [];
   const failed = [];
   for (const id of ids) {

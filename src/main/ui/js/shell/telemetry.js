@@ -1,5 +1,7 @@
 const DEFAULT_SESSION_STORAGE_KEY = "sipm-usage-analytics-session-id";
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000;
+// The ingest API limits the combined number of events and performance samples.
+const MAX_BATCH_SIZE = 100;
 
 function createFallbackSessionId() {
   return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -161,23 +163,28 @@ export function createTelemetryController({
     if (!enabled()) return false;
     if (!queue.events.length && !queue.performanceSamples.length) return false;
 
+    // Reserve only this batch so lifecycle flushes cannot resend an in-flight
+    // request or remove telemetry collected while that request is pending.
+    const events = queue.events.splice(0, MAX_BATCH_SIZE);
     const payload = {
-      events: queue.events.slice(),
-      performance_samples: queue.performanceSamples.slice(),
+      events,
+      performance_samples: queue.performanceSamples.splice(0, MAX_BATCH_SIZE - events.length),
     };
-    const body = JSON.stringify(payload);
+    function restoreBatch() {
+      queue.events.unshift(...payload.events);
+      queue.performanceSamples.unshift(...payload.performance_samples);
+    }
     const headers = { "Content-Type": "application/json" };
     if (state?.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
 
     try {
+      const body = JSON.stringify(payload);
       if (options.useBeacon && navigatorRef && typeof navigatorRef.sendBeacon === "function") {
         const blob = new Blob([body], { type: "application/json" });
         const sent = navigatorRef.sendBeacon(`${apiBase}/analytics/ingest`, blob);
         if (sent) {
-          queue.events.splice(0, payload.events.length);
-          queue.performanceSamples.splice(0, payload.performance_samples.length);
           return true;
         }
       }
@@ -189,16 +196,12 @@ export function createTelemetryController({
         body,
       });
       if (!response?.ok) {
-        if (shouldDropFailedBatch(response?.status)) {
-          queue.events.splice(0, payload.events.length);
-          queue.performanceSamples.splice(0, payload.performance_samples.length);
-        }
+        if (!shouldDropFailedBatch(response?.status)) restoreBatch();
         return false;
       }
-      queue.events.splice(0, payload.events.length);
-      queue.performanceSamples.splice(0, payload.performance_samples.length);
       return true;
     } catch {
+      restoreBatch();
       return false;
     }
   }

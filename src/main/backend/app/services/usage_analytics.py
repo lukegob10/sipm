@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import Query
-from sqlalchemy import case, func, inspect, literal, or_, select, union
+from sqlalchemy import and_, case, func, inspect, literal, or_, select, union
 
 from ..db.table_names import physical_table_name
 from ..models import (
@@ -27,6 +27,7 @@ _MAX_BATCH_SIZE = 100
 _MAX_DETAILS_BYTES = 1024
 _MAX_DETAIL_VALUE_LENGTH = 160
 _MAX_DURATION_MS = 24 * 60 * 60 * 1000
+_ROLLUP_LOOKUP_BATCH_SIZE = 100
 _SCHEMA_CHECK_TTL_SECONDS = 30
 _FAILURE_OUTCOMES = ("failure", "timeout", "server_error")
 _UNSCOPED_SPACE_ID = "__none__"
@@ -350,6 +351,40 @@ def _event_rollup_key(event: UsageEvent) -> tuple:
     )
 
 
+def _load_existing_rollups(
+    session,
+    model,
+    *,
+    key_columns: tuple[str, ...],
+    keys: Iterable[tuple],
+) -> dict[tuple, object]:
+    wanted_keys = set(keys)
+    if not wanted_keys:
+        return {}
+
+    existing = {}
+    for row in session.new:
+        if isinstance(row, model):
+            key = tuple(getattr(row, column) for column in key_columns)
+            if key in wanted_keys:
+                existing[key] = row
+
+    missing_keys = list(wanted_keys.difference(existing))
+    columns = tuple(getattr(model, name) for name in key_columns)
+    for offset in range(0, len(missing_keys), _ROLLUP_LOOKUP_BATCH_SIZE):
+        key_batch = missing_keys[offset : offset + _ROLLUP_LOOKUP_BATCH_SIZE]
+        key_filter = or_(
+            *(
+                and_(*(column == value for column, value in zip(columns, key)))
+                for key in key_batch
+            )
+        )
+        for row in session.query(model).filter(key_filter).all():
+            key = tuple(getattr(row, column) for column in key_columns)
+            existing[key] = row
+    return existing
+
+
 def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iterable[PerformanceSample]) -> None:
     event_totals: dict[tuple, dict[str, object]] = {}
     identity_keys: set[tuple[date, str, str, str]] = set()
@@ -400,8 +435,34 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
             identity_keys.add((rollup_date, space_id, "user", sample.user_id))
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    event_rollups = _load_existing_rollups(
+        session,
+        UsageDailyRollup,
+        key_columns=(
+            "rollup_date",
+            "space_id",
+            "view_key",
+            "category",
+            "feature_key",
+            "action_key",
+            "outcome",
+        ),
+        keys=event_totals,
+    )
+    identity_rollups = _load_existing_rollups(
+        session,
+        UsageIdentityDailyRollup,
+        key_columns=("rollup_date", "space_id", "token_type", "token_value"),
+        keys=identity_keys,
+    )
+    route_identity_rollups = _load_existing_rollups(
+        session,
+        UsageRouteIdentityDailyRollup,
+        key_columns=("rollup_date", "space_id", "view_key", "token_type", "token_value"),
+        keys=route_identity_keys,
+    )
     for key, totals in event_totals.items():
-        rollup = session.get(UsageDailyRollup, key)
+        rollup = event_rollups.get(key)
         if rollup is None:
             rollup = UsageDailyRollup(
                 rollup_date=key[0],
@@ -429,7 +490,7 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
         rollup.updated_at = now
 
     for key in identity_keys:
-        if session.get(UsageIdentityDailyRollup, key) is None:
+        if key not in identity_rollups:
             session.add(
                 UsageIdentityDailyRollup(
                     rollup_date=key[0],
@@ -441,7 +502,7 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
             )
 
     for key in route_identity_keys:
-        if session.get(UsageRouteIdentityDailyRollup, key) is None:
+        if key not in route_identity_rollups:
             session.add(
                 UsageRouteIdentityDailyRollup(
                     rollup_date=key[0],
@@ -610,7 +671,10 @@ def _rollup_daily_distinct_token_counts(
     scope_space_id: str | None,
 ) -> dict[date, int]:
     rows = session.execute(
-        select(UsageIdentityDailyRollup.rollup_date, func.count().label("total"))
+        select(
+            UsageIdentityDailyRollup.rollup_date,
+            func.count(func.distinct(UsageIdentityDailyRollup.token_value)).label("total"),
+        )
         .where(
             *_rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id),
             UsageIdentityDailyRollup.token_type == token_type,

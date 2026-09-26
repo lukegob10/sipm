@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createSpaceGovernanceController } from "../../js/routes/spaces/interactions.js";
 import { createSpaceGovernanceRenderer } from "../../js/routes/spaces/render.js";
+import { captureAgentChangeRequestContext } from "../../js/routes/spaces/change-request-context.js";
 
 
 function createHarness() {
@@ -9,6 +10,7 @@ function createHarness() {
   document.body.innerHTML = `<div id="space-governance-shell"></div>`;
   const state = {
     currentView: "spaces",
+    user: { user_id: "user-1" },
     activeSpace: { space_id: "space-1", space_name: "Space 1", space_role: "member" },
     spaceAdminSection: "agent-approvals",
     spaceGovernanceNotice: { text: "", tone: "", timeoutId: null },
@@ -51,6 +53,8 @@ function createHarness() {
       },
     ],
   };
+  let selectedSpaceId = "space-1";
+  state.agentChangeRequestsContext = captureAgentChangeRequestContext(state, () => selectedSpaceId);
   const els = {
     spaceGovernanceShell: document.getElementById("space-governance-shell"),
   };
@@ -83,7 +87,7 @@ function createHarness() {
     normalize: (value) => String(value || "").trim().toLowerCase(),
     normalizeGovernanceSection: (value) => String(value || "agent-approvals").trim().toLowerCase(),
     userIsGlobalAdmin: () => false,
-    activeSpaceId: () => "space-1",
+    activeSpaceId: () => selectedSpaceId,
     canManageSpaceMembership: () => false,
     effectiveDirectorySpaces: () => [],
     spaceNameForId: () => "Space 1",
@@ -105,7 +109,7 @@ function createHarness() {
     els,
     normalize: (value) => String(value || "").trim().toLowerCase(),
     normalizeSpaceRole: (value) => String(value || "").trim().toLowerCase(),
-    activeSpaceId: () => "space-1",
+    activeSpaceId: () => selectedSpaceId,
     userIsGlobalAdmin: () => false,
     currentSpaceRoleLabel: () => "Member",
     canManageSpaceMembership: () => false,
@@ -123,7 +127,19 @@ function createHarness() {
     setSpaceGovernanceNotice: vi.fn(),
   });
   controller.bindSpaceAdminControls();
-  return { api, controller, els, renderCalls, showConfirmModal, state, renderGovernanceHub };
+  return {
+    api,
+    controller,
+    els,
+    renderCalls,
+    showConfirmModal,
+    state,
+    renderGovernanceHub,
+    setActiveSpaceId(spaceId) {
+      selectedSpaceId = spaceId;
+      state.activeSpace = spaceId ? { space_id: spaceId, space_name: spaceId, space_role: "member" } : null;
+    },
+  };
 }
 
 
@@ -177,6 +193,111 @@ describe("agent approvals governance UI", () => {
     await Promise.all([firstRefresh, eventRefresh]);
 
     expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates a loaded queue when the active space changes", async () => {
+    const { api, els, renderGovernanceHub, state, setActiveSpaceId } = createHarness();
+    api.mockResolvedValue({
+      pending_count: 1,
+      failed_count: 0,
+      records: [{ change_request_id: "cr-space-2", reason: "Space 2 proposal", operations: [], diff: [] }],
+    });
+
+    renderGovernanceHub();
+    setActiveSpaceId("space-2");
+    renderGovernanceHub();
+
+    expect(els.spaceGovernanceShell.textContent).not.toContain("Update delivery status");
+    await vi.waitFor(() => expect(state.agentChangeRequests[0]?.change_request_id).toBe("cr-space-2"));
+    expect(api).toHaveBeenCalledWith("/agent/change-requests?status=pending");
+    expect(state.agentChangeRequestsContext.spaceId).toBe("space-2");
+  });
+
+  it("loads the new space queue while an older space request is still pending", async () => {
+    const { api, controller, state, setActiveSpaceId } = createHarness();
+    let resolveSpaceOne;
+    api
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveSpaceOne = resolve;
+      }))
+      .mockResolvedValueOnce({
+        pending_count: 1,
+        failed_count: 0,
+        records: [{ change_request_id: "cr-space-2", reason: "Space 2 proposal" }],
+      });
+
+    const spaceOneRefresh = controller.refreshAgentChangeRequests({ force: true });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    setActiveSpaceId("space-2");
+    const spaceTwoRefresh = controller.refreshAgentChangeRequests();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+    await spaceTwoRefresh;
+
+    expect(state.agentChangeRequests[0]?.change_request_id).toBe("cr-space-2");
+    expect(state.agentChangeRequestsContext.spaceId).toBe("space-2");
+    resolveSpaceOne({
+      pending_count: 1,
+      failed_count: 0,
+      records: [{ change_request_id: "cr-space-1", reason: "Old proposal" }],
+    });
+    await spaceOneRefresh;
+
+    expect(state.agentChangeRequests[0]?.change_request_id).toBe("cr-space-2");
+    expect(state.agentChangeRequestsContext.spaceId).toBe("space-2");
+  });
+
+  it("isolates a replacement session with the same user and space IDs", async () => {
+    const { api, controller, state } = createHarness();
+    let resolveOldSession;
+    api
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveOldSession = resolve;
+      }))
+      .mockResolvedValueOnce({
+        pending_count: 1,
+        failed_count: 0,
+        records: [{ change_request_id: "cr-new-session", reason: "New session proposal" }],
+      });
+
+    const oldSessionRefresh = controller.refreshAgentChangeRequests({ force: true });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    state.user = { ...state.user };
+    state.activeSpace = { ...state.activeSpace };
+    const newSessionRefresh = controller.refreshAgentChangeRequests();
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(2));
+    await newSessionRefresh;
+    resolveOldSession({
+      pending_count: 1,
+      failed_count: 0,
+      records: [{ change_request_id: "cr-old-session", reason: "Old session proposal" }],
+    });
+    await oldSessionRefresh;
+
+    expect(state.agentChangeRequests[0]?.change_request_id).toBe("cr-new-session");
+  });
+
+  it("drops a pending queue response after logout instead of restoring old records", async () => {
+    const { api, controller, state, setActiveSpaceId } = createHarness();
+    let resolvePending;
+    api.mockImplementationOnce(() => new Promise((resolve) => {
+      resolvePending = resolve;
+    }));
+
+    const refresh = controller.refreshAgentChangeRequests({ force: true });
+    await vi.waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+    state.user = null;
+    setActiveSpaceId("");
+    resolvePending({
+      pending_count: 1,
+      failed_count: 0,
+      records: [{ change_request_id: "cr-old", reason: "Old proposal" }],
+    });
+    await refresh;
+
+    expect(state.agentChangeRequests).toEqual([]);
+    expect(state.agentChangeRequestPendingCount).toBe(0);
+    expect(state.agentChangeRequestsLoaded).toBe(true);
+    expect(api).toHaveBeenCalledTimes(1);
   });
 
   it("keeps proposal selection in context without opening a modal", () => {

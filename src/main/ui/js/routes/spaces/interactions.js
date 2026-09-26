@@ -1,3 +1,9 @@
+import {
+  captureAgentChangeRequestContext,
+  clearAgentChangeRequestData,
+  sameAgentChangeRequestContext,
+} from "./change-request-context.js";
+
 export function createSpaceGovernanceController({
   state,
   els,
@@ -28,7 +34,6 @@ export function createSpaceGovernanceController({
   const spaceMembersInFlight = {};
   const apiTokensInFlight = {};
   let agentChangeRequestsInFlight = null;
-  let agentChangeRequestsRefreshQueued = false;
   let requestableSpacesInFlight = null;
   let accessRequestsInFlight = null;
   let reviewableAccessRequestsInFlight = null;
@@ -157,19 +162,78 @@ export function createSpaceGovernanceController({
 
   async function refreshAgentChangeRequests(options = {}) {
     const force = !!options.force;
-    if (!force && state.agentChangeRequestsLoaded) return state.agentChangeRequests || [];
-    if (agentChangeRequestsInFlight) {
-      if (force) agentChangeRequestsRefreshQueued = true;
-      return agentChangeRequestsInFlight;
+    const requestedContext = captureAgentChangeRequestContext(state, activeSpaceId);
+    const hasActiveContext = !!requestedContext.userId && !!requestedContext.spaceId;
+    const cachedContextMatches = sameAgentChangeRequestContext(
+      state.agentChangeRequestsContext,
+      requestedContext,
+    );
+    if (!cachedContextMatches) clearAgentChangeRequestData(state);
+    if (!hasActiveContext) {
+      state.agentChangeRequestsContext = requestedContext;
+      state.agentChangeRequestsLoaded = true;
+      return [];
     }
-    agentChangeRequestsInFlight = (async () => {
-      do {
-        agentChangeRequestsRefreshQueued = false;
-        const payload = await api("/agent/change-requests?status=pending");
+    if (!force && state.agentChangeRequestsLoaded && cachedContextMatches) {
+      return state.agentChangeRequests || [];
+    }
+    if (agentChangeRequestsInFlight
+      && sameAgentChangeRequestContext(agentChangeRequestsInFlight.context, requestedContext)) {
+      if (force) {
+        agentChangeRequestsInFlight.refreshQueued = true;
+        agentChangeRequestsInFlight.forceQueued = true;
+      }
+      return agentChangeRequestsInFlight.promise;
+    }
+    const request = {
+      context: requestedContext,
+      refreshQueued: false,
+      forceQueued: false,
+      promise: null,
+    };
+    agentChangeRequestsInFlight = request;
+    request.promise = (async () => {
+      let refreshForce = force;
+      while (true) {
+        const requestContext = captureAgentChangeRequestContext(state, activeSpaceId);
+        if (!requestContext.userId || !requestContext.spaceId
+          || !sameAgentChangeRequestContext(request.context, requestContext)
+          || agentChangeRequestsInFlight !== request) return [];
+        if (!refreshForce && state.agentChangeRequestsLoaded
+          && sameAgentChangeRequestContext(state.agentChangeRequestsContext, requestContext)) {
+          return state.agentChangeRequests || [];
+        }
+        let payload;
+        try {
+          payload = await api("/agent/change-requests?status=pending");
+        } catch (err) {
+          const currentContext = captureAgentChangeRequestContext(state, activeSpaceId);
+          if (!sameAgentChangeRequestContext(requestContext, currentContext)
+            || agentChangeRequestsInFlight !== request) {
+            if (!currentContext.userId || !currentContext.spaceId) {
+              clearAgentChangeRequestData(state);
+              state.agentChangeRequestsContext = currentContext;
+              state.agentChangeRequestsLoaded = true;
+            }
+            return [];
+          }
+          throw err;
+        }
+        const currentContext = captureAgentChangeRequestContext(state, activeSpaceId);
+        if (!sameAgentChangeRequestContext(requestContext, currentContext)
+          || agentChangeRequestsInFlight !== request) {
+          if (!currentContext.userId || !currentContext.spaceId) {
+            clearAgentChangeRequestData(state);
+            state.agentChangeRequestsContext = currentContext;
+            state.agentChangeRequestsLoaded = true;
+          }
+          return [];
+        }
         state.agentChangeRequests = Array.isArray(payload?.records) ? payload.records : [];
         state.agentChangeRequestPendingCount = Number(payload?.pending_count || 0);
         state.agentChangeRequestFailedCount = Number(payload?.failed_count || 0);
         state.agentChangeRequestsLoaded = true;
+        state.agentChangeRequestsContext = requestContext;
         const knownIds = new Set(state.agentChangeRequests.map((row) => row.change_request_id));
         state.agentChangeRequestSelectedIds = new Set(
           [...(state.agentChangeRequestSelectedIds || new Set())].filter((id) => knownIds.has(id))
@@ -185,13 +249,16 @@ export function createSpaceGovernanceController({
           state.agentChangeRequestActiveId = state.agentChangeRequests[0]?.change_request_id || "";
         }
         if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-      } while (agentChangeRequestsRefreshQueued);
-      return state.agentChangeRequests;
+        if (!request.refreshQueued) return state.agentChangeRequests;
+        refreshForce = request.forceQueued;
+        request.refreshQueued = false;
+        request.forceQueued = false;
+      }
     })()
       .finally(() => {
-        agentChangeRequestsInFlight = null;
+        if (agentChangeRequestsInFlight === request) agentChangeRequestsInFlight = null;
       });
-    return agentChangeRequestsInFlight;
+    return request.promise;
   }
 
   async function refreshRequestableSpaces(options = {}) {

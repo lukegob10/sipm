@@ -7,7 +7,8 @@ This folder documents the environment expected by `docker-compose.yml` and
 
 - Self-hosted GitHub Actions runner on `homelab001` with labels
   `self-hosted`, `homelab`, `docker`, and `sipm`.
-- Docker Engine with the Compose plugin available as `docker compose`.
+- Docker Engine with the Compose plugin available as `docker compose`, including
+  support for `up --wait --wait-timeout`.
 - Network access from the SIPM container to the TA/Oracle runtime used by
   `treasury_analytics.TAConnection`.
 - The image must include a `treasury_analytics` package. Corporate-style builds
@@ -119,8 +120,14 @@ Do not put secrets in committed files. Store the final `.env` content in the
 
 The workflow deploys automatically on pushes to `main`. You can also run it
 manually from GitHub Actions with `workflow_dispatch`. Because the runner is
-already on `homelab001`, deployment runs directly with `docker compose up -d
---build`; no SSH key, `scp`, or remote shell step is used.
+already on `homelab001`, deployment builds the image and runs the explicit
+migrations, then starts the services with `docker compose up -d --wait
+--wait-timeout 300`. The job succeeds only after Redis and SIPM pass their
+health checks; unhealthy services or a readiness timeout fail the job. No SSH
+key, `scp`, or remote shell step is used.
+
+The image uses `exec` to make Uvicorn the container's main process so Docker's
+shutdown signal reaches the application and its resource cleanup runs.
 
 After the first deploy, check:
 

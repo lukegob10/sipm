@@ -1,4 +1,5 @@
 import { nullableTextValue, textValue } from "../utils/form-values.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./mutation-context.js";
 
 export function buildTaskPayload(
   data,
@@ -50,6 +51,9 @@ export function createTaskEntityController({
   timestampLabel,
   trackWorkflow = null,
 }) {
+  let taskFormRevision = 0;
+  let taskSaveInFlight = false;
+
   function setTaskActionButtonLabel(isEditing) {
     if (els.taskSubmitBtn) {
       els.taskSubmitBtn.textContent = isEditing ? "Save Changes" : "Create Task";
@@ -58,6 +62,8 @@ export function createTaskEntityController({
 
   function setTaskFormVisibility(show) {
     if (els.taskForm) {
+      const isHidden = els.taskForm.classList.contains("hidden");
+      if (isHidden === show) taskFormRevision += 1;
       els.taskForm.classList.toggle("hidden", !show);
     }
     if (els.taskFormFooter) {
@@ -67,6 +73,7 @@ export function createTaskEntityController({
 
   function hideTaskForm() {
     if (!els.taskForm) return;
+    taskFormRevision += 1;
     const taskId = els.taskForm.querySelector('[name="task_id"]')?.value || "";
     setTaskFormVisibility(false);
     clearDeliverableFormNotice(els.taskFormStatus);
@@ -95,6 +102,7 @@ export function createTaskEntityController({
 
   function prepareTaskCreateForm(solution, options = {}) {
     if (!els.taskForm) return;
+    taskFormRevision += 1;
     const { resetForm = true } = options;
     const sol = solution || state.solutions.find((s) => s.solution_id === els.solutionForm?.querySelector('[name="solution_id"]')?.value);
     if (!sol) return;
@@ -121,6 +129,7 @@ export function createTaskEntityController({
 
   function fillTaskForm(task) {
     if (!els.taskForm || !task) return;
+    taskFormRevision += 1;
     setTaskFormVisibility(true);
     els.taskForm.reset();
     clearDeliverableFormNotice(els.taskFormStatus);
@@ -179,6 +188,7 @@ export function createTaskEntityController({
     }
     els.taskForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (taskSaveInFlight) return;
       const data = new FormData(els.taskForm);
       const id = (data.get("task_id") || "").toString().trim();
       const solutionId = (data.get("solution_id") || "").toString().trim();
@@ -192,6 +202,16 @@ export function createTaskEntityController({
         hoursFromFteInput,
         hoursFromNullableFteInput,
       });
+      const formRevision = taskFormRevision;
+      const formSnapshot = JSON.stringify([...data.entries()]);
+      const submitWasDisabled = !!els.taskSubmitBtn?.disabled;
+      const requestContext = captureEntityMutationContext(state);
+      const isSameEditor = () => formRevision === taskFormRevision;
+      const isCurrentSubmission = () => isSameEditor()
+        && JSON.stringify([...new FormData(els.taskForm).entries()]) === formSnapshot;
+      taskSaveInFlight = true;
+      if (els.taskSubmitBtn) els.taskSubmitBtn.disabled = true;
+      els.taskForm.setAttribute("aria-busy", "true");
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.taskFormStatus, "Saving task...");
@@ -202,9 +222,21 @@ export function createTaskEntityController({
         const saved = isEditing
           ? await api(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api(`/solutions/${solutionId}/tasks`, { method: "POST", body: JSON.stringify(payload) });
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
+        const shouldUpdateForm = isCurrentSubmission();
+        const sameEditor = isSameEditor();
         upsertById(state.tasks, saved, "task_id");
-        fillTaskForm(saved);
-        renderSolutionTasks(saved.solution_id);
+        if (shouldUpdateForm) {
+          fillTaskForm(saved);
+        } else if (sameEditor && !isEditing && saved?.task_id) {
+          els.taskForm.querySelector('[name="task_id"]').value = saved.task_id;
+          if (els.deleteTaskBtn) els.deleteTaskBtn.disabled = false;
+          setTaskActionButtonLabel(true);
+        }
+        const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+        if (openSolutionId === saved.solution_id) {
+          renderSolutionTasks(saved.solution_id);
+        }
         renderDashboard();
         renderGantt();
         const successMessage = isEditing
@@ -213,25 +245,35 @@ export function createTaskEntityController({
         if (typeof trackWorkflow === "function") {
           trackWorkflow("tasks", isEditing ? "update" : "create", "success", { source: "task_form" });
         }
-        setDeliverableFormNotice(
-          els.taskFormStatus,
-          successMessage,
-          "success",
-          3200
-        );
+        if (sameEditor) {
+          setDeliverableFormNotice(
+            els.taskFormStatus,
+            successMessage,
+            "success",
+            3200
+          );
+        }
       } catch (err) {
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
         ignoreNextRefresh.delete("tasks");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("tasks", isEditing ? "update" : "create", "failure", { source: "task_form" });
         }
-        setDeliverableFormNotice(
-          els.taskFormStatus,
-          `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-          "error"
-        );
+        if (isSameEditor()) {
+          setDeliverableFormNotice(
+            els.taskFormStatus,
+            `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+            "error"
+          );
+        }
+      } finally {
+        taskSaveInFlight = false;
+        els.taskForm.removeAttribute("aria-busy");
+        if (els.taskSubmitBtn) els.taskSubmitBtn.disabled = submitWasDisabled;
       }
     });
     els.taskForm.addEventListener("reset", () => {
+      taskFormRevision += 1;
       clearDeliverableFormNotice(els.taskFormStatus);
       const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
       const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;

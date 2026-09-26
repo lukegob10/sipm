@@ -1,5 +1,6 @@
 import { nullableTextValue, textValue } from "../utils/form-values.js";
 import { createFormDraftGuard } from "../utils/form-draft.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./mutation-context.js";
 
 export function buildProjectPayload(data) {
   return {
@@ -39,6 +40,8 @@ export function createProjectEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
+  let projectFormRevision = 0;
+  let projectSaveInFlight = false;
   const projectDraft = createFormDraftGuard({
     form: els.projectForm,
     indicator: els.projectModal?.querySelector('[data-form-dirty-indicator="project"]'),
@@ -95,12 +98,14 @@ export function createProjectEntityController({
   }
 
   function openProjectForm(project = null) {
+    projectFormRevision += 1;
     fillProjectForm(project);
     setProjectFormVisibility(true);
     setProjectActionButtonLabel(!!project?.project_id);
   }
 
   function finishClosingProjectForm() {
+    projectFormRevision += 1;
     fillProjectForm(null);
     setProjectFormVisibility(false);
     setProjectActionButtonLabel(false);
@@ -124,10 +129,21 @@ export function createProjectEntityController({
     els.projectModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => void closeProjectForm());
     els.projectForm.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (projectSaveInFlight) return;
       const data = new FormData(els.projectForm);
       const id = (data.get("project_id") || "").toString().trim();
       const isEditing = !!id;
       const payload = buildProjectPayload(data);
+      const formRevision = projectFormRevision;
+      const formSnapshot = JSON.stringify([...data.entries()]);
+      const submitWasDisabled = !!els.projectSubmitBtn?.disabled;
+      const requestContext = captureEntityMutationContext(state);
+      const isSameEditor = () => formRevision === projectFormRevision;
+      const isCurrentSubmission = () => isSameEditor()
+        && JSON.stringify([...new FormData(els.projectForm).entries()]) === formSnapshot;
+      projectSaveInFlight = true;
+      if (els.projectSubmitBtn) els.projectSubmitBtn.disabled = true;
+      els.projectForm.setAttribute("aria-busy", "true");
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.projectFormStatus, "Saving project...");
@@ -138,9 +154,17 @@ export function createProjectEntityController({
         const saved = isEditing
           ? await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api("/projects", { method: "POST", body: JSON.stringify(payload) });
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
+        const shouldUpdateForm = isCurrentSubmission();
         upsertById(state.projects, saved, "project_id");
-        fillProjectForm(saved);
-        setProjectActionButtonLabel(true);
+        if (shouldUpdateForm) {
+          fillProjectForm(saved);
+          setProjectActionButtonLabel(true);
+        } else if (isSameEditor() && !isEditing && saved?.project_id) {
+          els.projectForm.querySelector('[name="project_id"]').value = saved.project_id;
+          setProjectActionButtonLabel(true);
+          projectDraft.sync();
+        }
         populateSelects();
         renderMasterTable();
         renderDashboard();
@@ -153,22 +177,31 @@ export function createProjectEntityController({
         if (typeof trackWorkflow === "function") {
           trackWorkflow("projects", isEditing ? "update" : "create", "success", { source: "project_form" });
         }
-        setDeliverableFormNotice(
-          els.projectFormStatus,
-          successMessage,
-          "success",
-          3200
-        );
+        if (isSameEditor()) {
+          setDeliverableFormNotice(
+            els.projectFormStatus,
+            successMessage,
+            "success",
+            3200
+          );
+        }
       } catch (err) {
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
         ignoreNextRefresh.delete("projects");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("projects", isEditing ? "update" : "create", "failure", { source: "project_form" });
         }
-        setDeliverableFormNotice(
-          els.projectFormStatus,
-          `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-          "error"
-        );
+        if (isSameEditor()) {
+          setDeliverableFormNotice(
+            els.projectFormStatus,
+            `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+            "error"
+          );
+        }
+      } finally {
+        projectSaveInFlight = false;
+        els.projectForm.removeAttribute("aria-busy");
+        if (els.projectSubmitBtn) els.projectSubmitBtn.disabled = submitWasDisabled;
       }
     });
     if (els.deleteProjectBtn) {
@@ -176,16 +209,18 @@ export function createProjectEntityController({
         const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
         if (!id) return;
         const projectName = els.projectForm?.querySelector('[name="project_name"]')?.value || "this project";
+        const requestContext = captureEntityMutationContext(state);
         const confirmed = await showConfirmModal({
           title: "Delete Project?",
           message: `Delete project "${projectName}"? This cannot be undone.`,
           confirmLabel: "Delete Project",
         });
-        if (!confirmed) return;
+        if (!confirmed || !isEntityMutationContextCurrent(state, requestContext)) return;
         try {
           setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");
           markIgnoreRefresh("projects");
           await api(`/projects/${id}`, { method: "DELETE" });
+          if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.projects, id, "project_id");
           closeProjectForm({ discardChanges: true });
           populateSelects();
@@ -198,6 +233,7 @@ export function createProjectEntityController({
             trackWorkflow("projects", "delete", "success", { source: "project_form" });
           }
         } catch (err) {
+          if (!isEntityMutationContextCurrent(state, requestContext)) return;
           ignoreNextRefresh.delete("projects");
           if (typeof trackWorkflow === "function") {
             trackWorkflow("projects", "delete", "failure", { source: "project_form" });

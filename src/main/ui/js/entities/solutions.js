@@ -1,5 +1,6 @@
 import { nullableTextValue, textValue } from "../utils/form-values.js";
 import { createFormDraftGuard } from "../utils/form-draft.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./mutation-context.js";
 
 export function buildSolutionPayload(data, { hoursFromFteInput }) {
   const ragStatus = data.get("rag_status") || "green";
@@ -65,6 +66,8 @@ export function createSolutionEntityController({
   showConfirmModal,
   trackWorkflow = null,
 }) {
+  let solutionFormRevision = 0;
+  let solutionSaveInFlight = false;
   const solutionDraft = createFormDraftGuard({
     form: els.solutionForm,
     indicator: els.solutionModal?.querySelector('[data-form-dirty-indicator="solution"]'),
@@ -141,6 +144,7 @@ export function createSolutionEntityController({
 
   function openSolutionModal(solution = null, tab = "details") {
     if (!els.solutionModal) return;
+    solutionFormRevision += 1;
     fillSolutionForm(solution);
     setSolutionActionButtonLabel(!!solution?.solution_id);
     setTaskCreateAvailability(solution?.solution_id || "");
@@ -166,6 +170,7 @@ export function createSolutionEntityController({
 
   function finishClosingSolutionModal() {
     if (!els.solutionModal) return;
+    solutionFormRevision += 1;
     fillSolutionForm(null);
     setSolutionActionButtonLabel(false);
     setTaskCreateAvailability("");
@@ -197,6 +202,7 @@ export function createSolutionEntityController({
     els.solutionForm.querySelector('[name="rag_status"]')?.addEventListener("change", updateRagReasonVisibility);
 
     const saveHandler = async () => {
+      if (solutionSaveInFlight) return;
       const data = new FormData(els.solutionForm);
       const id = (data.get("solution_id") || "").toString().trim();
       const isEditing = !!id;
@@ -210,6 +216,16 @@ export function createSolutionEntityController({
         return;
       }
       const payload = buildSolutionPayload(data, { hoursFromFteInput });
+      const formRevision = solutionFormRevision;
+      const formSnapshot = JSON.stringify([...data.entries()]);
+      const submitWasDisabled = !!els.solutionSubmitBtn?.disabled;
+      const requestContext = captureEntityMutationContext(state);
+      const isSameEditor = () => formRevision === solutionFormRevision;
+      const isCurrentSubmission = () => isSameEditor()
+        && JSON.stringify([...new FormData(els.solutionForm).entries()]) === formSnapshot;
+      solutionSaveInFlight = true;
+      if (els.solutionSubmitBtn) els.solutionSubmitBtn.disabled = true;
+      els.solutionForm.setAttribute("aria-busy", "true");
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");
@@ -220,40 +236,60 @@ export function createSolutionEntityController({
         const saved = isEditing
           ? await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api(`/projects/${projectId}/solutions`, { method: "POST", body: JSON.stringify(payload) });
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
+        const shouldUpdateForm = isCurrentSubmission();
         upsertById(state.solutions, saved, "solution_id");
         populateSelects();
-        fillSolutionForm(saved);
-        if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
-          const activeOverride = els.taskForm.querySelector('[name="github_repo_url"]')?.value || "";
-          updateTaskRepoPreview(saved.solution_id, activeOverride);
+        if (shouldUpdateForm) {
+          fillSolutionForm(saved);
+        } else if (isSameEditor() && !isEditing && saved?.solution_id) {
+          els.solutionForm.querySelector('[name="solution_id"]').value = saved.solution_id;
+          solutionDraft.sync();
         }
-        setSolutionActionButtonLabel(true);
+        if (isSameEditor()) {
+          if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
+            const activeOverride = els.taskForm.querySelector('[name="github_repo_url"]')?.value || "";
+            updateTaskRepoPreview(saved.solution_id, activeOverride);
+          }
+          setSolutionActionButtonLabel(true);
+        }
         renderActiveView();
-        renderSolutionTasks(saved.solution_id);
-        renderSolutionDocuments(saved.solution_id, { force: true });
-        renderSolutionActivity(saved.solution_id);
+        if (isSameEditor()) {
+          renderSolutionTasks(saved.solution_id);
+          renderSolutionDocuments(saved.solution_id, { force: true });
+          renderSolutionActivity(saved.solution_id);
+        }
         const successMessage = isEditing
           ? `Saved solution at ${timestampLabel()}.`
           : `Created solution at ${timestampLabel()}.`;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("solutions", isEditing ? "update" : "create", "success", { source: "solution_form" });
         }
-        setDeliverableFormNotice(
-          els.solutionFormStatus,
-          successMessage,
-          "success",
-          3200
-        );
+        if (isSameEditor()) {
+          setDeliverableFormNotice(
+            els.solutionFormStatus,
+            successMessage,
+            "success",
+            3200
+          );
+        }
       } catch (err) {
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
         ignoreNextRefresh.delete("solutions");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("solutions", isEditing ? "update" : "create", "failure", { source: "solution_form" });
         }
-        setDeliverableFormNotice(
-          els.solutionFormStatus,
-          `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
-          "error"
-        );
+        if (isSameEditor()) {
+          setDeliverableFormNotice(
+            els.solutionFormStatus,
+            `${isEditing ? "Save" : "Create"} failed: ${err.message}`,
+            "error"
+          );
+        }
+      } finally {
+        solutionSaveInFlight = false;
+        els.solutionForm.removeAttribute("aria-busy");
+        if (els.solutionSubmitBtn) els.solutionSubmitBtn.disabled = submitWasDisabled;
       }
     };
 
@@ -266,16 +302,18 @@ export function createSolutionEntityController({
         const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
         if (!id) return;
         const solutionName = els.solutionForm?.querySelector('[name="solution_name"]')?.value || "this solution";
+        const requestContext = captureEntityMutationContext(state);
         const confirmed = await showConfirmModal({
           title: "Delete Solution?",
           message: `Delete solution "${solutionName}"? This cannot be undone.`,
           confirmLabel: "Delete Solution",
         });
-        if (!confirmed) return;
+        if (!confirmed || !isEntityMutationContextCurrent(state, requestContext)) return;
         try {
           setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");
           markIgnoreRefresh("solutions");
           await api(`/solutions/${id}`, { method: "DELETE" });
+          if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.solutions, id, "solution_id");
           delete state.solutionDocuments[id];
           closeSolutionModal({ discardChanges: true });
@@ -289,6 +327,7 @@ export function createSolutionEntityController({
             trackWorkflow("solutions", "delete", "success", { source: "solution_form" });
           }
         } catch (err) {
+          if (!isEntityMutationContextCurrent(state, requestContext)) return;
           ignoreNextRefresh.delete("solutions");
           if (typeof trackWorkflow === "function") {
             trackWorkflow("solutions", "delete", "failure", { source: "solution_form" });

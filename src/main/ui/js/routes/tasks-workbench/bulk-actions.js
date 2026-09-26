@@ -25,7 +25,6 @@ export async function applyTasksWorkbenchBulkAction(ctx) {
     upsertById,
     deleteTasksById,
     ignoreNextRefresh,
-    markIgnoreRefresh,
     renderTasksWorkbench,
     renderSolutionTasks,
     renderDashboard,
@@ -52,7 +51,6 @@ export async function applyTasksWorkbenchBulkAction(ctx) {
     setTasksWorkbenchBulkFeedback(
       deleteTargets.length === 1 ? "Deleting task…" : `Deleting ${deleteTargets.length} tasks…`
     );
-    markIgnoreRefresh("tasks");
     const result = await deleteTasksById(deleteTargets, {
       title: deleteTargets.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
       confirmLabel: deleteTargets.length === 1 ? "Delete Task" : `Delete ${deleteTargets.length} Tasks`,

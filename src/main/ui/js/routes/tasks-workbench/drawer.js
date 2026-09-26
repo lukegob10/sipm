@@ -352,7 +352,6 @@ export async function saveTasksWorkbenchForm(ctx) {
 export async function deleteActiveTasksWorkbenchItem(ctx) {
   const {
     els,
-    markIgnoreRefresh,
     deleteTasksById,
     ignoreNextRefresh,
     renderTasksWorkbench,
@@ -366,7 +365,6 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
     setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Select a task first.", "error");
     return;
   }
-  markIgnoreRefresh("tasks");
   const result = await deleteTasksById([taskId], {
     title: "Delete Task?",
   });
@@ -407,7 +405,6 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
   const {
     state,
     els,
-    markIgnoreRefresh,
     deleteTasksById,
     ignoreNextRefresh,
     renderTasksWorkbench,
@@ -459,7 +456,6 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
     : (wb.activeTaskId ? [wb.activeTaskId] : []);
   if (!targetIds.length) return;
   event.preventDefault();
-  markIgnoreRefresh("tasks");
   const result = await deleteTasksById(targetIds, {
     title: targetIds.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
   });

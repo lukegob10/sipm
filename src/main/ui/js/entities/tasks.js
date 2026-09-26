@@ -250,7 +250,6 @@ export function createTaskEntityController({
         const id = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
         if (!id) return;
         const solutionId = els.taskForm?.querySelector('[name="solution_id"]')?.value || "";
-        markIgnoreRefresh("tasks");
         const result = await deleteTasksById([id], {
           title: "Delete Task?",
         });

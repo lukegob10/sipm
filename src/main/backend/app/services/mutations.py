@@ -45,9 +45,13 @@ def commit_refresh_and_publish(
     on_integrity_error: IntegrityErrorHandler | None = None,
 ) -> None:
     commit_session(session, on_integrity_error=on_integrity_error)
-    session.refresh(instance)
-    publish_space_mutation(
-        space_id,
-        cache_keys,
-        broadcast_channel=broadcast_channel,
-    )
+    try:
+        session.refresh(instance)
+    finally:
+        # The commit has already persisted the mutation. Keep caches and open
+        # views current even if refreshing response fields fails afterward.
+        publish_space_mutation(
+            space_id,
+            cache_keys,
+            broadcast_channel=broadcast_channel,
+        )

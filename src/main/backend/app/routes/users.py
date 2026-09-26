@@ -17,7 +17,7 @@ from ..deps import (
     require_global_admin,
     require_space_role,
 )
-from ..models import ApiToken, SpaceMembership, User
+from ..models import ApiToken, Space, SpaceMembership, User
 from ..schemas import (
     ApiTokenCreate,
     ApiTokenIssueResponse,
@@ -27,6 +27,7 @@ from ..schemas import (
     UserRead,
     UserUpdate,
 )
+from ..security import security_http_exception
 from ..services.audit_log import log_changes
 from ..services.api_tokens import api_token_is_active, create_api_token
 from ..services.password_reset import issue_temp_password
@@ -89,6 +90,31 @@ def _refresh_active_admin_actor(session: Session, actor: User) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Active user required",
+        )
+
+
+def _ensure_actor_has_current_space_admin_role(session: Session, actor: User, space_id: str) -> None:
+    if _is_global_admin(actor):
+        return
+
+    role = (
+        session.query(SpaceMembership.role)
+        .join(Space, Space.space_id == SpaceMembership.space_id)
+        .filter(SpaceMembership.space_id == space_id)
+        .filter(SpaceMembership.user_id == actor.user_id)
+        .filter(SpaceMembership.status == "active")
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(Space.deleted_at.is_(None))
+        .filter(Space.is_active)
+        .limit(1)
+        .scalar()
+    )
+    normalized_role = (role or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized_role != "space_admin":
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_ROLE",
+            message="Insufficient space role",
         )
 
 
@@ -482,6 +508,7 @@ def update_user(
         if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
             _refresh_active_admin_actor(session, current_user)
+            _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
@@ -526,6 +553,7 @@ def update_user_by_soeid(
         if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
             _refresh_active_admin_actor(session, current_user)
+            _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:

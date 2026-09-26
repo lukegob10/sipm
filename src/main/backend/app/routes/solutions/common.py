@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -18,6 +18,17 @@ from ...utils.enums import RagStatus, SolutionStatus
 
 _SOLUTIONS_LIST_TTL_SECONDS = 20
 _SOLUTIONS_DETAIL_TTL_SECONDS = 30
+
+
+def _deleted_solution_name(name: str, solution_id: str, deleted_at: datetime) -> str:
+    timestamp = (
+        deleted_at.replace(tzinfo=timezone.utc)
+        if deleted_at.tzinfo is None
+        else deleted_at.astimezone(timezone.utc)
+    )
+    suffix = f" [deleted {timestamp.strftime('%Y%m%dT%H%M%SZ')} {(solution_id or '')[:8] or 'deleted'}]"
+    base = (name or "Solution").strip() or "Solution"
+    return f"{base[:max(1, 255 - len(suffix))]}{suffix}"
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:
@@ -223,6 +234,7 @@ def _run_enable_all_phases(session: Session, solution_id: str) -> None:
 
 
 __all__ = [
+    "_deleted_solution_name",
     "_SOLUTIONS_DETAIL_TTL_SECONDS",
     "_SOLUTIONS_LIST_TTL_SECONDS",
     "_apply_solution_completion_state",

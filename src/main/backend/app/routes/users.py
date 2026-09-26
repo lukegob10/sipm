@@ -556,6 +556,9 @@ def import_users(
     affected_user_ids: set[str] = set()
     seen_soeids: set[str] = set()
     for idx, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append(f"Row {idx}: too many columns for the CSV header")
+            continue
         soeid = (row.get("soeid") or "").strip().lower()
         display_name = (row.get("display_name") or "").strip()
         team_tag = (row.get("team_tag") or "").strip()

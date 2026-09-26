@@ -18,6 +18,7 @@ from ...utils import normalize_status, normalize_str, parse_priority, read_csv, 
 from ...utils.enums import ProjectStatus
 from .common import (
     _default_program,
+    _deleted_project_name,
     _ensure_program_exists,
     _project_change_set,
     _project_create_changes,
@@ -102,6 +103,9 @@ def import_projects(
     created = updated = 0
     seen = set()
     for idx, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append(f"Row {idx}: too many columns for the CSV header")
+            continue
         name = normalize_str(row.get("project_name"))
         project_function = normalize_str(row.get("function")) or None
         area = normalize_str(row.get("area")) or None
@@ -215,6 +219,24 @@ def import_projects(
                     owner_user_soeid,
                     current_user,
                 )
+                deleted_conflicts = (
+                    session.query(Project)
+                    .filter(Project.deleted_at.is_not(None))
+                    .filter(Project.space_id == space_ctx.space_id)
+                    .filter(Project.project_name == name)
+                    .all()
+                )
+                now = datetime.now(timezone.utc)
+                for deleted in deleted_conflicts:
+                    deleted.project_name = _deleted_project_name(
+                        deleted.project_name,
+                        deleted.project_id,
+                        deleted.deleted_at or now,
+                    )
+                    deleted.updated_at = now
+                    session.add(deleted)
+                if deleted_conflicts:
+                    session.flush()
                 project = Project(
                     space_id=space_ctx.space_id,
                     program_id=program.program_id,

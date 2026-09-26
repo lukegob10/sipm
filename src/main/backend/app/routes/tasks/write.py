@@ -17,6 +17,7 @@ from ...utils.enums import TaskStatus
 from ...services.mutations import commit_refresh_and_publish, commit_session
 from .common import (
     _apply_task_completion_state,
+    _deleted_task_name,
     _ensure_solution,
     _get_task,
     _publish_task_mutation,
@@ -75,6 +76,25 @@ def create_task(
         )
 
     now = datetime.now(timezone.utc)
+    deleted_conflicts = (
+        session.query(Task)
+        .filter(Task.solution_id == solution_id)
+        .filter(Task.space_id == space_ctx.space_id)
+        .filter(Task.task_name == task_name)
+        .filter(Task.deleted_at.is_not(None))
+        .all()
+    )
+    for deleted in deleted_conflicts:
+        deleted.task_name = _deleted_task_name(
+            deleted.task_name,
+            deleted.task_id,
+            deleted.deleted_at or now,
+        )
+        deleted.updated_at = now
+        session.add(deleted)
+    if deleted_conflicts:
+        session.flush()
+
     completed_at = now if payload.status == TaskStatus.complete else None
     blocked = payload.blocked or False
 
@@ -171,6 +191,38 @@ def update_task(
             update_data["github_repo_url"] = normalize_github_repo_url(update_data["github_repo_url"])
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if "task_name" in update_data and update_data["task_name"]:
+        conflict = (
+            _task_query(session, space_ctx)
+            .filter(Task.solution_id == task.solution_id)
+            .filter(Task.task_name == update_data["task_name"])
+            .filter(Task.task_id != task.task_id)
+            .first()
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Task name already exists in this solution",
+            )
+        deleted_conflicts = (
+            session.query(Task)
+            .filter(Task.solution_id == task.solution_id)
+            .filter(Task.space_id == space_ctx.space_id)
+            .filter(Task.task_name == update_data["task_name"])
+            .filter(Task.deleted_at.is_not(None))
+            .all()
+        )
+        now = datetime.now(timezone.utc)
+        for deleted in deleted_conflicts:
+            deleted.task_name = _deleted_task_name(
+                deleted.task_name,
+                deleted.task_id,
+                deleted.deleted_at or now,
+            )
+            deleted.updated_at = now
+            session.add(deleted)
+        if deleted_conflicts:
+            session.flush()
     fields_to_compare = set(update_data.keys())
     if "status" in update_data:
         fields_to_compare.add("completed_at")
@@ -186,20 +238,6 @@ def update_task(
         )
 
     task.updated_at = datetime.now(timezone.utc)
-
-    if "task_name" in update_data and update_data["task_name"]:
-        conflict = (
-            _task_query(session, space_ctx)
-            .filter(Task.solution_id == task.solution_id)
-            .filter(Task.task_name == update_data["task_name"])
-            .filter(Task.task_id != task.task_id)
-            .first()
-        )
-        if conflict:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Task name already exists in this solution",
-            )
 
     session.add(task)
     if update_data:
@@ -344,8 +382,10 @@ def delete_task(
 ):
     task = _get_task(session, task_id, space_ctx)
     now = datetime.now(timezone.utc)
+    previous_name = task.task_name
     task.deleted_at = now
     task.updated_at = now
+    task.task_name = _deleted_task_name(task.task_name, task.task_id, now)
     session.add(task)
     log_changes(
         session,
@@ -354,7 +394,10 @@ def delete_task(
         user_id=current_user.user_id,
         action="delete",
         space_id=space_ctx.space_id,
-        changes={"deleted_at": (None, now)},
+        changes={
+            "deleted_at": (None, now),
+            "task_name": (previous_name, task.task_name),
+        },
     )
     commit_session(session)
     _publish_task_mutation(space_ctx.space_id)

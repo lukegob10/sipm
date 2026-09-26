@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -60,8 +62,15 @@ def set_solution_phases(
     now = datetime.now(timezone.utc)
     updated_items: list[SolutionPhase] = []
 
-    for item in phases_data:
-        data = SolutionPhaseInput.model_validate(item)
+    for index, item in enumerate(phases_data):
+        try:
+            data = SolutionPhaseInput.model_validate(item)
+        except ValidationError as exc:
+            errors = [
+                {**error, "loc": ("body", "phases", index, *error["loc"])}
+                for error in exc.errors()
+            ]
+            raise RequestValidationError(errors) from exc
 
         phase_exists = get_canonical_phase(session, data.phase_id)
         if not phase_exists:

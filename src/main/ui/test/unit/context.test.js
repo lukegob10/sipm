@@ -8,10 +8,12 @@ import {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((resolvePromise) => {
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 
@@ -139,5 +141,48 @@ describe("space context data invalidation", () => {
     expect(invalidated).toBe(false);
     expect(renderActiveView).not.toHaveBeenCalled();
     expect(reloadCurrentViewData).not.toHaveBeenCalled();
+  });
+
+  it("discards a superseded context response before applying or rendering it", async () => {
+    const response = deferred();
+    let isCurrent = true;
+    const applySpaceContext = vi.fn(() => true);
+    const reloadCurrentViewData = vi.fn();
+    const renderActiveView = vi.fn();
+    const refresh = refreshSpaceContextData({
+      loadSpaces: vi.fn().mockResolvedValue([{ space_id: "old-space" }]),
+      loadActiveSpace: () => response.promise,
+      applySpaceContext,
+      reloadCurrentViewData,
+      renderActiveView,
+      isCurrent: () => isCurrent,
+    });
+
+    isCurrent = false;
+    response.resolve({ space_id: "old-space" });
+    await expect(refresh).resolves.toBe(false);
+    expect(applySpaceContext).not.toHaveBeenCalled();
+    expect(reloadCurrentViewData).not.toHaveBeenCalled();
+    expect(renderActiveView).not.toHaveBeenCalled();
+  });
+
+  it("ignores obsolete request failures while preserving failures from the current context", async () => {
+    const response = deferred();
+    let isCurrent = true;
+    const refresh = refreshSpaceContextData({
+      loadSpaces: () => response.promise,
+      loadActiveSpace: vi.fn().mockResolvedValue({ space_id: "old-space" }),
+      applySpaceContext: vi.fn(),
+      isCurrent: () => isCurrent,
+    });
+    isCurrent = false;
+    response.reject(new Error("Old request failed"));
+    await expect(refresh).resolves.toBe(false);
+
+    await expect(refreshSpaceContextData({
+      loadSpaces: vi.fn().mockRejectedValue(new Error("Current request failed")),
+      loadActiveSpace: vi.fn().mockResolvedValue(null),
+      isCurrent: () => true,
+    })).rejects.toThrow("Current request failed");
   });
 });

@@ -24,12 +24,21 @@ export async function refreshSpaceContextData({
   applySpaceContext,
   reloadCurrentViewData,
   renderActiveView,
+  isCurrent = () => true,
   options = {},
 } = {}) {
-  const [spaces, activeSpace] = await Promise.all([
-    loadSpaces(),
-    loadActiveSpace(),
-  ]);
+  let context;
+  try {
+    context = await Promise.all([
+      loadSpaces(),
+      loadActiveSpace(),
+    ]);
+  } catch (err) {
+    if (!isCurrent()) return false;
+    throw err;
+  }
+  if (!isCurrent()) return false;
+  const [spaces, activeSpace] = context;
   const dataInvalidated = applySpaceContext(spaces, activeSpace, options);
   if (!dataInvalidated) return false;
 

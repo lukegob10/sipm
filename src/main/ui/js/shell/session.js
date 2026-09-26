@@ -32,7 +32,12 @@ export function createSessionController({
   let lastSessionRefreshAt = 0;
   let authBootstrapGeneration = 0;
   let sessionGeneration = 0;
+  let sessionContextRefreshGeneration = 0;
   const pendingAuthActions = new Set();
+
+  function currentUserId() {
+    return String(state.user?.user_id || state.user?.soeid || state.user?.email || "");
+  }
 
   function authErrorMessage(err, fallback = "Session expired. Please sign in again.") {
     if (!err) return fallback;
@@ -174,6 +179,10 @@ export function createSessionController({
     }
   }
 
+  function invalidatePendingRefreshContext() {
+    sessionContextRefreshGeneration += 1;
+  }
+
   async function refreshSessionTokens(options = {}) {
     const force = !!options.force;
     const allowLoggedOut = !!options.allowLoggedOut;
@@ -191,10 +200,11 @@ export function createSessionController({
     }
 
     const generation = sessionGeneration;
+    const contextGeneration = sessionContextRefreshGeneration;
     const spaceId = state.activeSpace?.space_id;
-    const userId = state.user?.user_id;
+    const userId = currentUserId();
     const isCurrent = () => generation === sessionGeneration
-      && spaceId === state.activeSpace?.space_id && userId === state.user?.user_id;
+      && spaceId === state.activeSpace?.space_id && userId === currentUserId();
     const headers = {};
     if (state.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
@@ -209,8 +219,12 @@ export function createSessionController({
         });
 
         if (!isCurrent()) return null;
+        let refreshedUserId = userId;
         if (data && typeof data === "object") {
           setAuthed(data);
+          refreshedUserId = String(
+            data.user_id || data.soeid || data.email || currentUserId(),
+          );
         }
         lastSessionRefreshAt = Date.now();
 
@@ -219,12 +233,25 @@ export function createSessionController({
             await refreshSpaceContext({
               apiOptions: { skipAuthRefresh: true },
               suppressLiveSyncRestart,
+              isCurrent: () => contextGeneration === sessionContextRefreshGeneration
+                && generation === sessionGeneration
+                && state.authed
+                && refreshedUserId === currentUserId(),
             });
           } catch (err) {
-            console.warn("Space context refresh after token refresh failed", err);
+            if (generation === sessionGeneration && refreshedUserId === currentUserId()) {
+              console.warn("Space context refresh after token refresh failed", err);
+            }
           }
         }
 
+        // Space reconciliation may select an authoritative server fallback, so only
+        // auth lifetime and user identity decide whether the refreshed token is usable.
+        if (
+          generation !== sessionGeneration
+          || !state.authed
+          || refreshedUserId !== currentUserId()
+        ) return null;
         return data || {};
       } catch (err) {
         if (!isCurrent()) return null;
@@ -312,6 +339,7 @@ export function createSessionController({
           if (refreshed) {
             return api(path, {
               ...options,
+              headers: { ...headers },
               _retriedAfterRefresh: true,
               skipAuthRefresh: true,
             });
@@ -608,6 +636,7 @@ export function createSessionController({
     bindAuthUI,
     bootstrapAuth,
     recordSessionActivity,
+    invalidatePendingRefreshContext,
     logoutForInactivity: () => logoutLocally({ idle: true }),
     handleRemoteLogout: () => logoutLocally({ remote: true }),
   };

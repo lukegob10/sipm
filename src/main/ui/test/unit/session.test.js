@@ -15,6 +15,14 @@ function jsonResponse(body, { status = 200, errorCode = "" } = {}) {
   };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function createHarness(overrides = {}) {
   const state = overrides.state || {
     authed: false,
@@ -292,6 +300,79 @@ describe("session controller", () => {
     await Promise.all([newRefresh, joined]);
     expect(harness.setAuthed).not.toHaveBeenCalledWith({ user_id: "old-user" });
     expect(harness.setAuthed).toHaveBeenLastCalledWith({ user_id: "new-user" });
+  });
+
+  it("does not retry an unauthorized request after logout during context refresh", async () => {
+    const contextRefresh = deferred();
+    let protectedReads = 0;
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/auth/refresh")) return jsonResponse({ user_id: "user-1" });
+      if (url.endsWith("/protected")) {
+        protectedReads += 1;
+        return protectedReads === 1
+          ? jsonResponse({ detail: "Session expired" }, { status: 401 })
+          : jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const harness = createHarness({
+      state: { authed: true, user: { user_id: "user-1" }, activeSpace: { space_id: "space-1" } },
+    });
+    harness.refreshSpaceContext.mockReturnValue(contextRefresh.promise);
+
+    const request = harness.controller.api("/protected");
+    await vi.waitFor(() => expect(harness.refreshSpaceContext).toHaveBeenCalledTimes(1));
+    await harness.controller.handleRemoteLogout();
+    contextRefresh.resolve();
+
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(protectedReads).toBe(1);
+    expect(harness.setAuthed).toHaveBeenLastCalledWith(null);
+  });
+
+  it("retries a scoped write with its original space and caller headers after reconciliation", async () => {
+    let projectWrites = 0;
+    const fetchMock = vi.fn(async (url, options = {}) => {
+      if (url.endsWith("/auth/refresh")) return jsonResponse({ user_id: "user-1" });
+      if (url.endsWith("/projects")) {
+        projectWrites += 1;
+        if (projectWrites === 1) return jsonResponse({ detail: "Expired" }, { status: 401 });
+        return jsonResponse({
+          ok: true,
+          space_id: options.headers["X-Space-Id"],
+          request_id: options.headers["X-Request-Id"],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const state = { authed: true, user: { user_id: "user-1" }, activeSpace: { space_id: "space-1" } };
+    const harness = createHarness({ state });
+    harness.refreshSpaceContext.mockImplementation(async () => {
+      state.activeSpace = { space_id: "space-2" };
+    });
+
+    const body = JSON.stringify({ project_id: "project-1" });
+    const result = await harness.controller.api("/projects", {
+      method: "POST",
+      headers: { "X-Request-Id": "request-1" },
+      body,
+    });
+
+    expect(result).toEqual({ ok: true, space_id: "space-1", request_id: "request-1" });
+    const projectOptions = fetchMock.mock.calls
+      .filter(([url]) => url.endsWith("/projects"))
+      .map(([, options]) => options);
+    expect(projectOptions).toHaveLength(2);
+    projectOptions.forEach((options) => {
+      expect(options.headers).toMatchObject({
+        "X-Space-Id": "space-1",
+        "X-Request-Id": "request-1",
+        "Content-Type": "application/json",
+      });
+      expect(options.body).toBe(body);
+    });
   });
 
   it("honors caller cancellation without reporting it as a network failure", async () => {

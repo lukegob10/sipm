@@ -14,7 +14,7 @@ import {
 } from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
-import { createDataStoreController } from "./shell/data-store.js";
+import { bindTaskRefreshDraft, createDataStoreController, restoreEditorSelections } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
 import { createActivitySessionController } from "./shell/activity-session.js";
 import { createTelemetryController } from "./shell/telemetry.js";
@@ -352,6 +352,9 @@ let sessionController = null;
 let activitySessionController = null;
 let liveSyncController = null;
 let telemetryController = null;
+let spaceContextGeneration = 0;
+let spaceAuthGeneration = 0;
+let spaceSwitchGeneration = 0;
 const ignoreNextRefresh = {
   delete(entity) {
     return dataStoreController.clearIgnoredRefresh(entity);
@@ -970,6 +973,18 @@ async function switchActiveSpace(targetSpaceId) {
   if (target === current) return true;
   if (state.spaceSwitching) return false;
 
+  const operationGeneration = ++spaceSwitchGeneration;
+  const authGeneration = spaceAuthGeneration;
+  const userId = sessionUserId();
+  let expectedSpaceId = current;
+  spaceContextGeneration += 1;
+  sessionController?.invalidatePendingRefreshContext();
+  const isCurrentSwitch = () => operationGeneration === spaceSwitchGeneration
+    && authGeneration === spaceAuthGeneration
+    && state.authed
+    && userId === sessionUserId()
+    && expectedSpaceId === (state.activeSpace?.space_id || "");
+
   state.spaceSwitching = true;
   state.spaceMembershipActionMenuId = "";
   setSpaceFeedback(`Switching to ${spaceNameForId(target) || target}...`, "info");
@@ -984,10 +999,13 @@ async function switchActiveSpace(targetSpaceId) {
       method: "POST",
       body: JSON.stringify({ space_id: target }),
     });
+    if (!isCurrentSwitch()) return false;
     if (current) {
       recordRecentSpace(current);
     }
+    spaceContextGeneration += 1;
     state.activeSpace = switched || state.activeSpace;
+    expectedSpaceId = state.activeSpace?.space_id || "";
     if (state.activeSpace?.space_kind !== "lobby") {
       clearSpaceGovernanceNotice();
     }
@@ -996,6 +1014,7 @@ async function switchActiveSpace(targetSpaceId) {
     clearDataState();
     restoreGanttViewState();
     await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
+    if (!isCurrentSwitch()) return false;
     startLiveSync({ force: true });
     state.spaceSwitcherOpen = false;
     telemetryController?.syncRuntimeContext?.();
@@ -1003,6 +1022,7 @@ async function switchActiveSpace(targetSpaceId) {
     setSpaceFeedback(`Now working in ${spaceNameForId(state.activeSpace?.space_id || target) || targetName || target}.`, "success", 4200);
     return true;
   } catch (err) {
+    if (!isCurrentSwitch()) return false;
     console.warn("Space switch failed", err);
     setSpaceFeedback(err?.message ? `Space switch failed: ${err.message}` : "Space switch failed.", "error", 7000);
     try {
@@ -1012,16 +1032,19 @@ async function switchActiveSpace(targetSpaceId) {
     }
     return false;
   } finally {
-    state.spaceSwitching = false;
-    renderSpaceSwitcher();
-    if (isSpaceGovernanceView(state.currentView)) {
-      renderGovernanceHub();
+    if (operationGeneration === spaceSwitchGeneration) {
+      state.spaceSwitching = false;
+      renderSpaceSwitcher();
+      if (isSpaceGovernanceView(state.currentView)) {
+        renderGovernanceHub();
+      }
     }
   }
 }
 
 
 function applySpaceContext(spaces, activeSpace, options = {}) {
+  spaceContextGeneration += 1;
   const previousActiveSpaceId = state.activeSpace?.space_id || "";
   const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
   const suppressDataInvalidation = !!options.suppressDataInvalidation;
@@ -1090,6 +1113,14 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
 
 async function refreshSpaceContext(options = {}) {
   const apiOptions = options.apiOptions || {};
+  const generation = ++spaceContextGeneration;
+  const userId = sessionUserId();
+  const spaceId = state.activeSpace?.space_id || "";
+  const isCurrent = () => generation === spaceContextGeneration
+    && state.authed
+    && userId === sessionUserId()
+    && spaceId === (state.activeSpace?.space_id || "")
+    && (typeof options.isCurrent !== "function" || options.isCurrent());
   if (!state.authed) {
     state.spaces = [];
     state.activeSpace = null;
@@ -1141,12 +1172,27 @@ async function refreshSpaceContext(options = {}) {
     applySpaceContext,
     reloadCurrentViewData,
     renderActiveView,
+    isCurrent,
     options,
   });
 }
 
 
+function sessionUserId(user = state.user) {
+  return String(user?.user_id || user?.soeid || user?.email || "");
+}
+
+
 function setAuthed(user) {
+  const previousUserId = sessionUserId();
+  const wasAuthed = state.authed;
+  const nextUserId = sessionUserId(user);
+  spaceContextGeneration += 1;
+  if (wasAuthed !== !!user || previousUserId !== nextUserId) {
+    spaceAuthGeneration += 1;
+    spaceSwitchGeneration += 1;
+    state.spaceSwitching = false;
+  }
   state.user = user;
   state.authed = !!user;
   sessionController.onAuthedChange(user);
@@ -1627,27 +1673,7 @@ function renderRepositories() {
 }
 
 function restoreSelections(projectId, solutionId, taskId) {
-  if (projectId) {
-    const proj = state.projects.find((p) => p.project_id === projectId);
-    if (proj) {
-      openProjectForm(proj);
-    }
-  }
-
-  if (solutionId) {
-    const sol = state.solutions.find((s) => s.solution_id === solutionId);
-    if (sol) {
-      const activeTab = els.solutionModal?.querySelector(".modal-tabs .tab.active")?.dataset?.tab || "details";
-      openSolutionModal(sol, activeTab);
-    }
-  }
-
-  if (taskId) {
-    const task = state.tasks.find((item) => item.task_id === taskId);
-    if (task) {
-      fillTaskForm(task);
-    }
-  }
+  restoreEditorSelections({ state, els, openProjectForm, openSolutionModal, fillTaskForm }, projectId, solutionId, taskId);
 }
 
 function createMasterRouteContext(overrides = {}) {
@@ -2683,6 +2709,10 @@ function projectLabel(project) {
 }
 
 function populateSelects() {
+  const preserveTaskDraft = els.taskForm?.hasAttribute("data-dirty");
+  const preserveSolutionDraft = els.solutionForm?.hasAttribute("data-dirty")
+    || (preserveTaskDraft && !els.taskForm.classList.contains("hidden")
+      && !els.solutionModal?.classList.contains("hidden"));
   const programOpts = state.programs
     .map((program) => `<option value="${program.program_id}">${escapeHtml(program.program_name)}</option>`)
     .join("");
@@ -2703,6 +2733,7 @@ function populateSelects() {
     els.projectForm?.querySelector('[name="program_id"]'),
   ].filter(Boolean);
   programSelects.forEach((sel) => {
+    if (els.projectForm?.hasAttribute("data-dirty")) return;
     if (sel.tagName === "SELECT") {
       const previous = sel.value;
       sel.innerHTML = `<option value="">Select</option>${programOpts}`;
@@ -2716,11 +2747,14 @@ function populateSelects() {
     }
   });
   projSelects.forEach((sel) => {
+    if (preserveSolutionDraft) return;
     if (sel.tagName === "SELECT") {
+      const previous = sel.value;
       sel.innerHTML = `<option value="">Select</option>${projectOpts}`;
+      if (state.projects.some((project) => project.project_id === previous)) sel.value = previous;
     }
   });
-  if (els.solutionForm) {
+  if (els.solutionForm && !preserveSolutionDraft) {
     const projSel = els.solutionForm.querySelector('[name="project_id"]');
     if (projSel && projSel.innerHTML.indexOf("Select") === -1) {
       projSel.innerHTML = `<option value="">Select</option>${projectOpts}`;
@@ -2762,15 +2796,17 @@ function populateSelects() {
   populateCapacityUserOptions();
 
   // Assignee dropdown for tasks from team members
-  if (els.taskForm) {
+  if (els.taskForm && !preserveTaskDraft) {
     const assigneeSel = els.taskForm.querySelector('[name="assignee"]');
     const assigneeUserInput = els.taskForm.querySelector('[name="assignee_user_soeid"]');
     if (assigneeSel) {
+      const previous = assigneeSel.value;
       const users = state.users.filter((u) => u.display_name && u.soeid);
       assigneeSel.innerHTML =
         users.length > 0
           ? `<option value="">Select</option>${users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("")}`
           : `<option value="">No users configured</option>`;
+      if (users.some((user) => user.soeid === previous)) assigneeSel.value = previous;
       assigneeSel.onchange = () => {
         if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
       };
@@ -3809,6 +3845,7 @@ function init() {
   bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
+  bindTaskRefreshDraft(els.taskForm);
   bindTaskForm();
   bindSolutionTabs();
   bindSolutionDocumentControls();

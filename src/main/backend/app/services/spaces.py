@@ -236,7 +236,6 @@ def resolve_active_space_context(
     is_global_admin = is_global_admin_role(user.role)
 
     if is_global_admin:
-        default_space = get_or_create_default_space(session)
         target = None
         if requested_space_id:
             target = (
@@ -247,7 +246,7 @@ def resolve_active_space_context(
                 .first()
             )
         if not target:
-            target = default_space
+            target = get_or_create_default_space(session)
         return SpaceContext(
             space_id=target.space_id,
             space_name=target.name,

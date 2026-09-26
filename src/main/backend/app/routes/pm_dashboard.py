@@ -5,25 +5,14 @@ from io import BytesIO
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..deps import current_space as current_space_dep, get_db, require_space_role
-from ..models import Project, Solution, SpaceMembership, Task, User
+from ..models import Project, Solution, Task
 from ..services.pm_command_report_pdf import build_pm_command_report_pdf
 from ..services.spaces import SpaceContext
 
 router = APIRouter()
-
-
-def active_space_user_query(session: Session, space_ctx: SpaceContext):
-    return (
-        session.query(User)
-        .join(SpaceMembership, SpaceMembership.user_id == User.user_id)
-        .filter(SpaceMembership.space_id == space_ctx.space_id)
-        .filter(SpaceMembership.deleted_at.is_(None))
-        .filter(SpaceMembership.status == "active")
-        .filter(User.is_active)
-    )
 
 
 def _enum_value(value: object) -> object:
@@ -38,6 +27,19 @@ def download_pm_command_report_pdf(
 ) -> StreamingResponse:
     project_rows = (
         session.query(Project)
+        .options(
+            load_only(
+                Project.project_id,
+                Project.project_name,
+                Project.status,
+                Project.sponsor,
+                Project.sponsor_user_soeid,
+                Project.owner,
+                Project.owner_user_soeid,
+                Project.priority,
+                Project.updated_at,
+            )
+        )
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
         .order_by(Project.priority.asc(), Project.project_name.asc())
@@ -48,6 +50,23 @@ def download_pm_command_report_pdf(
     if project_ids:
         solution_rows = (
             session.query(Solution)
+            .options(
+                load_only(
+                    Solution.solution_id,
+                    Solution.project_id,
+                    Solution.solution_name,
+                    Solution.status,
+                    Solution.rag_status,
+                    Solution.due_date,
+                    Solution.owner,
+                    Solution.owner_user_soeid,
+                    Solution.assignee,
+                    Solution.assignee_user_soeid,
+                    Solution.blockers,
+                    Solution.risks,
+                    Solution.updated_at,
+                )
+            )
             .filter(Solution.deleted_at.is_(None))
             .filter(Solution.space_id == space_ctx.space_id)
             .filter(Solution.project_id.in_(project_ids))
@@ -59,17 +78,27 @@ def download_pm_command_report_pdf(
     if solution_ids:
         task_rows = (
             session.query(Task)
+            .options(
+                load_only(
+                    Task.task_id,
+                    Task.project_id,
+                    Task.solution_id,
+                    Task.task_name,
+                    Task.status,
+                    Task.due_date,
+                    Task.assignee,
+                    Task.assignee_user_soeid,
+                    Task.blocked,
+                    Task.blocker_note,
+                    Task.updated_at,
+                )
+            )
             .filter(Task.deleted_at.is_(None))
             .filter(Task.space_id == space_ctx.space_id)
             .filter(Task.solution_id.in_(solution_ids))
             .order_by(Task.priority.asc(), Task.task_name.asc())
             .all()
         )
-    user_rows = (
-        active_space_user_query(session, space_ctx)
-        .order_by(User.display_name.asc())
-        .all()
-    )
     pdf_bytes = build_pm_command_report_pdf(
         space_name=space_ctx.space_name,
         projects=[
@@ -120,15 +149,7 @@ def download_pm_command_report_pdf(
             }
             for row in task_rows
         ],
-        users=[
-            {
-                "soeid": row.soeid,
-                "display_name": row.display_name,
-                "capacity_fte_month": row.capacity_fte_month,
-                "is_active": row.is_active,
-            }
-            for row in user_rows
-        ],
+        users=[],
         allocations=[],
     )
     filename = f"pm-command-center-report-{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.pdf"

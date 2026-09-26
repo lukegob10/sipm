@@ -12,8 +12,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect as sqlalchemy_inspect
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
@@ -166,7 +167,13 @@ def _request_log_line(
     )
     user = getattr(request.state, "user", None)
     try:
-        user_id = getattr(user, "user_id", None)
+        user_state = sqlalchemy_inspect(user, raiseerr=False)
+        # Reading an expired ORM attribute can issue a synchronous SELECT here.
+        # The persisted identity remains available after commit/session cleanup.
+        if user_state is not None and user_state.identity:
+            user_id = user_state.identity[0]
+        else:
+            user_id = getattr(user, "user_id", None)
     except Exception:
         user_id = None
     payload = {
@@ -316,6 +323,18 @@ app = FastAPI(
     redoc_url=REDOC_PATH,
 )
 install_agent_error_handlers(app)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_response(request: Request, exc: Exception):
+    # ServerErrorMiddleware emits this response outside user middleware and
+    # still re-raises the error for server logging and raising test clients.
+    request_id = getattr(request.state, "request_id", None) or _request_id_for(request)
+    return PlainTextResponse(
+        "Internal Server Error",
+        status_code=500,
+        headers={REQUEST_ID_HEADER: request_id, **SECURITY_HEADERS},
+    )
 
 # API under the app context path so the full product is self-contained.
 app.include_router(api_router, prefix=API_PREFIX)

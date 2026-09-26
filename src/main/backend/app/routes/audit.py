@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -15,6 +15,12 @@ from ..schemas import ChangeLogRead
 from ..services.spaces import SpaceContext
 
 router = APIRouter(dependencies=[Depends(require_user)])
+
+
+def _utc_naive(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 @router.get("/audit", response_model=List[ChangeLogRead])
@@ -43,8 +49,8 @@ def list_audit(
     if user_id:
         query = query.filter(ChangeLog.user_id == user_id)
     if since:
-        query = query.filter(ChangeLog.created_at >= since)
+        query = query.filter(ChangeLog.created_at >= _utc_naive(since))
     if until:
-        query = query.filter(ChangeLog.created_at <= until)
+        query = query.filter(ChangeLog.created_at <= _utc_naive(until))
     rows = query.order_by(ChangeLog.created_at.desc()).limit(limit).all()
     return rows

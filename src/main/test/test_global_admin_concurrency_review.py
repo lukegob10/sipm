@@ -13,6 +13,14 @@ from backend.app.services import user_admin_guards
 from backend.app.services.spaces import SpaceContext
 
 
+def _change_actor_row_without_refresh(session, *, actor_id, **changes):
+    session.execute(
+        User.__table__.update()
+        .where(User.__table__.c.user_id == actor_id)
+        .values(**changes)
+    )
+
+
 def test_global_admin_guard_uses_ordered_oracle_row_locks():
     statement = user_admin_guards._global_admin_lock_statement()
     sql = " ".join(str(statement.compile(
@@ -71,6 +79,114 @@ def test_space_admin_cannot_deactivate_user_promoted_after_initial_read(db_sessi
 
     with db_sessionmaker() as session:
         assert session.get(User, "target").is_active is True
+
+
+@pytest.mark.parametrize("actor_change", [{"role": "user"}, {"is_active": False}])
+def test_global_admin_role_change_rechecks_actor_after_lock(db_sessionmaker, monkeypatch, actor_change):
+    with db_sessionmaker() as session:
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("backup", "global_admin"), ("target", "user")]
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def change_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", **actor_change)
+            real_lock(lock_session)
+
+        monkeypatch.setattr(users_routes, "lock_global_admin_users", change_actor_then_lock)
+        with pytest.raises(HTTPException) as exc:
+            users_routes.grant_global_admin_by_user_id("target", session=session, admin_user=actor)
+        assert exc.value.status_code == 403
+        assert actor.role == actor_change.get("role", "global_admin")
+        assert actor.is_active is actor_change.get("is_active", True)
+        assert session.get(User, "target").role == "user"
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+@pytest.mark.parametrize("actor_change", [{"role": "user"}, {"is_active": False}])
+def test_deactivation_rechecks_actor_before_changing_global_admin(
+    db_sessionmaker, monkeypatch, by_soeid, actor_change,
+):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        users = [
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role="global_admin", is_active=True,
+            )
+            for user_id in ("actor", "target", "backup")
+        ]
+        session.add_all(users)
+        session.add_all([
+            SpaceMembership(space_id="space", user_id="actor", role="space_admin", status="active"),
+            SpaceMembership(space_id="space", user_id="target", role="member", status="active"),
+            SpaceMembership(space_id="space", user_id="backup", role="member", status="active"),
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=False, space_role="space_admin")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def change_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", **actor_change)
+            real_lock(lock_session)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", change_actor_then_lock)
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        target_key = "target" if not by_soeid else "target"
+        with pytest.raises(HTTPException) as exc:
+            update(
+                target_key, UserUpdate(is_active=False), session=session, space_ctx=ctx,
+                current_user=actor, _authz=ctx,
+            )
+        assert exc.value.status_code == 403
+        assert actor.role == actor_change.get("role", "global_admin")
+        assert actor.is_active is actor_change.get("is_active", True)
+        assert session.get(User, "target").is_active is True
+
+
+def test_space_admin_can_still_deactivate_regular_user_after_global_role_change(db_sessionmaker, monkeypatch):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("target", "user"), ("backup", "global_admin")]
+        ])
+        session.add_all([
+            SpaceMembership(space_id="space", user_id="actor", role="space_admin", status="active"),
+            SpaceMembership(space_id="space", user_id="target", role="member", status="active"),
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=False, space_role="space_admin")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def demote_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", role="user")
+            real_lock(lock_session)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", demote_actor_then_lock)
+        users_routes.update_user(
+            "target", UserUpdate(is_active=False), session=session, space_ctx=ctx,
+            current_user=actor, _authz=ctx,
+        )
+        assert actor.role == "user"
+        assert session.get(User, "target").is_active is False
 
 
 @pytest.mark.parametrize("operations", [("demote", "demote"), ("demote", "deactivate"), ("deactivate", "deactivate")])

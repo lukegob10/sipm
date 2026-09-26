@@ -79,6 +79,19 @@ def _user_by_soeid_or_404(session: Session, soeid: str) -> User:
     return user
 
 
+def _refresh_active_admin_actor(session: Session, actor: User) -> None:
+    # The role guard may have waited for another transaction, so the actor
+    # loaded by authentication can be stale by the time the mutation proceeds.
+    # Keep direct route tests using lightweight actor fixtures supported.
+    if isinstance(actor, User):
+        session.refresh(actor, attribute_names=["role", "is_active"])
+    if not getattr(actor, "is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Active user required",
+        )
+
+
 def _token_or_404(session: Session, user_id: str, token_id: str) -> ApiToken:
     token = (
         session.query(ApiToken)
@@ -132,6 +145,9 @@ def _set_global_admin_role(
     make_global_admin: bool,
 ) -> User:
     lock_global_admin_users(session)
+    _refresh_active_admin_actor(session, actor)
+    if not _is_global_admin(actor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
     session.refresh(target, attribute_names=["role", "is_active"])
     if make_global_admin and _is_global_admin(target):
         return target
@@ -465,6 +481,7 @@ def update_user(
     if payload.is_active is not None:
         if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            _refresh_active_admin_actor(session, current_user)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
@@ -508,6 +525,7 @@ def update_user_by_soeid(
     if payload.is_active is not None:
         if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            _refresh_active_admin_actor(session, current_user)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:

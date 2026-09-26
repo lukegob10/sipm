@@ -166,6 +166,12 @@ export function createTopbarCreateController({
           return;
         }
       });
+      els.topbarCreatePanel.addEventListener("focusout", (event) => {
+        const nextTarget = event.relatedTarget;
+        if (nextTarget === els.topbarCreateToggle) return;
+        if (nextTarget instanceof Node && els.topbarCreatePanel.contains(nextTarget)) return;
+        closeTopbarCreateMenu({ restoreFocus: false });
+      });
       els.topbarCreatePanel.addEventListener("click", (event) => {
         event.stopPropagation();
       });

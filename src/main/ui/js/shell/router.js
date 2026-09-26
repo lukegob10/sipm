@@ -120,7 +120,10 @@ export function createRouterController({
 
   function appRelativePath(pathname = window.location.pathname) {
     const raw = String(pathname || "/").trim() || "/";
-    if (APP_CONTEXT_PATH && raw.startsWith(APP_CONTEXT_PATH)) {
+    if (
+      APP_CONTEXT_PATH
+      && (raw === APP_CONTEXT_PATH || raw.startsWith(`${APP_CONTEXT_PATH}/`))
+    ) {
       const trimmed = raw.slice(APP_CONTEXT_PATH.length) || "/";
       return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
     }
@@ -253,10 +256,13 @@ export function createRouterController({
       : Promise.resolve(null);
     if (state.authed) {
       if (nextView === "team-capacity") {
-        return routeModuleReady.then(() => {
-          if (state.currentView !== nextView) return null;
-          return loadTeamCapacityData({ force: true });
-        }).catch((err) => {
+        let dataReady;
+        try {
+          dataReady = loadTeamCapacityData({ force: true });
+        } catch (err) {
+          dataReady = Promise.reject(err);
+        }
+        return Promise.all([routeModuleReady, dataReady]).catch((err) => {
           console.warn("Team capacity load failed", err);
         });
       } else {

@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createRouterController } from "../../js/shell/router.js";
+import { APP_CONTEXT_PATH } from "../../js/shell/paths.js";
 
 
 function buildRouterHarness(options = {}) {
@@ -64,6 +65,10 @@ describe("router controller", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/project-manager/");
     vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it.each(["master", "team-capacity"])("returns the %s foreground completion for startup coordination", async (view) => {
@@ -144,6 +149,13 @@ describe("router controller", () => {
     expect(controller.viewFromLocationPath("/program-dashboard")).toBe("program-dashboard");
     expect(controller.viewFromLocationPath("/spaces")).toBe("spaces");
     expect(controller.appRelativePath("/dashboard")).toBe("/dashboard");
+  });
+
+  it("does not treat a path sharing the context prefix as a route inside the app", () => {
+    const { controller } = buildRouterHarness();
+    if (!APP_CONTEXT_PATH) return;
+
+    expect(controller.viewFromLocationPath(`${APP_CONTEXT_PATH}gantt`)).toBe("master");
   });
 
   it("keeps governance routes admin-only while allowing team capacity for members", () => {
@@ -246,14 +258,25 @@ describe("router controller", () => {
     expect(renderActiveView).not.toHaveBeenCalled();
   });
 
-  it("waits for the team-capacity route module before forcing team-capacity data", async () => {
+  it("loads team-capacity data in parallel with its route module", async () => {
     const { controller, loadTeamCapacityData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
+    vi.useFakeTimers();
+    routeModuleLoaders["team-capacity"].mockImplementation(() => new Promise((resolve) => {
+      window.setTimeout(() => resolve({}), 50);
+    }));
+    loadTeamCapacityData.mockImplementation(() => new Promise((resolve) => {
+      window.setTimeout(resolve, 80);
+    }));
 
-    controller.setView("team-capacity");
+    const startedAt = Date.now();
+    const ready = controller.setView("team-capacity");
 
     expect(renderActiveView).not.toHaveBeenCalled();
-    await vi.waitFor(() => expect(routeModuleLoaders["team-capacity"]).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(loadTeamCapacityData).toHaveBeenCalledWith({ force: true }));
+    expect(routeModuleLoaders["team-capacity"]).toHaveBeenCalledTimes(1);
+    expect(loadTeamCapacityData).toHaveBeenCalledWith({ force: true });
+    await vi.advanceTimersByTimeAsync(80);
+    await ready;
+    expect(Date.now() - startedAt).toBe(80);
     expect(renderActiveView).not.toHaveBeenCalled();
   });
 });

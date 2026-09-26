@@ -32,18 +32,22 @@ export function createModalShellController({ els }) {
       console.warn("Confirm modal shell missing; canceling action.");
       return Promise.resolve(false);
     }
-    if (pendingConfirmResolve) {
+    const replacingPendingConfirmation = !!pendingConfirmResolve;
+    if (replacingPendingConfirmation) {
       const staleResolver = pendingConfirmResolve;
       pendingConfirmResolve = null;
       staleResolver(false);
     }
-    confirmReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!replacingPendingConfirmation) {
+      confirmReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
     els.confirmModalTitle.textContent = title;
     els.confirmModalMessage.textContent = message;
     els.confirmModalConfirm.textContent = confirmLabel;
     els.confirmModalCancel.textContent = cancelLabel;
     els.confirmModal.classList.remove("hidden");
     window.setTimeout(() => {
+      if (!pendingConfirmResolve || els.confirmModal?.classList.contains("hidden")) return;
       els.confirmModalConfirm?.focus();
     }, 0);
     return new Promise((resolve) => {

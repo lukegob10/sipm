@@ -29,6 +29,7 @@ import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./entities/mutation-context.js";
 import {
   renderSolutionActivityItems,
   renderSolutionTaskCard,
@@ -1876,6 +1877,8 @@ async function deleteTasksById(taskIds, options = {}) {
   if (!ids.length) {
     return { cancelled: false, deletedIds: [], failed: [] };
   }
+  const requestContext = captureEntityMutationContext(state);
+  const isCurrent = () => isEntityMutationContextCurrent(state, requestContext);
 
   const count = ids.length;
   const defaultTitle = count === 1 ? "Delete Task?" : "Delete Tasks?";
@@ -1889,7 +1892,7 @@ async function deleteTasksById(taskIds, options = {}) {
     message: options.message || defaultMessage,
     confirmLabel: options.confirmLabel || defaultConfirm,
   });
-  if (!confirmed) {
+  if (!confirmed || !isCurrent()) {
     return { cancelled: true, deletedIds: [], failed: [] };
   }
 
@@ -1902,6 +1905,9 @@ async function deleteTasksById(taskIds, options = {}) {
       deletedIds.push(id);
     } catch (err) {
       failed.push({ id, error: err });
+    }
+    if (!isCurrent()) {
+      return { cancelled: true, deletedIds: [], failed: [] };
     }
   }
 

@@ -180,6 +180,26 @@ describe("My Work simplified planning", () => {
     expect(ctx.els.myWorkRoot.querySelector("[data-my-work-select='beta']")).toBeTruthy();
   });
 
+  it.each([
+    [2, 2, "none"],
+    [1, 4, "backward"],
+  ])("preserves the search selection while replacing filtered results (%i, %i, %s)", (start, end, direction) => {
+    const ctx = context([taskRecord("task-1"), taskRecord("task-2")]);
+    renderMyWork(ctx);
+
+    const search = ctx.els.myWorkRoot.querySelector("[data-my-work-search]");
+    search.value = "Task 1";
+    search.focus();
+    search.setSelectionRange(start, end, direction);
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const replacement = ctx.els.myWorkRoot.querySelector("[data-my-work-search]");
+    expect(document.activeElement).toBe(replacement);
+    expect(replacement.selectionStart).toBe(start);
+    expect(replacement.selectionEnd).toBe(end);
+    expect(replacement.selectionDirection).toBe(direction);
+  });
+
   it("keeps completed work hidden by default and stages visible closed work in Later", () => {
     const records = [
       taskRecord("closed", {

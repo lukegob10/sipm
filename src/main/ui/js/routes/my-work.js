@@ -867,9 +867,22 @@ function bindInteractions(ctx, selected) {
   const root = ctx.els.myWorkRoot;
   const work = myWorkState(ctx.state);
   root.querySelector("[data-my-work-search]")?.addEventListener("input", (event) => {
+    const { selectionStart, selectionEnd, selectionDirection } = event.target;
     work.search = event.target.value;
     renderMyWork(ctx);
-    root.querySelector("[data-my-work-search]")?.focus();
+    const replacement = root.querySelector("[data-my-work-search]");
+    if (!replacement) return;
+    try {
+      replacement.focus({ preventScroll: true });
+    } catch {
+      replacement.focus();
+    }
+    if (selectionStart == null || selectionEnd == null || typeof replacement.setSelectionRange !== "function") return;
+    try {
+      replacement.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
+    } catch {
+      // Some browsers do not expose selection ranges for search inputs.
+    }
   });
   root.querySelector("[data-my-work-repo]")?.addEventListener("change", (event) => {
     work.repository = event.target.value;

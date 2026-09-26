@@ -88,4 +88,27 @@ describe("Repository inventory", () => {
     expect(ctx.els.repositoryInventoryRoot.textContent).toContain("example/payments");
     expect(ctx.els.repositoryInventoryRoot.textContent).not.toContain("example/sipm");
   });
+
+  it("preserves the search caret while filtering rerenders the inventory", () => {
+    const ctx = context([{
+      github_repo_url: "https://github.com/example/payments",
+      repository_name: "example/payments",
+      program_names: [],
+      project_names: [],
+      solution_names: ["Settlement API"],
+      solution_count: 1,
+      task_count: 2,
+    }]);
+    renderRepositories(ctx);
+    const search = ctx.els.repositoryInventoryRoot.querySelector("[data-repository-search]");
+    search.value = "settlement";
+    search.setSelectionRange(3, 7, "backward");
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const rerenderedSearch = ctx.els.repositoryInventoryRoot.querySelector("[data-repository-search]");
+    expect(document.activeElement).toBe(rerenderedSearch);
+    expect(rerenderedSearch.selectionStart).toBe(3);
+    expect(rerenderedSearch.selectionEnd).toBe(7);
+    expect(rerenderedSearch.selectionDirection).toBe("backward");
+  });
 });

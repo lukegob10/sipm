@@ -47,6 +47,8 @@ that every possible interaction has been tested.
 | Finding and reproduction | Correction | Closure |
 | --- | --- | --- |
 | Repeated entity submits issued concurrent writes; a late save could overwrite a newer editor or repopulate collections after a user/space change. | Program, project, solution, and task forms admit one save at a time. Editor revisions and form snapshots preserve newer drafts, attach a returned create ID to the same draft, and avoid rendering a different solution's task list. Shared context guards reject old user/space responses, including same-ID object replacements. Program reset invalidates its pending editor. | Fixed now; held-response regressions cover duplicate writes, draft edits/reset, editor switches, and context changes. |
+| Integration review found that a pending delete of A could close or show errors in a newly opened entity B editor; a failed task delete could also clear A's draft. | Program/project/solution deletion captures the editor revision before confirmation and guards later close/notices. A late confirmation for a replaced editor is canceled. Task deletion resets only after the requested task was deleted and the original editor/solution/context remain current; legitimate state/list updates still happen. Stale failures cannot clear the new context's refresh marker. | Fixed in follow-up `967938d`; deferred success/failure, same/different solution, late confirmation, and context rejection regressions. |
+| Workbench background renders replaced dirty fields, and a delayed save of A could reselect A after the user had opened and edited B. Delete notices could also land in B after selection changed. | Track the current task's baseline per form, preserve edited fields during same-task refresh, and update untouched fields. Intentional task changes reset the baseline. Saves apply current-context state/list updates without reselecting an older task, and acknowledge only the unchanged original editor. Notice ownership is checked again after rendering, including automatic selection of the next task after deletion. | Fixed in the final workbench follow-up; deferred unit cases and actual Chromium reproduction before/after. |
 | Approval cache and pending reads survived context changes; a pending request in space A could block loading space B or replace B's results. | Cache and requests belong to the exact user/space context. B starts immediately; stale A outcomes are ignored. Same-context reads share a request, forced refreshes still queue, and selected rows/counts clear on context change. | Fixed now; cache, pending-response, logout, and same-ID replacement regressions. |
 | Analytics retained a previous report after a space/session change. | Request and cache keys include state/user/space object identities and IDs. Restricted/disabled renders clear report data. Old responses cannot replace the current report; explicit all-space and specific-space scopes remain intact. | Fixed now; current-space, explicit-scope, out-of-order, logout, and same-ID replacement regressions. |
 | Hostile assignee values inserted extra workbench option markup. | Reuse the existing display escaping helper for option values and labels. | Fixed now; the regression reproduced extra options before the change and verifies literal text/values afterward. Arbitrary script execution was not demonstrated. |
@@ -84,6 +86,9 @@ first sorting commit. All hashes are stable and no commit was amended afterward.
 | `1319c9e8d3581b935657b2de28fa00d47eaaf40d` | Approval queue context ownership |
 | `c881a14eb12fc408b2a4963a1aabfa994ed729d9` | Analytics context invalidation |
 | `2b9632693c552a70dea25e843f8ddb1a648f750c` | Kanban and Calendar keyboard controls |
+| `4784772ac4ffec4401f772f72fcafce6b32e9370` | Initial review report |
+| `967938d6f0e3d47aba6eae1323720538d778b4cb` | Preserve newer entity editors after pending deletion |
+| `ad2bdf150ff4526692658ae4686b6f8eefa0022e` | Workbench draft preservation and asynchronous action ownership |
 
 ## Task sorting performance evidence
 
@@ -129,6 +134,18 @@ pending state, and keyboard focus restoration were verified.
 - Worker-reported scoped Python contract checks passed: workflows **25**,
   administration/entities **34**, and planning/reporting **94**. These are each
   worker's check counts, not a deduplicated suite total. No backend files changed.
+- Integration entity-delete follow-up: **2 files / 40 tests passed** on the
+  coordinator-updated Vitest **4.1.11**, with scoped ESLint and diff checks. These
+  cases were derived from the confirmed code path and tested after the fix;
+  they were not run as failing regressions against the earlier commit.
+- Final workbench follow-up: **4 files / 50 tests passed** on Vitest **4.1.11**
+  (`tasks-workbench`, `tasks-workbench-delete`, `tasks-workbench-entity-races`,
+  `tasks-workbench-filters`), with scoped ESLint, route mapping, and staged diff
+  checks. The worker reproduced the original draft overwrite, selection,
+  stale-context, and delete-notice failures with the new regressions before
+  applying the fix. The parent reran these four files and the held-response
+  Chromium checks against the final code. These follow-up counts overlap the
+  initial focused union and are not additional unique-test totals.
 - Full UI lint passed: `npm run lint:ui`.
 - Route module/test mapping passed:
   `python scripts/check_route_module_test_mapping.py`.
@@ -148,6 +165,12 @@ pending state, and keyboard focus restoration were verified.
   Repositories and seed canonical phases for Kanban. The stock smoke fixture
   disables startup seeding and contains no phase rows. The corrected fixture
   passed; these were not product regressions.
+- Workbench follow-up browser evidence: the earlier code **failed** after a held
+  save of task A completed while task B's draft was open; the selected task ID
+  changed back to A. With the fix, B remains selected, its draft and status are
+  preserved, and A's saved value is persisted. A second held save proves that
+  newer edits typed into B during its own save remain visible while the submitted
+  version is persisted. Both checks passed in Chromium with no page errors.
 - The local browser server was stopped after validation. All three workers and
   all parent Node/npm/browser test processes were finished before handing the
   shared tooling back to the coordinator for dependency updates and combined

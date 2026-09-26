@@ -122,4 +122,29 @@ describe("tasks workbench route", () => {
     soeidInput.dispatchEvent(new Event("input"));
     expect(select.value).toBe("");
   });
+
+  it("renders hostile assignee labels as text instead of creating extra options", () => {
+    document.body.innerHTML = `
+      <select id="assignee-filter"></select>
+      <select id="assignee-bulk"></select>
+    `;
+    const displayName = 'Good</option><option value="spoof" data-pwned="yes">Choose this fake account</option><option>';
+    const soeid = 'developer"><option value="spoof-id" data-pwned="yes">';
+    const ctx = {
+      state: { users: [{ soeid, display_name: displayName }] },
+      els: {
+        tasksWorkbenchAssignee: document.getElementById("assignee-filter"),
+        tasksWorkbenchBulkAssignee: document.getElementById("assignee-bulk"),
+      },
+      normalizeTasksWorkbenchUiState: vi.fn(),
+    };
+
+    populateTasksWorkbenchOptions(ctx);
+
+    const options = ctx.els.tasksWorkbenchAssignee.options;
+    expect(options).toHaveLength(3);
+    expect(options[2].value).toBe(soeid);
+    expect(options[2].textContent).toBe(displayName);
+    expect(ctx.els.tasksWorkbenchAssignee.querySelector("[data-pwned]")).toBeNull();
+  });
 });

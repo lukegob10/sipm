@@ -10,8 +10,12 @@ const analyticsState = {
   routes: null,
   performance: null,
   requestId: 0,
+  requestedQueryKey: "",
   lastQueryKey: "",
+  context: null,
 };
+const analyticsObjectIds = new WeakMap();
+let nextAnalyticsObjectId = 0;
 
 function esc(value) {
   return String(value || "")
@@ -35,13 +39,36 @@ function scopeSpaceOptions(ctx) {
     .join("");
 }
 
+function objectIdentity(value) {
+  if (!value || typeof value !== "object") return "";
+  if (!analyticsObjectIds.has(value)) analyticsObjectIds.set(value, ++nextAnalyticsObjectId);
+  return analyticsObjectIds.get(value);
+}
+
 function queryKey(ctx) {
+  const user = ctx.state?.user;
+  const activeSpace = ctx.state?.activeSpace;
   return [
+    objectIdentity(ctx.state),
+    objectIdentity(user),
+    objectIdentity(activeSpace),
+    user?.user_id || user?.soeid || user?.email || "",
     analyticsState.days,
     analyticsState.scope,
     analyticsState.selectedSpaceId,
-    ctx.state?.activeSpace?.space_id || "",
+    activeSpace?.space_id || "",
   ].join("|");
+}
+
+function clearAnalyticsData() {
+  analyticsState.requestId += 1;
+  analyticsState.requestedQueryKey = "";
+  analyticsState.lastQueryKey = "";
+  analyticsState.loading = false;
+  analyticsState.error = "";
+  analyticsState.summary = null;
+  analyticsState.routes = null;
+  analyticsState.performance = null;
 }
 
 function requestQueryString() {
@@ -79,8 +106,17 @@ async function loadAnalytics(ctx, options = {}) {
   if (!options.force && !analyticsState.error && analyticsState.lastQueryKey === nextQueryKey && analyticsState.summary) {
     return;
   }
+  if (!options.force && analyticsState.loading && analyticsState.requestedQueryKey === nextQueryKey) {
+    return;
+  }
   const requestId = analyticsState.requestId + 1;
   analyticsState.requestId = requestId;
+  analyticsState.requestedQueryKey = nextQueryKey;
+  if (analyticsState.lastQueryKey !== nextQueryKey) {
+    analyticsState.summary = null;
+    analyticsState.routes = null;
+    analyticsState.performance = null;
+  }
   analyticsState.loading = true;
   analyticsState.error = "";
   renderAnalytics(ctx);
@@ -89,23 +125,33 @@ async function loadAnalytics(ctx, options = {}) {
     const query = requestQueryString();
     const suffix = query ? `?${query}` : "";
     const dashboard = await ctx.api(`/analytics/dashboard${suffix}`);
-    if (analyticsState.requestId !== requestId) return;
+    if (!isCurrentAnalyticsRequest(ctx, requestId, nextQueryKey)) return;
     analyticsState.summary = dashboard?.summary || null;
     analyticsState.routes = dashboard?.routes || null;
     analyticsState.performance = dashboard?.performance || null;
     analyticsState.lastQueryKey = nextQueryKey;
   } catch (err) {
-    if (analyticsState.requestId !== requestId) return;
+    if (!isCurrentAnalyticsRequest(ctx, requestId, nextQueryKey)) return;
     analyticsState.error = err?.message || "Failed to load usage analytics.";
   } finally {
-    if (analyticsState.requestId === requestId) {
+    if (isCurrentAnalyticsRequest(ctx, requestId, nextQueryKey)) {
       analyticsState.loading = false;
-      renderAnalytics(ctx);
+      renderAnalytics(analyticsState.context || ctx);
       if (typeof ctx.noteRouteDataLoaded === "function") {
         ctx.noteRouteDataLoaded(performance.now() - startedAt);
       }
+    } else if (analyticsState.requestId === requestId) {
+      analyticsState.loading = false;
+      analyticsState.requestedQueryKey = "";
+      renderAnalytics(analyticsState.context || ctx);
     }
   }
+}
+
+function isCurrentAnalyticsRequest(ctx, requestId, expectedQueryKey) {
+  return analyticsState.requestId === requestId
+    && queryKey(ctx) === expectedQueryKey
+    && queryKey(analyticsState.context || ctx) === expectedQueryKey;
 }
 
 function bindAnalyticsControls(root, ctx) {
@@ -115,25 +161,25 @@ function bindAnalyticsControls(root, ctx) {
     if (!(target instanceof HTMLSelectElement)) return;
     if (target.name === "analytics-days") {
       analyticsState.days = Number(target.value) || 7;
-      void loadAnalytics(ctx, { force: true });
+      void loadAnalytics(analyticsState.context || ctx, { force: true });
       return;
     }
     if (target.name === "analytics-scope") {
       analyticsState.scope = target.value || "current";
-      void loadAnalytics(ctx, { force: true });
+      void loadAnalytics(analyticsState.context || ctx, { force: true });
       return;
     }
     if (target.name === "analytics-space") {
       analyticsState.selectedSpaceId = target.value || "";
       if (analyticsState.scope !== "space") analyticsState.scope = "space";
-      void loadAnalytics(ctx, { force: true });
+      void loadAnalytics(analyticsState.context || ctx, { force: true });
     }
   });
   root.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-analytics-action]");
     if (!button) return;
     if (button.getAttribute("data-analytics-action") === "reload") {
-      void loadAnalytics(ctx, { force: true });
+      void loadAnalytics(analyticsState.context || ctx, { force: true });
     }
   });
   root._analyticsBound = true;
@@ -143,10 +189,12 @@ export function renderAnalytics(ctx) {
   const renderStartedAt = performance.now();
   const root = ctx.els?.analyticsRoot;
   if (!root) return;
+  analyticsState.context = ctx;
   ensureScopeDefaults(ctx);
   bindAnalyticsControls(root, ctx);
 
   if (!ctx.usageAnalyticsEnabled?.()) {
+    clearAnalyticsData();
     root.innerHTML = renderRouteState({
       kind: "restricted",
       kicker: "Feature unavailable",
@@ -158,6 +206,7 @@ export function renderAnalytics(ctx) {
   }
 
   if (!ctx.state?.activeSpace?.is_global_admin) {
+    clearAnalyticsData();
     root.innerHTML = renderRouteState({
       kind: "restricted",
       kicker: "Restricted view",
@@ -168,7 +217,10 @@ export function renderAnalytics(ctx) {
     return;
   }
 
-  if (!analyticsState.loading && !analyticsState.summary && !analyticsState.error) {
+  const currentQueryKey = queryKey(ctx);
+  if (analyticsState.requestedQueryKey !== currentQueryKey) {
+    void loadAnalytics(ctx, { force: true });
+  } else if (!analyticsState.loading && !analyticsState.summary && !analyticsState.error) {
     void loadAnalytics(ctx, { force: false });
   }
 

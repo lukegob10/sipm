@@ -163,20 +163,22 @@ export function createProgramEntityController({
         const id = els.programForm?.querySelector('[name="program_id"]')?.value || "";
         if (!id) return;
         const programName = els.programForm?.querySelector('[name="program_name"]')?.value || "this program";
+        const formRevision = programFormRevision;
+        const isSameEditor = () => formRevision === programFormRevision;
         const requestContext = captureEntityMutationContext(state);
         const confirmed = await showConfirmModal({
           title: "Delete Program?",
           message: `Delete program "${programName}"? Programs with active projects cannot be deleted.`,
           confirmLabel: "Delete Program",
         });
-        if (!confirmed || !isEntityMutationContextCurrent(state, requestContext)) return;
+        if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
         try {
           setDeliverableFormNotice(els.programFormStatus, "Deleting program...");
           markIgnoreRefresh("programs");
           await api(`/programs/${id}`, { method: "DELETE" });
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.programs, id, "program_id");
-          closeProgramForm();
+          if (isSameEditor()) closeProgramForm();
           populateSelects();
           renderActiveView();
           if (typeof trackWorkflow === "function") {
@@ -188,7 +190,9 @@ export function createProgramEntityController({
           if (typeof trackWorkflow === "function") {
             trackWorkflow("programs", "delete", "failure", { source: "program_form" });
           }
-          setDeliverableFormNotice(els.programFormStatus, `Delete failed: ${err.message}`, "error");
+          if (isSameEditor()) {
+            setDeliverableFormNotice(els.programFormStatus, `Delete failed: ${err.message}`, "error");
+          }
         }
       });
     }

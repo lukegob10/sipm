@@ -209,20 +209,22 @@ export function createProjectEntityController({
         const id = els.projectForm?.querySelector('[name="project_id"]')?.value || "";
         if (!id) return;
         const projectName = els.projectForm?.querySelector('[name="project_name"]')?.value || "this project";
+        const formRevision = projectFormRevision;
+        const isSameEditor = () => formRevision === projectFormRevision;
         const requestContext = captureEntityMutationContext(state);
         const confirmed = await showConfirmModal({
           title: "Delete Project?",
           message: `Delete project "${projectName}"? This cannot be undone.`,
           confirmLabel: "Delete Project",
         });
-        if (!confirmed || !isEntityMutationContextCurrent(state, requestContext)) return;
+        if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
         try {
           setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");
           markIgnoreRefresh("projects");
           await api(`/projects/${id}`, { method: "DELETE" });
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.projects, id, "project_id");
-          closeProjectForm({ discardChanges: true });
+          if (isSameEditor()) closeProjectForm({ discardChanges: true });
           populateSelects();
           renderMasterTable();
           renderDashboard();
@@ -238,11 +240,13 @@ export function createProjectEntityController({
           if (typeof trackWorkflow === "function") {
             trackWorkflow("projects", "delete", "failure", { source: "project_form" });
           }
-          setDeliverableFormNotice(
-            els.projectFormStatus,
-            `Delete failed: ${err.message}`,
-            "error"
-          );
+          if (isSameEditor()) {
+            setDeliverableFormNotice(
+              els.projectFormStatus,
+              `Delete failed: ${err.message}`,
+              "error"
+            );
+          }
         }
       });
     }

@@ -33,6 +33,7 @@ function programEls() {
         <input name="program_id" />
         <input name="program_name" />
         <textarea name="description"></textarea>
+        <button id="program-delete" type="button"></button>
         <button id="program-reset" type="reset"></button>
         <button id="program-submit" type="submit"></button>
       </form>
@@ -45,6 +46,7 @@ function programEls() {
     programModalTitle: document.querySelector("#program-title"),
     programForm: document.querySelector("#program-form"),
     programSubmitBtn: document.querySelector("#program-submit"),
+    deleteProgramBtn: document.querySelector("#program-delete"),
     programFormStatus: document.querySelector("#program-status"),
   };
 }
@@ -104,6 +106,7 @@ function solutionEls() {
         <textarea name="blockers"></textarea>
         <textarea name="risks"></textarea>
         <select name="current_phase"><option value=""></option></select>
+        <button id="solution-delete" type="button"></button>
         <button id="solution-submit" type="submit"></button>
       </form>
       <p id="solution-status"></p>
@@ -115,6 +118,7 @@ function solutionEls() {
     solutionModalTitle: document.querySelector("#solution-title"),
     solutionForm: document.querySelector("#solution-form"),
     solutionSubmitBtn: document.querySelector("#solution-submit"),
+    deleteSolutionBtn: document.querySelector("#solution-delete"),
     solutionFormStatus: document.querySelector("#solution-status"),
   };
 }
@@ -771,5 +775,152 @@ describe("entity form submissions", () => {
     expect(form.querySelector('[name="program_id"]').value).toBe("");
     expect(form.querySelector('[name="program_name"]').value).toBe("New draft after reset");
     expect(deps.els.programModalTitle.textContent).toBe("Create Program");
+  });
+});
+
+describe("entity delete editor races", () => {
+  const deleteCases = [
+    {
+      name: "program",
+      build: buildProgramController,
+      open(controller, record) { controller.openProgramForm(record); },
+      bind(controller) { controller.bindProgramForm(); },
+      deleteButton(els) { return els.deleteProgramBtn; },
+      modal(els) { return els.programModal; },
+      form(els) { return els.programForm; },
+      status(els) { return els.programFormStatus; },
+      title(els) { return els.programModalTitle; },
+      collection: "programs",
+      idField: "program_id",
+      nameField: "program_name",
+      path: "/programs/entity-a",
+      assertRefreshed(deps) { expect(deps.renderActiveView).toHaveBeenCalled(); },
+    },
+    {
+      name: "project",
+      build: buildProjectController,
+      open(controller, record) { controller.openProjectForm(record); },
+      bind(controller) { controller.bindProjectForm(); },
+      deleteButton(els) { return els.deleteProjectBtn; },
+      modal(els) { return els.projectModal; },
+      form(els) { return els.projectForm; },
+      status(els) { return els.projectFormStatus; },
+      title(els) { return els.projectModalTitle; },
+      collection: "projects",
+      idField: "project_id",
+      nameField: "project_name",
+      path: "/projects/entity-a",
+      assertRefreshed(deps) { expect(deps.renderMasterTable).toHaveBeenCalled(); },
+    },
+    {
+      name: "solution",
+      build: buildSolutionController,
+      open(controller, record) { controller.openSolutionModal(record); },
+      bind(controller) { controller.bindSolutionForm(); },
+      deleteButton(els) { return els.deleteSolutionBtn; },
+      modal(els) { return els.solutionModal; },
+      form(els) { return els.solutionForm; },
+      status(els) { return els.solutionFormStatus; },
+      title(els) { return els.solutionModalTitle; },
+      collection: "solutions",
+      idField: "solution_id",
+      nameField: "solution_name",
+      path: "/solutions/entity-a",
+      assertRefreshed(deps) { expect(deps.renderMasterTable).toHaveBeenCalled(); },
+    },
+  ];
+
+  function recordFor(testCase, id, name) {
+    return { [testCase.idField]: id, [testCase.nameField]: name };
+  }
+
+  function removeRecord(rows, id, idField) {
+    const index = rows.findIndex((row) => row[idField] === id);
+    if (index >= 0) rows.splice(index, 1);
+  }
+
+  it.each(deleteCases)("keeps another $name editor open after the confirmed delete succeeds", async (testCase) => {
+    const request = deferred();
+    const trackWorkflow = vi.fn();
+    const { controller, deps } = testCase.build({
+      api: vi.fn(() => request.promise),
+      removeById: vi.fn(removeRecord),
+      trackWorkflow,
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    await vi.waitFor(() => expect(deps.api).toHaveBeenCalledWith(testCase.path, { method: "DELETE" }));
+    testCase.open(controller, rows[1]);
+    const noticeCallCount = deps.setDeliverableFormNotice.mock.calls.length;
+    request.resolve({ ok: true });
+    await vi.waitFor(() => expect(deps.removeById).toHaveBeenCalledWith(rows, "entity-a", testCase.idField));
+
+    expect(rows.map((row) => row[testCase.idField])).toEqual(["entity-b"]);
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
+    expect(testCase.title(deps.els).textContent).toMatch(/Edit/);
+    expect(deps.setDeliverableFormNotice).toHaveBeenCalledTimes(noticeCallCount);
+    expect(trackWorkflow).toHaveBeenCalledWith(testCase.collection, "delete", "success", { source: `${testCase.name}_form` });
+    testCase.assertRefreshed(deps);
+  });
+
+  it.each(deleteCases)("keeps another $name editor and its notice untouched after delete fails", async (testCase) => {
+    const request = deferred();
+    const trackWorkflow = vi.fn();
+    const { controller, deps } = testCase.build({
+      api: vi.fn(() => request.promise),
+      trackWorkflow,
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    await vi.waitFor(() => expect(deps.api).toHaveBeenCalledWith(testCase.path, { method: "DELETE" }));
+    testCase.open(controller, rows[1]);
+    const noticeCallCount = deps.setDeliverableFormNotice.mock.calls.length;
+    request.reject(new Error("Delete failed"));
+    await vi.waitFor(() => expect(trackWorkflow).toHaveBeenCalledWith(
+      testCase.collection,
+      "delete",
+      "failure",
+      { source: `${testCase.name}_form` },
+    ));
+
+    expect(rows.map((row) => row[testCase.idField])).toEqual(["entity-a", "entity-b"]);
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
+    expect(deps.setDeliverableFormNotice).toHaveBeenCalledTimes(noticeCallCount);
+  });
+
+  it.each(deleteCases)("does not send a $name delete if confirmation resolves after switching editors", async (testCase) => {
+    const confirmation = deferred();
+    const { controller, deps } = testCase.build({
+      showConfirmModal: vi.fn(() => confirmation.promise),
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    testCase.open(controller, rows[1]);
+    confirmation.resolve(true);
+    await flushPromises();
+
+    expect(deps.api).not.toHaveBeenCalled();
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
   });
 });

@@ -302,13 +302,15 @@ export function createSolutionEntityController({
         const id = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
         if (!id) return;
         const solutionName = els.solutionForm?.querySelector('[name="solution_name"]')?.value || "this solution";
+        const formRevision = solutionFormRevision;
+        const isSameEditor = () => formRevision === solutionFormRevision;
         const requestContext = captureEntityMutationContext(state);
         const confirmed = await showConfirmModal({
           title: "Delete Solution?",
           message: `Delete solution "${solutionName}"? This cannot be undone.`,
           confirmLabel: "Delete Solution",
         });
-        if (!confirmed || !isEntityMutationContextCurrent(state, requestContext)) return;
+        if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
         try {
           setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");
           markIgnoreRefresh("solutions");
@@ -316,7 +318,7 @@ export function createSolutionEntityController({
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.solutions, id, "solution_id");
           delete state.solutionDocuments[id];
-          closeSolutionModal({ discardChanges: true });
+          if (isSameEditor()) closeSolutionModal({ discardChanges: true });
           populateSelects();
           renderMasterTable();
           renderDashboard();
@@ -332,11 +334,13 @@ export function createSolutionEntityController({
           if (typeof trackWorkflow === "function") {
             trackWorkflow("solutions", "delete", "failure", { source: "solution_form" });
           }
-          setDeliverableFormNotice(
-            els.solutionFormStatus,
-            `Delete failed: ${err.message}`,
-            "error"
-          );
+          if (isSameEditor()) {
+            setDeliverableFormNotice(
+              els.solutionFormStatus,
+              `Delete failed: ${err.message}`,
+              "error"
+            );
+          }
         }
       });
     }

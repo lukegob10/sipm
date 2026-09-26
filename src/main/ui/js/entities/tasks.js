@@ -292,42 +292,82 @@ export function createTaskEntityController({
         const id = els.taskForm?.querySelector('[name="task_id"]')?.value || "";
         if (!id) return;
         const solutionId = els.taskForm?.querySelector('[name="solution_id"]')?.value || "";
-        const result = await deleteTasksById([id], {
-          title: "Delete Task?",
-        });
+        const selectedSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+        const editorRevision = taskFormRevision;
+        const requestContext = captureEntityMutationContext(state);
+        const isEditorCurrent = () => taskFormRevision === editorRevision
+          && (els.taskForm?.querySelector('[name="task_id"]')?.value || "") === id
+          && (els.taskForm?.querySelector('[name="solution_id"]')?.value || "") === solutionId;
+        const isSolutionSelectionCurrent = () => (
+          (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "") === selectedSolutionId
+        );
+        let result;
+        try {
+          result = await deleteTasksById([id], {
+            title: "Delete Task?",
+          });
+        } catch (err) {
+          if (!isEntityMutationContextCurrent(state, requestContext)) return;
+          ignoreNextRefresh.delete("tasks");
+          if (typeof trackWorkflow === "function") {
+            trackWorkflow("tasks", "delete", "failure", { source: "task_form" });
+          }
+          if (isEditorCurrent() && isSolutionSelectionCurrent()) {
+            setDeliverableFormNotice(
+              els.taskFormStatus,
+              `Delete failed: ${err.message || "Unable to delete task."}`,
+              "error"
+            );
+          }
+          return;
+        }
         if (result.cancelled) return;
+        if (!isEntityMutationContextCurrent(state, requestContext)) return;
         if (!result.deletedIds.length) {
           ignoreNextRefresh.delete("tasks");
         }
+        const taskDeleted = result.deletedIds.includes(id);
+        const editorIsCurrent = isEditorCurrent() && isSolutionSelectionCurrent();
+        const shouldResetEditor = taskDeleted && editorIsCurrent;
         const solution = state.solutions.find((item) => item.solution_id === solutionId) || null;
-        if (solution) {
-          showTaskForm(solution);
-        } else {
-          els.taskForm.reset();
-          els.taskForm.querySelector('[name="task_id"]').value = "";
-          if (els.deleteTaskBtn) els.deleteTaskBtn.disabled = true;
-          setTaskActionButtonLabel(false);
+        if (shouldResetEditor) {
+          if (solution) {
+            showTaskForm(solution);
+          } else {
+            els.taskForm.reset();
+            els.taskForm.querySelector('[name="task_id"]').value = "";
+            if (els.deleteTaskBtn) els.deleteTaskBtn.disabled = true;
+            setTaskActionButtonLabel(false);
+          }
         }
-        renderSolutionTasks(solutionId);
-        renderDashboard();
-        renderGantt();
+        if (taskDeleted && selectedSolutionId && selectedSolutionId === solutionId && isSolutionSelectionCurrent()) {
+          renderSolutionTasks(solutionId);
+        }
+        if (taskDeleted) {
+          renderDashboard();
+          renderGantt();
+        }
         if (result.failed.length) {
           if (typeof trackWorkflow === "function") {
             trackWorkflow("tasks", "delete", "failure", { source: "task_form" });
           }
-          setDeliverableFormNotice(
-            els.taskFormStatus,
-            `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete task."}`,
-            "error"
-          );
+          if (editorIsCurrent) {
+            setDeliverableFormNotice(
+              els.taskFormStatus,
+              `Delete failed: ${result.failed[0]?.error?.message || "Unable to delete task."}`,
+              "error"
+            );
+          }
           return;
         }
-        setDeliverableFormNotice(
-          els.taskFormStatus,
-          `Deleted task at ${timestampLabel()}.`,
-          "success",
-          3200
-        );
+        if (shouldResetEditor) {
+          setDeliverableFormNotice(
+            els.taskFormStatus,
+            `Deleted task at ${timestampLabel()}.`,
+            "success",
+            3200
+          );
+        }
         if (typeof trackWorkflow === "function") {
           trackWorkflow("tasks", "delete", "success", { source: "task_form" });
         }

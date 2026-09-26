@@ -79,6 +79,16 @@ function submit(form) {
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("task workbench form request races", () => {
   it("sends one create and preserves a newer draft without leaving it in create mode", async () => {
     let resolveRequest;
@@ -153,6 +163,115 @@ describe("task workbench form request races", () => {
 
     await vi.waitFor(() => expect(deps.deleteTasksById).toHaveBeenCalledOnce());
     expect(deps.markIgnoreRefresh).not.toHaveBeenCalled();
+    expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
+  });
+
+  it("keeps the newly opened task editor when an earlier delete succeeds", async () => {
+    const pendingDelete = deferred();
+    const { controller, deps } = taskController(vi.fn());
+    deps.deleteTasksById.mockReturnValue(pendingDelete.promise);
+    controller.bindTaskForm();
+    controller.fillTaskForm({
+      task_id: "task-a",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Task A",
+    });
+
+    deps.els.deleteTaskBtn.click();
+    await vi.waitFor(() => expect(deps.deleteTasksById).toHaveBeenCalledOnce());
+    deps.els.solutionForm.querySelector('[name="solution_id"]').value = "solution-2";
+    controller.fillTaskForm({
+      task_id: "task-b",
+      project_id: "project-2",
+      solution_id: "solution-2",
+      task_name: "Task B",
+    });
+    pendingDelete.resolve({ cancelled: false, deletedIds: ["task-a"], failed: [] });
+
+    await vi.waitFor(() => expect(deps.renderDashboard).toHaveBeenCalledOnce());
+    expect(deps.els.taskForm.querySelector('[name="task_id"]').value).toBe("task-b");
+    expect(deps.els.taskForm.querySelector('[name="task_name"]').value).toBe("Task B");
+    expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
+    expect(deps.setDeliverableFormNotice).not.toHaveBeenCalled();
+  });
+
+  it("refreshes the deleted task's solution list without replacing another task editor", async () => {
+    const pendingDelete = deferred();
+    const { controller, deps } = taskController(vi.fn());
+    deps.deleteTasksById.mockReturnValue(pendingDelete.promise);
+    controller.bindTaskForm();
+    controller.fillTaskForm({
+      task_id: "task-a",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Task A",
+    });
+
+    deps.els.deleteTaskBtn.click();
+    await vi.waitFor(() => expect(deps.deleteTasksById).toHaveBeenCalledOnce());
+    controller.fillTaskForm({
+      task_id: "task-b",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Task B",
+    });
+    pendingDelete.resolve({ cancelled: false, deletedIds: ["task-a"], failed: [] });
+
+    await vi.waitFor(() => expect(deps.renderSolutionTasks).toHaveBeenCalledWith("solution-1"));
+    expect(deps.els.taskForm.querySelector('[name="task_id"]').value).toBe("task-b");
+    expect(deps.els.taskForm.querySelector('[name="task_name"]').value).toBe("Task B");
+    expect(deps.setDeliverableFormNotice).not.toHaveBeenCalled();
+  });
+
+  it("keeps the task editor open and reports a failed deletion", async () => {
+    const { controller, deps } = taskController(vi.fn());
+    deps.deleteTasksById.mockResolvedValue({
+      cancelled: false,
+      deletedIds: [],
+      failed: [{ error: { message: "Still in use" } }],
+    });
+    controller.bindTaskForm();
+    controller.fillTaskForm({
+      task_id: "task-a",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Task A",
+    });
+
+    deps.els.deleteTaskBtn.click();
+
+    await vi.waitFor(() => expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(
+      deps.els.taskFormStatus,
+      "Delete failed: Still in use",
+      "error"
+    ));
+    expect(deps.els.taskForm.querySelector('[name="task_id"]').value).toBe("task-a");
+    expect(deps.els.taskForm.querySelector('[name="task_name"]').value).toBe("Task A");
+    expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
+    expect(deps.renderDashboard).not.toHaveBeenCalled();
+  });
+
+  it("does not clear a new space's refresh marker when an old delete rejects", async () => {
+    const pendingDelete = deferred();
+    const { controller, deps } = taskController(vi.fn());
+    deps.deleteTasksById.mockReturnValue(pendingDelete.promise);
+    controller.bindTaskForm();
+    controller.fillTaskForm({
+      task_id: "task-a",
+      project_id: "project-1",
+      solution_id: "solution-1",
+      task_name: "Task A",
+    });
+
+    deps.els.deleteTaskBtn.click();
+    deps.state.activeSpace = { space_id: "space-2" };
+    deps.ignoreNextRefresh.add("tasks");
+    pendingDelete.reject(new Error("Old request failed"));
+    await Promise.resolve();
+
+    expect(deps.ignoreNextRefresh.has("tasks")).toBe(true);
+    expect(deps.setDeliverableFormNotice).not.toHaveBeenCalled();
     expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
   });
 

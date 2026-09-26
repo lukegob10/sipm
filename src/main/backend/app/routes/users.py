@@ -37,6 +37,7 @@ from ..services.user_admin_guards import (
     ensure_actor_can_modify_user,
     ensure_user_can_be_deactivated,
     is_global_admin_user as _is_global_admin,
+    lock_global_admin_users,
     normalized_global_role_expr as _normalized_global_role_expr,
 )
 from ..utils import read_csv
@@ -130,6 +131,8 @@ def _set_global_admin_role(
     target: User,
     make_global_admin: bool,
 ) -> User:
+    lock_global_admin_users(session)
+    session.refresh(target, attribute_names=["role", "is_active"])
     if make_global_admin and _is_global_admin(target):
         return target
     if (not make_global_admin) and (not _is_global_admin(target)):
@@ -460,8 +463,9 @@ def update_user(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active:
+        if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):
@@ -502,8 +506,9 @@ def update_user_by_soeid(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active:
+        if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):

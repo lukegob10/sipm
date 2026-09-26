@@ -75,6 +75,33 @@ def lock_space_admin_spaces(session: Session, space_ids: Iterable[str]) -> list[
     return list(session.scalars(statement).all())
 
 
+def _global_admin_lock_statement() -> Select:
+    return (
+        select(User.user_id)
+        .where(normalized_global_role_expr() == "global_admin")
+        .order_by(User.user_id.asc())
+        .with_for_update()
+    )
+
+
+def lock_global_admin_users(session: Session) -> None:
+    """Serialize role and activation changes before checking the final admin."""
+    with session.no_autoflush:
+        if session.get_bind().dialect.name == "sqlite":
+            has_admin = session.scalar(
+                select(User.user_id).where(normalized_global_role_expr() == "global_admin").limit(1)
+            )
+            if has_admin is None:
+                return
+            session.execute(
+                update(User)
+                .where(normalized_global_role_expr() == "global_admin")
+                .values({User.user_id: User.user_id, User.updated_at: User.updated_at})
+                .execution_options(synchronize_session=False)
+            )
+        session.scalars(_global_admin_lock_statement()).all()
+
+
 def count_active_global_admins(session: Session) -> int:
     return (
         session.query(User)
@@ -136,6 +163,10 @@ def ensure_actor_can_modify_user(*, actor: User, target: User) -> None:
 
 
 def ensure_user_can_be_deactivated(session: Session, user: User) -> None:
+    lock_global_admin_users(session)
+    # Role changes may have committed after this User was initially loaded.
+    # Preserve unrelated pending profile edits while refreshing guard fields.
+    session.refresh(user, attribute_names=["role", "is_active"])
     if not user.is_active:
         return
     if is_global_admin_user(user) and count_active_global_admins(session) <= 1:

@@ -191,11 +191,6 @@ def update_project(
     if "program_id" in update_data:
         program = _ensure_program_exists(session, update_data["program_id"], space_ctx)
         update_data["program_id"] = program.program_id
-    before = {field: getattr(project, field) for field in update_data.keys()}
-    for field, value in update_data.items():
-        setattr(project, field, value)
-    project.updated_at = datetime.now(timezone.utc)
-
     if "project_name" in update_data and update_data["project_name"]:
         conflict = (
             _project_query(session, space_ctx)
@@ -207,6 +202,28 @@ def update_project(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Project name already exists"
             )
+        deleted_conflicts = (
+            session.query(Project)
+            .filter(Project.deleted_at.is_not(None))
+            .filter(Project.space_id == space_ctx.space_id)
+            .filter(Project.project_name == update_data["project_name"])
+            .all()
+        )
+        now = datetime.now(timezone.utc)
+        for deleted in deleted_conflicts:
+            deleted.project_name = _deleted_project_name(
+                deleted.project_name,
+                deleted.project_id,
+                deleted.deleted_at or now,
+            )
+            deleted.updated_at = now
+            session.add(deleted)
+        if deleted_conflicts:
+            session.flush()
+    before = {field: getattr(project, field) for field in update_data.keys()}
+    for field, value in update_data.items():
+        setattr(project, field, value)
+    project.updated_at = datetime.now(timezone.utc)
 
     try:
         session.add(project)

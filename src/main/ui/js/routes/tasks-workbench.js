@@ -1,5 +1,25 @@
 import { statusPillMarkup } from "../utils/display-tokens.js";
 import { taskNameSortPresentation } from "../utils/task-sort.js";
+import { applyTasksWorkbenchBulkAction, syncTasksWorkbenchBulkInputs } from "./tasks-workbench/bulk-actions.js";
+import {
+  fillTasksWorkbenchForm,
+  scrollActiveTaskIntoView,
+  syncTasksWorkbenchDrawer,
+} from "./tasks-workbench/drawer.js";
+import {
+  bindTasksWorkbenchControls,
+  updateTasksWorkbenchSolutionOptions,
+} from "./tasks-workbench/interactions.js";
+
+export {
+  applyTasksWorkbenchBulkAction,
+  bindTasksWorkbenchControls,
+  fillTasksWorkbenchForm,
+  scrollActiveTaskIntoView,
+  syncTasksWorkbenchBulkInputs,
+  syncTasksWorkbenchDrawer,
+  updateTasksWorkbenchSolutionOptions,
+};
 
 function esc(value) {
   return String(value || "")

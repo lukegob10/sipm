@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 
-BASE_DIR = Path(__file__).resolve().parents[2] / "src" / "main"
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -45,13 +45,34 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
             os.environ[key] = value
 
 
+def _repo_root_with_env(directories: tuple[Path, ...]) -> Path | None:
+    for candidate in directories:
+        if candidate.name == "main" and candidate.parent.name == "src":
+            repo_root = candidate.parents[1]
+            if (repo_root / ".env").exists() or (repo_root / ".env.local").exists():
+                return repo_root
+    return None
+
+
 def _find_repo_root() -> Path:
     cwd = Path.cwd().resolve()
-    for candidate in (cwd, *cwd.parents):
+    directories = (cwd, *cwd.parents)
+
+    # The repo-root environment is authoritative over the deprecated
+    # src/main/.env fallback, even when the process starts inside src/main.
+    repo_root = _repo_root_with_env(directories)
+    if repo_root is not None:
+        return repo_root
+
+    for candidate in directories:
         if (candidate / ".env").exists() or (candidate / ".env.local").exists():
             return candidate
     # Walk upward to locate the first directory that contains `.env`.
-    for candidate in Path(__file__).resolve().parents:
+    source_directories = tuple(Path(__file__).resolve().parents)
+    repo_root = _repo_root_with_env(source_directories)
+    if repo_root is not None:
+        return repo_root
+    for candidate in source_directories:
         if (candidate / ".env").exists() or (candidate / ".env.local").exists():
             return candidate
     # Fallback: repository layout under src/main in this workspace.

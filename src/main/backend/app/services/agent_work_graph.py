@@ -70,6 +70,7 @@ def build_work_graph(
     limit: int = 50,
 ) -> AgentWorkGraphRead:
     programs = _program_nodes(session, space_ctx, projection=projection)
+    program_names = {program.program_id: program.program_name for program in programs}
     updated_since_value = _utc_naive(updated_since) if updated_since else None
     query = (
         session.query(Project)
@@ -279,19 +280,6 @@ def build_work_graph(
                 tasks=tasks_by_solution.get(solution.solution_id, []),
             )
         )
-
-    program_names = {
-        row.program_id: row.program_name
-        for row in (
-            session.query(Program)
-            .filter(Program.deleted_at.is_(None))
-            .filter(Program.space_id == space_ctx.space_id)
-            .filter(
-                Program.program_id.in_([project.program_id for project in projects])
-            )
-            .all()
-        )
-    }
 
     records = []
     for project in projects:

@@ -1,3 +1,5 @@
+import { escDisplay } from "../../utils/display-tokens.js";
+
 export function populateTasksWorkbenchOptions(ctx, { projectOptionsHtml = "" } = {}) {
   const { state, els, normalizeTasksWorkbenchUiState } = ctx;
 
@@ -9,7 +11,9 @@ export function populateTasksWorkbenchOptions(ctx, { projectOptionsHtml = "" } =
     const users = state.users
       .filter((user) => user.display_name && user.soeid)
       .sort((a, b) => (a.display_name || "").localeCompare(b.display_name || ""));
-    const userOptions = users.map((user) => `<option value="${user.soeid}">${user.display_name}</option>`).join("");
+    const userOptions = users
+      .map((user) => `<option value="${escDisplay(user.soeid)}">${escDisplay(user.display_name)}</option>`)
+      .join("");
 
     if (els.tasksWorkbenchAssignee) {
       els.tasksWorkbenchAssignee.innerHTML = `<option value="">Any</option><option value="__unassigned__">Unassigned</option>${userOptions}`;

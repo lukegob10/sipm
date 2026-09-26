@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { buildProgramPayload } from "../../js/entities/programs.js";
+import { buildProgramPayload, createProgramEntityController } from "../../js/entities/programs.js";
 import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
-import { buildSolutionPayload } from "../../js/entities/solutions.js";
+import { buildSolutionPayload, createSolutionEntityController } from "../../js/entities/solutions.js";
 import { buildTaskPayload, createTaskEntityController } from "../../js/entities/tasks.js";
 
 function formData(values) {
@@ -11,6 +11,151 @@ function formData(values) {
     if (value !== undefined) data.set(key, value);
   });
   return data;
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function programEls() {
+  document.body.innerHTML = `
+    <section id="program-modal" class="hidden">
+      <div class="modal-backdrop"></div>
+      <button id="program-close" type="button"></button>
+      <h2 id="program-title"></h2>
+      <form id="program-form">
+        <input name="program_id" />
+        <input name="program_name" />
+        <textarea name="description"></textarea>
+        <button id="program-delete" type="button"></button>
+        <button id="program-reset" type="reset"></button>
+        <button id="program-submit" type="submit"></button>
+      </form>
+      <p id="program-status"></p>
+    </section>
+  `;
+  return {
+    programModal: document.querySelector("#program-modal"),
+    programModalClose: document.querySelector("#program-close"),
+    programModalTitle: document.querySelector("#program-title"),
+    programForm: document.querySelector("#program-form"),
+    programSubmitBtn: document.querySelector("#program-submit"),
+    deleteProgramBtn: document.querySelector("#program-delete"),
+    programFormStatus: document.querySelector("#program-status"),
+  };
+}
+
+function buildProgramController(overrides = {}) {
+  const deps = {
+    state: { programs: [], projects: [] },
+    els: programEls(),
+    api: vi.fn(),
+    markIgnoreRefresh: vi.fn(),
+    ignoreNextRefresh: new Set(),
+    upsertById: vi.fn(),
+    removeById: vi.fn(),
+    populateSelects: vi.fn(),
+    renderActiveView: vi.fn(),
+    clearDeliverableFormNotice: vi.fn(),
+    setDeliverableFormNotice: vi.fn(),
+    timestampLabel: vi.fn(() => "12:00"),
+    showConfirmModal: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  };
+  return { controller: createProgramEntityController(deps), deps };
+}
+
+function solutionEls() {
+  document.body.innerHTML = `
+    <section id="solution-modal" class="hidden">
+      <div class="modal-backdrop"></div>
+      <button id="solution-close" type="button"></button>
+      <h2 id="solution-title"></h2>
+      <form id="solution-form">
+        <input name="solution_id" />
+        <input name="project_id" value="project-1" />
+        <input name="solution_name" value="Solution One" />
+        <input name="github_repo_url" />
+        <input name="version" />
+        <input name="capacity_hours" />
+        <select name="status"><option value="not_started" selected></option></select>
+        <select name="rag_status"><option value="green" selected></option></select>
+        <textarea name="rag_reason"></textarea>
+        <input name="priority" />
+        <input name="due_date" />
+        <input name="planned_start_date" />
+        <textarea name="description"></textarea>
+        <textarea name="problem_statement"></textarea>
+        <textarea name="success_criteria"></textarea>
+        <textarea name="escalation"></textarea>
+        <input name="impact_confidence" />
+        <input name="owner" />
+        <input name="owner_user_soeid" />
+        <input name="assignee" />
+        <input name="assignee_user_soeid" />
+        <input name="approver" />
+        <input name="approver_user_soeid" />
+        <input name="key_stakeholder" />
+        <input name="rag_confidence" />
+        <textarea name="blockers"></textarea>
+        <textarea name="risks"></textarea>
+        <select name="current_phase"><option value=""></option></select>
+        <button id="solution-delete" type="button"></button>
+        <button id="solution-submit" type="submit"></button>
+      </form>
+      <p id="solution-status"></p>
+    </section>
+  `;
+  return {
+    solutionModal: document.querySelector("#solution-modal"),
+    solutionModalClose: document.querySelector("#solution-close"),
+    solutionModalTitle: document.querySelector("#solution-title"),
+    solutionForm: document.querySelector("#solution-form"),
+    solutionSubmitBtn: document.querySelector("#solution-submit"),
+    deleteSolutionBtn: document.querySelector("#solution-delete"),
+    solutionFormStatus: document.querySelector("#solution-status"),
+  };
+}
+
+function buildSolutionController(overrides = {}) {
+  const deps = {
+    state: { solutions: [], solutionDocuments: {} },
+    els: solutionEls(),
+    api: vi.fn(),
+    hoursFromFteInput: (value) => Number(value || 0) * 160,
+    fteFromHoursForInput: (hours) => String(Number(hours || 0) / 160),
+    markIgnoreRefresh: vi.fn(),
+    ignoreNextRefresh: new Set(),
+    upsertById: vi.fn(),
+    removeById: vi.fn(),
+    populateSelects: vi.fn(),
+    renderActiveView: vi.fn(),
+    renderMasterTable: vi.fn(),
+    renderDashboard: vi.fn(),
+    renderKanban: vi.fn(),
+    renderCalendar: vi.fn(),
+    renderGantt: vi.fn(),
+    renderSolutionTasks: vi.fn(),
+    renderSolutionDocuments: vi.fn(),
+    renderSolutionActivity: vi.fn(),
+    setTaskFormVisibility: vi.fn(),
+    setTaskActionButtonLabel: vi.fn(),
+    clearDeliverableFormNotice: vi.fn(),
+    setDeliverableFormNotice: vi.fn(),
+    updateCurrentPhaseOptions: vi.fn(),
+    updateTaskRepoPreview: vi.fn(),
+    setSolutionTab: vi.fn(),
+    timestampLabel: vi.fn(() => "12:00"),
+    showConfirmModal: vi.fn().mockResolvedValue(true),
+    ...overrides,
+  };
+  return { controller: createSolutionEntityController(deps), deps };
 }
 
 function projectEls() {
@@ -524,5 +669,258 @@ describe("project entity controller", () => {
     expect(deps.removeById).toHaveBeenCalledWith(deps.state.projects, "proj-1", "project_id");
     expect(deps.els.projectModal.classList.contains("hidden")).toBe(true);
     expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "delete", "success", { source: "project_form" });
+  });
+});
+
+describe("entity form submissions", () => {
+  const submissionCases = [
+    {
+      name: "program",
+      build: buildProgramController,
+      bind(controller) { controller.bindProgramForm(); },
+      form(els) { return els.programForm; },
+      nameField: "program_name",
+      idField: "program_id",
+      saved: { program_id: "program-saved", program_name: "Submitted" },
+      upsertKey: "program_id",
+    },
+    {
+      name: "project",
+      build: buildProjectController,
+      bind(controller) { controller.bindProjectForm(); },
+      form(els) { return els.projectForm; },
+      nameField: "project_name",
+      idField: "project_id",
+      saved: { project_id: "project-saved", project_name: "Submitted" },
+      upsertKey: "project_id",
+    },
+    {
+      name: "solution",
+      build: buildSolutionController,
+      bind(controller) { controller.bindSolutionForm(); },
+      form(els) { return els.solutionForm; },
+      nameField: "solution_name",
+      idField: "solution_id",
+      saved: { solution_id: "solution-saved", solution_name: "Submitted" },
+      upsertKey: "solution_id",
+    },
+  ];
+
+  it.each(submissionCases)("sends only one $name mutation while its save is pending", async (testCase) => {
+    const request = deferred();
+    const { controller, deps } = testCase.build({ api: vi.fn(() => request.promise) });
+    const form = testCase.form(deps.els);
+    testCase.bind(controller);
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "Submitted";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+
+    expect(deps.api).toHaveBeenCalledTimes(1);
+    request.reject(new Error("test cleanup"));
+    await flushPromises();
+  });
+
+  it.each(submissionCases)("preserves a newer $name draft and reuses the created ID", async (testCase) => {
+    const request = deferred();
+    const { controller, deps } = testCase.build({ api: vi.fn(() => request.promise) });
+    const form = testCase.form(deps.els);
+    testCase.bind(controller);
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "Submitted";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "Newer draft";
+    request.resolve(testCase.saved);
+    await flushPromises();
+
+    expect(form.querySelector(`[name="${testCase.nameField}"]`).value).toBe("Newer draft");
+    expect(form.querySelector(`[name="${testCase.idField}"]`).value).toBe(testCase.saved[testCase.idField]);
+    expect(deps.upsertById).toHaveBeenCalledWith(
+      deps.state[testCase.name === "program" ? "programs" : testCase.name === "project" ? "projects" : "solutions"],
+      testCase.saved,
+      testCase.upsertKey,
+    );
+  });
+
+  it.each(submissionCases)("does not apply a $name save after its same-ID space object is replaced", async (testCase) => {
+    const request = deferred();
+    const { controller, deps } = testCase.build({ api: vi.fn(() => request.promise) });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const form = testCase.form(deps.els);
+    testCase.bind(controller);
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "Submitted";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    deps.state.activeSpace = { space_id: "space-1" };
+    request.resolve(testCase.saved);
+    await flushPromises();
+
+    expect(deps.upsertById).not.toHaveBeenCalled();
+  });
+
+  it("does not attach a pending program create to the form after an explicit reset", async () => {
+    const request = deferred();
+    const { controller, deps } = buildProgramController({ api: vi.fn(() => request.promise) });
+    controller.bindProgramForm();
+    const form = deps.els.programForm;
+    form.querySelector('[name="program_name"]').value = "Submitted";
+
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    form.reset();
+    form.querySelector('[name="program_name"]').value = "New draft after reset";
+    request.resolve({ program_id: "program-saved", program_name: "Submitted" });
+    await flushPromises();
+
+    expect(form.querySelector('[name="program_id"]').value).toBe("");
+    expect(form.querySelector('[name="program_name"]').value).toBe("New draft after reset");
+    expect(deps.els.programModalTitle.textContent).toBe("Create Program");
+  });
+});
+
+describe("entity delete editor races", () => {
+  const deleteCases = [
+    {
+      name: "program",
+      build: buildProgramController,
+      open(controller, record) { controller.openProgramForm(record); },
+      bind(controller) { controller.bindProgramForm(); },
+      deleteButton(els) { return els.deleteProgramBtn; },
+      modal(els) { return els.programModal; },
+      form(els) { return els.programForm; },
+      status(els) { return els.programFormStatus; },
+      title(els) { return els.programModalTitle; },
+      collection: "programs",
+      idField: "program_id",
+      nameField: "program_name",
+      path: "/programs/entity-a",
+      assertRefreshed(deps) { expect(deps.renderActiveView).toHaveBeenCalled(); },
+    },
+    {
+      name: "project",
+      build: buildProjectController,
+      open(controller, record) { controller.openProjectForm(record); },
+      bind(controller) { controller.bindProjectForm(); },
+      deleteButton(els) { return els.deleteProjectBtn; },
+      modal(els) { return els.projectModal; },
+      form(els) { return els.projectForm; },
+      status(els) { return els.projectFormStatus; },
+      title(els) { return els.projectModalTitle; },
+      collection: "projects",
+      idField: "project_id",
+      nameField: "project_name",
+      path: "/projects/entity-a",
+      assertRefreshed(deps) { expect(deps.renderMasterTable).toHaveBeenCalled(); },
+    },
+    {
+      name: "solution",
+      build: buildSolutionController,
+      open(controller, record) { controller.openSolutionModal(record); },
+      bind(controller) { controller.bindSolutionForm(); },
+      deleteButton(els) { return els.deleteSolutionBtn; },
+      modal(els) { return els.solutionModal; },
+      form(els) { return els.solutionForm; },
+      status(els) { return els.solutionFormStatus; },
+      title(els) { return els.solutionModalTitle; },
+      collection: "solutions",
+      idField: "solution_id",
+      nameField: "solution_name",
+      path: "/solutions/entity-a",
+      assertRefreshed(deps) { expect(deps.renderMasterTable).toHaveBeenCalled(); },
+    },
+  ];
+
+  function recordFor(testCase, id, name) {
+    return { [testCase.idField]: id, [testCase.nameField]: name };
+  }
+
+  function removeRecord(rows, id, idField) {
+    const index = rows.findIndex((row) => row[idField] === id);
+    if (index >= 0) rows.splice(index, 1);
+  }
+
+  it.each(deleteCases)("keeps another $name editor open after the confirmed delete succeeds", async (testCase) => {
+    const request = deferred();
+    const trackWorkflow = vi.fn();
+    const { controller, deps } = testCase.build({
+      api: vi.fn(() => request.promise),
+      removeById: vi.fn(removeRecord),
+      trackWorkflow,
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    await vi.waitFor(() => expect(deps.api).toHaveBeenCalledWith(testCase.path, { method: "DELETE" }));
+    testCase.open(controller, rows[1]);
+    const noticeCallCount = deps.setDeliverableFormNotice.mock.calls.length;
+    request.resolve({ ok: true });
+    await vi.waitFor(() => expect(deps.removeById).toHaveBeenCalledWith(rows, "entity-a", testCase.idField));
+
+    expect(rows.map((row) => row[testCase.idField])).toEqual(["entity-b"]);
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
+    expect(testCase.title(deps.els).textContent).toMatch(/Edit/);
+    expect(deps.setDeliverableFormNotice).toHaveBeenCalledTimes(noticeCallCount);
+    expect(trackWorkflow).toHaveBeenCalledWith(testCase.collection, "delete", "success", { source: `${testCase.name}_form` });
+    testCase.assertRefreshed(deps);
+  });
+
+  it.each(deleteCases)("keeps another $name editor and its notice untouched after delete fails", async (testCase) => {
+    const request = deferred();
+    const trackWorkflow = vi.fn();
+    const { controller, deps } = testCase.build({
+      api: vi.fn(() => request.promise),
+      trackWorkflow,
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    await vi.waitFor(() => expect(deps.api).toHaveBeenCalledWith(testCase.path, { method: "DELETE" }));
+    testCase.open(controller, rows[1]);
+    const noticeCallCount = deps.setDeliverableFormNotice.mock.calls.length;
+    request.reject(new Error("Delete failed"));
+    await vi.waitFor(() => expect(trackWorkflow).toHaveBeenCalledWith(
+      testCase.collection,
+      "delete",
+      "failure",
+      { source: `${testCase.name}_form` },
+    ));
+
+    expect(rows.map((row) => row[testCase.idField])).toEqual(["entity-a", "entity-b"]);
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
+    expect(deps.setDeliverableFormNotice).toHaveBeenCalledTimes(noticeCallCount);
+  });
+
+  it.each(deleteCases)("does not send a $name delete if confirmation resolves after switching editors", async (testCase) => {
+    const confirmation = deferred();
+    const { controller, deps } = testCase.build({
+      showConfirmModal: vi.fn(() => confirmation.promise),
+    });
+    deps.state.user = { user_id: "user-1" };
+    deps.state.activeSpace = { space_id: "space-1" };
+    const rows = deps.state[testCase.collection];
+    rows.push(recordFor(testCase, "entity-a", "Entity A"), recordFor(testCase, "entity-b", "Entity B"));
+    testCase.open(controller, rows[0]);
+    testCase.bind(controller);
+
+    testCase.deleteButton(deps.els).click();
+    testCase.open(controller, rows[1]);
+    confirmation.resolve(true);
+    await flushPromises();
+
+    expect(deps.api).not.toHaveBeenCalled();
+    expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
+    expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
   });
 });

@@ -1,7 +1,10 @@
+import asyncio
 import os
 import sys
+from contextlib import suppress
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from ..deps import authenticate_access_token, get_db, require_global_admin
@@ -42,6 +45,63 @@ def _ws_requested_space_id(ws: WebSocket) -> str | None:
     return cookies.get("active_space_id")
 
 
+def _authenticate_websocket_context(
+    session: Session,
+    token: str | None,
+    requested_space_id: str | None,
+) -> tuple[str | None, str | None, int | None, str | None]:
+    """Run synchronous database-backed websocket auth in a worker thread."""
+    try:
+        try:
+            user = authenticate_access_token(session, token)
+        except Exception:
+            return None, None, WS_CLOSE_AUTH_INVALID, "auth-invalid"
+
+        try:
+            ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+        except Exception:
+            return None, None, WS_CLOSE_SPACE_INVALID, "space-invalid"
+
+        if requested_space_id and ctx.space_id != requested_space_id:
+            return None, None, WS_CLOSE_SPACE_INVALID, "space-mismatch"
+        return user.user_id, ctx.space_id, None, None
+    finally:
+        # Keep the session's complete lifecycle on the same worker thread that
+        # performed its synchronous database queries.
+        session.close()
+
+
+async def _authenticate_websocket_context_in_thread(
+    session: Session,
+    token: str | None,
+    requested_space_id: str | None,
+) -> tuple[str | None, str | None, int | None, str | None]:
+    worker_task = asyncio.create_task(
+        run_in_threadpool(
+            _authenticate_websocket_context,
+            session,
+            token,
+            requested_space_id,
+        )
+    )
+    cancellation_requested = False
+    while True:
+        try:
+            result = await asyncio.shield(worker_task)
+            break
+        except asyncio.CancelledError:
+            # Keep the Session alive until the worker has finished its final
+            # query and close, even after repeated request cancellation.
+            cancellation_requested = True
+            if worker_task.done():
+                with suppress(BaseException):
+                    worker_task.result()
+                break
+    if cancellation_requested:
+        raise asyncio.CancelledError
+    return result
+
+
 async def _reject_websocket(ws: WebSocket, *, code: int, reason: str = "") -> None:
     try:
         await ws.accept()
@@ -72,27 +132,22 @@ async def websocket_endpoint(ws: WebSocket, session: Session = Depends(get_db)):
 
     cookies = getattr(ws, "cookies", {}) or {}
     token = cookies.get("access_token")
-    try:
-        user = authenticate_access_token(session, token)
-    except Exception:
-        await _reject_websocket(ws, code=WS_CLOSE_AUTH_INVALID, reason="auth-invalid")
-        return
-
     requested_space_id = _ws_requested_space_id(ws)
     try:
-        ctx = resolve_active_space_context(session, user, requested_space_id=requested_space_id)
+        user_id, space_id, rejection_code, rejection_reason = await _authenticate_websocket_context_in_thread(
+            session,
+            token,
+            requested_space_id,
+        )
     except Exception:
-        await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-invalid")
+        await _reject_websocket(ws, code=WS_CLOSE_SERVER_BUSY, reason="server-error")
         return
-
-    if requested_space_id and ctx.space_id != requested_space_id:
-        await _reject_websocket(ws, code=WS_CLOSE_SPACE_INVALID, reason="space-mismatch")
+    if rejection_code is not None:
+        await _reject_websocket(ws, code=rejection_code, reason=rejection_reason or "")
         return
-
-    user_id = user.user_id
-    space_id = ctx.space_id
-    # FastAPI cannot finalize a yield dependency until this handler returns.
-    session.close()
+    if not user_id or not space_id:
+        await _reject_websocket(ws, code=WS_CLOSE_SERVER_BUSY, reason="server-error")
+        return
 
     try:
         await register(ws, user_id=user_id, space_id=space_id)

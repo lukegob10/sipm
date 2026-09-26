@@ -1,9 +1,24 @@
 from __future__ import annotations
 
+from sqlalchemy import false, or_
 from sqlalchemy.orm import Session
 
 from ..models import Phase, Program, Project, Solution
 from ..phase_catalog import canonical_phase_query
+
+
+_IN_CLAUSE_BATCH_SIZE = 1000
+
+
+def _batched_in_filter(column, values: list[str]):
+    """Build a filter with Oracle-safe IN lists while keeping it to one query."""
+    batches = [
+        column.in_(values[offset : offset + _IN_CLAUSE_BATCH_SIZE])
+        for offset in range(0, len(values), _IN_CLAUSE_BATCH_SIZE)
+    ]
+    if not batches:
+        return false()
+    return batches[0] if len(batches) == 1 else or_(*batches)
 
 
 def load_program_dashboard_report_data(
@@ -12,13 +27,20 @@ def load_program_dashboard_report_data(
     space_id: str,
     selected_program_ids: list[str],
 ) -> dict[str, object]:
+    selected_program_ids = list(
+        dict.fromkeys(
+            str(program_id or "").strip()
+            for program_id in selected_program_ids
+            if str(program_id or "").strip()
+        )
+    )
     program_query = (
         session.query(Program)
         .filter(Program.deleted_at.is_(None))
         .filter(Program.space_id == space_id)
     )
     if selected_program_ids:
-        program_query = program_query.filter(Program.program_id.in_(selected_program_ids))
+        program_query = program_query.filter(_batched_in_filter(Program.program_id, selected_program_ids))
     else:
         program_query = program_query.filter(False)
     program_rows = program_query.order_by(Program.program_name.asc()).all()
@@ -30,7 +52,7 @@ def load_program_dashboard_report_data(
             session.query(Project)
             .filter(Project.deleted_at.is_(None))
             .filter(Project.space_id == space_id)
-            .filter(Project.program_id.in_(valid_program_ids))
+            .filter(_batched_in_filter(Project.program_id, list(valid_program_ids)))
             .order_by(Project.project_name.asc())
             .all()
         )
@@ -42,11 +64,15 @@ def load_program_dashboard_report_data(
             session.query(Solution)
             .filter(Solution.deleted_at.is_(None))
             .filter(Solution.space_id == space_id)
-            .filter(Solution.project_id.in_(valid_project_ids))
+            .filter(_batched_in_filter(Solution.project_id, list(valid_project_ids)))
             .order_by(Solution.solution_name.asc())
             .all()
         )
-    phase_rows = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
+    phase_rows = (
+        canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
+        if solution_rows
+        else []
+    )
 
     return {
         "selected_program_label": (

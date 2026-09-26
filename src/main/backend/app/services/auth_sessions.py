@@ -78,8 +78,22 @@ def record_activity(session: Session, auth_session: AuthSession) -> datetime:
             user_id=auth_session.user_id,
         )
     session.commit()
-    refreshed = session.query(AuthSession).filter_by(session_id=auth_session.session_id).one()
-    return idle_deadline(refreshed)
+    return now + timedelta(minutes=SESSION_IDLE_MINUTES)
+
+
+def revoke_user_auth_sessions(
+    session: Session,
+    *,
+    user_id: str,
+    revoked_at: datetime | None = None,
+) -> int:
+    """Revoke all active interactive sessions without committing the transaction."""
+    timestamp = revoked_at or utcnow_naive()
+    return (
+        session.query(AuthSession)
+        .filter(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        .update({AuthSession.revoked_at: timestamp}, synchronize_session=False)
+    )
 
 
 def revoke_auth_session(session: Session, auth_session: AuthSession) -> None:

@@ -101,8 +101,10 @@ def build_scoped_cache_key(
     role_scope: str,
     scope_tokens: Iterable[str],
 ) -> str:
-    with _LOCK:
-        versions = _scope_version_snapshot(scope_tokens)
+    # Scope versions may require a Redis round trip. Do not hold the process
+    # cache lock while reading them; a slow coordination backend must not block
+    # unrelated cache hits and writes.
+    versions = _scope_version_snapshot(scope_tokens)
     payload = {
         "endpoint": endpoint,
         "params": params or {},

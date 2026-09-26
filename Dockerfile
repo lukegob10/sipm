@@ -51,4 +51,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl --fail --silent --show-error http://127.0.0.1:8000/health/ready || exit 1
 
-CMD ["sh", "-c", "uvicorn backend.main:app --host ${UVICORN_HOST} --port ${UVICORN_PORT}"]
+CMD ["sh", "-c", "exec uvicorn backend.main:app --host \"${UVICORN_HOST}\" --port \"${UVICORN_PORT}\""]

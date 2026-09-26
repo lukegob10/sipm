@@ -135,6 +135,11 @@ export function renderCalendar(ctx) {
         .map((day) => {
           if (!day) return `<div class="calendar-cell empty" aria-hidden="true"></div>`;
           const dayItems = itemsByDay[day] || { solutions: [], tasks: [] };
+          const calendarDateLabel = new Date(year, month, day).toLocaleDateString(undefined, {
+            month: "long",
+            day: "numeric",
+            year: "numeric",
+          });
           const total = dayItems.solutions.length + dayItems.tasks.length;
           const count = total ? `<span class="calendar-count">${total}</span>` : "";
           const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
@@ -153,7 +158,7 @@ export function renderCalendar(ctx) {
             .join("");
           return `<div class="calendar-cell${todayClass}" data-day="${day}">
             <div class="calendar-date-row">
-              <div class="calendar-date">${day}</div>
+              <button type="button" class="calendar-date calendar-open-day" aria-label="Open items due ${esc(calendarDateLabel)}">${day}</button>
               ${count}
             </div>
             ${streams}

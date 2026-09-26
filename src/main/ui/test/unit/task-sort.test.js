@@ -29,6 +29,27 @@ describe("solution task sorting", () => {
     expect(tasks.map((task) => task.task_id)).toEqual(["3", "1", "2"]);
   });
 
+  it("preserves source order for names that differ only by case or accents", () => {
+    const equivalentNames = [
+      { task_id: "1", task_name: "Resume" },
+      { task_id: "2", task_name: "résumé" },
+      { task_id: "3", task_name: "RESUME" },
+    ];
+
+    for (const sort of ["name-asc", "name-desc"]) {
+      expect(sortTasksByName(equivalentNames, sort)).toEqual(equivalentNames);
+    }
+  });
+
+  it("handles missing task names and empty lists in both directions", () => {
+    const rows = [{ task_name: "Task 2" }, { task_name: null }, {}, { task_name: "Task 10" }];
+
+    expect(sortTasksByName(rows, "name-asc")).toEqual([rows[1], rows[2], rows[0], rows[3]]);
+    expect(sortTasksByName(rows, "name-desc")).toEqual([rows[3], rows[0], rows[1], rows[2]]);
+    expect(sortTasksByName(null, "name-asc")).toEqual([]);
+    expect(sortTasksByName([], "name-desc")).toEqual([]);
+  });
+
   it("cycles normal, A–Z, Z–A, and back to normal", () => {
     expect(nextTaskNameSort("default")).toBe("name-asc");
     expect(nextTaskNameSort("name-asc")).toBe("name-desc");

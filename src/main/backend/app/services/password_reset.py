@@ -14,6 +14,7 @@ from ..auth.auth import (
 )
 from ..models import User
 from ..security import security_http_exception
+from .auth_sessions import revoke_user_auth_sessions
 from .authentication_state import (
     is_user_locked,
     record_failed_temp_password_attempt,
@@ -96,23 +97,33 @@ def issue_temp_password(
     expires_at = now + timedelta(minutes=ttl)
     temp_password = _generate_temp_password()
 
-    # Force a reset path and invalidate any active access token sessions.
-    target_user.force_password_reset = True
-    target_user.temp_password_hash = hash_password(temp_password)
-    target_user.temp_password_expires_at = expires_at
-    target_user.failed_attempts = 0
-    target_user.locked_until = None
-    target_user.password_changed_at = now
+    # Force the reset path and revoke active sessions in the same transaction.
+    try:
+        target_user.force_password_reset = True
+        target_user.temp_password_hash = hash_password(temp_password)
+        target_user.temp_password_expires_at = expires_at
+        target_user.failed_attempts = 0
+        target_user.locked_until = None
+        target_user.password_changed_at = now
 
-    session.add(target_user)
-    log_changes(
-        session,
-        entity_type="user",
-        entity_id=target_user.user_id,
-        user_id=issued_by_user_id,
-        action="password_reset_requested",
-    )
-    session.commit()
+        session.add(target_user)
+        session.flush()
+        revoke_user_auth_sessions(
+            session,
+            user_id=target_user.user_id,
+            revoked_at=now.replace(tzinfo=None),
+        )
+        log_changes(
+            session,
+            entity_type="user",
+            entity_id=target_user.user_id,
+            user_id=issued_by_user_id,
+            action="password_reset_requested",
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     return temp_password, expires_at
 
 
@@ -189,13 +200,22 @@ def reset_password_with_temp_password(
             expected_temp_password_hash=temp_password_hash,
             now=now,
         )
-    log_changes(
-        session,
-        entity_type="user",
-        entity_id=user.user_id,
-        user_id=user.user_id,
-        action="password_reset_complete",
-    )
-    session.commit()
+    try:
+        revoke_user_auth_sessions(
+            session,
+            user_id=user.user_id,
+            revoked_at=now.replace(tzinfo=None),
+        )
+        log_changes(
+            session,
+            entity_type="user",
+            entity_id=user.user_id,
+            user_id=user.user_id,
+            action="password_reset_complete",
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     session.refresh(user)
     return user

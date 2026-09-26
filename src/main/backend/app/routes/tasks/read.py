@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db
-from ...models import ChangeLog, Task, User
+from ...models import ChangeLog, Solution, Task, User
 from ...schemas import ChangeLogRead, TaskRead
 from ...services.smart_cache import cached_call, make_scope_token
 from ...services.spaces import SpaceContext
@@ -21,7 +21,6 @@ from .common import (
     _ensure_solution,
     _get_task,
     _role_scope,
-    _solution_repo_map,
     _task_payload,
     _task_query,
 )
@@ -73,11 +72,14 @@ def list_tasks(
             query = query.filter(func.lower(Task.assignee) == assignee_norm)
         if assignee_user_soeid:
             query = query.filter(Task.assignee_user_soeid == assignee_user_soeid)
-        rows = query.order_by(Task.priority.asc(), Task.created_at.asc()).all()
-        solution_repo_map = _solution_repo_map(session, space_ctx, [solution_id])
+        rows = (
+            query.with_entities(Task, Solution.github_repo_url)
+            .order_by(Task.priority.asc(), Task.created_at.asc())
+            .all()
+        )
         return [
-            _task_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
-            for row in rows
+            _task_payload(task, solution_repo_url=solution_repo_url)
+            for task, solution_repo_url in rows
         ]
 
     return cached_call(
@@ -138,13 +140,14 @@ def list_all_tasks(
             query = query.filter(func.lower(Task.assignee) == assignee_norm)
         if assignee_user_soeid:
             query = query.filter(Task.assignee_user_soeid == assignee_user_soeid)
-        rows = query.order_by(Task.priority.asc(), Task.created_at.asc()).all()
-        solution_repo_map = _solution_repo_map(
-            session, space_ctx, [row.solution_id for row in rows]
+        rows = (
+            query.with_entities(Task, Solution.github_repo_url)
+            .order_by(Task.priority.asc(), Task.created_at.asc())
+            .all()
         )
         return [
-            _task_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
-            for row in rows
+            _task_payload(task, solution_repo_url=solution_repo_url)
+            for task, solution_repo_url in rows
         ]
 
     return cached_call(

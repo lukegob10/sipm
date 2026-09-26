@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import math
 from datetime import datetime, timezone
 from io import StringIO
 
@@ -21,6 +22,7 @@ from ...services.mutations import commit_session
 from ..projects.common import _default_program, _resolve_project_sponsor
 from .common import (
     _apply_solution_completion_state,
+    _deleted_solution_name,
     _parse_rag_status,
     _publish_solution_import,
     _resolve_solution_assignee,
@@ -64,6 +66,9 @@ def import_solutions(
     }
 
     for idx, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append(f"Row {idx}: too many columns for the CSV header")
+            continue
         project_name = normalize_str(row.get("project_name"))
         solution_name = normalize_str(row.get("solution_name"))
         version_raw = normalize_str(row.get("version")) or "0.1.0"
@@ -96,6 +101,8 @@ def import_solutions(
             rag_confidence = (
                 float(row.get("rag_confidence")) if normalize_str(row.get("rag_confidence")) else None
             )
+            if rag_confidence is not None and not math.isfinite(rag_confidence):
+                raise ValueError("rag_confidence must be finite")
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
@@ -342,6 +349,26 @@ def import_solutions(
                     owner_user_soeid=resolved_owner_user_soeid,
                     current_user=current_user,
                 )
+                deleted_conflicts = (
+                    session.query(Solution)
+                    .filter(Solution.project_id == project.project_id)
+                    .filter(Solution.space_id == space_ctx.space_id)
+                    .filter(Solution.solution_name == solution_name)
+                    .filter(Solution.version == version_raw)
+                    .filter(Solution.deleted_at.is_not(None))
+                    .all()
+                )
+                now = datetime.now(timezone.utc)
+                for deleted in deleted_conflicts:
+                    deleted.solution_name = _deleted_solution_name(
+                        deleted.solution_name,
+                        deleted.solution_id,
+                        deleted.deleted_at or now,
+                    )
+                    deleted.updated_at = now
+                    session.add(deleted)
+                if deleted_conflicts:
+                    session.flush()
                 now = datetime.now(timezone.utc)
                 completed_at = completed_at_val if status_enum == SolutionStatus.complete and completed_at_val is not None else (
                     now if status_enum == SolutionStatus.complete else None

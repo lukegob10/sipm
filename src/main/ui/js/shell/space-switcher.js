@@ -167,6 +167,7 @@ export function createSpaceSwitcherController({
       state.spaceSwitcherOpen = true;
       renderSpaceSwitcher();
       window.setTimeout(() => {
+        if (!state.spaceSwitcherOpen || !state.authed) return;
         els.spaceSwitcherSearch?.focus();
         els.spaceSwitcherSearch?.select();
       }, 0);
@@ -226,7 +227,23 @@ export function createSpaceSwitcherController({
         if (!button) return;
         const targetSpaceId = button.getAttribute("data-space-switch") || "";
         if (!targetSpaceId || typeof onSwitchActiveSpace !== "function") return;
-        await onSwitchActiveSpace(targetSpaceId);
+        try {
+          const switched = await onSwitchActiveSpace(targetSpaceId);
+          if (switched) {
+            els.spaceSwitcherTrigger?.focus();
+          } else if (state.spaceSwitcherOpen) {
+            visibleOptions()
+              .find((option) => option.getAttribute("data-space-switch") === targetSpaceId)
+              ?.focus();
+          }
+        } catch (error) {
+          if (state.spaceSwitcherOpen) {
+            visibleOptions()
+              .find((option) => option.getAttribute("data-space-switch") === targetSpaceId)
+              ?.focus();
+          }
+          console.warn("Space switch failed", error);
+        }
       });
       els.spaceSwitcherPanel.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {

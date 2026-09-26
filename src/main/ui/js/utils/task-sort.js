@@ -18,10 +18,8 @@ export function sortTasksByName(tasks, sort = "default") {
     return [...(tasks || [])];
   }
   const direction = sort === "name-desc" ? -1 : 1;
+  const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
   return [...(tasks || [])].sort((a, b) => (
-    String(a?.task_name || "").localeCompare(String(b?.task_name || ""), undefined, {
-      sensitivity: "base",
-      numeric: true,
-    }) * direction
+    collator.compare(String(a?.task_name || ""), String(b?.task_name || "")) * direction
   ));
 }

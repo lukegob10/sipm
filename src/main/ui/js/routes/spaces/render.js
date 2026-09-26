@@ -1,3 +1,9 @@
+import {
+  captureAgentChangeRequestContext,
+  clearAgentChangeRequestData,
+  sameAgentChangeRequestContext,
+} from "./change-request-context.js";
+
 export function createSpaceGovernanceRenderer({
   state,
   els,
@@ -888,13 +894,16 @@ export function createSpaceGovernanceRenderer({
   }
 
   function renderAgentApprovalsSection() {
-    const isLoading = !state.agentChangeRequestsLoaded;
-    if (isLoading) {
-      refreshAgentChangeRequests({ force: true }).catch((err) => {
-        console.warn("Failed to load agent approvals", err);
-        setSpaceGovernanceNotice(err?.message || "Failed to load agent approvals.", "error", 7000);
-      });
+    const requestContext = captureAgentChangeRequestContext(state, activeSpaceId);
+    if (!sameAgentChangeRequestContext(state.agentChangeRequestsContext, requestContext)) {
+      clearAgentChangeRequestData(state);
     }
+    const hasActiveContext = !!requestContext.userId && !!requestContext.spaceId;
+    const isLoading = hasActiveContext && !state.agentChangeRequestsLoaded;
+    refreshAgentChangeRequests({ force: false }).catch((err) => {
+      console.warn("Failed to load agent approvals", err);
+      setSpaceGovernanceNotice(err?.message || "Failed to load agent approvals.", "error", 7000);
+    });
     const rows = state.agentChangeRequests || [];
     const selected = state.agentChangeRequestSelectedIds || new Set();
     const activeId = rows.some((row) => row.change_request_id === state.agentChangeRequestActiveId)

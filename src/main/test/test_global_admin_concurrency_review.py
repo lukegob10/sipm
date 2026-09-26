@@ -1,0 +1,372 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from threading import Event
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+from sqlalchemy.dialects import oracle
+
+from backend.app.models import Space, SpaceMembership, User
+from backend.app.routes import users as users_routes
+from backend.app.schemas import UserUpdate
+from backend.app.services import user_admin_guards
+from backend.app.services.spaces import SpaceContext
+
+
+def _change_actor_row_without_refresh(session, *, actor_id, **changes):
+    session.execute(
+        User.__table__.update()
+        .where(User.__table__.c.user_id == actor_id)
+        .values(**changes)
+    )
+
+
+def test_global_admin_guard_uses_ordered_oracle_row_locks():
+    statement = user_admin_guards._global_admin_lock_statement()
+    sql = " ".join(str(statement.compile(
+        dialect=oracle.dialect(), compile_kwargs={"literal_binds": True},
+    )).replace('"', "").split()).lower()
+    assert "where" in sql and "'global_admin'" in sql
+    assert sql.endswith("order by tb_ta_pm_users.user_id asc for update")
+
+
+def test_deactivation_reloads_role_after_concurrent_promotion(db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(User(
+            user_id="promoted", soeid="promoted", email="promoted@example.com",
+            display_name="Promoted", password_hash="unused", role="user", is_active=True,
+        ))
+        session.commit()
+
+    with db_sessionmaker() as stale_session:
+        target = stale_session.get(User, "promoted")
+        assert target.role == "user"
+        with db_sessionmaker() as competing_session:
+            user = competing_session.get(User, "promoted")
+            user.role = "global_admin"
+            competing_session.commit()
+        with pytest.raises(HTTPException, match="At least one active global_admin is required"):
+            user_admin_guards.ensure_user_can_be_deactivated(stale_session, target)
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+def test_space_admin_cannot_deactivate_user_promoted_after_initial_read(db_sessionmaker, by_soeid):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        for user_id, role in [("target", "user"), ("admin", "global_admin")]:
+            session.add(User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            ))
+        session.add(SpaceMembership(space_id="space", user_id="target", role="member", status="active"))
+        session.commit()
+
+    with db_sessionmaker() as stale_session:
+        stale_target = stale_session.get(User, "target")
+        assert stale_target.role == "user"
+        with db_sessionmaker() as competing_session:
+            current = competing_session.get(User, "target")
+            current.role = "global_admin"
+            competing_session.commit()
+        ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=False, space_role="space_admin")
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        with pytest.raises(HTTPException) as exc:
+            update(
+                "target", UserUpdate(is_active=False), session=stale_session, space_ctx=ctx,
+                current_user=SimpleNamespace(user_id="actor", role="user"), _authz=ctx,
+            )
+        assert exc.value.status_code == 403
+
+    with db_sessionmaker() as session:
+        assert session.get(User, "target").is_active is True
+
+
+@pytest.mark.parametrize("actor_change", [{"role": "user"}, {"is_active": False}])
+def test_global_admin_role_change_rechecks_actor_after_lock(db_sessionmaker, monkeypatch, actor_change):
+    with db_sessionmaker() as session:
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("backup", "global_admin"), ("target", "user")]
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def change_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", **actor_change)
+            real_lock(lock_session)
+
+        monkeypatch.setattr(users_routes, "lock_global_admin_users", change_actor_then_lock)
+        with pytest.raises(HTTPException) as exc:
+            users_routes.grant_global_admin_by_user_id("target", session=session, admin_user=actor)
+        assert exc.value.status_code == 403
+        assert actor.role == actor_change.get("role", "global_admin")
+        assert actor.is_active is actor_change.get("is_active", True)
+        assert session.get(User, "target").role == "user"
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+@pytest.mark.parametrize("actor_change", [{"role": "user"}, {"is_active": False}])
+def test_deactivation_rechecks_actor_before_changing_global_admin(
+    db_sessionmaker, monkeypatch, by_soeid, actor_change,
+):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        users = [
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role="global_admin", is_active=True,
+            )
+            for user_id in ("actor", "target", "backup")
+        ]
+        session.add_all(users)
+        session.add_all([
+            SpaceMembership(space_id="space", user_id="actor", role="space_admin", status="active"),
+            SpaceMembership(space_id="space", user_id="target", role="member", status="active"),
+            SpaceMembership(space_id="space", user_id="backup", role="member", status="active"),
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=False, space_role="space_admin")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def change_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", **actor_change)
+            real_lock(lock_session)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", change_actor_then_lock)
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        target_key = "target" if not by_soeid else "target"
+        with pytest.raises(HTTPException) as exc:
+            update(
+                target_key, UserUpdate(is_active=False), session=session, space_ctx=ctx,
+                current_user=actor, _authz=ctx,
+            )
+        assert exc.value.status_code == 403
+        assert actor.role == actor_change.get("role", "global_admin")
+        assert actor.is_active is actor_change.get("is_active", True)
+        assert session.get(User, "target").is_active is True
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+def test_space_admin_can_still_deactivate_regular_user_after_global_role_change(
+    db_sessionmaker, monkeypatch, by_soeid,
+):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("target", "user"), ("backup", "global_admin")]
+        ])
+        session.add_all([
+            SpaceMembership(space_id="space", user_id="actor", role="space-admin", status="active"),
+            SpaceMembership(space_id="space", user_id="target", role="member", status="active"),
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=True, space_role="space_admin")
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def demote_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", role="user")
+            real_lock(lock_session)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", demote_actor_then_lock)
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        update(
+            "target", UserUpdate(is_active=False), session=session, space_ctx=ctx,
+            current_user=actor, _authz=ctx,
+        )
+        assert actor.role == "user"
+        assert session.get(User, "target").is_active is False
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+@pytest.mark.parametrize("actor_membership_role", [None, "member"])
+def test_stale_global_admin_context_requires_current_space_admin_membership(
+    db_sessionmaker, monkeypatch, by_soeid, actor_membership_role,
+):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("target", "user"), ("backup", "global_admin")]
+        ])
+        session.add(SpaceMembership(space_id="space", user_id="target", role="member", status="active"))
+        if actor_membership_role is not None:
+            session.add(SpaceMembership(
+                space_id="space", user_id="actor", role=actor_membership_role, status="active",
+            ))
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        stale_ctx = SpaceContext(
+            space_id="space", space_name="Space", is_global_admin=True, space_role="space_admin",
+        )
+        real_lock = user_admin_guards.lock_global_admin_users
+
+        def demote_actor_then_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", role="user")
+            real_lock(lock_session)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", demote_actor_then_lock)
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        with pytest.raises(HTTPException) as exc:
+            update(
+                "target", UserUpdate(is_active=False), session=session, space_ctx=stale_ctx,
+                current_user=actor, _authz=stale_ctx,
+            )
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "Insufficient space role"
+        assert actor.role == "user"
+        assert session.get(User, "target").is_active is True
+
+
+@pytest.mark.parametrize("by_soeid", [False, True])
+@pytest.mark.parametrize(
+    "membership_change",
+    [
+        {"role": "member"},
+        {"status": "inactive"},
+        {"deleted_at": datetime(2026, 9, 25)},
+    ],
+)
+def test_stale_space_admin_membership_is_rechecked_after_space_lock_wait(
+    db_sessionmaker, monkeypatch, by_soeid, membership_change,
+):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        session.add_all([
+            User(
+                user_id=user_id, soeid=user_id, email=f"{user_id}@example.com", display_name=user_id,
+                password_hash="unused", role=role, is_active=True,
+            )
+            for user_id, role in [("actor", "global_admin"), ("target", "user"), ("backup", "global_admin")]
+        ])
+        session.add_all([
+            SpaceMembership(space_id="space", user_id="actor", role="space_admin", status="active"),
+            SpaceMembership(space_id="space", user_id="target", role="member", status="active"),
+        ])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        actor = session.get(User, "actor")
+        stale_ctx = SpaceContext(
+            space_id="space", space_name="Space", is_global_admin=True, space_role="space_admin",
+        )
+        real_global_lock = user_admin_guards.lock_global_admin_users
+        real_space_lock = user_admin_guards.lock_space_admin_spaces
+
+        def demote_actor_then_global_lock(lock_session):
+            _change_actor_row_without_refresh(lock_session, actor_id="actor", role="user")
+            real_global_lock(lock_session)
+
+        def change_membership_then_space_lock(lock_session, space_ids):
+            lock_session.execute(
+                SpaceMembership.__table__.update()
+                .where(SpaceMembership.__table__.c.space_id == "space")
+                .where(SpaceMembership.__table__.c.user_id == "actor")
+                .values(**membership_change)
+            )
+            return real_space_lock(lock_session, space_ids)
+
+        monkeypatch.setattr(user_admin_guards, "lock_global_admin_users", demote_actor_then_global_lock)
+        monkeypatch.setattr(user_admin_guards, "lock_space_admin_spaces", change_membership_then_space_lock)
+        update = users_routes.update_user_by_soeid if by_soeid else users_routes.update_user
+        with pytest.raises(HTTPException) as exc:
+            update(
+                "target", UserUpdate(is_active=False), session=session, space_ctx=stale_ctx,
+                current_user=actor, _authz=stale_ctx,
+            )
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "Insufficient space role"
+        assert actor.role == "user"
+        assert session.get(User, "target").is_active is True
+
+
+@pytest.mark.parametrize("operations", [("demote", "demote"), ("demote", "deactivate"), ("deactivate", "deactivate")])
+def test_concurrent_admin_removals_retain_one_active_global_admin(db_sessionmaker, monkeypatch, operations):
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space", name="Space", slug="space"))
+        for index in range(2):
+            session.add(User(
+                user_id=f"admin-{index}", soeid=f"admin{index}", email=f"admin{index}@example.com",
+                display_name=f"Admin {index}", password_hash="unused", role="global_admin", is_active=True,
+            ))
+            session.add(SpaceMembership(space_id="space", user_id=f"admin-{index}", role="member", status="active"))
+        session.commit()
+
+    first_counted = Event()
+    release_first = Event()
+    second_started = Event()
+    second_counted = Event()
+    real_count = user_admin_guards.count_active_global_admins
+
+    def count_then_pause_first(session):
+        count = real_count(session)
+        if session.info["mutation_index"] == 0:
+            first_counted.set()
+            assert release_first.wait(timeout=10)
+        else:
+            second_counted.set()
+        return count
+
+    monkeypatch.setattr(users_routes, "_count_active_global_admins", count_then_pause_first)
+    monkeypatch.setattr(user_admin_guards, "count_active_global_admins", count_then_pause_first)
+    ctx = SpaceContext(space_id="space", space_name="Space", is_global_admin=True, space_role="space_admin")
+    actor = SimpleNamespace(user_id="admin-0", role="global_admin")
+
+    def remove_admin(index):
+        with db_sessionmaker() as session:
+            session.info["mutation_index"] = index
+            if index == 1:
+                second_started.set()
+            try:
+                if operations[index] == "demote":
+                    users_routes.revoke_global_admin_by_user_id(f"admin-{index}", session=session, admin_user=actor)
+                else:
+                    users_routes.update_user(
+                        f"admin-{index}", UserUpdate(is_active=False), session=session,
+                        space_ctx=ctx, current_user=actor, _authz=ctx,
+                    )
+            except HTTPException as exc:
+                session.rollback()
+                return exc.status_code, exc.detail
+            return 200, None
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(remove_admin, 0)
+        second = None
+        try:
+            assert first_counted.wait(timeout=10)
+            second = executor.submit(remove_admin, 1)
+            assert second_started.wait(timeout=10)
+            # A guarded second request waits for the first transaction. On the
+            # old path both requests count two admins before either commits.
+            second_counted.wait(timeout=0.5)
+        finally:
+            release_first.set()
+        results = [first.result(timeout=10), second.result(timeout=10)]
+
+    assert sorted(results, key=lambda value: value[0]) == [
+        (200, None), (400, "At least one active global_admin is required"),
+    ]
+    with db_sessionmaker() as session:
+        assert real_count(session) == 1

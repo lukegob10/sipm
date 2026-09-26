@@ -12,8 +12,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect as sqlalchemy_inspect
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
@@ -64,7 +65,7 @@ _environment.load_repo_env()
 
 from backend.app.auth.auth import validate_auth_configuration
 from backend.app.agent_errors import install_agent_error_handlers
-from backend.app.db.db import check_db_connection, init_db, warm_db_pool
+from backend.app.db.db import check_db_connection, dispose_db_engine, init_db, warm_db_pool
 from backend.app.paths import (
     API_PREFIX,
     APP_CONTEXT_PATH,
@@ -166,7 +167,13 @@ def _request_log_line(
     )
     user = getattr(request.state, "user", None)
     try:
-        user_id = getattr(user, "user_id", None)
+        user_state = sqlalchemy_inspect(user, raiseerr=False)
+        # Reading an expired ORM attribute can issue a synchronous SELECT here.
+        # The persisted identity remains available after commit/session cleanup.
+        if user_state is not None and user_state.identity:
+            user_id = user_state.identity[0]
+        else:
+            user_id = getattr(user, "user_id", None)
     except Exception:
         user_id = None
     payload = {
@@ -282,20 +289,29 @@ async def lifespan(app: FastAPI):
                 db_keepwarm_task = asyncio.create_task(_db_keepwarm_loop(keepwarm_interval_seconds))
         yield
     finally:
-        await stop_realtime_runtime()
-        if db_keepwarm_task:
-            db_keepwarm_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await db_keepwarm_task
-        if keepalive_task:
-            keepalive_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await keepalive_task
-        if patched_run_sync is not None and original_run_sync is not None:
-            import anyio.to_thread
+        try:
+            await stop_realtime_runtime()
+        finally:
+            try:
+                if db_keepwarm_task:
+                    db_keepwarm_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await db_keepwarm_task
+            finally:
+                try:
+                    if keepalive_task:
+                        keepalive_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await keepalive_task
+                finally:
+                    try:
+                        dispose_db_engine()
+                    finally:
+                        if patched_run_sync is not None and original_run_sync is not None:
+                            import anyio.to_thread
 
-            if anyio.to_thread.run_sync is patched_run_sync:
-                anyio.to_thread.run_sync = original_run_sync  # type: ignore[assignment]
+                            if anyio.to_thread.run_sync is patched_run_sync:
+                                anyio.to_thread.run_sync = original_run_sync  # type: ignore[assignment]
 
 
 app = FastAPI(
@@ -307,6 +323,18 @@ app = FastAPI(
     redoc_url=REDOC_PATH,
 )
 install_agent_error_handlers(app)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_response(request: Request, exc: Exception):
+    # ServerErrorMiddleware emits this response outside user middleware and
+    # still re-raises the error for server logging and raising test clients.
+    request_id = getattr(request.state, "request_id", None) or _request_id_for(request)
+    return PlainTextResponse(
+        "Internal Server Error",
+        status_code=500,
+        headers={REQUEST_ID_HEADER: request_id, **SECURITY_HEADERS},
+    )
 
 # API under the app context path so the full product is self-contained.
 app.include_router(api_router, prefix=API_PREFIX)

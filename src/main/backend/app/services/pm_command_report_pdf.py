@@ -179,8 +179,6 @@ def build_pm_command_report_pdf(
         if str(row.get("project_id") or "").strip() in project_ids
         and str(row.get("solution_id") or "").strip() in solution_ids
     ]
-    task_ids = {str(row.get("task_id") or "").strip() for row in scoped_tasks}
-    task_ids.discard("")
     active_solutions = [row for row in scoped_solutions if not _is_closed_solution(row.get("status"))]
     active_tasks = [row for row in scoped_tasks if not _is_closed_task(row.get("status"))]
 
@@ -194,6 +192,9 @@ def build_pm_command_report_pdf(
     }
     tasks_by_project: dict[str, list[dict[str, object]]] = {}
     tasks_by_solution: dict[str, list[dict[str, object]]] = {}
+    solutions_by_project: dict[str, list[dict[str, object]]] = {}
+    for solution in scoped_solutions:
+        solutions_by_project.setdefault(str(solution.get("project_id") or ""), []).append(solution)
     for task in scoped_tasks:
         tasks_by_project.setdefault(str(task.get("project_id") or ""), []).append(task)
         tasks_by_solution.setdefault(str(task.get("solution_id") or ""), []).append(task)
@@ -226,7 +227,7 @@ def build_pm_command_report_pdf(
     project_summaries = []
     for project in projects:
         project_id = str(project.get("project_id") or "")
-        project_solutions = [row for row in scoped_solutions if str(row.get("project_id") or "") == project_id]
+        project_solutions = solutions_by_project.get(project_id, [])
         open_solutions = [row for row in project_solutions if not _is_closed_solution(row.get("status"))]
         project_tasks = tasks_by_project.get(project_id, [])
         open_tasks = [row for row in project_tasks if not _is_closed_task(row.get("status"))]

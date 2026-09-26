@@ -204,8 +204,11 @@ def list_repository_inventory(
 ) -> list[RepositoryInventoryItemRead]:
     solutions = (
         session.query(Solution)
+        .join(Project, Project.project_id == Solution.project_id)
         .filter(Solution.space_id == space_ctx.space_id)
         .filter(Solution.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
         .all()
     )
     if not solutions:

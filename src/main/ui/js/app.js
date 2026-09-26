@@ -14,7 +14,7 @@ import {
 } from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
-import { createDataStoreController } from "./shell/data-store.js";
+import { bindTaskRefreshDraft, createDataStoreController, restoreEditorSelections } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
 import { createActivitySessionController } from "./shell/activity-session.js";
 import { createTelemetryController } from "./shell/telemetry.js";
@@ -29,6 +29,7 @@ import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./utils/form-state.js";
 import {
   renderSolutionActivityItems,
   renderSolutionTaskCard,
@@ -47,22 +48,9 @@ import {
   updateTasksWorkbenchSelectionCount as updateWorkbenchSelectionCount,
 } from "./routes/tasks-workbench/filters.js";
 import {
-  applyTasksWorkbenchBulkAction as applyWorkbenchBulkAction,
-  syncTasksWorkbenchBulkInputs as syncWorkbenchBulkInputs,
-} from "./routes/tasks-workbench/bulk-actions.js";
-import {
-  fillTasksWorkbenchForm,
-  scrollActiveTaskIntoView,
-  syncTasksWorkbenchDrawer,
-} from "./routes/tasks-workbench/drawer.js";
-import {
   loadTasksWorkbenchSavedViews,
   updateTasksWorkbenchSavedViewsUI,
 } from "./routes/tasks-workbench/saved-views.js";
-import {
-  bindTasksWorkbenchControls as bindWorkbenchControls,
-  updateTasksWorkbenchSolutionOptions as updateWorkbenchSolutionOptions,
-} from "./routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "./routes/tasks-workbench/options.js";
 import { nextTaskNameSort, sortTasksByName, taskNameSortPresentation } from "./utils/task-sort.js";
 import { createCalendarRouteController } from "./routes/calendar/interactions.js";
@@ -352,6 +340,9 @@ let sessionController = null;
 let activitySessionController = null;
 let liveSyncController = null;
 let telemetryController = null;
+let spaceContextGeneration = 0;
+let spaceAuthGeneration = 0;
+let spaceSwitchGeneration = 0;
 const ignoreNextRefresh = {
   delete(entity) {
     return dataStoreController.clearIgnoredRefresh(entity);
@@ -530,6 +521,15 @@ function initializeRouteModule(view, mod) {
   if (view === "master") {
     mod.bindDeliverablesControls(createMasterRouteContext());
     mod.bindDeliverablesTable(createMasterRouteContext());
+  } else if (view === "tasks-workbench") {
+    const ctx = createTasksWorkbenchContext();
+    mod.bindTasksWorkbenchControls({
+      ...ctx,
+      syncTasksWorkbenchBulkInputs: () => mod.syncTasksWorkbenchBulkInputs(ctx),
+      applyTasksWorkbenchBulkAction: () => mod.applyTasksWorkbenchBulkAction(ctx),
+      updateTasksWorkbenchSolutionOptions: (projectId) => mod.updateTasksWorkbenchSolutionOptions(ctx, projectId),
+    });
+    mod.updateTasksWorkbenchSolutionOptions(ctx, state.tasksWorkbench.filters.project_id || "");
   } else if ((view === "spaces" || view === "access") && !spaceGovernanceController) {
     spaceGovernanceController = mod.createSpaceGovernanceController({
       state,
@@ -970,6 +970,18 @@ async function switchActiveSpace(targetSpaceId) {
   if (target === current) return true;
   if (state.spaceSwitching) return false;
 
+  const operationGeneration = ++spaceSwitchGeneration;
+  const authGeneration = spaceAuthGeneration;
+  const userId = sessionUserId();
+  let expectedSpaceId = current;
+  spaceContextGeneration += 1;
+  sessionController?.invalidatePendingRefreshContext();
+  const isCurrentSwitch = () => operationGeneration === spaceSwitchGeneration
+    && authGeneration === spaceAuthGeneration
+    && state.authed
+    && userId === sessionUserId()
+    && expectedSpaceId === (state.activeSpace?.space_id || "");
+
   state.spaceSwitching = true;
   state.spaceMembershipActionMenuId = "";
   setSpaceFeedback(`Switching to ${spaceNameForId(target) || target}...`, "info");
@@ -984,10 +996,13 @@ async function switchActiveSpace(targetSpaceId) {
       method: "POST",
       body: JSON.stringify({ space_id: target }),
     });
+    if (!isCurrentSwitch()) return false;
     if (current) {
       recordRecentSpace(current);
     }
+    spaceContextGeneration += 1;
     state.activeSpace = switched || state.activeSpace;
+    expectedSpaceId = state.activeSpace?.space_id || "";
     if (state.activeSpace?.space_kind !== "lobby") {
       clearSpaceGovernanceNotice();
     }
@@ -996,6 +1011,7 @@ async function switchActiveSpace(targetSpaceId) {
     clearDataState();
     restoreGanttViewState();
     await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
+    if (!isCurrentSwitch()) return false;
     startLiveSync({ force: true });
     state.spaceSwitcherOpen = false;
     telemetryController?.syncRuntimeContext?.();
@@ -1003,6 +1019,7 @@ async function switchActiveSpace(targetSpaceId) {
     setSpaceFeedback(`Now working in ${spaceNameForId(state.activeSpace?.space_id || target) || targetName || target}.`, "success", 4200);
     return true;
   } catch (err) {
+    if (!isCurrentSwitch()) return false;
     console.warn("Space switch failed", err);
     setSpaceFeedback(err?.message ? `Space switch failed: ${err.message}` : "Space switch failed.", "error", 7000);
     try {
@@ -1012,16 +1029,19 @@ async function switchActiveSpace(targetSpaceId) {
     }
     return false;
   } finally {
-    state.spaceSwitching = false;
-    renderSpaceSwitcher();
-    if (isSpaceGovernanceView(state.currentView)) {
-      renderGovernanceHub();
+    if (operationGeneration === spaceSwitchGeneration) {
+      state.spaceSwitching = false;
+      renderSpaceSwitcher();
+      if (isSpaceGovernanceView(state.currentView)) {
+        renderGovernanceHub();
+      }
     }
   }
 }
 
 
 function applySpaceContext(spaces, activeSpace, options = {}) {
+  spaceContextGeneration += 1;
   const previousActiveSpaceId = state.activeSpace?.space_id || "";
   const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
   const suppressDataInvalidation = !!options.suppressDataInvalidation;
@@ -1090,6 +1110,14 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
 
 async function refreshSpaceContext(options = {}) {
   const apiOptions = options.apiOptions || {};
+  const generation = ++spaceContextGeneration;
+  const userId = sessionUserId();
+  const spaceId = state.activeSpace?.space_id || "";
+  const isCurrent = () => generation === spaceContextGeneration
+    && state.authed
+    && userId === sessionUserId()
+    && spaceId === (state.activeSpace?.space_id || "")
+    && (typeof options.isCurrent !== "function" || options.isCurrent());
   if (!state.authed) {
     state.spaces = [];
     state.activeSpace = null;
@@ -1141,12 +1169,27 @@ async function refreshSpaceContext(options = {}) {
     applySpaceContext,
     reloadCurrentViewData,
     renderActiveView,
+    isCurrent,
     options,
   });
 }
 
 
+function sessionUserId(user = state.user) {
+  return String(user?.user_id || user?.soeid || user?.email || "");
+}
+
+
 function setAuthed(user) {
+  const previousUserId = sessionUserId();
+  const wasAuthed = state.authed;
+  const nextUserId = sessionUserId(user);
+  spaceContextGeneration += 1;
+  if (wasAuthed !== !!user || previousUserId !== nextUserId) {
+    spaceAuthGeneration += 1;
+    spaceSwitchGeneration += 1;
+    state.spaceSwitching = false;
+  }
   state.user = user;
   state.authed = !!user;
   sessionController.onAuthedChange(user);
@@ -1301,7 +1344,17 @@ async function handleLiveSyncVisibilityChange() {
 }
 
 function initTasksWorkbench() {
-  bindWorkbenchControls(createTasksWorkbenchContext());
+  bindDebouncedInput(
+    els.tasksWorkbenchSearch,
+    () => {
+      persistTasksWorkbenchUiState();
+      renderTasksWorkbench();
+    },
+    180,
+    (value) => {
+      state.tasksWorkbench.filters.search = value;
+    },
+  );
 }
 
 async function bootstrapAuth() {
@@ -1509,7 +1562,7 @@ function populateCapacityUserOptions() {
   if (!els.capacityUserOptions) return;
   const options = state.users
     .filter((u) => u.display_name || u.soeid)
-    .map((u) => `<option value="${u.display_name || u.soeid}"></option>`)
+    .map((u) => `<option value="${escapeHtml(u.display_name || u.soeid)}"></option>`)
     .join("");
   els.capacityUserOptions.innerHTML = options;
 }
@@ -1627,27 +1680,7 @@ function renderRepositories() {
 }
 
 function restoreSelections(projectId, solutionId, taskId) {
-  if (projectId) {
-    const proj = state.projects.find((p) => p.project_id === projectId);
-    if (proj) {
-      openProjectForm(proj);
-    }
-  }
-
-  if (solutionId) {
-    const sol = state.solutions.find((s) => s.solution_id === solutionId);
-    if (sol) {
-      const activeTab = els.solutionModal?.querySelector(".modal-tabs .tab.active")?.dataset?.tab || "details";
-      openSolutionModal(sol, activeTab);
-    }
-  }
-
-  if (taskId) {
-    const task = state.tasks.find((item) => item.task_id === taskId);
-    if (task) {
-      fillTaskForm(task);
-    }
-  }
+  restoreEditorSelections({ state, els, openProjectForm, openSolutionModal, fillTaskForm }, projectId, solutionId, taskId);
 }
 
 function createMasterRouteContext(overrides = {}) {
@@ -1728,10 +1761,11 @@ function createTasksWorkbenchContext(overrides = {}) {
     updateTasksWorkbenchPresetButtons: () => updateWorkbenchPresetButtons(ctx),
     updateTasksWorkbenchSelectionCount: () => updateWorkbenchSelectionCount(ctx),
     clearTasksWorkbenchFilters: () => clearWorkbenchFilters(ctx),
-    syncTasksWorkbenchBulkInputs: () => syncWorkbenchBulkInputs(ctx),
-    applyTasksWorkbenchBulkAction: () => applyWorkbenchBulkAction(ctx),
+    syncTasksWorkbenchBulkInputs: () => getRouteModule("tasks-workbench")?.syncTasksWorkbenchBulkInputs(ctx),
+    applyTasksWorkbenchBulkAction: () => getRouteModule("tasks-workbench")?.applyTasksWorkbenchBulkAction(ctx),
     normalizeTasksWorkbenchUiState: (options) => normalizeWorkbenchUiState(ctx, options),
-    updateTasksWorkbenchSolutionOptions: (projectId) => updateWorkbenchSolutionOptions(ctx, projectId),
+    updateTasksWorkbenchSolutionOptions: (projectId) => getRouteModule("tasks-workbench")
+      ?.updateTasksWorkbenchSolutionOptions(ctx, projectId),
     ...overrides,
   });
   return ctx;
@@ -1850,6 +1884,8 @@ async function deleteTasksById(taskIds, options = {}) {
   if (!ids.length) {
     return { cancelled: false, deletedIds: [], failed: [] };
   }
+  const requestContext = captureEntityMutationContext(state);
+  const isCurrent = () => isEntityMutationContextCurrent(state, requestContext);
 
   const count = ids.length;
   const defaultTitle = count === 1 ? "Delete Task?" : "Delete Tasks?";
@@ -1863,10 +1899,11 @@ async function deleteTasksById(taskIds, options = {}) {
     message: options.message || defaultMessage,
     confirmLabel: options.confirmLabel || defaultConfirm,
   });
-  if (!confirmed) {
+  if (!confirmed || !isCurrent()) {
     return { cancelled: true, deletedIds: [], failed: [] };
   }
 
+  markIgnoreRefresh("tasks");
   const deletedIds = [];
   const failed = [];
   for (const id of ids) {
@@ -1875,6 +1912,9 @@ async function deleteTasksById(taskIds, options = {}) {
       deletedIds.push(id);
     } catch (err) {
       failed.push({ id, error: err });
+    }
+    if (!isCurrent()) {
+      return { cancelled: true, deletedIds: [], failed: [] };
     }
   }
 
@@ -1938,15 +1978,15 @@ function renderTasksWorkbench() {
   const active = wb.drawerOpen !== false && wb.activeTaskId
     ? (state.tasks || []).find((row) => row.task_id === wb.activeTaskId) || null
     : null;
-  syncTasksWorkbenchDrawer(workbenchCtx);
-  fillTasksWorkbenchForm(workbenchCtx, active);
+  mod.syncTasksWorkbenchDrawer(workbenchCtx);
+  mod.fillTasksWorkbenchForm(workbenchCtx, active);
   updateWorkbenchPresetButtons(workbenchCtx);
   updateWorkbenchSelectionCount(workbenchCtx);
   updateTasksWorkbenchSavedViewsUI(workbenchCtx);
   if (wb.suppressAutoScrollOnce) {
     wb.suppressAutoScrollOnce = false;
   } else {
-    window.setTimeout(() => scrollActiveTaskIntoView(workbenchCtx), 0);
+    window.setTimeout(() => mod.scrollActiveTaskIntoView(workbenchCtx), 0);
   }
 }
 
@@ -1989,7 +2029,7 @@ function updateCurrentPhaseOptions(_solutionId, selectedPhaseId = null) {
   const phases = [...state.phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
 
   const opts = phases
-    .map((p) => `<option value="${p.phase_id}">${phaseDisplayName(p.phase_id) || p.phase_id}</option>`)
+    .map((p) => `<option value="${escapeHtml(p.phase_id)}">${escapeHtml(phaseDisplayName(p.phase_id) || p.phase_id)}</option>`)
     .join("");
   sel.innerHTML = `<option value="">None</option>${opts}`;
   if (selectedValue && phases.some((p) => p.phase_id === selectedValue)) {
@@ -2038,16 +2078,27 @@ function renderMasterTable() {
   mod.renderMasterTable(createMasterRouteContext());
 }
 
+const debouncedInputBindings = new WeakMap();
+
 function bindDebouncedInput(element, onChange, delayMs = 180, onInput = null) {
   if (!element || typeof onChange !== "function") return;
-  let timerId = 0;
+  const existing = debouncedInputBindings.get(element);
+  if (existing) {
+    existing.onChange = onChange;
+    existing.delayMs = delayMs;
+    existing.onInput = onInput;
+    return;
+  }
+  const binding = { onChange, delayMs, onInput, timerId: 0 };
+  debouncedInputBindings.set(element, binding);
   element.addEventListener("input", () => {
     const value = element.value || "";
-    onInput?.(value);
-    if (timerId) window.clearTimeout(timerId);
-    timerId = window.setTimeout(() => {
-      onChange(value);
-    }, delayMs);
+    binding.onInput?.(value);
+    if (binding.timerId) window.clearTimeout(binding.timerId);
+    binding.timerId = window.setTimeout(() => {
+      binding.timerId = 0;
+      binding.onChange(value);
+    }, binding.delayMs);
   });
 }
 
@@ -2683,11 +2734,15 @@ function projectLabel(project) {
 }
 
 function populateSelects() {
+  const preserveTaskDraft = els.taskForm?.hasAttribute("data-dirty");
+  const preserveSolutionDraft = els.solutionForm?.hasAttribute("data-dirty")
+    || (preserveTaskDraft && !els.taskForm.classList.contains("hidden")
+      && !els.solutionModal?.classList.contains("hidden"));
   const programOpts = state.programs
-    .map((program) => `<option value="${program.program_id}">${escapeHtml(program.program_name)}</option>`)
+    .map((program) => `<option value="${escapeHtml(program.program_id)}">${escapeHtml(program.program_name)}</option>`)
     .join("");
   const projectOpts = state.projects
-    .map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`)
+    .map((p) => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(projectLabel(p))}</option>`)
     .join("");
   const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);
   const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });
@@ -2703,6 +2758,7 @@ function populateSelects() {
     els.projectForm?.querySelector('[name="program_id"]'),
   ].filter(Boolean);
   programSelects.forEach((sel) => {
+    if (els.projectForm?.hasAttribute("data-dirty")) return;
     if (sel.tagName === "SELECT") {
       const previous = sel.value;
       sel.innerHTML = `<option value="">Select</option>${programOpts}`;
@@ -2716,11 +2772,14 @@ function populateSelects() {
     }
   });
   projSelects.forEach((sel) => {
+    if (preserveSolutionDraft) return;
     if (sel.tagName === "SELECT") {
+      const previous = sel.value;
       sel.innerHTML = `<option value="">Select</option>${projectOpts}`;
+      if (state.projects.some((project) => project.project_id === previous)) sel.value = previous;
     }
   });
-  if (els.solutionForm) {
+  if (els.solutionForm && !preserveSolutionDraft) {
     const projSel = els.solutionForm.querySelector('[name="project_id"]');
     if (projSel && projSel.innerHTML.indexOf("Select") === -1) {
       projSel.innerHTML = `<option value="">Select</option>${projectOpts}`;
@@ -2753,7 +2812,7 @@ function populateSelects() {
   if (calendarOwnerFilterChanged) {
     persistCalendarViewState();
   }
-  const teamOpts = state.teams.map((t) => `<option value="${t.team_id}">${t.name}</option>`).join("");
+  const teamOpts = state.teams.map((t) => `<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join("");
   const teamSelects = [els.teamMemberForm?.querySelector('[name="team_id"]')].filter(Boolean);
   teamSelects.forEach((sel) => (sel.innerHTML = `<option value="">Unassigned</option>${teamOpts}`));
   if (els.teamMemberForm && els.teamMemberForm.querySelector('[name="team_id"]') && state.teams.length && !els.teamMemberForm.querySelector('[name="team_id"]').value) {
@@ -2762,15 +2821,17 @@ function populateSelects() {
   populateCapacityUserOptions();
 
   // Assignee dropdown for tasks from team members
-  if (els.taskForm) {
+  if (els.taskForm && !preserveTaskDraft) {
     const assigneeSel = els.taskForm.querySelector('[name="assignee"]');
     const assigneeUserInput = els.taskForm.querySelector('[name="assignee_user_soeid"]');
     if (assigneeSel) {
+      const previous = assigneeSel.value;
       const users = state.users.filter((u) => u.display_name && u.soeid);
       assigneeSel.innerHTML =
         users.length > 0
-          ? `<option value="">Select</option>${users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("")}`
+          ? `<option value="">Select</option>${users.map((u) => `<option value="${escapeHtml(u.soeid)}">${escapeHtml(u.display_name)}</option>`).join("")}`
           : `<option value="">No users configured</option>`;
+      if (users.some((user) => user.soeid === previous)) assigneeSel.value = previous;
       assigneeSel.onchange = () => {
         if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
       };
@@ -2785,11 +2846,11 @@ function populateSelects() {
     if (type === "project") {
       options =
         `<option value=\"\">New project</option>` +
-        state.projects.map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`).join("");
+        state.projects.map((p) => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(projectLabel(p))}</option>`).join("");
     } else if (type === "solution") {
-      options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
+      options = state.solutions.map((s) => `<option value="${escapeHtml(s.solution_id)}">${escapeHtml(s.solution_name)}</option>`).join("");
     } else {
-      options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
+      options = state.tasks.map((sc) => `<option value="${escapeHtml(sc.task_id)}">${escapeHtml(sc.task_name)}</option>`).join("");
     }
     els.aiEntityId.innerHTML = options || `<option value=\"\">No items</option>`;
   }
@@ -3809,6 +3870,7 @@ function init() {
   bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
+  bindTaskRefreshDraft(els.taskForm);
   bindTaskForm();
   bindSolutionTabs();
   bindSolutionDocumentControls();

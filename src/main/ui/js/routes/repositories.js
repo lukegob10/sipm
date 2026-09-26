@@ -100,9 +100,19 @@ function bindInteractions(ctx) {
   const root = ctx.els.repositoryInventoryRoot;
   const inventory = inventoryState(ctx.state);
   root.querySelector("[data-repository-search]")?.addEventListener("input", (event) => {
+    const { selectionStart, selectionEnd, selectionDirection } = event.target;
     inventory.search = event.target.value;
     renderRepositories(ctx);
-    root.querySelector("[data-repository-search]")?.focus();
+    const nextSearch = root.querySelector("[data-repository-search]");
+    if (!nextSearch) return;
+    try {
+      nextSearch.focus({ preventScroll: true });
+    } catch {
+      nextSearch.focus();
+    }
+    if (selectionStart !== null && selectionEnd !== null) {
+      nextSearch.setSelectionRange(selectionStart, selectionEnd, selectionDirection || "none");
+    }
   });
 }
 

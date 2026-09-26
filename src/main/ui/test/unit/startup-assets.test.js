@@ -42,6 +42,9 @@ describe("startup assets", () => {
       "routes/spaces/interactions.js", "routes/spaces/render.js",
       "routes/master/interactions.js",
       "routes/master/quickstart.js",
+      "routes/tasks-workbench/bulk-actions.js",
+      "routes/tasks-workbench/drawer.js",
+      "routes/tasks-workbench/interactions.js",
     ]) {
       expect(graph.has(resolve(root, deferred)), deferred).toBe(false);
     }
@@ -59,5 +62,16 @@ describe("startup assets", () => {
     ["access.js", "spaces/render.js"],
   ])("loads %s with its %s dependency before initialization", (entry, dependency) => {
     expect(staticModuleGraph(`routes/${entry}`).has(resolve(root, "routes", dependency))).toBe(true);
+  });
+
+  it("loads the workbench controls and drawer through its lazy route", () => {
+    const graph = staticModuleGraph("routes/tasks-workbench.js");
+    for (const deferred of [
+      "routes/tasks-workbench/bulk-actions.js",
+      "routes/tasks-workbench/drawer.js",
+      "routes/tasks-workbench/interactions.js",
+    ]) {
+      expect(graph.has(resolve(root, deferred)), deferred).toBe(true);
+    }
   });
 });

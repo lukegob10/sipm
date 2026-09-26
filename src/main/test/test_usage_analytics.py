@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from sqlalchemy import event
 
 from backend.app import deps as deps_module
 from backend.app.models import (
@@ -16,6 +17,7 @@ from backend.app.models import (
     UsageRouteIdentityDailyRollup,
 )
 from backend.app.services.spaces import SpaceContext
+from backend.app.services.usage_analytics import update_usage_rollups
 from backend.main import app as fastapi_app
 
 
@@ -350,6 +352,122 @@ async def test_usage_analytics_summary_and_route_totals_use_exact_rollups(analyt
         "failure_count": 1,
     }
     assert route_payload["recent_failures"][0]["failure_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_usage_analytics_daily_all_spaces_deduplicates_identities_across_spaces(
+    analytics_client,
+    db_sessionmaker,
+):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    events = [
+        UsageEvent(
+            event_id=f"cross-space-{space_id}",
+            occurred_at=now,
+            received_at=now,
+            session_id="shared-session",
+            user_id="shared-user",
+            space_id=space_id,
+            view_key="master",
+            category="navigation",
+            feature_key="navigation",
+            action_key="route_view",
+            outcome="success",
+        )
+        for space_id in ("space-1", "space-2")
+    ]
+
+    with db_sessionmaker() as session:
+        session.add_all(events)
+        update_usage_rollups(session, events=events, samples=[])
+        session.commit()
+
+    response = await analytics_client.get("/project-manager/api/analytics/summary?days=30&all_spaces=true")
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["summary"]["sessions"] == 1
+    assert payload["summary"]["active_users"] == 1
+    today = next(point for point in payload["daily"] if point["date"] == now.date().isoformat())
+    assert today["sessions"] == 1
+    assert today["active_users"] == 1
+    assert today["route_views"] == 2
+
+
+def test_usage_rollup_lookup_queries_stay_bounded_for_maximum_batch(db_sessionmaker):
+    engine = db_sessionmaker.kw["bind"]
+    selects = []
+
+    def record_select(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            selects.append(statement)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    events = [
+        UsageEvent(
+            event_id=f"query-count-{index}",
+            occurred_at=now,
+            received_at=now,
+            session_id=f"session-{index}",
+            user_id=f"user-{index}",
+            space_id="space-1",
+            view_key=f"route-{index}",
+            category="navigation",
+            feature_key="navigation",
+            action_key="route_view",
+            outcome="success",
+        )
+        for index in range(100)
+    ]
+
+    event.listen(engine, "before_cursor_execute", record_select)
+    try:
+        with db_sessionmaker() as session:
+            update_usage_rollups(session, events=events, samples=[])
+    finally:
+        event.remove(engine, "before_cursor_execute", record_select)
+
+    # Three rollup tables need five bounded SELECTs at the 100-item batch limit.
+    assert len(selects) <= 5
+
+
+def test_usage_rollup_updates_reuse_pending_and_persisted_rows(db_sessionmaker):
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def make_event(event_id: str) -> UsageEvent:
+        return UsageEvent(
+            event_id=event_id,
+            occurred_at=now,
+            received_at=now,
+            session_id="shared-session",
+            user_id="shared-user",
+            space_id=None,
+            view_key="master",
+            category="navigation",
+            feature_key="navigation",
+            action_key="route_view",
+            outcome="success",
+        )
+
+    with db_sessionmaker() as session:
+        for event_id in ("pending-1", "pending-2"):
+            event = make_event(event_id)
+            session.add(event)
+            update_usage_rollups(session, events=[event], samples=[])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        event = make_event("persisted-3")
+        session.add(event)
+        update_usage_rollups(session, events=[event], samples=[])
+        session.commit()
+
+    with db_sessionmaker() as session:
+        rollup = session.query(UsageDailyRollup).one()
+        assert rollup.event_count == 3
+        assert rollup.route_view_count == 3
+        assert session.query(UsageIdentityDailyRollup).count() == 2
+        assert session.query(UsageRouteIdentityDailyRollup).count() == 2
 
 
 @pytest.mark.anyio

@@ -21,6 +21,7 @@ from ..projects.common import _default_program, _resolve_project_sponsor
 from ..solutions.common import _resolve_solution_owner
 from .common import (
     _apply_task_completion_state,
+    _deleted_task_name,
     _project_query,
     _publish_task_import,
     _resolve_task_assignee,
@@ -66,6 +67,9 @@ def import_tasks(
     }
 
     for idx, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append(f"Row {idx}: too many columns for the CSV header")
+            continue
         project_name = normalize_str(row.get("project_name"))
         solution_name = normalize_str(row.get("solution_name"))
         task_name = normalize_str(row.get("task_name"))
@@ -85,8 +89,6 @@ def import_tasks(
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
-        blocked_raw = normalize_str(row.get("blocked"))
-        blocked_val = blocked_raw.lower() in {"true", "1", "yes", "y"} if blocked_raw else False
         if not project_name or not solution_name or not task_name:
             errors.append(
                 f"Row {idx}: project_name, solution_name, and task_name are required"
@@ -111,6 +113,12 @@ def import_tasks(
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
+
+        blocked_raw = normalize_str(row.get("blocked")).lower()
+        if blocked_raw and blocked_raw not in {"true", "1", "yes", "y", "false", "0", "no", "n"}:
+            errors.append(f"Row {idx}: blocked must be a boolean")
+            continue
+        blocked_val = blocked_raw in {"true", "1", "yes", "y"}
 
         project = projects_by_name.get(project_name.lower())
         if dry_run:
@@ -334,6 +342,24 @@ def import_tasks(
                     assignee_user_soeid,
                     current_user,
                 )
+                deleted_conflicts = (
+                    session.query(Task)
+                    .filter(Task.solution_id == solution.solution_id)
+                    .filter(Task.space_id == space_ctx.space_id)
+                    .filter(Task.task_name == task_name)
+                    .filter(Task.deleted_at.is_not(None))
+                    .all()
+                )
+                for deleted in deleted_conflicts:
+                    deleted.task_name = _deleted_task_name(
+                        deleted.task_name,
+                        deleted.task_id,
+                        deleted.deleted_at or now,
+                    )
+                    deleted.updated_at = now
+                    session.add(deleted)
+                if deleted_conflicts:
+                    session.flush()
                 completed_at = completed_at_val if status_enum == TaskStatus.complete and completed_at_val is not None else (
                     now if status_enum == TaskStatus.complete else None
                 )

@@ -81,6 +81,23 @@ def _active_team(session: Session, team_id: str, space_ctx: SpaceContext) -> Tea
     return team
 
 
+def _team_capacity_lock_query(session: Session, team_id: str, space_ctx: SpaceContext):
+    # Locking the parent first serializes membership writes before capacity is summed.
+    return (
+        _team_query(session, space_ctx)
+        .filter(Team.team_id == team_id)
+        .with_for_update()
+    )
+
+
+def _lock_active_team(session: Session, team_id: str, space_ctx: SpaceContext) -> Team:
+    with session.no_autoflush:
+        team = _team_capacity_lock_query(session, team_id, space_ctx).one_or_none()
+    if not team:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    return team
+
+
 def _active_member(session: Session, member_id: str, team_id: str, space_ctx: SpaceContext) -> TeamMember:
     member = (
         _member_query(session, space_ctx)
@@ -160,23 +177,39 @@ def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) ->
     return data
 
 
-def _recompute_team_capacity(session: Session, team_id: str, space_ctx: SpaceContext) -> None:
+def _recompute_team_capacity(session: Session, team: Team, space_ctx: SpaceContext) -> None:
     total = (
         session.query(func.coalesce(func.sum(TeamMember.hours_capacity), 0))
-        .filter(TeamMember.team_id == team_id)
+        .filter(TeamMember.team_id == team.team_id)
         .filter(TeamMember.deleted_at.is_(None))
         .filter(TeamMember.space_id == space_ctx.space_id)
         .scalar()
     )
-    team = _team_query(session, space_ctx).filter(Team.team_id == team_id).first()
-    if not team:
-        return
     team.default_capacity_per_week = int(total or 0)
     team.default_capacity_fte_month = _fte_from_hours(team.default_capacity_per_week)
     team.capacity_unit = "fte_month"
     team.updated_at = datetime.now(timezone.utc)
     session.add(team)
-    session.commit()
+
+
+def _commit_team_member_capacity_change(
+    session: Session,
+    locked_team: Team,
+    space_ctx: SpaceContext,
+    member_to_refresh: Optional[TeamMember] = None,
+) -> Optional[TeamMemberRead]:
+    try:
+        session.flush()
+        _recompute_team_capacity(session, locked_team, space_ctx)
+        member_read = None
+        if member_to_refresh is not None:
+            session.refresh(member_to_refresh)
+            member_read = TeamMemberRead.model_validate(member_to_refresh)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return member_read
 
 
 @router.get("/teams", response_model=List[TeamRead])
@@ -194,10 +227,25 @@ def list_teams(
             .order_by(Team.created_at.asc())
             .all()
         )
-        return [
-            _team_with_members(session, row, space_ctx).model_dump(mode="json")
-            for row in rows
-        ]
+        if not rows:
+            return []
+        members = (
+            _member_query(session, space_ctx)
+            .join(Team, Team.team_id == TeamMember.team_id)
+            .filter(Team.space_id == space_ctx.space_id)
+            .filter(Team.deleted_at.is_(None))
+            .order_by(TeamMember.created_at.asc())
+            .all()
+        )
+        members_by_team: dict[str, list[TeamMemberRead]] = {}
+        for member in members:
+            members_by_team.setdefault(member.team_id, []).append(TeamMemberRead.model_validate(member))
+        result = []
+        for row in rows:
+            data = TeamRead.model_validate(row)
+            data.members = members_by_team.get(row.team_id, [])
+            result.append(data.model_dump(mode="json"))
+        return result
 
     return cached_call(
         endpoint="teams:list",
@@ -309,7 +357,7 @@ def update_team(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamRead:
-    team = _active_team(session, team_id, space_ctx)
+    team = _lock_active_team(session, team_id, space_ctx)
     old_name = team.name
     affected_user_ids: set[str] = set()
     for field in ["name", "description", "lead"]:
@@ -355,7 +403,7 @@ def delete_team(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
-    team = _active_team(session, team_id, space_ctx)
+    team = _lock_active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
     old_name = team.name
     affected_user_ids: set[str] = set()
@@ -413,7 +461,7 @@ def create_team_member(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamMemberRead:
-    _active_team(session, team_id, space_ctx)
+    team = _lock_active_team(session, team_id, space_ctx)
     hours_capacity, capacity_fte_month = _member_capacity_fields(payload)
     member = TeamMember(
         space_id=space_ctx.space_id,
@@ -428,11 +476,15 @@ def create_team_member(
         percent_capacity=payload.percent_capacity,
     )
     session.add(member)
-    session.commit()
-    session.refresh(member)
-    _recompute_team_capacity(session, team_id, space_ctx)
+    member_read = _commit_team_member_capacity_change(
+        session,
+        team,
+        space_ctx,
+        member_to_refresh=member,
+    )
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.model_validate(member)
+    assert member_read is not None
+    return member_read
 
 
 @router.patch("/teams/{team_id}/members/{member_id}", response_model=TeamMemberRead)
@@ -444,7 +496,7 @@ def update_team_member(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> TeamMemberRead:
-    _active_team(session, team_id, space_ctx)
+    team = _lock_active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
     for field in ["member_name", "role", "capacity_override", "capacity_unit"]:
         val = getattr(payload, field)
@@ -462,11 +514,15 @@ def update_team_member(
             setattr(member, field, getattr(payload, field))
     member.updated_at = datetime.now(timezone.utc)
     session.add(member)
-    session.commit()
-    session.refresh(member)
-    _recompute_team_capacity(session, team_id, space_ctx)
+    member_read = _commit_team_member_capacity_change(
+        session,
+        team,
+        space_ctx,
+        member_to_refresh=member,
+    )
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.model_validate(member)
+    assert member_read is not None
+    return member_read
 
 
 @router.delete("/teams/{team_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -477,12 +533,10 @@ def delete_team_member(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
 ) -> None:
-    _active_team(session, team_id, space_ctx)
+    team = _lock_active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
     member.deleted_at = datetime.now(timezone.utc)
-    session.add(member)
-    session.commit()
-    _recompute_team_capacity(session, team_id, space_ctx)
+    _commit_team_member_capacity_change(session, team, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
     return None
 

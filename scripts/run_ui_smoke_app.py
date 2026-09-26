@@ -16,10 +16,16 @@ MAIN_DIR = REPO_ROOT / "src" / "main"
 if str(MAIN_DIR) not in sys.path:
     sys.path.insert(0, str(MAIN_DIR))
 
-os.environ.setdefault("ENV", "dev")
-os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
-os.environ.setdefault("SIPM_DISABLE_STARTUP", "true")
-os.environ.setdefault("SIPM_KEEPALIVE_TASK", "false")
+# This local harness must ignore deployment settings inherited from its caller.
+os.environ.update(
+    {
+        "ENV": "dev",
+        "SIPM_COORDINATION_BACKEND": "memory",
+        "SIPM_DISABLE_STARTUP": "true",
+        "SIPM_KEEPALIVE_TASK": "false",
+        "SIPM_ENV_OVERRIDE": "false",
+    }
+)
 
 from backend.app.models import Base  # noqa: E402
 import backend.app.db.db as db_module  # noqa: E402

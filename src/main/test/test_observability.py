@@ -1,12 +1,50 @@
 from __future__ import annotations
 
+import json
 import logging
 
 import httpx
 import pytest
+from fastapi import Request
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
 
 import backend.main as main_module
+from backend.app.models import User
 from backend.main import app as fastapi_app
+
+
+@pytest.mark.parametrize("detached", [False, True])
+def test_request_log_keeps_expired_user_identity_without_database_queries(detached):
+    engine = create_engine("sqlite://")
+    try:
+        User.__table__.create(engine)
+        with Session(engine) as session:
+            user = User(
+                user_id="log-user",
+                soeid="loguser",
+                email="loguser@example.com",
+                display_name="Log User",
+                password_hash="synthetic-fixture",
+            )
+            session.add(user)
+            session.commit()  # The request may have committed and expired its user.
+            if detached:
+                session.expunge(user)
+
+            statements = []
+            event.listen(engine, "before_cursor_execute", lambda *args: statements.append(args[2]))
+            request = Request({"type": "http", "method": "POST", "path": "/synthetic", "headers": []})
+            request.state.user = user
+
+            record = json.loads(main_module._request_log_line(
+                request, request_id="log-request", status_code=200, duration_ms=1,
+            ))
+
+            assert record["user_id"] == "log-user"
+            assert statements == []
+    finally:
+        engine.dispose()
 
 
 @pytest.mark.anyio
@@ -186,6 +224,8 @@ async def test_unhandled_exception_logging_includes_request_id_and_redacts_sensi
 
     assert response.status_code == 500
     assert response.text == "Internal Server Error"
+    assert response.headers["X-Request-ID"] == "req-observe-500"
+    assert response.headers["Content-Security-Policy"] == main_module.SECURITY_HEADERS["Content-Security-Policy"]
     assert '"request_id":"req-observe-500"' in caplog.text
     assert '"path":"/__observability_test__/boom"' in caplog.text
     assert '"status":500' in caplog.text

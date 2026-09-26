@@ -121,16 +121,17 @@ def parse_datetime(raw: Optional[str]) -> Optional[datetime]:
 
 def read_csv(file_bytes: bytes) -> Tuple[list, list]:
     """Return (rows, errors) from a CSV byte stream using utf-8 decode."""
-    errors = []
     try:
         text = file_bytes.decode("utf-8-sig")
     except UnicodeDecodeError:
         return [], ["Could not decode file as UTF-8"]
-    reader = csv.DictReader(StringIO(text))
-    if reader.fieldnames is None:
-        return [], ["Missing CSV header row"]
-    rows = [row for row in reader]
-    return rows, errors
+    try:
+        reader = csv.DictReader(StringIO(text), strict=True)
+        if reader.fieldnames is None:
+            return [], ["Missing CSV header row"]
+        return [row for row in reader], []
+    except csv.Error as exc:
+        return [], [f"Invalid CSV: {exc}"]
 
 
 def enable_all_phases(session, solution_id: str) -> None:

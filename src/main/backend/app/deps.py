@@ -94,6 +94,12 @@ def authenticate_access_token_context(
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
+    if expected_type == "access" and user.is_service_account:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="INTERACTIVE_USER_REQUIRED",
+            message="Interactive user required",
+        )
     ensure_token_not_revoked(user, payload.get("iat"))
     if user.locked_until:
         locked_until = user.locked_until

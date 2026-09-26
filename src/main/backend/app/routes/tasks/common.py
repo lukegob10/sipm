@@ -21,6 +21,17 @@ _STALE_DAYS = 7
 _DONE_STATUSES = {TaskStatus.complete, TaskStatus.abandoned}
 
 
+def _deleted_task_name(name: str, task_id: str, deleted_at: datetime) -> str:
+    timestamp = (
+        deleted_at.replace(tzinfo=timezone.utc)
+        if deleted_at.tzinfo is None
+        else deleted_at.astimezone(timezone.utc)
+    )
+    suffix = f" [deleted {timestamp.strftime('%Y%m%dT%H%M%SZ')} {(task_id or '')[:8] or 'deleted'}]"
+    base = (name or "Task").strip() or "Task"
+    return f"{base[:max(1, 255 - len(suffix))]}{suffix}"
+
+
 def _role_scope(space_ctx: SpaceContext) -> str:
     if space_ctx.is_global_admin:
         return "global_admin"
@@ -218,6 +229,7 @@ def _run_enable_all_phases(session: Session, solution_id: str) -> None:
 
 
 __all__ = [
+    "_deleted_task_name",
     "_TASKS_DETAIL_TTL_SECONDS",
     "_TASKS_LIST_TTL_SECONDS",
     "_apply_task_completion_state",

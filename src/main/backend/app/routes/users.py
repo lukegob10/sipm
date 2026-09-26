@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime, timezone
 from io import StringIO
+import math
 import os
 from typing import List, Optional
 
@@ -16,7 +17,7 @@ from ..deps import (
     require_global_admin,
     require_space_role,
 )
-from ..models import ApiToken, SpaceMembership, User
+from ..models import ApiToken, Space, SpaceMembership, User
 from ..schemas import (
     ApiTokenCreate,
     ApiTokenIssueResponse,
@@ -26,6 +27,7 @@ from ..schemas import (
     UserRead,
     UserUpdate,
 )
+from ..security import security_http_exception
 from ..services.audit_log import log_changes
 from ..services.api_tokens import api_token_is_active, create_api_token
 from ..services.password_reset import issue_temp_password
@@ -36,6 +38,7 @@ from ..services.user_admin_guards import (
     ensure_actor_can_modify_user,
     ensure_user_can_be_deactivated,
     is_global_admin_user as _is_global_admin,
+    lock_global_admin_users,
     normalized_global_role_expr as _normalized_global_role_expr,
 )
 from ..utils import read_csv
@@ -75,6 +78,44 @@ def _user_by_soeid_or_404(session: Session, soeid: str) -> User:
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+def _refresh_active_admin_actor(session: Session, actor: User) -> None:
+    # The role guard may have waited for another transaction, so the actor
+    # loaded by authentication can be stale by the time the mutation proceeds.
+    # Keep direct route tests using lightweight actor fixtures supported.
+    if isinstance(actor, User):
+        session.refresh(actor, attribute_names=["role", "is_active"])
+    if not getattr(actor, "is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Active user required",
+        )
+
+
+def _ensure_actor_has_current_space_admin_role(session: Session, actor: User, space_id: str) -> None:
+    if _is_global_admin(actor):
+        return
+
+    role = (
+        session.query(SpaceMembership.role)
+        .join(Space, Space.space_id == SpaceMembership.space_id)
+        .filter(SpaceMembership.space_id == space_id)
+        .filter(SpaceMembership.user_id == actor.user_id)
+        .filter(SpaceMembership.status == "active")
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(Space.deleted_at.is_(None))
+        .filter(Space.is_active)
+        .limit(1)
+        .scalar()
+    )
+    normalized_role = (role or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if normalized_role != "space_admin":
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="FORBIDDEN_ROLE",
+            message="Insufficient space role",
+        )
 
 
 def _token_or_404(session: Session, user_id: str, token_id: str) -> ApiToken:
@@ -129,6 +170,11 @@ def _set_global_admin_role(
     target: User,
     make_global_admin: bool,
 ) -> User:
+    lock_global_admin_users(session)
+    _refresh_active_admin_actor(session, actor)
+    if not _is_global_admin(actor):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
+    session.refresh(target, attribute_names=["role", "is_active"])
     if make_global_admin and _is_global_admin(target):
         return target
     if (not make_global_admin) and (not _is_global_admin(target)):
@@ -459,8 +505,11 @@ def update_user(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active:
+        if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            _refresh_active_admin_actor(session, current_user)
+            _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
+            ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):
@@ -501,8 +550,11 @@ def update_user_by_soeid(
     elif payload.capacity_hours is not None:
         _set_user_capacity_fields(user, capacity_hours=payload.capacity_hours)
     if payload.is_active is not None:
-        if user.is_active and not payload.is_active:
+        if not payload.is_active:
             ensure_user_can_be_deactivated(session, user)
+            _refresh_active_admin_actor(session, current_user)
+            _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
+            ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     if payload.is_service_account is not None:
         if not _is_global_admin(current_user):
@@ -532,6 +584,9 @@ def import_users(
     affected_user_ids: set[str] = set()
     seen_soeids: set[str] = set()
     for idx, row in enumerate(rows, start=2):
+        if None in row:
+            errors.append(f"Row {idx}: too many columns for the CSV header")
+            continue
         soeid = (row.get("soeid") or "").strip().lower()
         display_name = (row.get("display_name") or "").strip()
         team_tag = (row.get("team_tag") or "").strip()
@@ -547,13 +602,19 @@ def import_users(
         capacity_fte = 1.0
         if capacity_fte_raw:
             try:
-                capacity_fte = max(float(capacity_fte_raw), 0.0)
+                capacity_fte = float(capacity_fte_raw)
+                if not math.isfinite(capacity_fte) or not math.isfinite(capacity_fte * _HOURS_PER_FTE_CAPACITY):
+                    raise ValueError("capacity must be finite")
+                capacity_fte = max(capacity_fte, 0.0)
             except ValueError:
                 errors.append(f"Row {idx}: invalid capacity_fte_month '{capacity_fte_raw}'")
                 continue
         elif capacity_raw:
             try:
-                capacity_fte = max(float(capacity_raw) / _HOURS_PER_FTE_CAPACITY, 0.0)
+                capacity_hours = float(capacity_raw)
+                if not math.isfinite(capacity_hours):
+                    raise ValueError("capacity must be finite")
+                capacity_fte = max(capacity_hours / _HOURS_PER_FTE_CAPACITY, 0.0)
             except ValueError:
                 errors.append(f"Row {idx}: invalid capacity_hours '{capacity_raw}'")
                 continue

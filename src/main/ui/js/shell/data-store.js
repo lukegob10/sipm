@@ -1,3 +1,43 @@
+import { createFormDraftGuard } from "../utils/form-draft.js";
+
+export function bindTaskRefreshDraft(form) {
+  const draft = createFormDraftGuard({ form });
+  draft.bind();
+  // Entity fills and successful saves reset first, then populate synchronously.
+  // Capture after both native reset and the entity's field assignments finish.
+  form?.addEventListener("reset", () => queueMicrotask(() => draft.capture()));
+  return draft;
+}
+
+export function restoreEditorSelections({
+  state,
+  els,
+  openProjectForm,
+  openSolutionModal,
+  fillTaskForm,
+}, projectId, solutionId, taskId) {
+  const taskOpen = !!els.taskForm && !els.taskForm.classList.contains("hidden")
+    && !els.solutionModal?.classList.contains("hidden");
+  const taskDirty = taskOpen && els.taskForm.hasAttribute("data-dirty");
+  if (projectId && !els.projectForm?.hasAttribute("data-dirty") && !els.projectModal?.classList.contains("hidden")) {
+    const project = state.projects.find((row) => row.project_id === projectId);
+    if (project) openProjectForm(project);
+  }
+  // Reopening the parent resets its fields and closes the nested task editor.
+  if (solutionId && !els.solutionForm?.hasAttribute("data-dirty") && !taskDirty
+      && !els.solutionModal?.classList.contains("hidden")) {
+    const solution = state.solutions.find((row) => row.solution_id === solutionId);
+    if (solution) {
+      const activeTab = els.solutionModal?.querySelector(".modal-tabs .tab.active")?.dataset?.tab || "details";
+      openSolutionModal(solution, activeTab);
+    }
+  }
+  if (taskId && taskOpen && !taskDirty) {
+    const task = state.tasks.find((row) => row.task_id === taskId);
+    if (task) fillTaskForm(task);
+  }
+}
+
 export function createDataStoreController({
   state,
   els,

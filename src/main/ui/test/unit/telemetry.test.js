@@ -92,6 +92,65 @@ describe("telemetry controller", () => {
     expect(retryPayload.events[0].action_key).toBe("create");
   });
 
+  it("does not resend an in-flight batch or remove events collected during that request", async () => {
+    let finishRequest;
+    const fetchImpl = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishRequest = resolve; }))
+      .mockResolvedValue({ ok: true });
+    const { controller, sendBeacon } = buildHarness({ fetchImpl });
+    controller.trackWorkflow("projects", "create");
+    const firstFlush = controller.flush();
+
+    await expect(controller.flush({ useBeacon: true })).resolves.toBe(false);
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    controller.trackWorkflow("projects", "update");
+    finishRequest({ ok: true });
+    await expect(firstFlush).resolves.toBe(true);
+    await expect(controller.flush()).resolves.toBe(true);
+
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).events.map((event) => event.action_key))
+      .toEqual(["update"]);
+  });
+
+  it("restores a failed in-flight batch ahead of newly collected events", async () => {
+    let finishRequest;
+    const fetchImpl = vi.fn()
+      .mockImplementationOnce(() => new Promise((resolve) => { finishRequest = resolve; }))
+      .mockResolvedValue({ ok: true });
+    const { controller } = buildHarness({ fetchImpl });
+    controller.trackWorkflow("projects", "create");
+    const firstFlush = controller.flush();
+    controller.trackWorkflow("projects", "update");
+    finishRequest({ ok: false, status: 503 });
+    await expect(firstFlush).resolves.toBe(false);
+    await controller.flush();
+
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).events.map((event) => event.action_key))
+      .toEqual(["create", "update"]);
+  });
+
+  it("drains a backlog in batches within the API's combined 100-item limit", async () => {
+    const { controller, fetchImpl } = buildHarness();
+    for (let index = 0; index < 105; index += 1) {
+      controller.trackWorkflow("projects", "update", "success", { index });
+    }
+    controller.beginRouteTransition("planning");
+    controller.noteViewRendered("planning", 10);
+
+    await expect(controller.flush()).resolves.toBe(true);
+    await expect(controller.flush()).resolves.toBe(true);
+    await expect(controller.flush()).resolves.toBe(false);
+
+    const batches = fetchImpl.mock.calls.map(([, options]) => JSON.parse(options.body));
+    expect(batches).toHaveLength(2);
+    expect(batches.map((batch) => batch.events.length + batch.performance_samples.length))
+      .toEqual([100, 7]);
+    expect(batches.flatMap((batch) => batch.events).filter((event) => event.action_key === "update"))
+      .toHaveLength(105);
+    expect(batches.flatMap((batch) => batch.performance_samples)).toHaveLength(1);
+  });
+
   it("records timeout and server-side API failures only", async () => {
     const { controller, fetchImpl } = buildHarness();
 

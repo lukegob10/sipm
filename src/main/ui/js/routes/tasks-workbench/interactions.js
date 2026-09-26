@@ -1,5 +1,6 @@
 import { bindTasksWorkbenchSavedViewControls } from "./saved-views.js";
 import { nextTaskNameSort } from "../../utils/task-sort.js";
+import { escDisplay } from "../../utils/display-tokens.js";
 import {
   closeTasksWorkbenchDrawer,
   deleteActiveTasksWorkbenchItem,
@@ -19,7 +20,7 @@ export function updateTasksWorkbenchSolutionOptions(ctx, projectId) {
     : state.solutions;
   const opts = filteredSolutions
     .sort((a, b) => (a.solution_name || "").localeCompare(b.solution_name || ""))
-    .map((solution) => `<option value="${solution.solution_id}">${solution.solution_name}</option>`)
+    .map((solution) => `<option value="${escDisplay(solution.solution_id)}">${escDisplay(solution.solution_name)}</option>`)
     .join("");
   els.tasksWorkbenchSolution.innerHTML = `<option value="">All Solutions</option>${opts}`;
   if (prior && filteredSolutions.find((solution) => solution.solution_id === prior)) {

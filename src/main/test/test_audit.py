@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 
 import pytest
 
@@ -72,6 +73,40 @@ async def test_audit_all_spaces_rows_include_space_id(client):
     assert rows
     assert all("space_id" in row for row in rows)
     assert all(row["space_id"] for row in rows)
+
+
+@pytest.mark.anyio
+async def test_audit_since_and_until_interpret_timezone_offsets_as_utc(db_sessionmaker, client):
+    audit_id = "offset-filter-audit"
+    with db_sessionmaker() as session:
+        session.add(
+            ChangeLog(
+                change_id=audit_id,
+                entity_type="project",
+                entity_id="timezone-filter-project",
+                action="create",
+                user_id="test-user",
+                space_id="test-space",
+                created_at=datetime(2026, 1, 1, 12),
+            )
+        )
+        session.commit()
+
+    for filter_name, filter_value in (
+        ("since", "2026-01-01T15:00:00+03:00"),
+        ("until", "2026-01-01T07:00:00-05:00"),
+    ):
+        response = await client.get(
+            "/project-manager/api/audit",
+            params={
+                "entity_type": "project",
+                "entity_id": "timezone-filter-project",
+                filter_name: filter_value,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert any(row["change_id"] == audit_id for row in response.json())
 
 
 def test_log_changes_stringifies_and_ignores_invalid_or_noop_pairs(db_sessionmaker):

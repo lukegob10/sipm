@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_non_agent_write, require_space_role
-from ...models import Solution, User
+from ...models import Solution, Task, User
 from ...phase_catalog import get_canonical_phase
 from ...schemas import SolutionCreate, SolutionRead, SolutionUpdate
 from ...services.audit_log import safe_log_changes
@@ -18,6 +18,7 @@ from ...utils.enums import RagStatus, SolutionStatus
 from ...services.mutations import commit_refresh_and_publish, commit_session
 from .common import (
     _apply_solution_completion_state,
+    _deleted_solution_name,
     _ensure_project_exists,
     _get_solution_or_404,
     _publish_solution_deletion,
@@ -117,6 +118,26 @@ def create_solution(
         )
 
     now = datetime.now(timezone.utc)
+    deleted_conflicts = (
+        session.query(Solution)
+        .filter(Solution.project_id == project_id)
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Solution.solution_name == solution_name)
+        .filter(Solution.version == version)
+        .filter(Solution.deleted_at.is_not(None))
+        .all()
+    )
+    for deleted in deleted_conflicts:
+        deleted.solution_name = _deleted_solution_name(
+            deleted.solution_name,
+            deleted.solution_id,
+            deleted.deleted_at or now,
+        )
+        deleted.updated_at = now
+        session.add(deleted)
+    if deleted_conflicts:
+        session.flush()
+
     completed_at = now if payload.status == SolutionStatus.complete else None
     priority_val = parse_priority(payload.priority, default=3)
 
@@ -264,6 +285,26 @@ def update_solution(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Solution name and version already exist for this project",
             )
+        deleted_conflicts = (
+            session.query(Solution)
+            .filter(Solution.project_id == next_project_id)
+            .filter(Solution.space_id == space_ctx.space_id)
+            .filter(Solution.solution_name == next_solution_name)
+            .filter(Solution.version == next_version)
+            .filter(Solution.deleted_at.is_not(None))
+            .all()
+        )
+        now = datetime.now(timezone.utc)
+        for deleted in deleted_conflicts:
+            deleted.solution_name = _deleted_solution_name(
+                deleted.solution_name,
+                deleted.solution_id,
+                deleted.deleted_at or now,
+            )
+            deleted.updated_at = now
+            session.add(deleted)
+        if deleted_conflicts:
+            session.flush()
 
     fields_to_compare = set(update_data.keys()) | {"rag_status", "rag_reason"}
     if "status" in update_data:
@@ -297,7 +338,21 @@ def update_solution(
             space_id=space_ctx.space_id,
             changes=changes,
         )
-    invalidate_tasks = (
+    project_moved = (
+        "project_id" in update_data and before.get("project_id") != solution.project_id
+    )
+    if project_moved:
+        session.query(Task).filter(
+            Task.solution_id == solution.solution_id,
+            Task.space_id == space_ctx.space_id,
+        ).update(
+            {
+                Task.project_id: solution.project_id,
+                Task.updated_at: solution.updated_at,
+            },
+            synchronize_session=False,
+        )
+    invalidate_tasks = project_moved or (
         "github_repo_url" in update_data and before.get("github_repo_url") != solution.github_repo_url
     )
     commit_session(session)
@@ -321,8 +376,14 @@ def delete_solution(
 ):
     solution = _get_solution_or_404(session, solution_id, space_ctx)
     now = datetime.now(timezone.utc)
+    previous_name = solution.solution_name
     solution.deleted_at = now
     solution.updated_at = now
+    solution.solution_name = _deleted_solution_name(
+        solution.solution_name,
+        solution.solution_id,
+        now,
+    )
     session.add(solution)
     safe_log_changes(
         session,
@@ -331,7 +392,10 @@ def delete_solution(
         user_id=current_user.user_id,
         action="delete",
         space_id=space_ctx.space_id,
-        changes={"deleted_at": (None, now)},
+        changes={
+            "deleted_at": (None, now),
+            "solution_name": (previous_name, solution.solution_name),
+        },
     )
     commit_session(session)
     _publish_solution_deletion(space_ctx.space_id)

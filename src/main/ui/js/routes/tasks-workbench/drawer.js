@@ -1,3 +1,63 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+
+const taskWorkbenchDraftFields = [
+  "task_name",
+  "description",
+  "acceptance_criteria",
+  "status",
+  "priority",
+  "due_date",
+  "blocker_note",
+  "blocked",
+  "assignee",
+  "assignee_user_soeid",
+];
+const taskWorkbenchDraftBaselines = new WeakMap();
+
+function readTaskWorkbenchDraft(form) {
+  return Object.fromEntries(taskWorkbenchDraftFields.map((name) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    return [name, field?.type === "checkbox" ? !!field.checked : (field?.value || "")];
+  }));
+}
+
+function taskWorkbenchValues(ctx, task) {
+  const assigneeValue = ctx.resolveAssigneeSelectValue(task.assignee_user_soeid, task.assignee) || "";
+  return {
+    task_name: task.task_name || "",
+    description: task.description || "",
+    acceptance_criteria: task.acceptance_criteria || task.done_criteria || "",
+    status: task.status || "to_do",
+    priority: task.priority == null ? "" : String(task.priority),
+    due_date: task.due_date || "",
+    blocker_note: task.blocker_note || "",
+    blocked: !!task.blocked,
+    assignee: assigneeValue,
+    assignee_user_soeid: assigneeValue,
+  };
+}
+
+function writeTaskWorkbenchDraft(form, values) {
+  taskWorkbenchDraftFields.forEach((name) => {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (!field) return;
+    if (field.type === "checkbox") field.checked = !!values[name];
+    else field.value = values[name] == null ? "" : values[name];
+  });
+}
+
+function sameTaskWorkbenchDraft(left, right) {
+  return taskWorkbenchDraftFields.every((name) => left[name] === right[name]);
+}
+
+function taskWorkbenchSelectionRevision(form) {
+  return Number(form.dataset.taskSelectionRevision || 0);
+}
+
+function advanceTaskWorkbenchSelectionRevision(form) {
+  form.dataset.taskSelectionRevision = String(taskWorkbenchSelectionRevision(form) + 1);
+}
+
 function isTypingInputTarget(target) {
   if (!target) return false;
   const tag = (target.tagName || "").toLowerCase();
@@ -177,22 +237,20 @@ export async function renderTasksWorkbenchActivity(ctx, taskId) {
 
 export function fillTasksWorkbenchForm(ctx, task) {
   const {
-    els,
     state,
+    els,
     clearDeliverableFormNotice,
-    resolveAssigneeSelectValue,
   } = ctx;
   if (!els.tasksWorkbenchForm) return;
   const form = els.tasksWorkbenchForm;
   const idInput = form.querySelector('[name="task_id"]');
-  const saveButton = form.querySelector('button[type="submit"]');
+  const saveButton = Array.from(form.elements).find((element) => element.type === "submit")
+    || form.querySelector('button[type="submit"]');
   const deleteButton = els.tasksWorkbenchDelete;
   const previousId = form.dataset.activeTaskId || "";
-  const setValue = (name, value) => {
-    const el = form.querySelector(`[name="${name}"]`);
-    if (el) el.value = value == null ? "" : value;
-  };
   if (!task) {
+    if (previousId) advanceTaskWorkbenchSelectionRevision(form);
+    taskWorkbenchDraftBaselines.delete(form);
     form.dataset.activeTaskId = "";
     form.reset();
     if (idInput) idInput.value = "";
@@ -206,28 +264,28 @@ export function fillTasksWorkbenchForm(ctx, task) {
     return;
   }
   const currentId = task.task_id || "";
-  if (previousId !== currentId) {
+  const taskChanged = previousId !== currentId;
+  if (taskChanged) {
+    advanceTaskWorkbenchSelectionRevision(form);
     clearDeliverableFormNotice(els.tasksWorkbenchFormStatus);
   }
   form.dataset.activeTaskId = currentId;
   if (saveButton) saveButton.disabled = false;
   if (deleteButton) deleteButton.disabled = !currentId;
   if (idInput) idInput.value = task.task_id || "";
-  setValue("task_name", task.task_name || "");
-  setValue("description", task.description || "");
-  setValue("acceptance_criteria", task.acceptance_criteria || task.done_criteria || "");
-  setValue("status", task.status || "to_do");
-  setValue("priority", task.priority ?? "");
-  setValue("due_date", task.due_date || "");
-  setValue("blocker_note", task.blocker_note || "");
-  const blocked = form.querySelector('[name="blocked"]');
-  if (blocked) blocked.checked = !!task.blocked;
-
-  const assigneeSelect = form.querySelector('[name="assignee"]');
-  const assigneeUserInput = form.querySelector('[name="assignee_user_soeid"]');
-  const assigneeValue = resolveAssigneeSelectValue(task.assignee_user_soeid, task.assignee);
-  if (assigneeSelect) assigneeSelect.value = assigneeValue || "";
-  if (assigneeUserInput) assigneeUserInput.value = assigneeValue || "";
+  const values = taskWorkbenchValues(ctx, task);
+  const baseline = taskWorkbenchDraftBaselines.get(form);
+  const currentValues = readTaskWorkbenchDraft(form);
+  if (taskChanged || baseline?.taskId !== currentId) {
+    writeTaskWorkbenchDraft(form, values);
+  } else {
+    const nextValues = {};
+    taskWorkbenchDraftFields.forEach((name) => {
+      nextValues[name] = currentValues[name] === baseline.values[name] ? values[name] : currentValues[name];
+    });
+    writeTaskWorkbenchDraft(form, nextValues);
+  }
+  taskWorkbenchDraftBaselines.set(form, { taskId: currentId, values });
 
   if (els.tasksWorkbenchContext) {
     const project = state.projects.find((row) => row.project_id === task.project_id)?.project_name || "Unknown project";
@@ -310,6 +368,19 @@ export async function saveTasksWorkbenchForm(ctx) {
     setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Select a task first.", "error");
     return;
   }
+  const submittedDraft = readTaskWorkbenchDraft(formEl);
+  const selectionRevision = taskWorkbenchSelectionRevision(formEl);
+  const requestContext = captureEntityMutationContext(state);
+  const isSelectedEditor = () => {
+    const currentTaskId = formEl.querySelector('[name="task_id"]')?.value || "";
+    const formTaskId = formEl.dataset.activeTaskId || currentTaskId;
+    const workbench = state.tasksWorkbench;
+    const hasActiveTaskId = workbench && Object.prototype.hasOwnProperty.call(workbench, "activeTaskId");
+    return currentTaskId === taskId
+      && formTaskId === taskId
+      && taskWorkbenchSelectionRevision(formEl) === selectionRevision
+      && (!hasActiveTaskId || workbench.activeTaskId === taskId);
+  };
   const assigneeUserId = String(data.get("assignee_user_soeid") || "").trim();
   const assigneeUser = findUserBySoeid(assigneeUserId);
   const payload = {
@@ -330,29 +401,40 @@ export async function saveTasksWorkbenchForm(ctx) {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
+    if (!isEntityMutationContextCurrent(state, requestContext)) return;
+    const sameEditor = isSelectedEditor();
+    const unchangedDraft = sameEditor && sameTaskWorkbenchDraft(readTaskWorkbenchDraft(formEl), submittedDraft);
     upsertById(state.tasks, updated, "task_id");
-    state.tasksWorkbench.activeTaskId = updated.task_id;
+    if (unchangedDraft) {
+      const savedValues = taskWorkbenchValues(ctx, { ...payload, ...updated, task_id: updated.task_id || taskId });
+      writeTaskWorkbenchDraft(formEl, savedValues);
+      taskWorkbenchDraftBaselines.set(formEl, { taskId, values: savedValues });
+    }
     ctx.persistTasksWorkbenchUiState();
     renderTasksWorkbench();
     const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
       renderSolutionTasks(openSolutionId);
     }
-    setDeliverableFormNotice(
-      els.tasksWorkbenchFormStatus,
-      `Saved task at ${timestampLabel()}.`,
-      "success",
-      3200
-    );
+    if (unchangedDraft && isSelectedEditor()) {
+      setDeliverableFormNotice(
+        els.tasksWorkbenchFormStatus,
+        `Saved task at ${timestampLabel()}.`,
+        "success",
+        3200
+      );
+    }
   } catch (err) {
-    setDeliverableFormNotice(els.tasksWorkbenchFormStatus, `Save failed: ${err.message || err}`, "error");
+    if (isEntityMutationContextCurrent(state, requestContext) && isSelectedEditor()) {
+      setDeliverableFormNotice(els.tasksWorkbenchFormStatus, `Save failed: ${err.message || err}`, "error");
+    }
   }
 }
 
 export async function deleteActiveTasksWorkbenchItem(ctx) {
   const {
+    state,
     els,
-    markIgnoreRefresh,
     deleteTasksById,
     ignoreNextRefresh,
     renderTasksWorkbench,
@@ -361,16 +443,31 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
     setDeliverableFormNotice,
     timestampLabel,
   } = ctx;
-  const taskId = els.tasksWorkbenchForm?.querySelector('[name="task_id"]')?.value || "";
+  const form = els.tasksWorkbenchForm;
+  const taskId = form?.querySelector('[name="task_id"]')?.value || "";
   if (!taskId) {
     setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Select a task first.", "error");
     return;
   }
-  markIgnoreRefresh("tasks");
+  const selectionRevision = taskWorkbenchSelectionRevision(form);
+  const isCurrentEditor = (result) => {
+    const currentTaskId = form.querySelector('[name="task_id"]')?.value || "";
+    const formTaskId = form.dataset.activeTaskId || currentTaskId;
+    const workbench = state?.tasksWorkbench;
+    const hasActiveTaskId = workbench && Object.prototype.hasOwnProperty.call(workbench, "activeTaskId");
+    const activeTaskMatches = !hasActiveTaskId
+      || workbench.activeTaskId === taskId
+      || (result.deletedIds.includes(taskId) && !workbench.activeTaskId);
+    return currentTaskId === taskId
+      && formTaskId === taskId
+      && taskWorkbenchSelectionRevision(form) === selectionRevision
+      && activeTaskMatches;
+  };
   const result = await deleteTasksById([taskId], {
     title: "Delete Task?",
   });
   if (result.cancelled) return;
+  const shouldNotifyEditor = isCurrentEditor(result);
   if (!result.deletedIds.length) {
     ignoreNextRefresh.delete("tasks");
   }
@@ -381,19 +478,23 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
   }
   renderDashboard();
   if (result.failed.length) {
-    setDeliverableFormNotice(
-      els.tasksWorkbenchFormStatus,
-      `Delete failed for ${result.failed.length} task(s).`,
-      "error"
-    );
+    if (shouldNotifyEditor && isCurrentEditor(result)) {
+      setDeliverableFormNotice(
+        els.tasksWorkbenchFormStatus,
+        `Delete failed for ${result.failed.length} task(s).`,
+        "error"
+      );
+    }
     return;
   }
-  setDeliverableFormNotice(
-    els.tasksWorkbenchFormStatus,
-    `Deleted task at ${timestampLabel()}.`,
-    "success",
-    3200
-  );
+  if (shouldNotifyEditor && isCurrentEditor(result)) {
+    setDeliverableFormNotice(
+      els.tasksWorkbenchFormStatus,
+      `Deleted task at ${timestampLabel()}.`,
+      "success",
+      3200
+    );
+  }
 }
 
 export function resetTasksWorkbenchEditor(ctx) {
@@ -407,7 +508,6 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
   const {
     state,
     els,
-    markIgnoreRefresh,
     deleteTasksById,
     ignoreNextRefresh,
     renderTasksWorkbench,
@@ -459,7 +559,6 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
     : (wb.activeTaskId ? [wb.activeTaskId] : []);
   if (!targetIds.length) return;
   event.preventDefault();
-  markIgnoreRefresh("tasks");
   const result = await deleteTasksById(targetIds, {
     title: targetIds.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
   });

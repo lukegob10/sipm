@@ -55,6 +55,7 @@ def list_projects(
             _project_query(session, space_ctx)
             .join(Program, Program.program_id == Project.program_id)
             .filter(Program.deleted_at.is_(None))
+            .filter(Program.space_id == space_ctx.space_id)
         )
         if status_filter:
             query = query.filter(Project.status == status_filter)
@@ -99,6 +100,7 @@ def get_project(
         program = (
             session.query(Program)
             .filter(Program.program_id == project.program_id)
+            .filter(Program.deleted_at.is_(None))
             .filter(Program.space_id == space_ctx.space_id)
             .first()
         )

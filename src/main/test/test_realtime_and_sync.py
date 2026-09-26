@@ -18,6 +18,8 @@ def clear_realtime_connections():
     realtime.connections.clear()
     realtime._connection_meta.clear()
     realtime._user_connections.clear()
+    realtime._pending_connections = 0
+    realtime._pending_user_connections.clear()
     realtime._runtime_loop = None
     try:
         yield
@@ -25,6 +27,8 @@ def clear_realtime_connections():
         realtime.connections.clear()
         realtime._connection_meta.clear()
         realtime._user_connections.clear()
+        realtime._pending_connections = 0
+        realtime._pending_user_connections.clear()
         realtime._runtime_loop = None
 
 
@@ -62,6 +66,18 @@ class StubWebSocket:
         if self.receive_exc is not None:
             raise self.receive_exc
         return "ping"
+
+
+class BlockedAcceptWebSocket(StubWebSocket):
+    def __init__(self):
+        super().__init__()
+        self.accept_started = asyncio.Event()
+        self.accept_release = asyncio.Event()
+
+    async def accept(self):
+        self.accept_started.set()
+        await self.accept_release.wait()
+        await super().accept()
 
 
 class SessionStub:
@@ -140,11 +156,93 @@ async def test_broadcast_prunes_idle_connections_with_reconnectable_close_code()
 
 
 @pytest.mark.anyio
+async def test_space_scoped_broadcast_only_reaches_connections_in_that_space():
+    ws_space_one = StubWebSocket()
+    ws_space_two = StubWebSocket()
+    await realtime.register(ws_space_one, user_id="user-1", space_id="space-1")
+    await realtime.register(ws_space_two, user_id="user-2", space_id="space-2")
+
+    await realtime._broadcast_local_refresh("projects", space_id="space-1")
+
+    assert ws_space_one.sent == [{"type": "refresh", "entity": "projects"}]
+    assert ws_space_two.sent == []
+
+
+@pytest.mark.anyio
+async def test_register_reserves_global_connection_slot_before_accept(monkeypatch):
+    monkeypatch.setattr(realtime, "MAX_CONNECTIONS_GLOBAL", 1)
+    monkeypatch.setattr(realtime, "MAX_CONNECTIONS_PER_USER", 8)
+    first = BlockedAcceptWebSocket()
+    first_task = asyncio.create_task(realtime.register(first, user_id="user-1", space_id="space-1"))
+    await asyncio.wait_for(first.accept_started.wait(), timeout=1)
+
+    second = StubWebSocket()
+    with pytest.raises(realtime.WebSocketRejected) as rejected:
+        await realtime.register(second, user_id="user-2", space_id="space-2")
+
+    assert rejected.value.code == realtime.WS_CLOSE_SERVER_BUSY
+    assert second.accepted is False
+    first.accept_release.set()
+    await first_task
+    assert len(realtime.connections) == 1
+
+
+@pytest.mark.anyio
+async def test_register_reserves_per_user_slot_before_accept(monkeypatch):
+    monkeypatch.setattr(realtime, "MAX_CONNECTIONS_GLOBAL", 8)
+    monkeypatch.setattr(realtime, "MAX_CONNECTIONS_PER_USER", 1)
+    first = BlockedAcceptWebSocket()
+    first_task = asyncio.create_task(realtime.register(first, user_id="user-1", space_id="space-1"))
+    await asyncio.wait_for(first.accept_started.wait(), timeout=1)
+
+    second = StubWebSocket()
+    with pytest.raises(realtime.WebSocketRejected) as rejected:
+        await realtime.register(second, user_id="user-1", space_id="space-2")
+
+    assert rejected.value.code == realtime.WS_CLOSE_CONNECTION_LIMIT
+    assert second.accepted is False
+    first.accept_release.set()
+    await first_task
+    assert realtime.connection_snapshot()["by_user"] == {"user-1": 1}
+
+
+@pytest.mark.anyio
+async def test_fanout_sends_to_healthy_clients_and_reconnectably_closes_stalled_client(monkeypatch):
+    monkeypatch.setattr(realtime, "_SEND_TIMEOUT_SECONDS", 0.05)
+    healthy_delivered = asyncio.Event()
+
+    class StalledWebSocket(StubWebSocket):
+        async def send_json(self, _payload):
+            await asyncio.Event().wait()
+
+    class ObservedWebSocket(StubWebSocket):
+        async def send_json(self, payload):
+            await super().send_json(payload)
+            healthy_delivered.set()
+
+    stalled = StalledWebSocket()
+    healthy = ObservedWebSocket()
+    await realtime.register(stalled, user_id="user-1", space_id="space-1")
+    await realtime.register(healthy, user_id="user-2", space_id="space-1")
+
+    broadcast = asyncio.create_task(realtime._broadcast_local_refresh("tasks", space_id="space-1"))
+    await asyncio.wait_for(healthy_delivered.wait(), timeout=0.5)
+    await asyncio.wait_for(broadcast, timeout=0.5)
+
+    assert healthy.sent == [{"type": "refresh", "entity": "tasks"}]
+    assert stalled.close_calls == [(realtime.WS_CLOSE_IDLE_TIMEOUT, "refresh-send-failed")]
+    assert stalled not in realtime.connections
+
+
+@pytest.mark.anyio
 async def test_schedule_broadcast_creates_task_when_loop_running():
     ws = StubWebSocket()
     await realtime.register(ws)
     realtime.schedule_broadcast("solutions")
-    await asyncio.sleep(0)  # allow the fire-and-forget task to run
+    for _ in range(10):
+        if ws.sent:
+            break
+        await asyncio.sleep(0)
     assert {"type": "refresh", "entity": "solutions"} in ws.sent
 
 
@@ -181,6 +279,61 @@ def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):
     monkeypatch.setattr(asyncio, "get_event_loop", no_loop)
     realtime.schedule_broadcast("tasks")
     assert ws.sent == [{"type": "refresh", "entity": "tasks"}]
+
+
+@pytest.mark.anyio
+async def test_broadcast_refresh_offloads_sync_redis_publish_from_event_loop(monkeypatch):
+    loop_thread = threading.get_ident()
+    publish_threads = []
+
+    def publish(_entity, *, space_id=None):
+        publish_threads.append(threading.get_ident())
+        assert space_id == "space-1"
+        return True
+
+    monkeypatch.setattr(realtime.coordination, "uses_redis", lambda: True)
+    monkeypatch.setattr(realtime.coordination, "publish_refresh", publish)
+
+    await realtime.broadcast_refresh("tasks", space_id="space-1")
+
+    assert len(publish_threads) == 1
+    assert publish_threads[0] != loop_thread
+
+
+@pytest.mark.anyio
+async def test_schedule_broadcast_returns_while_redis_publish_is_blocked(monkeypatch):
+    publish_started = threading.Event()
+    publish_release = threading.Event()
+    caller_returned = threading.Event()
+    loop = asyncio.get_running_loop()
+
+    def publish(_entity, *, space_id=None):
+        publish_started.set()
+        publish_release.wait(2)
+        return True
+
+    monkeypatch.setattr(realtime.coordination, "uses_redis", lambda: True)
+    monkeypatch.setattr(realtime.coordination, "publish_refresh", publish)
+    realtime._runtime_loop = loop
+
+    def caller():
+        realtime.schedule_broadcast("tasks", space_id="space-1")
+        caller_returned.set()
+
+    thread = threading.Thread(target=caller)
+    thread.start()
+    returned_before_publish_finished = False
+    try:
+        returned_before_publish_finished = await asyncio.wait_for(
+            asyncio.to_thread(caller_returned.wait, 0.25),
+            timeout=0.5,
+        )
+        await asyncio.wait_for(asyncio.to_thread(publish_started.wait, 1), timeout=1.5)
+    finally:
+        publish_release.set()
+        await asyncio.to_thread(thread.join, 1)
+
+    assert returned_before_publish_finished is True
 
 
 @pytest.mark.anyio
@@ -231,6 +384,104 @@ async def test_websocket_endpoint_closes_session_before_receive_loop(monkeypatch
     assert session.events == ["session-close", "receive-start"]
     assert ws.accepted is True
     assert ws not in realtime.connections
+
+
+@pytest.mark.anyio
+async def test_websocket_auth_offload_keeps_event_loop_responsive(monkeypatch):
+    loop_thread = threading.get_ident()
+    auth_started = threading.Event()
+    auth_release = threading.Event()
+    auth_released = threading.Event()
+    auth_thread_ids = []
+
+    class ThreadAwareSession(SessionStub):
+        def close(self):
+            self.close_thread_id = threading.get_ident()
+            super().close()
+
+    session = ThreadAwareSession()
+    ws = StubWebSocket(cookies={"access_token": "good-token"}, receive_exc=WebSocketDisconnect())
+
+    def slow_authenticate(_session, _token):
+        auth_thread_ids.append(threading.get_ident())
+        auth_started.set()
+        auth_release.wait(2)
+        return DummyUser()
+
+    monkeypatch.setattr(sync_route, "authenticate_access_token", slow_authenticate)
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    release_timer = threading.Timer(0.4, lambda: (auth_released.set(), auth_release.set()))
+    release_timer.start()
+    endpoint_task = asyncio.create_task(websocket_endpoint(ws, session=session))
+    tick = asyncio.Event()
+    released_at_tick = []
+
+    async def prove_loop_is_running():
+        await asyncio.sleep(0.01)
+        released_at_tick.append(auth_released.is_set())
+        tick.set()
+
+    asyncio.create_task(prove_loop_is_running())
+    try:
+        await asyncio.wait_for(tick.wait(), timeout=0.25)
+    finally:
+        auth_release.set()
+        release_timer.cancel()
+    await endpoint_task
+
+    assert released_at_tick == [False]
+    assert auth_started.is_set()
+    assert auth_thread_ids[0] != loop_thread
+    assert session.close_thread_id == auth_thread_ids[0]
+    assert session.events == ["session-close"]
+
+
+@pytest.mark.anyio
+async def test_websocket_auth_cancellation_waits_for_worker_to_close_session(monkeypatch):
+    auth_started = threading.Event()
+    auth_release = threading.Event()
+
+    class ThreadAwareSession(SessionStub):
+        def close(self):
+            self.close_thread_id = threading.get_ident()
+            super().close()
+
+    session = ThreadAwareSession()
+    ws = StubWebSocket(cookies={"access_token": "good-token"})
+
+    def blocked_authenticate(_session, _token):
+        auth_started.set()
+        auth_release.wait(2)
+        return DummyUser()
+
+    monkeypatch.setattr(sync_route, "authenticate_access_token", blocked_authenticate)
+    monkeypatch.setattr(
+        sync_route,
+        "resolve_active_space_context",
+        lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"),
+    )
+
+    endpoint_task = asyncio.create_task(websocket_endpoint(ws, session=session))
+    await asyncio.wait_for(asyncio.to_thread(auth_started.wait, 1), timeout=1.5)
+    endpoint_task.cancel()
+    await asyncio.sleep(0)
+    waited_for_worker = not endpoint_task.done()
+    endpoint_task.cancel()
+    await asyncio.sleep(0)
+    waited_after_second_cancel = not endpoint_task.done()
+    auth_release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await endpoint_task
+
+    assert waited_for_worker is True
+    assert waited_after_second_cancel is True
+    assert session.close_calls == 1
+    assert session.events == ["session-close"]
 
 
 @pytest.mark.anyio

@@ -25,6 +25,7 @@ No sample teams, people, or tasks are auto-created.
 
 - `GET /health` is a shallow liveness check and remains the quick `{"status":"ok"}` endpoint.
 - `GET /health/ready` is the readiness check. It reports per-check status and returns `503` when config validation, Redis connectivity/listener health, frontend bundle verification, or DB connectivity fails. In test mode or when startup is intentionally disabled, the DB check is reported as `skipped`. The memory coordination backend remains network-free and ready by construction.
+- The Home Lab workflow waits up to 300 seconds for Redis and SIPM health checks before reporting deployment success. The Docker image runs Uvicorn as the main process so container shutdown reaches application resource cleanup. See [`deployment/README.md`](../../deployment/README.md).
 - Every response now includes `X-Request-ID`. Send your own `X-Request-ID` header to preserve upstream correlation, or let the app generate one.
 - Request logs are emitted as compact JSON with `request_id`, `method`, `path`, `status`, `duration_ms`, `client_ip`, `space_id`, `user_id`, and `auth_method`.
 - Sensitive values are intentionally excluded from request logs. Do not expect cookies, auth headers, or request bodies to appear there.
@@ -32,7 +33,7 @@ No sample teams, people, or tasks are auto-created.
 - Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
 - `SIPM_ALLOW_SELF_REGISTER=false` is required in UAT/prod; startup/readiness fails if non-dev self-registration is enabled.
 - Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
-- Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
+- Service-account automation uses admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Service accounts cannot sign in, refresh browser sessions, or use browser cookies to act as interactive reviewers. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
 - SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
@@ -65,3 +66,4 @@ npm run test:ui:smoke
 - `test:ui` runs the Vitest/jsdom unit suite for router and live-sync behavior.
 - `test:ui:coverage` runs the Vitest/jsdom unit suite with coverage over modular UI source. The current gate excludes the legacy `src/main/ui/js/app.js` monolith and should be raised as route modules gain focused unit tests.
 - `test:ui:smoke` runs Playwright on dedicated port `8765` against `scripts/run_ui_smoke_app.py`, which boots the app on a temporary SQLite database instead of the Oracle runtime. Set `SIPM_UI_SMOKE_PORT` to choose another isolated port. Reusing an existing server is disabled unless `SIPM_UI_SMOKE_REUSE_SERVER=true` is set explicitly.
+- The smoke runner forces the dev profile, memory coordination, disabled startup DB work, disabled keepalive, and disabled env-file overrides before importing the backend. Inherited deployment flags cannot redirect its coordination traffic to Redis. `SIPM_UI_SMOKE_PORT` and `SIPM_BCRYPT_ROUNDS` remain configurable for isolated performance checks.

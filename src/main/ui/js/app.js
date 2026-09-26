@@ -1555,7 +1555,7 @@ function populateCapacityUserOptions() {
   if (!els.capacityUserOptions) return;
   const options = state.users
     .filter((u) => u.display_name || u.soeid)
-    .map((u) => `<option value="${u.display_name || u.soeid}"></option>`)
+    .map((u) => `<option value="${escapeHtml(u.display_name || u.soeid)}"></option>`)
     .join("");
   els.capacityUserOptions.innerHTML = options;
 }
@@ -2016,7 +2016,7 @@ function updateCurrentPhaseOptions(_solutionId, selectedPhaseId = null) {
   const phases = [...state.phases].sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0));
 
   const opts = phases
-    .map((p) => `<option value="${p.phase_id}">${phaseDisplayName(p.phase_id) || p.phase_id}</option>`)
+    .map((p) => `<option value="${escapeHtml(p.phase_id)}">${escapeHtml(phaseDisplayName(p.phase_id) || p.phase_id)}</option>`)
     .join("");
   sel.innerHTML = `<option value="">None</option>${opts}`;
   if (selectedValue && phases.some((p) => p.phase_id === selectedValue)) {
@@ -2715,10 +2715,10 @@ function populateSelects() {
     || (preserveTaskDraft && !els.taskForm.classList.contains("hidden")
       && !els.solutionModal?.classList.contains("hidden"));
   const programOpts = state.programs
-    .map((program) => `<option value="${program.program_id}">${escapeHtml(program.program_name)}</option>`)
+    .map((program) => `<option value="${escapeHtml(program.program_id)}">${escapeHtml(program.program_name)}</option>`)
     .join("");
   const projectOpts = state.projects
-    .map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`)
+    .map((p) => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(projectLabel(p))}</option>`)
     .join("");
   const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);
   const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });
@@ -2788,7 +2788,7 @@ function populateSelects() {
   if (calendarOwnerFilterChanged) {
     persistCalendarViewState();
   }
-  const teamOpts = state.teams.map((t) => `<option value="${t.team_id}">${t.name}</option>`).join("");
+  const teamOpts = state.teams.map((t) => `<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join("");
   const teamSelects = [els.teamMemberForm?.querySelector('[name="team_id"]')].filter(Boolean);
   teamSelects.forEach((sel) => (sel.innerHTML = `<option value="">Unassigned</option>${teamOpts}`));
   if (els.teamMemberForm && els.teamMemberForm.querySelector('[name="team_id"]') && state.teams.length && !els.teamMemberForm.querySelector('[name="team_id"]').value) {
@@ -2805,7 +2805,7 @@ function populateSelects() {
       const users = state.users.filter((u) => u.display_name && u.soeid);
       assigneeSel.innerHTML =
         users.length > 0
-          ? `<option value="">Select</option>${users.map((u) => `<option value="${u.soeid}">${u.display_name}</option>`).join("")}`
+          ? `<option value="">Select</option>${users.map((u) => `<option value="${escapeHtml(u.soeid)}">${escapeHtml(u.display_name)}</option>`).join("")}`
           : `<option value="">No users configured</option>`;
       if (users.some((user) => user.soeid === previous)) assigneeSel.value = previous;
       assigneeSel.onchange = () => {
@@ -2822,11 +2822,11 @@ function populateSelects() {
     if (type === "project") {
       options =
         `<option value=\"\">New project</option>` +
-        state.projects.map((p) => `<option value="${p.project_id}">${escapeHtml(projectLabel(p))}</option>`).join("");
+        state.projects.map((p) => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(projectLabel(p))}</option>`).join("");
     } else if (type === "solution") {
-      options = state.solutions.map((s) => `<option value="${s.solution_id}">${s.solution_name}</option>`).join("");
+      options = state.solutions.map((s) => `<option value="${escapeHtml(s.solution_id)}">${escapeHtml(s.solution_name)}</option>`).join("");
     } else {
-      options = state.tasks.map((sc) => `<option value="${sc.task_id}">${sc.task_name}</option>`).join("");
+      options = state.tasks.map((sc) => `<option value="${escapeHtml(sc.task_id)}">${escapeHtml(sc.task_name)}</option>`).join("");
     }
     els.aiEntityId.innerHTML = options || `<option value=\"\">No items</option>`;
   }

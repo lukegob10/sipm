@@ -4,8 +4,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import and_, case, or_, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..models import User
+from ..models.base import _utcnow_naive
 
 
 def is_user_locked(user: User, now: datetime) -> bool:
@@ -113,12 +115,14 @@ def try_record_successful_login(
     password_hash: str,
     now: datetime,
 ) -> bool:
+    updated_at = _utcnow_naive()
     result = session.execute(
         update(User)
         .where(
             User.user_id == user.user_id,
             User.password_hash == password_hash,
             User.is_active == True,  # noqa: E712
+            User.is_service_account == False,  # noqa: E712
             User.force_password_reset == False,  # noqa: E712
             _authentication_is_unlocked(now),
         )
@@ -126,10 +130,18 @@ def try_record_successful_login(
             failed_attempts=0,
             locked_until=None,
             last_login_at=now,
+            updated_at=updated_at,
         ),
-        execution_options={"synchronize_session": "evaluate"},
+        execution_options={"synchronize_session": False},
     )
-    return result.rowcount == 1
+    if result.rowcount != 1:
+        return False
+
+    set_committed_value(user, "failed_attempts", 0)
+    set_committed_value(user, "locked_until", None)
+    set_committed_value(user, "last_login_at", now)
+    set_committed_value(user, "updated_at", updated_at)
+    return True
 
 
 def try_complete_temp_password_reset(

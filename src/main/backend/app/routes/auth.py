@@ -69,6 +69,18 @@ def _get_user_by_soeid(session: Session, soeid: str) -> Optional[User]:
     return session.query(User).filter(User.soeid == soeid.lower()).first()
 
 
+def _get_login_user_by_soeid(
+    session: Session, soeid: str,
+) -> tuple[User | None, UserPreference | None]:
+    row = (
+        session.query(User, UserPreference)
+        .outerjoin(UserPreference, UserPreference.user_id == User.user_id)
+        .filter(User.soeid == soeid.lower())
+        .first()
+    )
+    return (None, None) if row is None else row
+
+
 def _email_from_soeid(soeid: str) -> str:
     domain = os.getenv("DOMAIN_NAME", "citi.com")
     return f"{soeid}@{domain}"
@@ -117,14 +129,26 @@ def _active_space_response(ctx: SpaceContext) -> ActiveSpaceResponse:
 
 
 def _auth_bootstrap_response(
-    session: Session, user: User, ctx: SpaceContext, spaces: list[Space],
+    user: User,
+    ctx: SpaceContext,
+    spaces: list[Space],
+    preference: UserPreference | None,
 ) -> LoginResponse:
     return LoginResponse(
         **UserRead.model_validate(user).model_dump(),
-        preferences=_preference_response(session.get(UserPreference, user.user_id)),
+        preferences=_preference_response(preference),
         spaces=[SpaceRead.model_validate(space) for space in spaces],
         active_space=_active_space_response(ctx),
     )
+
+
+def _reject_service_account_auth(user: User) -> None:
+    if user.is_service_account:
+        raise security_http_exception(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="INTERACTIVE_USER_REQUIRED",
+            message="Interactive user required",
+        )
 
 
 def _provision_self_registered_space(session: Session, user: User) -> None:
@@ -179,7 +203,7 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
 @router.post("/login", response_model=LoginResponse)
 def login(payload: UserLogin, request: Request, response: Response, session: Session = Depends(get_db)):
     soeid_norm = str(payload.soeid).strip().lower()
-    user = _get_user_by_soeid(session, soeid_norm)
+    user, preference = _get_login_user_by_soeid(session, soeid_norm)
     now = datetime.now(timezone.utc)
     if not user:
         verify_password(payload.password, _DUMMY_LOGIN_PASSWORD_HASH)
@@ -241,6 +265,8 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Password reset required",
         )
 
+    _reject_service_account_auth(user)
+
     if not try_record_successful_login(
         session,
         user=user,
@@ -255,6 +281,8 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
                 code="USER_INACTIVE",
                 message="Login failed. Check your username or password.",
             )
+        if current_user:
+            _reject_service_account_auth(current_user)
         if current_user and is_user_locked(current_user, now):
             raise security_http_exception(
                 status_code=status.HTTP_423_LOCKED,
@@ -273,7 +301,7 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Login failed. Check your username or password.",
         )
     active_ctx, spaces = _issue_session(response, session, user, requested_space_id=_requested_space_id(request))
-    login_response = _auth_bootstrap_response(session, user, active_ctx, spaces)
+    login_response = _auth_bootstrap_response(user, active_ctx, spaces, preference)
     session.commit()
     return login_response
 
@@ -302,6 +330,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
+    _reject_service_account_auth(user)
     ensure_token_not_revoked(user, payload.get("iat"))
     auth_session = require_auth_session(session, payload, user_id=user.user_id)
     if user.force_password_reset:
@@ -451,7 +480,8 @@ def bootstrap(
     ctx, spaces = resolve_auth_space_context(session, current_user, _requested_space_id(request))
     if request.cookies.get(ACTIVE_SPACE_COOKIE) != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)
-    return _auth_bootstrap_response(session, current_user, ctx, spaces)
+    preference = session.get(UserPreference, current_user.user_id)
+    return _auth_bootstrap_response(current_user, ctx, spaces, preference)
 
 
 @router.get("/active-space", response_model=ActiveSpaceResponse)

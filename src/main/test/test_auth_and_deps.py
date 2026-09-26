@@ -593,7 +593,7 @@ async def test_local_login_bootstraps_ui_state_with_one_checkout_and_commit(
     assert payload["user_id"] == "fast-login-user"
     assert payload["active_space"]["space_id"] == "fast-login-space"
     assert [item["space_id"] for item in payload["spaces"]] == ["fast-login-space"]
-    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 7}
+    assert metrics == {"checkout": 1, "commit": 1, "rollback": 0, "sql": 6}
 
 
 @pytest.mark.anyio
@@ -1649,6 +1649,52 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
         headers={"Authorization": f"Bearer {body['token']}"},
     )
     assert rejected.status_code == 401
+
+
+@pytest.mark.anyio
+async def test_existing_cookie_cannot_bypass_service_account_boundaries(auth_client, db_sessionmaker):
+    login = await _login_local_session(auth_client, db_sessionmaker, soeid="convertedagent1")
+    with db_sessionmaker() as session:
+        user = session.get(User, login.json()["user_id"])
+        user.is_service_account = True
+        session.commit()
+
+    # A human session issued before conversion must not turn into an automation
+    # identity with access to human-only review or unrestricted cookie routes.
+    for method, path in (
+        ("GET", "/auth/me"),
+        ("GET", "/auth/bootstrap"),
+        ("GET", "/agent/change-requests"),
+        ("POST", "/agent/change-requests/blocked/approve"),
+        ("POST", "/auth/refresh"),
+    ):
+        response = await auth_client.request(
+            method, f"/project-manager/api{path}", **({"json": {}} if method == "POST" else {})
+        )
+        assert response.status_code == 403, (path, response.text)
+        assert response.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
+
+
+@pytest.mark.anyio
+async def test_service_account_password_login_cannot_issue_browser_session(auth_client, db_sessionmaker):
+    login = await _login_local_session(auth_client, db_sessionmaker, soeid="servicepassword1")
+    with db_sessionmaker() as session:
+        user = session.get(User, login.json()["user_id"])
+        user.is_service_account = True
+        session.commit()
+        sessions_before = session.query(AuthSession).count()
+    auth_client.cookies.clear()
+
+    response = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "servicepassword1", "password": "Password123"},
+    )
+
+    assert response.status_code == 403, response.text
+    assert response.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
+    assert response.headers.get_list("set-cookie") == []
+    with db_sessionmaker() as session:
+        assert session.query(AuthSession).count() == sessions_before
 
 
 @pytest.mark.anyio

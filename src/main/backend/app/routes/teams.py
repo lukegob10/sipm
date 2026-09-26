@@ -176,7 +176,26 @@ def _recompute_team_capacity(session: Session, team_id: str, space_ctx: SpaceCon
     team.capacity_unit = "fte_month"
     team.updated_at = datetime.now(timezone.utc)
     session.add(team)
-    session.commit()
+
+
+def _commit_team_member_capacity_change(
+    session: Session,
+    team_id: str,
+    space_ctx: SpaceContext,
+    member_to_refresh: Optional[TeamMember] = None,
+) -> Optional[TeamMemberRead]:
+    try:
+        session.flush()
+        _recompute_team_capacity(session, team_id, space_ctx)
+        member_read = None
+        if member_to_refresh is not None:
+            session.refresh(member_to_refresh)
+            member_read = TeamMemberRead.model_validate(member_to_refresh)
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return member_read
 
 
 @router.get("/teams", response_model=List[TeamRead])
@@ -443,11 +462,15 @@ def create_team_member(
         percent_capacity=payload.percent_capacity,
     )
     session.add(member)
-    session.commit()
-    session.refresh(member)
-    _recompute_team_capacity(session, team_id, space_ctx)
+    member_read = _commit_team_member_capacity_change(
+        session,
+        team_id,
+        space_ctx,
+        member_to_refresh=member,
+    )
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.model_validate(member)
+    assert member_read is not None
+    return member_read
 
 
 @router.patch("/teams/{team_id}/members/{member_id}", response_model=TeamMemberRead)
@@ -477,11 +500,15 @@ def update_team_member(
             setattr(member, field, getattr(payload, field))
     member.updated_at = datetime.now(timezone.utc)
     session.add(member)
-    session.commit()
-    session.refresh(member)
-    _recompute_team_capacity(session, team_id, space_ctx)
+    member_read = _commit_team_member_capacity_change(
+        session,
+        team_id,
+        space_ctx,
+        member_to_refresh=member,
+    )
     invalidate_space(space_ctx.space_id, ["teams"])
-    return TeamMemberRead.model_validate(member)
+    assert member_read is not None
+    return member_read
 
 
 @router.delete("/teams/{team_id}/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -495,9 +522,7 @@ def delete_team_member(
     _active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
     member.deleted_at = datetime.now(timezone.utc)
-    session.add(member)
-    session.commit()
-    _recompute_team_capacity(session, team_id, space_ctx)
+    _commit_team_member_capacity_change(session, team_id, space_ctx)
     invalidate_space(space_ctx.space_id, ["teams"])
     return None
 

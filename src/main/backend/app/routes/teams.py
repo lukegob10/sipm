@@ -194,10 +194,25 @@ def list_teams(
             .order_by(Team.created_at.asc())
             .all()
         )
-        return [
-            _team_with_members(session, row, space_ctx).model_dump(mode="json")
-            for row in rows
-        ]
+        if not rows:
+            return []
+        members = (
+            _member_query(session, space_ctx)
+            .join(Team, Team.team_id == TeamMember.team_id)
+            .filter(Team.space_id == space_ctx.space_id)
+            .filter(Team.deleted_at.is_(None))
+            .order_by(TeamMember.created_at.asc())
+            .all()
+        )
+        members_by_team: dict[str, list[TeamMemberRead]] = {}
+        for member in members:
+            members_by_team.setdefault(member.team_id, []).append(TeamMemberRead.model_validate(member))
+        result = []
+        for row in rows:
+            data = TeamRead.model_validate(row)
+            data.members = members_by_team.get(row.team_id, [])
+            result.append(data.model_dump(mode="json"))
+        return result
 
     return cached_call(
         endpoint="teams:list",

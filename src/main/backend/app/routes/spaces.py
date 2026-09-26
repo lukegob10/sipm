@@ -272,28 +272,42 @@ def _serialize_membership(session: Session, row: SpaceMembership) -> SpaceMember
 
 
 def _serialize_access_request(session: Session, row: SpaceAccessRequest) -> SpaceAccessRequestRead:
-    space = session.query(Space).filter(Space.space_id == row.space_id).first()
-    requester = session.query(User).filter(User.user_id == row.requester_user_id).first()
-    return SpaceAccessRequestRead(
-        request_id=row.request_id,
-        space_id=row.space_id,
-        space_name=space.name if space else None,
-        space_slug=space.slug if space else None,
-        requester_user_id=row.requester_user_id,
-        requester_soeid=requester.soeid if requester else None,
-        requester_display_name=requester.display_name if requester else None,
-        requested_role=_normalize_space_role(row.requested_role),
-        status=row.status,
-        decided_by_user_id=row.decided_by_user_id,
-        decided_at=row.decided_at,
-        decision_note=row.decision_note,
-        created_at=row.created_at,
-        updated_at=row.updated_at,
-    )
+    return _serialize_access_requests(session, [row])[0]
 
 
 def _serialize_access_requests(session: Session, rows: list[SpaceAccessRequest]) -> list[SpaceAccessRequestRead]:
-    return [_serialize_access_request(session, row) for row in rows]
+    output: list[SpaceAccessRequestRead] = []
+    # Keep each IN list bounded for Oracle while avoiding per-request lookups.
+    for offset in range(0, len(rows), 500):
+        batch = rows[offset:offset + 500]
+        spaces_by_id = {
+            space.space_id: space
+            for space in session.query(Space).filter(Space.space_id.in_({row.space_id for row in batch})).all()
+        }
+        users_by_id = {
+            user.user_id: user
+            for user in session.query(User).filter(User.user_id.in_({row.requester_user_id for row in batch})).all()
+        }
+        for row in batch:
+            space = spaces_by_id.get(row.space_id)
+            requester = users_by_id.get(row.requester_user_id)
+            output.append(SpaceAccessRequestRead(
+                request_id=row.request_id,
+                space_id=row.space_id,
+                space_name=space.name if space else None,
+                space_slug=space.slug if space else None,
+                requester_user_id=row.requester_user_id,
+                requester_soeid=requester.soeid if requester else None,
+                requester_display_name=requester.display_name if requester else None,
+                requested_role=_normalize_space_role(row.requested_role),
+                status=row.status,
+                decided_by_user_id=row.decided_by_user_id,
+                decided_at=row.decided_at,
+                decision_note=row.decision_note,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            ))
+    return output
 
 
 def _invalidate_space_membership_views(space_id: str) -> None:

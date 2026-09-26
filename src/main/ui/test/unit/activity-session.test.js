@@ -121,4 +121,26 @@ describe("activity session controller", () => {
     controller.evaluate();
     expect(onIdleLogout).toHaveBeenCalledTimes(1);
   });
+
+  it("keeps activity tracking and idle expiry working when storage access is blocked", async () => {
+    const storageAccess = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage access is blocked", "SecurityError");
+    });
+    let controller;
+    try {
+      const harness = createHarness();
+      controller = harness.controller;
+      controller.start("user-1");
+      await vi.advanceTimersByTimeAsync(15 * 1000);
+      controller.noteUserActivity();
+      expect(harness.onHeartbeat).toHaveBeenCalledTimes(1);
+      controller.broadcastLogout();
+
+      await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
+      expect(harness.onIdleLogout).toHaveBeenCalledTimes(1);
+    } finally {
+      controller?.stop();
+      storageAccess.mockRestore();
+    }
+  });
 });

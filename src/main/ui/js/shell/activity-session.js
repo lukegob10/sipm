@@ -11,7 +11,7 @@ const DEFAULT_POLICY = Object.freeze({
 export function createActivitySessionController({
   windowRef = window,
   documentRef = document,
-  storage = window.localStorage,
+  storage,
   now = () => Date.now(),
   onWarning,
   onWarningDismissed,
@@ -39,7 +39,8 @@ export function createActivitySessionController({
 
   function writeStorage(key, at) {
     try {
-      storage?.setItem(key, JSON.stringify({ version: 1, user_id: userId, at }));
+      const activeStorage = storage === undefined ? windowRef.localStorage : storage;
+      activeStorage?.setItem(key, JSON.stringify({ version: 1, user_id: userId, at }));
     } catch {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }

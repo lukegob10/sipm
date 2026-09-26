@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
@@ -22,6 +22,16 @@ from .common import _get_solution_or_404, _publish_solution_mutation
 router = APIRouter()
 
 MAX_SOLUTION_DOCUMENT_BYTES = 25 * 1024 * 1024
+_DOCUMENT_METADATA_FIELDS = (
+    SolutionDocument.document_id,
+    SolutionDocument.solution_id,
+    SolutionDocument.filename,
+    SolutionDocument.content_type,
+    SolutionDocument.size_bytes,
+    SolutionDocument.uploaded_by_user_id,
+    SolutionDocument.created_at,
+    SolutionDocument.updated_at,
+)
 
 
 def _document_payload(document: SolutionDocument) -> dict:
@@ -54,16 +64,19 @@ def _get_document_or_404(
     solution_id: str,
     document_id: str,
     space_ctx: SpaceContext,
+    include_content: bool = True,
 ) -> SolutionDocument:
     _get_solution_or_404(session, solution_id, space_ctx)
-    document = (
+    query = (
         session.query(SolutionDocument)
         .filter(SolutionDocument.document_id == document_id)
         .filter(SolutionDocument.solution_id == solution_id)
         .filter(SolutionDocument.space_id == space_ctx.space_id)
         .filter(SolutionDocument.deleted_at.is_(None))
-        .first()
     )
+    if not include_content:
+        query = query.options(load_only(*_DOCUMENT_METADATA_FIELDS))
+    document = query.first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     return document
@@ -78,6 +91,7 @@ def list_solution_documents(
     _get_solution_or_404(session, solution_id, space_ctx)
     rows = (
         session.query(SolutionDocument)
+        .options(load_only(*_DOCUMENT_METADATA_FIELDS))
         .filter(SolutionDocument.solution_id == solution_id)
         .filter(SolutionDocument.space_id == space_ctx.space_id)
         .filter(SolutionDocument.deleted_at.is_(None))
@@ -182,6 +196,7 @@ def delete_solution_document(
         solution_id=solution_id,
         document_id=document_id,
         space_ctx=space_ctx,
+        include_content=False,
     )
     now = datetime.now(timezone.utc)
     document.deleted_at = now

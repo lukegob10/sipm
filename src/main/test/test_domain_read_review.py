@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import event
 
@@ -71,6 +73,36 @@ async def test_project_list_does_not_expose_program_from_another_space(client, d
     assert response.status_code == 200, response.text
     assert response.json() == []
     assert "Confidential Foreign Program" not in response.text
+
+
+@pytest.mark.anyio
+async def test_project_detail_does_not_return_a_soft_deleted_program_name(
+    client, db_sessionmaker
+):
+    with db_sessionmaker() as session:
+        program = Program(
+            program_id="deleted-parent-program",
+            space_id="test-space",
+            program_name="Deleted Program Name",
+            deleted_at=datetime.now(timezone.utc),
+        )
+        session.add(
+            Project(
+                project_id="active-child-project",
+                space_id="test-space",
+                program_id=program.program_id,
+                project_name="Active Child Project",
+            )
+        )
+        session.add(program)
+        session.commit()
+
+    response = await client.get("/project-manager/api/projects/active-child-project")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["project_name"] == "Active Child Project"
+    assert response.json()["program_name"] is None
+    assert "Deleted Program Name" not in response.text
 
 
 @pytest.mark.anyio

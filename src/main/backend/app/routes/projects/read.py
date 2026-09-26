@@ -100,6 +100,7 @@ def get_project(
         program = (
             session.query(Program)
             .filter(Program.program_id == project.program_id)
+            .filter(Program.deleted_at.is_(None))
             .filter(Program.space_id == space_ctx.space_id)
             .first()
         )

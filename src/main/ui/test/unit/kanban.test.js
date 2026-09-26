@@ -93,6 +93,131 @@ describe("kanban route", () => {
     expect(columns[1].textContent).toContain("Empty");
   });
 
+  it("moves a solution with its labelled native phase control and disables it while pending", () => {
+    document.body.innerHTML = '<div id="view-kanban"><div id="kanban-board"></div></div>';
+
+    const phases = [
+      { phase_id: "development", phase_name: "Development", sequence: 1 },
+      { phase_id: "testing", phase_name: "Testing", sequence: 2 },
+    ];
+    const moveKanbanSolutionToPhase = vi.fn();
+    let pending = false;
+    const ctx = {
+      state: {
+        phases,
+        projects: [{ project_id: "project-1", project_name: "Project" }],
+      },
+      els: { kanbanBoard: document.getElementById("kanban-board") },
+      filteredSolutionsForKanban: () => [
+        {
+          solution_id: "solution-1",
+          solution_name: "Build",
+          project_id: "project-1",
+          current_phase: "development",
+          status: "in_progress",
+        },
+      ],
+      phaseDisplayName: (phaseId) => phases.find((phase) => phase.phase_id === phaseId)?.phase_name || "",
+      formatStatus: (status) => status,
+      isKanbanSolutionMovePending: () => pending,
+      moveKanbanSolutionToPhase,
+    };
+
+    renderKanban(ctx);
+
+    const phaseSelect = ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]");
+    expect(phaseSelect.getAttribute("aria-label")).toBe("Move Build to phase");
+    expect(phaseSelect.value).toBe("development");
+    expect(phaseSelect.querySelectorAll("option")).toHaveLength(1);
+    phaseSelect.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    expect(phaseSelect.querySelectorAll("option")).toHaveLength(2);
+    expect(phaseSelect.value).toBe("development");
+    phaseSelect.value = "testing";
+    phaseSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    expect(moveKanbanSolutionToPhase).toHaveBeenCalledWith("solution-1", "testing");
+
+    pending = true;
+    renderKanban(ctx);
+    expect(ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]").disabled).toBe(true);
+    expect(ctx.els.kanbanBoard.querySelector('[data-kanban-draggable="solution"]').getAttribute("draggable")).toBe("false");
+  });
+
+  it("restores focus after keyboard phase changes only when focus stays on the board", async () => {
+    document.body.innerHTML = '<div id="view-kanban"><div id="kanban-board"></div></div><button id="outside">Outside</button>';
+
+    const phases = [
+      { phase_id: "development", phase_name: "Development", sequence: 1 },
+      { phase_id: "testing", phase_name: "Testing", sequence: 2 },
+    ];
+    let pending = false;
+    let finishMove;
+    let ctx;
+    const moveKanbanSolutionToPhase = vi.fn(() => {
+      pending = true;
+      renderKanban(ctx);
+      return new Promise((resolve) => {
+        finishMove = () => {
+          pending = false;
+          renderKanban(ctx);
+          resolve(true);
+        };
+      });
+    });
+    ctx = {
+      state: {
+        phases,
+        projects: [{ project_id: "project-1", project_name: "Project" }],
+      },
+      els: { kanbanBoard: document.getElementById("kanban-board") },
+      filteredSolutionsForKanban: () => [
+        {
+          solution_id: "solution-1",
+          solution_name: "Build",
+          project_id: "project-1",
+          current_phase: "development",
+          status: "in_progress",
+        },
+      ],
+      phaseDisplayName: (phaseId) => phases.find((phase) => phase.phase_id === phaseId)?.phase_name || "",
+      formatStatus: (status) => status,
+      isKanbanSolutionMovePending: () => pending,
+      moveKanbanSolutionToPhase,
+    };
+    renderKanban(ctx);
+
+    let phaseSelect = ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]");
+    phaseSelect.focus();
+    phaseSelect.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    phaseSelect.value = "testing";
+    phaseSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    finishMove();
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]"));
+    });
+
+    phaseSelect = ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]");
+    phaseSelect.focus();
+    phaseSelect.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    phaseSelect.value = "testing";
+    phaseSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    finishMove();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(document.body);
+
+    phaseSelect = ctx.els.kanbanBoard.querySelector("[data-kanban-phase-select]");
+    phaseSelect.focus();
+    phaseSelect.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    phaseSelect.value = "testing";
+    phaseSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    const outside = document.getElementById("outside");
+    outside.focus();
+    finishMove();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(outside);
+  });
+
   it("moves a dragged solution to a different phase in the same project", () => {
     document.body.innerHTML = '<div id="view-kanban"><div id="kanban-board"></div></div>';
 

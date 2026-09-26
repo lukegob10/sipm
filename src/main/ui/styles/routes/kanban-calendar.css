@@ -94,6 +94,22 @@
   color: var(--muted);
   font-size: var(--font-size-table);
 }
+.kanban-phase-select {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: var(--font-size-label);
+}
+.kanban-phase-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .kanban-project {
   margin-bottom: 10px;
   border: 1px solid var(--product-border, var(--border));
@@ -221,6 +237,34 @@
 .calendar-date {
   font-weight: var(--route-control-font-weight);
   color: var(--text);
+}
+.calendar-open-day {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  box-shadow: none;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  margin: -4px;
+  padding: 2px 4px;
+  font: inherit;
+  font-weight: var(--route-control-font-weight);
+  line-height: 1.2;
+  text-align: left;
+}
+.calendar-open-day:hover {
+  background: var(--hover);
+}
+.calendar-open-day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .calendar-count {
   background: transparent;

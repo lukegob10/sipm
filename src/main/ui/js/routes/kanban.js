@@ -54,6 +54,37 @@ function showEligiblePhaseDrops(root) {
   });
 }
 
+function renderKanbanPhaseOptions(phases, currentPhaseId) {
+  const hasCurrentPhase = phases.some((phase) => phase.phase_id === currentPhaseId);
+  const placeholder = hasCurrentPhase ? "" : "<option value=\"\" selected disabled>Choose phase</option>";
+  const options = phases.map((phase) => {
+    const selected = phase.phase_id === currentPhaseId ? " selected" : "";
+    return "<option value=\"" + esc(phase.phase_id) + "\"" + selected + ">" + esc(phase.phase_name) + "</option>";
+  }).join("");
+  return placeholder + options;
+}
+
+function renderKanbanPhaseControl(solution, phases, pending) {
+  if (!phases.length) return "";
+  const currentPhase = phases.find((phase) => phase.phase_id === solution.current_phase);
+  const initialOption = currentPhase
+    ? "<option value=\"" + esc(currentPhase.phase_id) + "\" selected>" + esc(currentPhase.phase_name) + "</option>"
+    : "<option value=\"\" selected disabled>Choose phase</option>";
+  const disabled = pending ? " disabled" : "";
+  const label = "Move " + esc(solution.solution_name || "Untitled solution") + " to phase";
+  return "<select class=\"kanban-phase-select\" data-kanban-phase-select data-solution-id=\""
+    + esc(solution.solution_id)
+    + "\" data-current-phase=\"" + esc(solution.current_phase || "")
+    + "\" aria-label=\"" + label + "\"" + disabled + ">" + initialOption + "</select>";
+}
+
+function populateKanbanPhaseOptions(phaseSelect) {
+  if (phaseSelect.dataset.kanbanOptionsLoaded === "true") return;
+  const phases = [...(kanbanState.ctx?.state?.phases || [])].sort((a, b) => a.sequence - b.sequence);
+  phaseSelect.innerHTML = renderKanbanPhaseOptions(phases, phaseSelect.dataset.currentPhase || "");
+  phaseSelect.dataset.kanbanOptionsLoaded = "true";
+}
+
 function bindKanbanEvents() {
   const viewRoot = document.getElementById("view-kanban");
   if (!viewRoot || kanbanState.boundRoots.has(viewRoot)) return;
@@ -78,7 +109,48 @@ function bindKanbanEvents() {
       }
     }
   });
+  viewRoot.addEventListener("change", (event) => {
+    const phaseSelect = event.target.closest("[data-kanban-phase-select]");
+    if (!phaseSelect) return;
+    const restoreFocus = phaseSelect.dataset.kanbanKeyboardSelection === "true"
+      && document.activeElement === phaseSelect;
+    delete phaseSelect.dataset.kanbanKeyboardSelection;
+    const solutionId = phaseSelect.getAttribute("data-solution-id") || "";
+    const phaseId = phaseSelect.value || "";
+    if (solutionId && phaseId) {
+      const move = kanbanState.ctx?.moveKanbanSolutionToPhase?.(solutionId, phaseId);
+      if (restoreFocus && move && typeof move.then === "function") {
+        void Promise.resolve(move).finally(() => {
+          if (!viewRoot.isConnected) return;
+          const activeElement = document.activeElement;
+          if (activeElement !== document.body && activeElement !== phaseSelect) return;
+          const replacement = [...viewRoot.querySelectorAll("[data-kanban-phase-select]")]
+            .find((select) => select.getAttribute("data-solution-id") === solutionId);
+          if (replacement && !replacement.disabled) replacement.focus();
+        });
+      }
+    }
+  });
+  viewRoot.addEventListener("keydown", (event) => {
+    const phaseSelect = event.target.closest("[data-kanban-phase-select]");
+    if (!phaseSelect) return;
+    const selectionKeys = [" ", "Spacebar", "ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp", "Enter"];
+    if (selectionKeys.includes(event.key) || (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey)) {
+      phaseSelect.dataset.kanbanKeyboardSelection = "true";
+    }
+  });
+  viewRoot.addEventListener("focusin", (event) => {
+    const phaseSelect = event.target.closest("[data-kanban-phase-select]");
+    if (phaseSelect) populateKanbanPhaseOptions(phaseSelect);
+  });
+  viewRoot.addEventListener("pointerdown", (event) => {
+    const phaseSelect = event.target.closest("[data-kanban-phase-select]");
+    if (!phaseSelect) return;
+    delete phaseSelect.dataset.kanbanKeyboardSelection;
+    populateKanbanPhaseOptions(phaseSelect);
+  });
   viewRoot.addEventListener("dragstart", (event) => {
+    if (event.target.closest("[data-kanban-phase-select]")) return;
     const card = event.target.closest('[data-kanban-draggable="solution"]');
     if (!card || card.getAttribute("draggable") !== "true") return;
     kanbanState.draggedSolutionId = card.dataset.solutionId || "";
@@ -119,7 +191,7 @@ function bindKanbanEvents() {
   viewRoot.addEventListener("dragend", () => clearKanbanDragState(viewRoot));
 }
 
-function renderSolutionCards(cards, ctx) {
+function renderSolutionCards(cards, phases, ctx) {
   const { phaseDisplayName, formatStatus, isKanbanSolutionMovePending } = ctx;
   if (!cards.length) return "<p class='muted'>Empty</p>";
   return cards
@@ -129,7 +201,7 @@ function renderSolutionCards(cards, ctx) {
       const pending = !!isKanbanSolutionMovePending?.(s.solution_id);
       const cardClass = `kanban-card${pending ? " is-updating" : ""}`;
       const dragLabel = `Move ${s.solution_name || "Untitled solution"}. Current phase: ${phaseLabel}.`;
-      return `<div class="${cardClass}" draggable="${pending ? "false" : "true"}" data-kanban-draggable="solution" data-solution-id="${esc(s.solution_id)}" data-project-id="${esc(s.project_id)}" data-current-phase="${esc(s.current_phase || "")}" aria-label="${esc(dragLabel)}"><div class="kanban-card-title">${renderKanbanSolutionLink(s.solution_name, s.solution_id)}</div>${versionMeta}<div class="meta">Owner ${esc(s.owner || "—")} • Assignee ${esc(s.assignee || "—")}</div><div class="meta">P${esc(s.priority ?? "")} • ${esc(phaseLabel)}</div><div class="meta">Due ${esc(s.due_date || "—")} • ${esc(formatStatus(s.status))}</div></div>`;
+      return `<div class="${cardClass}" draggable="${pending ? "false" : "true"}" data-kanban-draggable="solution" data-solution-id="${esc(s.solution_id)}" data-project-id="${esc(s.project_id)}" data-current-phase="${esc(s.current_phase || "")}" aria-label="${esc(dragLabel)}"><div class="kanban-card-title">${renderKanbanSolutionLink(s.solution_name, s.solution_id)}</div>${versionMeta}<div class="meta">Owner ${esc(s.owner || "—")} • Assignee ${esc(s.assignee || "—")}</div><div class="meta">P${esc(s.priority ?? "")} • ${esc(phaseLabel)}</div><div class="meta">Due ${esc(s.due_date || "—")} • ${esc(formatStatus(s.status))}</div>${renderKanbanPhaseControl(s, phases, pending)}</div>`;
     })
     .join("");
 }
@@ -139,11 +211,11 @@ function renderSolutionSwimlane(items, phases, projectId, ctx) {
   let html = `<div class="kanban-swimlane">`;
   const unassigned = items.filter((s) => !s.current_phase || !state.phases.find((p) => p.phase_id === s.current_phase));
   if (unassigned.length) {
-    html += `<div class="kanban-column"><h4>Unassigned</h4>${renderSolutionCards(unassigned, ctx)}</div>`;
+    html += `<div class="kanban-column"><h4>Unassigned</h4>${renderSolutionCards(unassigned, phases, ctx)}</div>`;
   }
   phases.forEach((phase) => {
     const phaseCards = items.filter((solution) => solution.current_phase === phase.phase_id);
-    html += `<div class="kanban-column" data-kanban-dropzone="phase" data-project-id="${esc(projectId)}" data-phase-id="${esc(phase.phase_id)}"><h4>${esc(phase.phase_name)}</h4>${renderSolutionCards(phaseCards, ctx)}</div>`;
+    html += `<div class="kanban-column" data-kanban-dropzone="phase" data-project-id="${esc(projectId)}" data-phase-id="${esc(phase.phase_id)}"><h4>${esc(phase.phase_name)}</h4>${renderSolutionCards(phaseCards, phases, ctx)}</div>`;
   });
   html += `</div>`;
   return html;

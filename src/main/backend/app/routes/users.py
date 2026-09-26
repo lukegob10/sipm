@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime, timezone
 from io import StringIO
+import math
 import os
 from typing import List, Optional
 
@@ -547,13 +548,19 @@ def import_users(
         capacity_fte = 1.0
         if capacity_fte_raw:
             try:
-                capacity_fte = max(float(capacity_fte_raw), 0.0)
+                capacity_fte = float(capacity_fte_raw)
+                if not math.isfinite(capacity_fte) or not math.isfinite(capacity_fte * _HOURS_PER_FTE_CAPACITY):
+                    raise ValueError("capacity must be finite")
+                capacity_fte = max(capacity_fte, 0.0)
             except ValueError:
                 errors.append(f"Row {idx}: invalid capacity_fte_month '{capacity_fte_raw}'")
                 continue
         elif capacity_raw:
             try:
-                capacity_fte = max(float(capacity_raw) / _HOURS_PER_FTE_CAPACITY, 0.0)
+                capacity_hours = float(capacity_raw)
+                if not math.isfinite(capacity_hours):
+                    raise ValueError("capacity must be finite")
+                capacity_fte = max(capacity_hours / _HOURS_PER_FTE_CAPACITY, 0.0)
             except ValueError:
                 errors.append(f"Row {idx}: invalid capacity_hours '{capacity_raw}'")
                 continue

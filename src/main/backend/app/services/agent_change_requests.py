@@ -22,7 +22,11 @@ from ..schemas.agent import (
 )
 from ..security import security_http_exception
 from ..services.audit_log import log_changes
-from ..services.agent_patch_plan import apply_patch_plan, validate_patch_plan
+from ..services.agent_patch_plan import (
+    apply_patch_plan,
+    publish_patch_plan_mutations,
+    validate_patch_plan,
+)
 from ..services.agent_pagination import decode_cursor, encode_cursor
 from ..services.mutations import publish_space_mutation
 from ..services.spaces import SpaceContext
@@ -624,7 +628,10 @@ def approve_change_request(
         _publish_change_requests(space_ctx.space_id)
         return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
-    apply_result = apply_patch_plan(session, space_ctx, reviewer, payload)
+    apply_result = apply_patch_plan(
+        session, space_ctx, reviewer, payload, commit=False
+    )
+    patch_applied = apply_result.valid and apply_result.applied
     if not apply_result.valid or not apply_result.applied:
         row.status = "failed"
         row.failed_reason = "Patch application failed"
@@ -635,6 +642,8 @@ def approve_change_request(
     row.validation_json = apply_result.model_dump_json()
     session.add(row)
     session.commit()
+    if patch_applied:
+        publish_patch_plan_mutations(space_ctx.space_id, payload)
     session.refresh(row)
     _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
@@ -692,6 +701,7 @@ def cancel_change_request(
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.proposed_by_user_id == proposer.user_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
         .one_or_none()
     )
     if not row:
@@ -793,7 +803,10 @@ def approve_change_request_operations(
         _publish_change_requests(space_ctx.space_id)
         return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
-    apply_result = apply_patch_plan(session, space_ctx, reviewer, selected_payload)
+    apply_result = apply_patch_plan(
+        session, space_ctx, reviewer, selected_payload, commit=False
+    )
+    patch_applied = apply_result.valid and apply_result.applied
     if not apply_result.valid or not apply_result.applied:
         row.status = "failed"
         row.failed_reason = "Patch application failed"
@@ -851,6 +864,8 @@ def approve_change_request_operations(
             row.validation_json = apply_result.model_dump_json()
     session.add(row)
     session.commit()
+    if patch_applied:
+        publish_patch_plan_mutations(space_ctx.space_id, selected_payload)
     session.refresh(row)
     _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
@@ -868,6 +883,7 @@ def reject_change_request(
         session.query(AgentChangeRequest)
         .filter(AgentChangeRequest.space_id == space_ctx.space_id)
         .filter(AgentChangeRequest.change_request_id == change_request_id)
+        .with_for_update()
         .one_or_none()
     )
     if not row:
@@ -885,6 +901,16 @@ def reject_change_request(
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
 
+def _validate_bulk_change_request_ids(change_request_ids: list[str]) -> None:
+    if any(not normalize_str(value) for value in change_request_ids) or len(
+        set(change_request_ids)
+    ) != len(change_request_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="change_request_ids must be unique, non-empty values",
+        )
+
+
 def approve_selected_change_requests(
     session: Session,
     space_ctx: SpaceContext,
@@ -893,6 +919,7 @@ def approve_selected_change_requests(
     *,
     review_note: str | None = None,
 ) -> AgentChangeRequestBulkReviewResult:
+    _validate_bulk_change_request_ids(change_request_ids)
     records = [
         approve_change_request(
             session,
@@ -919,6 +946,7 @@ def reject_selected_change_requests(
     *,
     review_note: str | None = None,
 ) -> AgentChangeRequestBulkReviewResult:
+    _validate_bulk_change_request_ids(change_request_ids)
     records = [
         reject_change_request(
             session,

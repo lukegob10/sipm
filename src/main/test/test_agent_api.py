@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from sqlalchemy import event
 
 from backend.app import deps as deps_module
 from backend.app.auth.auth import hash_password
@@ -707,6 +708,35 @@ async def test_agent_work_graph_is_scoped_nested_and_filterable(
 
 
 @pytest.mark.anyio
+async def test_agent_work_graph_reads_programs_once_per_page(
+    agent_client, db_sessionmaker
+):
+    token, space_id, *_ = _seed_work_graph(db_sessionmaker)
+    statements: list[str] = []
+    engine = db_sessionmaker.kw["bind"]
+
+    def record_statement(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record_statement)
+    try:
+        response = await agent_client.get(
+            "/project-manager/api/agent/work-graph",
+            headers=_auth_headers(token, space_id),
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record_statement)
+
+    assert response.status_code == 200, response.text
+    program_queries = [
+        statement
+        for statement in statements
+        if "TB_TA_PM_PROGRAMS" in statement.upper()
+    ]
+    assert len(program_queries) == 1
+
+
+@pytest.mark.anyio
 async def test_agent_patch_validation_rejects_uncontrolled_changes_without_mutation(
     agent_client, db_sessionmaker
 ):
@@ -963,10 +993,30 @@ async def test_agent_program_patch_validation_rejects_bad_names_stale_and_cross_
                 "fields": {"program_name": "   "},
             },
             {
+                "client_operation_id": "long-name-create",
+                "op": "create",
+                "entity": "program",
+                "fields": {"program_name": "x" * 256},
+            },
+            {
                 "client_operation_id": "duplicate-name",
                 "op": "create",
                 "entity": "program",
                 "fields": {"program_name": program.program_name},
+            },
+            {
+                "client_operation_id": "long-name-update",
+                "op": "update",
+                "entity": "program",
+                "id": program.program_id,
+                "if_updated_at": program.updated_at.isoformat(),
+                "fields": {"program_name": "y" * 256},
+            },
+            {
+                "client_operation_id": "max-length-name",
+                "op": "create",
+                "entity": "program",
+                "fields": {"program_name": "w" * 255},
             },
             {
                 "client_operation_id": "stale-program",
@@ -998,10 +1048,48 @@ async def test_agent_program_patch_validation_rejects_bad_names_stale_and_cross_
     assert [result["code"] for result in body["results"]] == [
         "FIELD_NOT_ALLOWED",
         "PROGRAM_NAME_REQUIRED",
+        "PROGRAM_NAME_TOO_LONG",
         "PROGRAM_NAME_CONFLICT",
+        "PROGRAM_NAME_TOO_LONG",
+        None,
         "STALE_ENTITY",
         "PROGRAM_NOT_FOUND",
     ]
+
+    submitted_invalid = await agent_client.post(
+        "/project-manager/api/agent/change-requests",
+        headers=_auth_headers(token, space_id),
+        json={
+            "dry_run": False,
+            "reason": "reject overlong program before apply",
+            "idempotency_key": "overlong-program-name",
+            "operations": [
+                {
+                    "client_operation_id": "long-program",
+                    "op": "create",
+                    "entity": "program",
+                    "fields": {"program_name": "z" * 256},
+                }
+            ],
+        },
+    )
+    assert submitted_invalid.status_code == 400
+    assert submitted_invalid.json()["details"]["results"][0]["code"] == (
+        "PROGRAM_NAME_TOO_LONG"
+    )
+    with db_sessionmaker() as session:
+        assert (
+            session.query(Program)
+            .filter(Program.program_name == "z" * 256)
+            .first()
+            is None
+        )
+        assert (
+            session.query(AgentChangeRequest)
+            .filter(AgentChangeRequest.idempotency_key == "overlong-program-name")
+            .first()
+            is None
+        )
 
 
 @pytest.mark.anyio

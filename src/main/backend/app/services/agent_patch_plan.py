@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any
 
@@ -57,6 +58,7 @@ from ..utils.enums import SolutionStatus, TaskStatus
 
 VALID_OPS = {"archive", "create", "update"}
 VALID_ENTITIES = {"program", "project", "solution", "task"}
+_PROGRAM_NAME_MAX_LENGTH = 255
 CREATE_FIELDS = {
     "program": set(ProgramCreate.model_fields),
     "project": set(ProjectCreate.model_fields),
@@ -255,22 +257,36 @@ def _active_entity(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ):
     if operation.entity == "program":
-        return _program_query(session, space_ctx).filter(Program.program_id == operation.id).first()
-    if operation.entity == "project":
-        return _project_query(session, space_ctx).filter(Project.project_id == operation.id).first()
-    if operation.entity == "solution":
-        return _solution_query(session, space_ctx).filter(Solution.solution_id == operation.id).first()
-    return _task_query(session, space_ctx).filter(Task.task_id == operation.id).first()
+        query = _program_query(session, space_ctx).filter(
+            Program.program_id == operation.id
+        )
+    elif operation.entity == "project":
+        query = _project_query(session, space_ctx).filter(
+            Project.project_id == operation.id
+        )
+    elif operation.entity == "solution":
+        query = _solution_query(session, space_ctx).filter(
+            Solution.solution_id == operation.id
+        )
+    else:
+        query = _task_query(session, space_ctx).filter(Task.task_id == operation.id)
+    if for_apply:
+        query = query.with_for_update().populate_existing()
+    return query.first()
 
 
 def _validate_archive(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ) -> AgentPatchOperationResult:
-    row = _active_entity(session, space_ctx, operation)
+    row = _active_entity(session, space_ctx, operation, for_apply=for_apply)
     if row is None:
         return _invalid(
             operation,
@@ -333,6 +349,8 @@ def _validate_program(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ) -> AgentPatchOperationResult:
     try:
         if operation.op == "create":
@@ -341,6 +359,12 @@ def _validate_program(
             if not program_name:
                 return _invalid(
                     operation, "PROGRAM_NAME_REQUIRED", "program_name is required"
+                )
+            if len(program_name) > _PROGRAM_NAME_MAX_LENGTH:
+                return _invalid(
+                    operation,
+                    "PROGRAM_NAME_TOO_LONG",
+                    f"program_name must be {_PROGRAM_NAME_MAX_LENGTH} characters or fewer",
                 )
             conflict = (
                 _program_query(session, space_ctx)
@@ -356,11 +380,13 @@ def _validate_program(
             return _result(operation, valid=True)
 
         payload = ProgramUpdate(**operation.fields)
-        program = (
+        program_query = (
             _program_query(session, space_ctx)
             .filter(Program.program_id == operation.id)
-            .first()
         )
+        if for_apply:
+            program_query = program_query.with_for_update().populate_existing()
+        program = program_query.first()
         if not program:
             return _invalid(operation, "PROGRAM_NOT_FOUND", "Program not found")
         if not _timestamp_matches(program.updated_at, operation.if_updated_at):
@@ -375,6 +401,12 @@ def _validate_program(
             if not program_name:
                 return _invalid(
                     operation, "PROGRAM_NAME_REQUIRED", "program_name is required"
+                )
+            if len(program_name) > _PROGRAM_NAME_MAX_LENGTH:
+                return _invalid(
+                    operation,
+                    "PROGRAM_NAME_TOO_LONG",
+                    f"program_name must be {_PROGRAM_NAME_MAX_LENGTH} characters or fewer",
                 )
             conflict = (
                 _program_query(session, space_ctx)
@@ -400,6 +432,8 @@ def _validate_project(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ) -> AgentPatchOperationResult:
     try:
         if operation.op == "create":
@@ -425,11 +459,13 @@ def _validate_project(
             return _result(operation, valid=True)
 
         payload = ProjectUpdate(**operation.fields)
-        project = (
+        project_query = (
             _project_query(session, space_ctx)
             .filter(Project.project_id == operation.id)
-            .first()
         )
+        if for_apply:
+            project_query = project_query.with_for_update().populate_existing()
+        project = project_query.first()
         if not project:
             return _invalid(operation, "PROJECT_NOT_FOUND", "Project not found")
         if not _timestamp_matches(project.updated_at, operation.if_updated_at):
@@ -471,6 +507,8 @@ def _validate_solution(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ) -> AgentPatchOperationResult:
     try:
         if operation.op == "create":
@@ -514,11 +552,13 @@ def _validate_solution(
             return _result(operation, valid=True)
 
         payload = SolutionUpdate(**operation.fields)
-        solution = (
+        solution_query = (
             _solution_query(session, space_ctx)
             .filter(Solution.solution_id == operation.id)
-            .first()
         )
+        if for_apply:
+            solution_query = solution_query.with_for_update().populate_existing()
+        solution = solution_query.first()
         if not solution:
             return _invalid(operation, "SOLUTION_NOT_FOUND", "Solution not found")
         if not _timestamp_matches(solution.updated_at, operation.if_updated_at):
@@ -579,6 +619,8 @@ def _validate_task(
     session: Session,
     space_ctx: SpaceContext,
     operation: AgentPatchOperation,
+    *,
+    for_apply: bool = False,
 ) -> AgentPatchOperationResult:
     try:
         if operation.op == "create":
@@ -614,11 +656,13 @@ def _validate_task(
             return _result(operation, valid=True)
 
         payload = TaskUpdate(**operation.fields)
-        task = (
+        task_query = (
             _task_query(session, space_ctx)
             .filter(Task.task_id == operation.id)
-            .first()
         )
+        if for_apply:
+            task_query = task_query.with_for_update().populate_existing()
+        task = task_query.first()
         if not task:
             return _invalid(
                 operation, "TASK_NOT_FOUND", "Task not found"
@@ -722,15 +766,25 @@ def validate_patch_plan(
             continue
         result: AgentPatchOperationResult
         if operation.op == "archive":
-            result = _validate_archive(session, space_ctx, operation)
+            result = _validate_archive(
+                session, space_ctx, operation, for_apply=for_apply
+            )
         elif operation.entity == "program":
-            result = _validate_program(session, space_ctx, operation)
+            result = _validate_program(
+                session, space_ctx, operation, for_apply=for_apply
+            )
         elif operation.entity == "project":
-            result = _validate_project(session, space_ctx, operation)
+            result = _validate_project(
+                session, space_ctx, operation, for_apply=for_apply
+            )
         elif operation.entity == "solution":
-            result = _validate_solution(session, space_ctx, operation)
+            result = _validate_solution(
+                session, space_ctx, operation, for_apply=for_apply
+            )
         elif operation.entity == "task":
-            result = _validate_task(session, space_ctx, operation)
+            result = _validate_task(
+                session, space_ctx, operation, for_apply=for_apply
+            )
         results.append(result)
         if result.valid and operation.ref:
             prior_refs[normalize_str(operation.ref)] = operation.entity
@@ -1186,63 +1240,87 @@ def _apply_archive(
     return operation.id, row.updated_at
 
 
+def publish_patch_plan_mutations(
+    space_id: str, payload: AgentPatchRequest
+) -> None:
+    publish_keys = {
+        key
+        for operation in payload.operations
+        for key in PUBLISH_KEYS[operation.entity]
+    }
+    if any(
+        operation.entity == "program"
+        and operation.op == "update"
+        and "program_name" in operation.fields
+        for operation in payload.operations
+    ):
+        publish_keys.add("projects")
+    for key in sorted(publish_keys):
+        publish_space_mutation(
+            space_id,
+            [key],
+            broadcast_channel=key,
+        )
+
+
 def apply_patch_plan(
     session: Session,
     space_ctx: SpaceContext,
     current_user: User,
     payload: AgentPatchRequest,
+    *,
+    commit: bool = True,
 ) -> AgentPatchResponse:
     validation = validate_patch_plan(session, space_ctx, payload, for_apply=True)
     if not validation.valid:
         return validation
 
     results: list[AgentPatchOperationResult] = []
-    publish_keys: set[str] = set()
     resolved_refs: dict[str, str] = {}
     try:
-        for operation in payload.operations:
-            effective_operation = _resolve_operation_references(operation, resolved_refs)
-            if effective_operation.op == "archive":
-                entity_id, updated_at = _apply_archive(
-                    session, space_ctx, current_user, effective_operation
+        nested = session.begin_nested() if not commit else nullcontext()
+        with nested:
+            for operation in payload.operations:
+                effective_operation = _resolve_operation_references(
+                    operation, resolved_refs
                 )
-            elif effective_operation.entity == "program":
-                entity_id, updated_at = _apply_program(
-                    session, space_ctx, current_user, effective_operation
+                if effective_operation.op == "archive":
+                    entity_id, updated_at = _apply_archive(
+                        session, space_ctx, current_user, effective_operation
+                    )
+                elif effective_operation.entity == "program":
+                    entity_id, updated_at = _apply_program(
+                        session, space_ctx, current_user, effective_operation
+                    )
+                elif effective_operation.entity == "project":
+                    entity_id, updated_at = _apply_project(
+                        session, space_ctx, current_user, effective_operation
+                    )
+                elif effective_operation.entity == "solution":
+                    entity_id, updated_at = _apply_solution(
+                        session, space_ctx, current_user, effective_operation
+                    )
+                else:
+                    entity_id, updated_at = _apply_task(
+                        session, space_ctx, current_user, effective_operation
+                    )
+                if operation.ref:
+                    resolved_refs[normalize_str(operation.ref)] = entity_id
+                results.append(
+                    _result(
+                        operation,
+                        valid=True,
+                        applied=True,
+                        entity_id=entity_id,
+                        updated_at=updated_at,
+                    )
                 )
-            elif effective_operation.entity == "project":
-                entity_id, updated_at = _apply_project(
-                    session, space_ctx, current_user, effective_operation
-                )
-            elif effective_operation.entity == "solution":
-                entity_id, updated_at = _apply_solution(
-                    session, space_ctx, current_user, effective_operation
-                )
-            else:
-                entity_id, updated_at = _apply_task(
-                    session, space_ctx, current_user, effective_operation
-                )
-            if operation.ref:
-                resolved_refs[normalize_str(operation.ref)] = entity_id
-            publish_keys.update(PUBLISH_KEYS[operation.entity])
-            if (
-                operation.entity == "program"
-                and operation.op == "update"
-                and "program_name" in operation.fields
-            ):
-                publish_keys.add("projects")
-            results.append(
-                _result(
-                    operation,
-                    valid=True,
-                    applied=True,
-                    entity_id=entity_id,
-                    updated_at=updated_at,
-                )
-            )
-        session.commit()
+            session.flush()
+        if commit:
+            session.commit()
     except Exception as exc:
-        session.rollback()
+        if commit:
+            session.rollback()
         first = payload.operations[0]
         return AgentPatchResponse(
             valid=False,
@@ -1261,12 +1339,8 @@ def apply_patch_plan(
             ],
         )
 
-    for key in sorted(publish_keys):
-        publish_space_mutation(
-            space_ctx.space_id,
-            [key],
-            broadcast_channel=key,
-        )
+    if commit:
+        publish_patch_plan_mutations(space_ctx.space_id, payload)
 
     return AgentPatchResponse(
         valid=True,

@@ -22,10 +22,14 @@ export function createLiveSyncController({
 }) {
   const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
   const LIVE_SYNC_HEARTBEAT_MS = 60000;
+  const LIVE_SYNC_REJECTION_CODES = new Set([
+    LIVE_SYNC_CLOSE_AUTH, LIVE_SYNC_CLOSE_SPACE, LIVE_SYNC_CLOSE_LIMIT, LIVE_SYNC_CLOSE_BUSY,
+  ]);
   let liveSyncSocket = null;
   let liveSyncRetryTimer = null;
   let liveSyncHeartbeatTimer = null;
   let liveSyncRecoveryPromise = null;
+  let liveSyncGeneration = 0;
   let liveSyncReconnectAttempt = 0;
   let liveSyncAuthRecoveryUsed = false;
   let liveSyncSpaceRecoveryUsed = false;
@@ -83,6 +87,8 @@ export function createLiveSyncController({
   }
 
   function closeLiveSyncSocket(closeCode = 1000, reason = "") {
+    liveSyncGeneration += 1;
+    liveSyncRecoveryPromise = null;
     const socket = liveSyncSocket;
     liveSyncSocket = null;
     state.liveSync.socketSpaceId = "";
@@ -95,6 +101,12 @@ export function createLiveSyncController({
     } catch (err) {
       console.warn("Live sync close failed", err);
     }
+  }
+
+  function captureLiveSyncContext() {
+    const generation = liveSyncGeneration;
+    const userId = state.user?.user_id;
+    return () => generation === liveSyncGeneration && state.authed && userId === state.user?.user_id;
   }
 
   async function catchUpLiveSync() {
@@ -114,7 +126,6 @@ export function createLiveSyncController({
 
   function stopLiveSync(options = {}) {
     clearLiveSyncRetry();
-    liveSyncRecoveryPromise = null;
     if (!options.preserveRecovery) resetLiveSyncRecoveryFlags();
     closeLiveSyncSocket(options.closeCode || 1000, options.reason || "");
     state.liveSync.pausedForHidden = !!options.pausedForHidden;
@@ -168,12 +179,14 @@ export function createLiveSyncController({
     }
     liveSyncAuthRecoveryUsed = true;
     setLiveSyncPhase("reconnecting");
-    liveSyncRecoveryPromise = (async () => {
+    const isCurrent = captureLiveSyncContext();
+    const recoveryPromise = (async () => {
       const refreshed = await refreshSessionTokens({
         force: true,
         silentFailure: true,
         suppressLiveSyncRestart: true,
       });
+      if (!isCurrent()) return false;
       if (!refreshed) {
         handleSessionExpired();
         return false;
@@ -181,10 +194,11 @@ export function createLiveSyncController({
       startLiveSync({ force: true, preserveRecovery: true });
       return true;
     })();
+    liveSyncRecoveryPromise = recoveryPromise;
     try {
-      return await liveSyncRecoveryPromise;
+      return await recoveryPromise;
     } finally {
-      liveSyncRecoveryPromise = null;
+      if (liveSyncRecoveryPromise === recoveryPromise) liveSyncRecoveryPromise = null;
     }
   }
 
@@ -201,7 +215,8 @@ export function createLiveSyncController({
     }
     liveSyncSpaceRecoveryUsed = true;
     setLiveSyncPhase("reconnecting");
-    liveSyncRecoveryPromise = (async () => {
+    const isCurrent = captureLiveSyncContext();
+    const recoveryPromise = (async () => {
       const previousSpaceId = state.activeSpace?.space_id || "";
       try {
         await refreshSpaceContext({
@@ -210,10 +225,11 @@ export function createLiveSyncController({
           suppressLiveSyncRestart: true,
         });
       } catch (err) {
+        if (!isCurrent()) return false;
         if (handleAuthError(err)) return false;
         console.warn("Live sync space recovery failed", err);
       }
-      if (!state.authed) return false;
+      if (!isCurrent()) return false;
       const nextSpaceId = state.activeSpace?.space_id || "";
       if (!nextSpaceId) {
         setSpaceFeedback("Unable to restore the active space for live sync.", "error", 9000);
@@ -227,16 +243,19 @@ export function createLiveSyncController({
       try {
         await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
       } catch (err) {
+        if (!isCurrent()) return false;
         console.warn("Live sync space recovery failed to reload current view", err);
         if (handleAuthError(err)) return false;
       }
+      if (!isCurrent()) return false;
       startLiveSync({ force: true, preserveRecovery: true });
       return true;
     })();
+    liveSyncRecoveryPromise = recoveryPromise;
     try {
-      return await liveSyncRecoveryPromise;
+      return await recoveryPromise;
     } finally {
-      liveSyncRecoveryPromise = null;
+      if (liveSyncRecoveryPromise === recoveryPromise) liveSyncRecoveryPromise = null;
     }
   }
 
@@ -301,12 +320,14 @@ export function createLiveSyncController({
     state.liveSync.pausedForHidden = false;
     setLiveSyncPhase("reconnecting");
     const socket = new WebSocket(liveUrl());
+    let socketOpened = false;
     liveSyncSocket = socket;
     state.liveSync.socketSpaceId = currentSpaceId;
 
     socket.addEventListener("open", () => {
       if (socket !== liveSyncSocket) return;
-      resetLiveSyncRecoveryFlags();
+      // Rejected handshakes are accepted first so the server can send its close code.
+      socketOpened = true;
       startLiveSyncHeartbeat(socket);
       setLiveSyncPhase("live");
       const catchUpIfCurrent = () => {
@@ -323,6 +344,7 @@ export function createLiveSyncController({
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === "refresh") {
+          resetLiveSyncRecoveryFlags();
           const entity = msg.entity || "all";
           if (entity === "agent_change_requests" && typeof refreshAgentChangeRequests === "function") {
             refreshAgentChangeRequests({ force: true }).catch((err) => {
@@ -344,6 +366,7 @@ export function createLiveSyncController({
 
     socket.addEventListener("close", (event) => {
       if (socket !== liveSyncSocket) return;
+      if (socketOpened && !LIVE_SYNC_REJECTION_CODES.has(event.code)) resetLiveSyncRecoveryFlags();
       clearLiveSyncHeartbeat();
       liveSyncSocket = null;
       state.liveSync.socketSpaceId = "";
@@ -358,12 +381,15 @@ export function createLiveSyncController({
     }
     if (!state.authed || !state.liveSync.pausedForHidden) return;
     state.liveSync.pausedForHidden = false;
+    const isCurrent = captureLiveSyncContext();
     try {
       await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
     } catch (err) {
+      if (!isCurrent()) return;
       console.warn("Live sync visibility refresh failed", err);
       if (handleAuthError(err)) return;
     }
+    if (!isCurrent()) return;
     startLiveSync({ force: true, preserveRecovery: true });
   }
 

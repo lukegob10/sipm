@@ -33,7 +33,7 @@ No sample teams, people, or tasks are auto-created.
 - Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
 - `SIPM_ALLOW_SELF_REGISTER=false` is required in UAT/prod; startup/readiness fails if non-dev self-registration is enabled.
 - Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
-- Service-account automation can use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
+- Service-account automation uses admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Service accounts cannot sign in, refresh browser sessions, or use browser cookies to act as interactive reviewers. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
 - SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.

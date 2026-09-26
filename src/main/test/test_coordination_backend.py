@@ -16,6 +16,9 @@ class _FakeSyncRedis:
         self.ping_result = True
         self.ping_calls = 0
         self.close_calls = 0
+        self.mget_error: Exception | None = None
+        self.pipeline_error: Exception | None = None
+        self.scope_values: dict[str, str] = {}
 
     def ping(self) -> bool:
         self.ping_calls += 1
@@ -25,6 +28,30 @@ class _FakeSyncRedis:
 
     def close(self) -> None:
         self.close_calls += 1
+
+    def mget(self, keys: list[str]) -> list[str | None]:
+        if self.mget_error is not None:
+            raise self.mget_error
+        return [self.scope_values.get(key) for key in keys]
+
+    def pipeline(self):
+        return _FakePipeline(self)
+
+
+class _FakePipeline:
+    def __init__(self, redis: _FakeSyncRedis) -> None:
+        self.redis = redis
+        self.keys: list[str] = []
+
+    def incr(self, key: str) -> None:
+        self.keys.append(key)
+
+    def execute(self) -> None:
+        if self.redis.pipeline_error is not None:
+            raise self.redis.pipeline_error
+        for key in self.keys:
+            current = int(self.redis.scope_values.get(key, "0") or 0)
+            self.redis.scope_values[key] = str(current + 1)
 
 
 class _FakePubSub:
@@ -159,6 +186,83 @@ def test_redis_coordination_rejects_invalid_timeout(monkeypatch):
 
     with pytest.raises(RuntimeError, match="must be a positive number"):
         coordination.RedisCoordinationBackend("redis://127.0.0.1:6379/0")
+
+
+@pytest.mark.anyio
+async def test_redis_scope_generation_avoids_fallback_and_remote_revision_aliases():
+    backend, fake_sync, _ = await _fake_redis_backend()
+    token = "projects:space-1"
+    redis_key = backend._scope_key(token)
+    fake_sync.scope_values[redis_key] = "5"
+
+    try:
+        first_version = backend.scope_versions([token])[token]
+        fake_sync.pipeline_error = ConnectionError("invalidation disconnected")
+        backend.invalidate_scope_tokens([token])
+        fallback_version = backend.scope_versions([token])[token]
+
+        # Another worker successfully advances Redis after this process's
+        # invalidation failed. The local response-cache key must advance again,
+        # even when its fallback integer would otherwise equal Redis's value.
+        fake_sync.scope_values[redis_key] = "6"
+        remote_advance_version = backend.scope_versions([token])[token]
+
+        assert first_version < fallback_version < remote_advance_version
+
+        unseen_token = "solutions:space-2"
+        fake_sync.mget_error = ConnectionError("first scope read disconnected")
+        fallback_before_first_success = backend.scope_versions([unseen_token])[unseen_token]
+        fake_sync.mget_error = None
+        fake_sync.scope_values[backend._scope_key(unseen_token)] = "9"
+        first_success_after_outage = backend.scope_versions([unseen_token])[unseen_token]
+        assert first_success_after_outage > fallback_before_first_success
+    finally:
+        await backend.aclose()
+
+
+@pytest.mark.anyio
+async def test_redis_listener_dispatches_to_space_scoped_realtime_handler():
+    from backend.app.services import realtime
+
+    class _Socket:
+        def __init__(self) -> None:
+            self.sent: list[dict] = []
+            self.delivered = asyncio.Event()
+
+        async def accept(self) -> None:
+            return None
+
+        async def close(self, code: int | None = None, reason: str | None = None) -> None:
+            return None
+
+        async def send_json(self, payload: dict) -> None:
+            self.sent.append(payload)
+            self.delivered.set()
+
+    pubsub = _FakePubSub(
+        messages=(
+            {
+                "type": "message",
+                "data": '{"entity":"tasks","space_id":"space-1"}',
+            },
+        )
+    )
+    backend, _, _ = await _fake_redis_backend(pubsub)
+    same_space = _Socket()
+    other_space = _Socket()
+    await realtime.register(same_space, user_id="listener-user-1", space_id="space-1")
+    await realtime.register(other_space, user_id="listener-user-2", space_id="space-2")
+
+    try:
+        await backend.start_refresh_listener(realtime._broadcast_local_refresh)
+        await asyncio.wait_for(same_space.delivered.wait(), timeout=1)
+
+        assert same_space.sent == [{"type": "refresh", "entity": "tasks"}]
+        assert other_space.sent == []
+    finally:
+        await backend.aclose()
+        realtime.unregister(same_space)
+        realtime.unregister(other_space)
 
 
 @pytest.mark.anyio

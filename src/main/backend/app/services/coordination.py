@@ -158,7 +158,8 @@ class RedisCoordinationBackend(CoordinationBackend):
         self._listener_last_error: str | None = None
         self._listener_lifecycle_lock = asyncio.Lock()
         self._listener_sleep = asyncio.sleep
-        self._fallback_scope_versions: dict[str, int] = {}
+        self._last_remote_scope_versions: dict[str, int] = {}
+        self._local_scope_versions: dict[str, int] = {}
         self._lock = threading.RLock()
 
     @staticmethod
@@ -174,14 +175,32 @@ class RedisCoordinationBackend(CoordinationBackend):
             values: dict[str, int] = {}
             with self._lock:
                 for token, raw_value in zip(tokens, raw_values):
-                    value = int(raw_value or 0)
-                    self._fallback_scope_versions[token] = value
-                    values[token] = value
+                    remote_version = int(raw_value or 0)
+                    last_remote_version = self._last_remote_scope_versions.get(token)
+                    if last_remote_version is None:
+                        # The first successful read may follow one or more
+                        # failed reads while callers cached against the local
+                        # fallback generation. Force those fallback entries
+                        # out before trusting Redis again.
+                        self._local_scope_versions[token] = (
+                            self._local_scope_versions.get(token, 0) + 1
+                        )
+                        self._last_remote_scope_versions[token] = remote_version
+                    elif remote_version != last_remote_version:
+                        # Cache keys use this process-local generation rather
+                        # than the Redis integer directly. That prevents a
+                        # failed local invalidation generation from colliding
+                        # with a later remote increment to the same number.
+                        self._local_scope_versions[token] = (
+                            self._local_scope_versions.get(token, 0) + 1
+                        )
+                        self._last_remote_scope_versions[token] = remote_version
+                    values[token] = self._local_scope_versions.get(token, 0)
             return values
         except Exception:
             logger.warning("Redis scope-version read failed; using local fallback versions.", exc_info=True)
             with self._lock:
-                return {token: self._fallback_scope_versions.get(token, 0) for token in tokens}
+                return {token: self._local_scope_versions.get(token, 0) for token in tokens}
 
     def invalidate_scope_tokens(self, scope_tokens: Iterable[str]) -> None:
         tokens = [token for token in scope_tokens if token]
@@ -189,7 +208,7 @@ class RedisCoordinationBackend(CoordinationBackend):
             return
         with self._lock:
             for token in tokens:
-                self._fallback_scope_versions[token] = self._fallback_scope_versions.get(token, 0) + 1
+                self._local_scope_versions[token] = self._local_scope_versions.get(token, 0) + 1
         try:
             pipeline = self._redis.pipeline()
             for token in tokens:
@@ -408,7 +427,8 @@ class RedisCoordinationBackend(CoordinationBackend):
 
     def clear_state(self) -> None:
         with self._lock:
-            self._fallback_scope_versions.clear()
+            self._last_remote_scope_versions.clear()
+            self._local_scope_versions.clear()
 
     async def aclose(self) -> None:
         await self.stop_refresh_listener()

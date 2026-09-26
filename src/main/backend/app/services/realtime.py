@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Set
@@ -37,6 +38,7 @@ WS_CLOSE_SPACE_INVALID = 4403
 WS_CLOSE_CONNECTION_LIMIT = 4408
 WS_CLOSE_SERVER_BUSY = 1013
 WS_CLOSE_IDLE_TIMEOUT = 1001
+_SEND_TIMEOUT_SECONDS = 5.0
 
 
 class WebSocketRejected(RuntimeError):
@@ -56,6 +58,9 @@ class ConnectionMeta:
 connections: Set[WebSocket] = set()
 _connection_meta: Dict[WebSocket, ConnectionMeta] = {}
 _user_connections: Dict[str, Set[WebSocket]] = {}
+_pending_connections = 0
+_pending_user_connections: Dict[str, int] = {}
+_CONNECTION_LOCK = threading.RLock()
 _runtime_loop: asyncio.AbstractEventLoop | None = None
 
 
@@ -64,51 +69,84 @@ def _utc_now() -> datetime:
 
 
 def _touch(ws: WebSocket) -> None:
-    meta = _connection_meta.get(ws)
-    if meta:
-        meta.last_seen = _utc_now()
+    with _CONNECTION_LOCK:
+        meta = _connection_meta.get(ws)
+        if meta:
+            meta.last_seen = _utc_now()
 
 
 def _stale_idle_connections() -> list[WebSocket]:
     if IDLE_TIMEOUT_SECONDS <= 0:
         return []
     cutoff = _utc_now() - timedelta(seconds=IDLE_TIMEOUT_SECONDS)
-    return [ws for ws, meta in _connection_meta.items() if meta.last_seen < cutoff]
+    with _CONNECTION_LOCK:
+        return [ws for ws, meta in _connection_meta.items() if meta.last_seen < cutoff]
+
+
+async def _close_connection(ws: WebSocket, *, code: int, reason: str) -> None:
+    close = getattr(ws, "close", None)
+    try:
+        if close is not None:
+            try:
+                await asyncio.wait_for(
+                    close(code=code, reason=reason),
+                    timeout=_SEND_TIMEOUT_SECONDS,
+                )
+            except TypeError:
+                await asyncio.wait_for(close(code=code), timeout=_SEND_TIMEOUT_SECONDS)
+    except Exception:
+        pass
+    finally:
+        unregister(ws)
 
 
 async def _prune_idle_connections() -> None:
     for ws in _stale_idle_connections():
-        close = getattr(ws, "close", None)
-        try:
-            if close is not None:
-                try:
-                    await close(code=WS_CLOSE_IDLE_TIMEOUT, reason="idle-timeout")
-                except TypeError:
-                    await close(code=WS_CLOSE_IDLE_TIMEOUT)
-        finally:
-            unregister(ws)
+        await _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="idle-timeout")
 
 
-async def _broadcast_local_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
+async def _broadcast_local_refresh(entity: str = "all", space_id: str | None = None) -> None:
     await _prune_idle_connections()
-    dead = []
-    for ws in list(connections):
-        meta = _connection_meta.get(ws)
-        if space_id and meta and meta.space_id != space_id:
-            continue
-        if space_id and not meta:
-            continue
+    with _CONNECTION_LOCK:
+        recipients = [
+            ws
+            for ws in connections
+            if not space_id
+            or (
+                (meta := _connection_meta.get(ws)) is not None
+                and meta.space_id == space_id
+            )
+        ]
+
+    async def send_one(ws: WebSocket) -> None:
         try:
-            await ws.send_json({"type": "refresh", "entity": entity})
+            await asyncio.wait_for(
+                ws.send_json({"type": "refresh", "entity": entity}),
+                timeout=_SEND_TIMEOUT_SECONDS,
+            )
             _touch(ws)
         except Exception:
-            dead.append(ws)
-    for ws in dead:
-        unregister(ws)
+            # A timed-out send leaves the browser believing it is still live.
+            # Close with a reconnectable established-socket code before removal.
+            await _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="refresh-send-failed")
+
+    await asyncio.gather(*(send_one(ws) for ws in recipients))
 
 
 def _user_connection_count(user_id: str) -> int:
-    return len(_user_connections.get(user_id, set()))
+    with _CONNECTION_LOCK:
+        return len(_user_connections.get(user_id, set()))
+
+
+def _release_pending_connection(user_id: str) -> None:
+    global _pending_connections
+    with _CONNECTION_LOCK:
+        _pending_connections -= 1
+        pending_for_user = _pending_user_connections.get(user_id, 0) - 1
+        if pending_for_user > 0:
+            _pending_user_connections[user_id] = pending_for_user
+        else:
+            _pending_user_connections.pop(user_id, None)
 
 
 async def register(
@@ -117,31 +155,49 @@ async def register(
     user_id: str | None = None,
     space_id: str | None = None,
 ) -> None:
+    global _pending_connections
     user_id = (user_id or DEFAULT_USER_ID).strip() or DEFAULT_USER_ID
     space_id = (space_id or DEFAULT_SPACE_ID).strip() or DEFAULT_SPACE_ID
     await _prune_idle_connections()
-    if len(connections) >= MAX_CONNECTIONS_GLOBAL:
-        raise WebSocketRejected(WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
-    if _user_connection_count(user_id) >= MAX_CONNECTIONS_PER_USER:
-        raise WebSocketRejected(WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached")
+    with _CONNECTION_LOCK:
+        if len(connections) + _pending_connections >= MAX_CONNECTIONS_GLOBAL:
+            raise WebSocketRejected(WS_CLOSE_SERVER_BUSY, "Global websocket connection limit reached")
+        user_count = len(_user_connections.get(user_id, set())) + _pending_user_connections.get(user_id, 0)
+        if user_count >= MAX_CONNECTIONS_PER_USER:
+            raise WebSocketRejected(WS_CLOSE_CONNECTION_LIMIT, "Per-user websocket connection limit reached")
+        _pending_connections += 1
+        _pending_user_connections[user_id] = _pending_user_connections.get(user_id, 0) + 1
 
-    await ws.accept()
-    connections.add(ws)
-    _connection_meta[ws] = ConnectionMeta(user_id=user_id, space_id=space_id, last_seen=_utc_now())
-    _user_connections.setdefault(user_id, set()).add(ws)
+    try:
+        await ws.accept()
+    except BaseException:
+        _release_pending_connection(user_id)
+        raise
+
+    with _CONNECTION_LOCK:
+        _pending_connections -= 1
+        pending_for_user = _pending_user_connections[user_id] - 1
+        if pending_for_user > 0:
+            _pending_user_connections[user_id] = pending_for_user
+        else:
+            _pending_user_connections.pop(user_id, None)
+        connections.add(ws)
+        _connection_meta[ws] = ConnectionMeta(user_id=user_id, space_id=space_id, last_seen=_utc_now())
+        _user_connections.setdefault(user_id, set()).add(ws)
 
 
 def unregister(ws: WebSocket) -> None:
-    meta = _connection_meta.pop(ws, None)
-    connections.discard(ws)
-    if not meta:
-        return
-    user_set = _user_connections.get(meta.user_id)
-    if not user_set:
-        return
-    user_set.discard(ws)
-    if not user_set:
-        _user_connections.pop(meta.user_id, None)
+    with _CONNECTION_LOCK:
+        meta = _connection_meta.pop(ws, None)
+        connections.discard(ws)
+        if not meta:
+            return
+        user_set = _user_connections.get(meta.user_id)
+        if not user_set:
+            return
+        user_set.discard(ws)
+        if not user_set:
+            _user_connections.pop(meta.user_id, None)
 
 
 def heartbeat(ws: WebSocket) -> None:
@@ -149,17 +205,21 @@ def heartbeat(ws: WebSocket) -> None:
 
 
 async def broadcast_refresh(entity: str = "all", *, space_id: str | None = None) -> None:
+    await _publish_or_broadcast(entity, space_id=space_id)
+
+
+async def _publish_or_broadcast(entity: str, *, space_id: str | None) -> None:
     if coordination.uses_redis():
-        if coordination.publish_refresh(entity, space_id=space_id):
+        # redis-py is configured with a bounded socket timeout, but its sync
+        # client must still stay off the ASGI event loop.
+        if await asyncio.to_thread(coordination.publish_refresh, entity, space_id=space_id):
             return
     await _broadcast_local_refresh(entity, space_id=space_id)
 
 
 def schedule_broadcast(entity: str = "all", *, space_id: str | None = None) -> None:
     """Fire-and-forget broadcast; safe to call from sync contexts."""
-    if coordination.uses_redis() and coordination.publish_refresh(entity, space_id=space_id):
-        return
-    broadcast = _broadcast_local_refresh(entity, space_id=space_id)
+    broadcast = _publish_or_broadcast(entity, space_id=space_id)
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -187,17 +247,18 @@ async def stop_runtime() -> None:
 
 
 def connection_snapshot() -> Dict[str, object]:
-    by_space: Dict[str, int] = {}
-    for meta in _connection_meta.values():
-        by_space[meta.space_id] = by_space.get(meta.space_id, 0) + 1
-    by_user = {user_id: len(ws_set) for user_id, ws_set in _user_connections.items()}
-    return {
-        "total": len(connections),
-        "by_space": by_space,
-        "by_user": by_user,
-        "limits": {
-            "global": MAX_CONNECTIONS_GLOBAL,
-            "per_user": MAX_CONNECTIONS_PER_USER,
-            "idle_timeout_seconds": IDLE_TIMEOUT_SECONDS,
-        },
-    }
+    with _CONNECTION_LOCK:
+        by_space: Dict[str, int] = {}
+        for meta in _connection_meta.values():
+            by_space[meta.space_id] = by_space.get(meta.space_id, 0) + 1
+        by_user = {user_id: len(ws_set) for user_id, ws_set in _user_connections.items()}
+        return {
+            "total": len(connections),
+            "by_space": by_space,
+            "by_user": by_user,
+            "limits": {
+                "global": MAX_CONNECTIONS_GLOBAL,
+                "per_user": MAX_CONNECTIONS_PER_USER,
+                "idle_timeout_seconds": IDLE_TIMEOUT_SECONDS,
+            },
+        }

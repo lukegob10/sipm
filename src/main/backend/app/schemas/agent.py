@@ -19,7 +19,7 @@ class AgentManifestRead(BaseModel):
     writable_actions: list[str]
     writes_require_change_request: bool
     human_review_required: bool
-    service_account_can_approve: bool
+    api_token_can_approve: bool
     human_delegated_review: bool
     max_patch_operations: int
 
@@ -54,7 +54,6 @@ class AgentPersonRead(BaseModel):
     team_tag: str | None = None
     capacity_hours: int
     capacity_fte_month: float
-    is_service_account: bool
     updated_at: datetime
 
 

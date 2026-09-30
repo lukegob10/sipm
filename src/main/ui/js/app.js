@@ -212,6 +212,7 @@ const state = {
   platformPasswordReset: null,
   apiTokensByUser: {},
   apiTokensLoadedByUser: {},
+  apiTokenUserId: "",
   issuedApiToken: null,
   agentChangeRequests: [],
   agentChangeRequestsLoaded: false,
@@ -574,7 +575,6 @@ function initializeRouteModule(view, mod) {
       resolveGovernanceSection,
       refreshGlobalAdmins: (...args) => refreshGlobalAdmins(...args),
       refreshAccessRequests: (...args) => refreshAccessRequests(...args),
-      refreshApiTokens: (...args) => refreshApiTokens(...args),
       refreshSpaceMembers: (...args) => refreshSpaceMembers(...args),
       refreshAgentChangeRequests: (...args) => refreshAgentChangeRequests(...args),
       refreshRequestableSpaces: (...args) => refreshRequestableSpaces(...args),
@@ -3423,7 +3423,6 @@ function bindNav() {
     })
   );
   window.addEventListener("popstate", () => {
-    if (routerController.isRouteChangeSuppressed()) return;
     setView(viewFromLocationPath(), { fromHistory: true });
   });
   if (!document._appRouteClickBound) {
@@ -3750,10 +3749,6 @@ async function refreshGlobalAdmins() {
 
 async function refreshAccessRequests(options = {}) {
   return spaceGovernanceController.refreshAccessRequests(options);
-}
-
-async function refreshApiTokens(userId, options = {}) {
-  return spaceGovernanceController.refreshApiTokens(userId, options);
 }
 
 async function refreshSpaceMembers(spaceId, options = {}) {

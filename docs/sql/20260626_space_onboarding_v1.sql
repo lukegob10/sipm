@@ -236,7 +236,6 @@ CROSS JOIN (
 	FETCH FIRST 1 ROW ONLY
 ) home_space
 WHERE users.is_active = 1
-  AND users.is_service_account = 0
   AND NOT EXISTS (
 	SELECT 1
 	FROM "TB_TA_PM_SPACE_MEMBERSHIPS" memberships
@@ -258,7 +257,6 @@ WHERE memberships.space_id IN (
 	SELECT user_id
 	FROM "TB_TA_PM_USERS"
 	WHERE is_active = 1
-	  AND is_service_account = 0
   )
   AND (
 	memberships.status <> 'active'

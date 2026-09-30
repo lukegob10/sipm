@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from ...auth.auth import DELEGATED_TOKEN_EXPIRE_MINUTES
-from ...deps import require_agent_service_account
+from ...deps import require_agent_api_token
 from ...paths import APP_CONTEXT_PATH
 from ...schemas.agent import AgentManifestRead
 from ...services.agent_patch_plan import VALID_ENTITIES, VALID_OPS
@@ -18,18 +18,18 @@ router = APIRouter()
     summary="Get Agent API manifest",
 )
 def get_agent_manifest(
-    _user=Depends(require_agent_service_account),
+    _user=Depends(require_agent_api_token),
 ):
     return AgentManifestRead(
         name="SIPM Agent API",
-        version="1.4",
+        version="1.5",
         context_path=APP_CONTEXT_PATH or "",
         requires_space_id=True,
         space_discovery_requires_space_id=False,
         space_discovery_path="/api/agent/spaces",
         auth={
             "type": "bearer",
-            "service_account_required": True,
+            "api_token_required": True,
             "delegated_session_path": "/api/agent/delegated-session",
             "delegated_token_ttl_minutes": DELEGATED_TOKEN_EXPIRE_MINUTES,
         },
@@ -57,7 +57,7 @@ def get_agent_manifest(
         writable_actions=sorted(VALID_OPS),
         writes_require_change_request=True,
         human_review_required=True,
-        service_account_can_approve=False,
+        api_token_can_approve=False,
         human_delegated_review=True,
         max_patch_operations=25,
     )

@@ -339,7 +339,7 @@ def main() -> int:
         "--base-url", help="SIPM app root, e.g. http://sipm/project-manager"
     )
     parser.add_argument(
-        "--token", help="Service-account token; prefer SIPM_AGENT_TOKEN"
+        "--token", help="User API token; prefer SIPM_AGENT_TOKEN"
     )
     parser.add_argument(
         "--human-token",
@@ -488,7 +488,7 @@ def main() -> int:
     archive.add_argument("--validate-only", action="store_true")
 
     requests = sub.add_parser(
-        "list-change-requests", help="List owned service-account requests"
+        "list-change-requests", help="List change requests owned by the API token user"
     )
     add_space(requests)
     requests.add_argument("--status", default="pending")

@@ -13,7 +13,7 @@ from ...deps import (
     get_db,
     require_agent_or_interactive_user,
     require_agent_or_user_space_role,
-    require_agent_service_account,
+    require_agent_api_token,
     require_human_delegated_token,
     require_delegated_human_space_role,
     require_interactive_user,
@@ -59,7 +59,7 @@ router = APIRouter(prefix="/change-requests")
 def submit_agent_change_request(
     payload: AgentPatchRequest,
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
 ):
     return create_change_request(session, space_ctx, current_user, payload)
@@ -87,7 +87,6 @@ def list_agent_change_requests(
     proposed_by_user_id = (
         current_user.user_id
         if getattr(request.state, "auth_method", None) == "api_token"
-        and getattr(current_user, "is_service_account", False)
         else None
     )
     return list_change_requests(
@@ -120,7 +119,6 @@ def get_agent_change_request(
     proposed_by_user_id = (
         current_user.user_id
         if getattr(request.state, "auth_method", None) == "api_token"
-        and getattr(current_user, "is_service_account", False)
         else None
     )
     return get_change_request(
@@ -141,7 +139,7 @@ def update_agent_change_request(
     change_request_id: str,
     payload: AgentChangeRequestUpdate,
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
 ):
     return update_change_request(
@@ -178,7 +176,7 @@ def get_delegated_agent_change_request_review(
 def cancel_agent_change_request(
     change_request_id: str,
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
 ):
     return cancel_change_request(

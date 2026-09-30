@@ -1,6 +1,6 @@
 # SIPM Agent API Contract
 
-All paths are below `<SIPM_BASE_URL>/api`. Service-account calls use `Authorization: Bearer <SIPM_AGENT_TOKEN>`; scoped calls also require `X-Space-Id`. An authenticated human cookie session may call `POST /agent/delegated-session` to issue a 10-minute, session-bound delegated bearer token for review commands.
+All paths are below `<SIPM_BASE_URL>/api`. Agent API calls use a user's API token in `Authorization: Bearer <SIPM_AGENT_TOKEN>`; scoped calls also require `X-Space-Id`. Tokens inherit the owner's active role and space memberships. An authenticated human cookie session may call `POST /agent/delegated-session` to issue a 10-minute, session-bound delegated bearer token for review commands.
 
 ## Discovery And Reads
 
@@ -59,7 +59,7 @@ Application is transactional. Results map `ref` and `client_operation_id` to per
 
 - `POST /agent/patches/validate` validates without persistence.
 - `POST /agent/change-requests` stores a pending proposal and diff; it does not mutate work data.
-- `GET /agent/change-requests` and `/{id}` list/get only the service account's own requests.
+- `GET /agent/change-requests` and `/{id}` list/get only the API token owner's own requests.
 - `PUT /agent/change-requests/{id}` replaces an owned pending proposal in place. It requires `if_request_updated_at`, `reason`, and the complete `operations` list; the request ID and original idempotency key remain stable.
 - `POST /agent/change-requests/{id}/cancel` idempotently cancels an owned pending request.
 
@@ -68,7 +68,7 @@ Pending replacement is concurrency-safe: a stale `if_request_updated_at` conflic
 
 ## Review
 
-Service accounts never approve or reject. Browser-cookie review remains supported. Delegated review is separate:
+API tokens never approve or reject. Browser-cookie review remains supported. Delegated review is separate:
 
 - `GET /agent/change-requests/{id}/delegated-review`
 - `POST /agent/change-requests/{id}/delegated-approve`

@@ -52,21 +52,21 @@ def _seed_agent_token(
     *,
     space_id: str = "space-a",
     role: str = "member",
-    is_service_account: bool = True,
+    legacy_flag: bool = True,
     is_active: bool = True,
 ) -> tuple[str, str]:
-    raw_token = f"{TOKEN_PREFIX}test-token-{space_id}-{is_service_account}-{is_active}"
+    raw_token = f"{TOKEN_PREFIX}test-token-{space_id}-{legacy_flag}-{is_active}"
     with db_sessionmaker() as session:
         space = Space(space_id=space_id, name=f"Space {space_id}", slug=space_id)
         user = User(
-            user_id=f"user-{space_id}-{is_service_account}-{is_active}",
+            user_id=f"user-{space_id}-{legacy_flag}-{is_active}",
             soeid=f"svc{space_id[-1]}",
             email=f"svc-{space_id}@example.com",
-            display_name="Service Account",
+            display_name="Agent API User",
             password_hash=hash_password("Password123"),
             role="user",
             is_active=is_active,
-            is_service_account=is_service_account,
+            is_service_account=legacy_flag,
         )
         session.add_all([space, user])
         session.flush()
@@ -111,7 +111,6 @@ def _seed_cookie_user(
             password_hash=hash_password("Password123"),
             role="user",
             is_active=True,
-            is_service_account=False,
         )
         session.add_all([space, user])
         session.flush()
@@ -132,7 +131,7 @@ def _seed_additional_agent_token(
     *,
     space_id: str,
     user_id: str,
-    is_service_account: bool = True,
+    legacy_flag: bool = True,
 ) -> str:
     raw_token = f"{TOKEN_PREFIX}test-token-{user_id}"
     with db_sessionmaker() as session:
@@ -140,11 +139,11 @@ def _seed_additional_agent_token(
             user_id=user_id,
             soeid=user_id,
             email=f"{user_id}@example.com",
-            display_name=f"Service Account {user_id}",
+            display_name=f"Agent API User {user_id}",
             password_hash=hash_password("Password123"),
             role="user",
             is_active=True,
-            is_service_account=is_service_account,
+            is_service_account=legacy_flag,
         )
         session.add(user)
         session.flush()
@@ -173,7 +172,7 @@ def _auth_headers(token: str, space_id: str) -> dict[str, str]:
 
 
 @pytest.mark.anyio
-async def test_agent_auth_requires_bearer_service_account_and_space(
+async def test_agent_auth_requires_bearer_api_token_and_space(
     agent_client, db_sessionmaker
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
@@ -197,13 +196,13 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     assert cookie_auth.status_code == 401
 
     normal_token, normal_space_id = _seed_agent_token(
-        db_sessionmaker, space_id="space-b", is_service_account=False
+        db_sessionmaker, space_id="space-b", legacy_flag=False
     )
-    normal_user = await agent_client.get(
+    legacy_unflagged_user = await agent_client.get(
         "/project-manager/api/agent/manifest",
         headers=_auth_headers(normal_token, normal_space_id),
     )
-    assert normal_user.status_code == 401
+    assert legacy_unflagged_user.status_code == 200, legacy_unflagged_user.text
 
     accepted = await agent_client.get(
         "/project-manager/api/agent/manifest",
@@ -211,7 +210,8 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     )
     assert accepted.status_code == 200, accepted.text
     manifest = accepted.json()
-    assert manifest["version"] == "1.4"
+    assert manifest["version"] == "1.5"
+    assert manifest["auth"]["api_token_required"] is True
     assert manifest["capabilities"] == [
         "read_programs",
         "read_spaces",
@@ -242,7 +242,7 @@ async def test_agent_auth_requires_bearer_service_account_and_space(
     assert manifest["writable_actions"] == ["archive", "create", "update"]
     assert manifest["writes_require_change_request"] is True
     assert manifest["human_review_required"] is True
-    assert manifest["service_account_can_approve"] is False
+    assert manifest["api_token_can_approve"] is False
     assert manifest["human_delegated_review"] is True
     assert manifest["max_patch_operations"] == 25
     assert manifest["requires_space_id"] is True
@@ -393,7 +393,7 @@ async def test_non_agent_errors_keep_fastapi_response_shape(client):
 
 
 @pytest.mark.anyio
-async def test_service_account_cannot_bypass_agent_approval_on_normal_solution_write(
+async def test_api_token_cannot_bypass_agent_approval_on_normal_solution_write(
     agent_client, db_sessionmaker, monkeypatch
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
@@ -918,7 +918,7 @@ async def test_agent_patch_validation_accepts_allowed_entities_and_rejects_stale
 
 
 @pytest.mark.anyio
-async def test_agent_program_read_endpoints_are_service_account_scoped(
+async def test_agent_program_read_endpoints_are_api_token_scoped(
     agent_client, db_sessionmaker
 ):
     token, space_id, other_token, other_space_id, *_ = _seed_work_graph(db_sessionmaker)
@@ -1149,12 +1149,12 @@ async def test_agent_change_request_approval_applies_and_audits(
         == "Created By Approval"
     )
 
-    service_account_approval = await agent_client.post(
+    api_token_approval = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{request_id}/approve",
         headers=_auth_headers(token, space_id),
         json={},
     )
-    assert service_account_approval.status_code == 403
+    assert api_token_approval.status_code == 403
 
     login = await agent_client.post(
         "/project-manager/api/auth/login",
@@ -1582,7 +1582,7 @@ async def test_agent_change_request_idempotency_key_deduplicates_retry(
 
 
 @pytest.mark.anyio
-async def test_service_account_can_page_and_get_only_its_change_requests(
+async def test_api_token_can_page_and_get_only_its_change_requests(
     agent_client, db_sessionmaker
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
@@ -1717,7 +1717,7 @@ async def test_service_account_can_page_and_get_only_its_change_requests(
 
 
 @pytest.mark.anyio
-async def test_service_account_can_cancel_only_its_pending_request_and_replace_it(
+async def test_api_token_can_cancel_only_its_pending_request_and_replace_it(
     agent_client, db_sessionmaker
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)
@@ -1822,7 +1822,7 @@ async def test_service_account_can_cancel_only_its_pending_request_and_replace_i
 
 
 @pytest.mark.anyio
-async def test_service_account_can_update_its_pending_request_in_place(
+async def test_api_token_can_update_its_pending_request_in_place(
     agent_client, db_sessionmaker
 ):
     token, space_id = _seed_agent_token(db_sessionmaker)

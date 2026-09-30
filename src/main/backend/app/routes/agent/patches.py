@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ...deps import (
     current_agent_space,
     get_db,
-    require_agent_service_account,
+    require_agent_api_token,
     require_agent_space_role,
 )
 from ...models import User
@@ -42,7 +42,7 @@ def validate_agent_patch(
 def apply_agent_patch(
     payload: AgentPatchRequest,
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
     _authz: SpaceContext = Depends(require_agent_space_role("member")),
 ):

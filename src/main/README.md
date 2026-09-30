@@ -33,7 +33,7 @@ No sample teams, people, or tasks are auto-created.
 - Browser API access is cookie-backed. SIPM mints HTTP-only `access_token`, `refresh_token`, and `active_space_id` cookies after `/api/auth/login`.
 - `SIPM_ALLOW_SELF_REGISTER=false` is required in UAT/prod; startup/readiness fails if non-dev self-registration is enabled.
 - Admins can issue temporary passwords through the user-management password reset endpoints; users complete the reset at `/reset-password`.
-- Service-account automation uses admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Service accounts cannot sign in, refresh browser sessions, or use browser cookies to act as interactive reviewers. Tokens are issued only for users marked as service accounts, stored as hashes, and never accepted in URL query strings.
+- Any active user can sign in interactively and also use admin-issued personal access tokens through `Authorization: Bearer <token>` on HTTP API routes. Tokens are stored as hashes and never accepted in URL query strings. API-token writes to shared work data must use the Agent change-request workflow; human approvals require an interactive session.
 - WebSockets use `/api/ws` with the existing browser cookies and optional `space_id` selection. Reusable access tokens are not accepted in WebSocket query strings.
 - SIPM owns application response headers for CSP, referrer policy, and permissions policy. TLS/HSTS, ingress routing, and external platform files remain platform-owned.
 - Shared runtime coordination is controlled with `SIPM_COORDINATION_BACKEND=memory|redis`.
@@ -44,7 +44,7 @@ No sample teams, people, or tasks are auto-created.
 - Optional startup pool warming is controlled by `SIPM_DB_PREWARM_ON_STARTUP=true` and `SIPM_DB_PREWARM_CONNECTIONS`; optional background keepalive is controlled by `SIPM_DB_KEEPWARM_INTERVAL_SECONDS`.
 - Internal usage analytics is controlled with `SIPM_USAGE_ANALYTICS_ENABLED=false|true`.
 - When usage analytics is enabled, the target database must match the canonical schema in [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql), including raw telemetry and daily rollup tables.
-- Service-account API tokens require the canonical `TB_TA_PM_USERS.IS_SERVICE_ACCOUNT` column and `TB_TA_PM_API_TOKENS` table from [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql).
+- API tokens require the canonical `TB_TA_PM_USERS` and `TB_TA_PM_API_TOKENS` tables from [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql). The legacy `IS_SERVICE_ACCOUNT` column remains for schema compatibility and no longer controls authentication or token access.
 - The analytics tables are intended for short-lived operational insight. Purge raw rows older than 90 days with an external DBA/operator job; v1 does not add an in-app retention scheduler.
 - Application startup is intentionally non-mutating for database schema. [`docs/sql/schema_oracle_ta.sql`](../../docs/sql/schema_oracle_ta.sql) is the repo-owned canonical Oracle schema contract; SIPM does not run schema changes during startup.
 - First-deploy reference data SQL lives in [`docs/sql/first_deploy_reference_data.sql`](../../docs/sql/first_deploy_reference_data.sql). Run it after the canonical schema is created so required phase rows exist.

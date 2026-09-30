@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from ...deps import get_db, require_agent_service_account
+from ...deps import get_db, require_agent_api_token
 from ...models import User
 from ...schemas.agent import AgentSpaceListRead, AgentSpaceRead
 from ...services.agent_spaces import get_agent_space, list_agent_spaces
@@ -25,7 +25,7 @@ def list_spaces(
     cursor: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
 ) -> AgentSpaceListRead:
     return list_agent_spaces(
         session,
@@ -47,6 +47,6 @@ def list_spaces(
 def get_space(
     space_id: str,
     session: Session = Depends(get_db),
-    current_user: User = Depends(require_agent_service_account),
+    current_user: User = Depends(require_agent_api_token),
 ) -> AgentSpaceRead:
     return get_agent_space(session, current_user, space_id)

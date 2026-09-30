@@ -57,11 +57,11 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             message="Invalid API token",
         )
     user = session.query(User).filter(User.user_id == token_row.user_id).first()
-    if not user or not user.is_active or not user.is_service_account:
+    if not user or not user.is_active:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="API_TOKEN_USER_INVALID",
-            message="API token user inactive or invalid",
+            message="API token user inactive or missing",
         )
     now = _utc_now_naive()
     if token_row.last_used_at is None or token_row.last_used_at <= now - LAST_USED_WRITE_INTERVAL:
@@ -79,12 +79,6 @@ def create_api_token(
     name: str,
     expires_at: datetime | None = None,
 ) -> tuple[ApiToken, str]:
-    if not target_user.is_service_account:
-        raise security_http_exception(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            code="SERVICE_ACCOUNT_REQUIRED",
-            message="API tokens can only be issued for service accounts",
-        )
     raw_token = generate_api_token()
     token = ApiToken(
         user_id=target_user.user_id,

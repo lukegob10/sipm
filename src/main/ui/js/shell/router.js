@@ -45,7 +45,6 @@ export function createRouterController({
   };
   const routeModuleCache = {};
   const routeModuleInFlight = {};
-  let suppressRouteChange = false;
 
   function normalizeView(view) {
     return normalizeRouteView(view);
@@ -156,19 +155,11 @@ export function createRouterController({
     const currentUrl = new URL(window.location.href);
     const targetUrl = new URL(target, window.location.origin);
     if (currentUrl.pathname === targetUrl.pathname) return;
-    suppressRouteChange = true;
     if (replace) {
       window.history.replaceState(null, "", targetUrl.pathname);
     } else {
       window.history.pushState(null, "", targetUrl.pathname);
     }
-    window.setTimeout(() => {
-      suppressRouteChange = false;
-    }, 0);
-  }
-
-  function isRouteChangeSuppressed() {
-    return suppressRouteChange;
   }
 
   function viewDomIdForRoute(view) {
@@ -292,7 +283,6 @@ export function createRouterController({
     isResetPathname,
     viewFromLocationPath,
     syncPathForView,
-    isRouteChangeSuppressed,
     viewDomIdForRoute,
     navViewForRoute,
     isSpaceGovernanceView,

@@ -153,7 +153,7 @@ async def test_valid_login_clears_an_expired_lockout(
 
 
 @pytest.mark.anyio
-async def test_login_rejects_service_account_conversion_during_password_check(
+async def test_legacy_service_account_flag_does_not_block_login_during_password_check(
     login_client,
     db_sessionmaker,
     monkeypatch,
@@ -181,15 +181,14 @@ async def test_login_rejects_service_account_conversion_during_password_check(
         json={"soeid": "CONVERTEDRACE1", "password": "Password123"},
     )
 
-    assert response.status_code == 403, response.text
-    assert response.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
-    assert response.headers.get_list("set-cookie") == []
+    assert response.status_code == 200, response.text
+    assert response.headers.get_list("set-cookie")
     with db_sessionmaker() as session:
         user = session.get(User, "converted-login-race-user")
         assert user is not None
         assert user.is_service_account is True
-        assert user.last_login_at is None
-        assert session.query(AuthSession).filter_by(user_id=user.user_id).count() == 0
+        assert user.last_login_at is not None
+        assert session.query(AuthSession).filter_by(user_id=user.user_id).count() == 1
 
 
 @pytest.mark.anyio

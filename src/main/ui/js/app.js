@@ -3423,7 +3423,6 @@ function bindNav() {
     })
   );
   window.addEventListener("popstate", () => {
-    if (routerController.isRouteChangeSuppressed()) return;
     setView(viewFromLocationPath(), { fromHistory: true });
   });
   if (!document._appRouteClickBound) {

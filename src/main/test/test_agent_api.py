@@ -111,7 +111,6 @@ def _seed_cookie_user(
             password_hash=hash_password("Password123"),
             role="user",
             is_active=True,
-            legacy_flag=False,
         )
         session.add_all([space, user])
         session.flush()

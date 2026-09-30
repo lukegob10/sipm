@@ -94,12 +94,6 @@ def authenticate_access_token_context(
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
-    if expected_type == "access" and user.is_service_account:
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="INTERACTIVE_USER_REQUIRED",
-            message="Interactive user required",
-        )
     ensure_token_not_revoked(user, payload.get("iat"))
     if user.locked_until:
         locked_until = user.locked_until
@@ -163,7 +157,7 @@ def require_user(request: Request, session: Session = Depends(get_db)) -> User:
     return user
 
 
-def require_agent_service_account(
+def require_agent_api_token(
     request: Request, session: Session = Depends(get_db)
 ) -> User:
     bearer_token = _bearer_credential(request)
@@ -174,12 +168,6 @@ def require_agent_service_account(
             message="Bearer API token required",
         )
     user = authenticate_api_token(session, bearer_token)
-    if not getattr(user, "is_service_account", False):
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="SERVICE_ACCOUNT_REQUIRED",
-            message="Service account token required",
-        )
     request.state.auth_method = "api_token"
     request.state.user = user
     return user
@@ -238,12 +226,6 @@ def require_human_delegated_token(
         bearer_token,
         expected_type="delegated",
     )
-    if getattr(user, "is_service_account", False):
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="HUMAN_DELEGATED_TOKEN_REQUIRED",
-            message="A human access-session token is required for delegated review",
-        )
     request.state.auth_method = "human_delegated_token"
     request.state.auth_session = auth_session
     request.state.user = user
@@ -254,13 +236,11 @@ def require_non_agent_write(
     request: Request,
     user: User = Depends(require_user),
 ) -> User:
-    if getattr(request.state, "auth_method", None) == "api_token" and getattr(
-        user, "is_service_account", False
-    ):
+    if getattr(request.state, "auth_method", None) == "api_token":
         raise security_http_exception(
             status_code=status.HTTP_403_FORBIDDEN,
             code="AGENT_APPROVAL_REQUIRED",
-            message="Service-account writes require the agent approval workflow",
+            message="API-token writes must use the agent approval workflow",
         )
     return user
 
@@ -289,7 +269,7 @@ def current_space(
 def current_agent_space(
     request: Request,
     session: Session = Depends(get_db),
-    user: User = Depends(require_agent_service_account),
+    user: User = Depends(require_agent_api_token),
 ) -> SpaceContext:
     requested_space_id = request.headers.get("X-Space-Id")
     if not requested_space_id:
@@ -581,7 +561,7 @@ __all__ = [
     "get_db",
     "get_session",
     "require_user",
-    "require_agent_service_account",
+    "require_agent_api_token",
     "require_agent_or_interactive_user",
     "require_human_delegated_token",
     "require_interactive_user",

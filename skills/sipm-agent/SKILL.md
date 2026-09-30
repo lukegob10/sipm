@@ -5,7 +5,7 @@ description: Operate SIPM through its full scoped, approval-gated Agent API. Use
 
 # SIPM Agent
 
-Use `scripts/sipm_agent.py`, a stdlib-only wrapper around the Agent API. Never use normal work-item write endpoints with a service-account token.
+Use `scripts/sipm_agent.py`, a stdlib-only wrapper around the Agent API. An API token is an additional credential for a normal user account. Never use normal work-item write endpoints with an API token; submit proposals through the Agent API for interactive human review.
 
 ## Configuration
 
@@ -13,13 +13,13 @@ Keep credentials out of prompts and files:
 
 ```bash
 SIPM_BASE_URL=http://sipm/project-manager
-SIPM_AGENT_TOKEN=<service-account-token>
+SIPM_AGENT_TOKEN=<user-api-token>
 SIPM_SPACE_ID=<optional-exact-default-space-id>
 SIPM_HUMAN_TOKEN=<optional-human-access-session-token-for-delegated-review>
 SIPM_PROXY=<optional-proxy>
 ```
 
-`SIPM_BASE_URL` is the app root, including `/project-manager` when deployed there. Never print, echo, or commit tokens. A service token reads and proposes; a short-lived human access-session token only enters delegated-review commands.
+`SIPM_BASE_URL` is the app root, including `/project-manager` when deployed there. Never print, echo, or commit tokens. An API token reads and proposes; a short-lived human access-session token only enters delegated-review commands. API tokens inherit their owner's active role and space memberships.
 
 ## Conversational Boundary
 
@@ -32,7 +32,7 @@ Translate each user turn into the narrowest stage that satisfies it:
 5. **Validate** — validate complex or multi-operation patches before submission.
 6. **Propose** — submit one coherent user intent with a reason and idempotency key.
 7. **Track** — retrieve, poll, cancel, or replace the pending request in place; do not silently submit duplicates.
-8. **Review** — service accounts cannot approve. Human-delegated review requires a human access-session token, an inspected diff, and explicit user confirmation bound to its ID and `updated_at`.
+8. **Review** — API tokens cannot approve. Human-delegated review requires a human access-session token, an inspected diff, and explicit user confirmation bound to its ID and `updated_at`.
 9. **Verify** — use the returned entity IDs and audit feed instead of reloading an entire space.
 
 Do not combine unrelated user intentions merely because a patch can contain 25 operations. A hierarchy created for one outcome is coherent; unrelated housekeeping is not.

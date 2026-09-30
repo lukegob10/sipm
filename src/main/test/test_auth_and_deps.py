@@ -1471,7 +1471,7 @@ async def test_temp_password_reset_clears_expired_lockout_for_valid_reset(auth_c
 
 
 @pytest.mark.anyio
-async def test_admin_issued_service_account_api_token_authenticates_api(auth_client, db_sessionmaker):
+async def test_user_keeps_interactive_login_and_uses_admin_issued_api_token(auth_client, db_sessionmaker):
     await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT1", display_name="Admin PAT", role="global_admin")
     with db_sessionmaker() as session:
         admin = session.query(User).filter(User.soeid == "adminpat1").first()
@@ -1497,6 +1497,13 @@ async def test_admin_issued_service_account_api_token_authenticates_api(auth_cli
     assert issued.status_code == 201, issued.text
     token_value = issued.json()["token"]
     assert token_value.startswith("sipm_pat_")
+
+    interactive_login = await auth_client.post(
+        "/project-manager/api/auth/login",
+        json={"soeid": "svcpat1", "password": "ServicePassword123"},
+    )
+    assert interactive_login.status_code == 200, interactive_login.text
+    assert "is_service_account" not in interactive_login.json()
 
     auth_client.cookies.clear()
     me = await auth_client.get(
@@ -1592,7 +1599,7 @@ async def test_non_sipm_bearer_token_is_rejected_as_api_token(auth_client):
 
 
 @pytest.mark.anyio
-async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_token(auth_client, db_sessionmaker):
+async def test_api_token_lifecycle_allows_any_user_and_rejects_revoked_token(auth_client, db_sessionmaker):
     await _login_local_session(auth_client, db_sessionmaker, soeid="ADMINPAT2", display_name="Admin PAT", role="global_admin")
     with db_sessionmaker() as session:
         admin = session.query(User).filter(User.soeid == "adminpat2").first()
@@ -1620,11 +1627,11 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
         normal_user_id = normal_user.user_id
         service_user_id = service_user.user_id
 
-    denied = await auth_client.post(
+    issued_for_normal_user = await auth_client.post(
         f"/project-manager/api/users/{normal_user_id}/api-tokens",
-        json={"name": "Denied"},
+        json={"name": "Normal user token"},
     )
-    assert denied.status_code == 400
+    assert issued_for_normal_user.status_code == 201, issued_for_normal_user.text
 
     issued = await auth_client.post(
         f"/project-manager/api/users/{service_user_id}/api-tokens",
@@ -1652,31 +1659,28 @@ async def test_api_token_lifecycle_requires_service_account_and_rejects_revoked_
 
 
 @pytest.mark.anyio
-async def test_existing_cookie_cannot_bypass_service_account_boundaries(auth_client, db_sessionmaker):
+async def test_existing_interactive_session_survives_legacy_service_account_flag(auth_client, db_sessionmaker):
     login = await _login_local_session(auth_client, db_sessionmaker, soeid="convertedagent1")
     with db_sessionmaker() as session:
         user = session.get(User, login.json()["user_id"])
         user.is_service_account = True
         session.commit()
 
-    # A human session issued before conversion must not turn into an automation
-    # identity with access to human-only review or unrestricted cookie routes.
+    # The legacy flag must not convert an interactive user into a different account type.
     for method, path in (
         ("GET", "/auth/me"),
         ("GET", "/auth/bootstrap"),
         ("GET", "/agent/change-requests"),
-        ("POST", "/agent/change-requests/blocked/approve"),
         ("POST", "/auth/refresh"),
     ):
         response = await auth_client.request(
             method, f"/project-manager/api{path}", **({"json": {}} if method == "POST" else {})
         )
-        assert response.status_code == 403, (path, response.text)
-        assert response.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
+        assert response.status_code == 200, (path, response.text)
 
 
 @pytest.mark.anyio
-async def test_service_account_password_login_cannot_issue_browser_session(auth_client, db_sessionmaker):
+async def test_legacy_service_account_flag_does_not_block_password_login(auth_client, db_sessionmaker):
     login = await _login_local_session(auth_client, db_sessionmaker, soeid="servicepassword1")
     with db_sessionmaker() as session:
         user = session.get(User, login.json()["user_id"])
@@ -1690,11 +1694,10 @@ async def test_service_account_password_login_cannot_issue_browser_session(auth_
         json={"soeid": "servicepassword1", "password": "Password123"},
     )
 
-    assert response.status_code == 403, response.text
-    assert response.headers["X-Error-Code"] == "INTERACTIVE_USER_REQUIRED"
-    assert response.headers.get_list("set-cookie") == []
+    assert response.status_code == 200, response.text
+    assert response.headers.get_list("set-cookie")
     with db_sessionmaker() as session:
-        assert session.query(AuthSession).count() == sessions_before
+        assert session.query(AuthSession).count() == sessions_before + 1
 
 
 @pytest.mark.anyio

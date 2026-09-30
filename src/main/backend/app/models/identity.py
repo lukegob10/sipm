@@ -33,6 +33,7 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Legacy database column retained for compatibility; authorization must not depend on it.
     is_service_account: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     team_tag: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
     capacity_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=40)

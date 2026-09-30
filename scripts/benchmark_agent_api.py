@@ -90,7 +90,6 @@ def _seed_data(
                     password_hash="not-used",
                     role="user",
                     is_active=True,
-                    is_service_account=True,
                 ),
             ]
         )

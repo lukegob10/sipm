@@ -106,7 +106,6 @@ def list_agent_people(
                 team_tag=user.team_tag,
                 capacity_hours=user.capacity_hours,
                 capacity_fte_month=user.capacity_fte_month,
-                is_service_account=user.is_service_account,
                 updated_at=user.updated_at,
             )
             for user, membership_role in rows

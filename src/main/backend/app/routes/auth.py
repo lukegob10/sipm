@@ -142,15 +142,6 @@ def _auth_bootstrap_response(
     )
 
 
-def _reject_service_account_auth(user: User) -> None:
-    if user.is_service_account:
-        raise security_http_exception(
-            status_code=status.HTTP_403_FORBIDDEN,
-            code="INTERACTIVE_USER_REQUIRED",
-            message="Interactive user required",
-        )
-
-
 def _provision_self_registered_space(session: Session, user: User) -> None:
     default_space = get_or_create_default_space(session)
     ensure_space_membership(session, user, default_space.space_id, role="member")
@@ -265,8 +256,6 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
             message="Password reset required",
         )
 
-    _reject_service_account_auth(user)
-
     if not try_record_successful_login(
         session,
         user=user,
@@ -281,8 +270,6 @@ def login(payload: UserLogin, request: Request, response: Response, session: Ses
                 code="USER_INACTIVE",
                 message="Login failed. Check your username or password.",
             )
-        if current_user:
-            _reject_service_account_auth(current_user)
         if current_user and is_user_locked(current_user, now):
             raise security_http_exception(
                 status_code=status.HTTP_423_LOCKED,
@@ -330,7 +317,6 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             code="USER_INACTIVE_OR_MISSING",
             message="User inactive or missing",
         )
-    _reject_service_account_auth(user)
     ensure_token_not_revoked(user, payload.get("iat"))
     auth_session = require_auth_session(session, payload, user_id=user.user_id)
     if user.force_password_reset:

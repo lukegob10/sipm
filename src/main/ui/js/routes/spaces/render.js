@@ -22,7 +22,6 @@ export function createSpaceGovernanceRenderer({
   refreshGlobalAdmins,
   refreshAccessRequests,
   refreshAgentChangeRequests,
-  refreshApiTokens,
   refreshRequestableSpaces,
   refreshReviewableAccessRequests,
   refreshSpaceMembers,
@@ -790,7 +789,7 @@ export function createSpaceGovernanceRenderer({
       : new Set((request.operations || []).map((operation) => operation.client_operation_id));
     const selectedCount = selectedOperationIds.size;
     const allSelected = operationCount > 0 && selectedCount === operationCount;
-    const proposer = request.proposed_by_label || request.proposed_by_user_id || "Service account";
+    const proposer = request.proposed_by_label || request.proposed_by_user_id || "API token user";
     const proposerInitials = String(proposer)
       .split(/\s+/)
       .filter(Boolean)
@@ -852,7 +851,7 @@ export function createSpaceGovernanceRenderer({
   function renderAgentQueueItem(row, activeId, selectedIds) {
     const isActive = row.change_request_id === activeId;
     const isSelected = selectedIds.has(row.change_request_id);
-    const proposer = row.proposed_by_label || row.proposed_by_user_id || "Service account";
+    const proposer = row.proposed_by_label || row.proposed_by_user_id || "API token user";
     const proposerInitials = String(proposer)
       .split(/\s+/)
       .filter(Boolean)
@@ -990,7 +989,7 @@ export function createSpaceGovernanceRenderer({
             </button>
           </div>
           <div class="api-token-modal-body">
-            <p class="muted">This token is shown once for ${esc(issued.user_label || "the service account")}.</p>
+            <p class="muted">This token is shown once for ${esc(issued.user_label || "the user account")}.</p>
             <label class="wide">Personal access token
               <input type="text" readonly value="${escapeAttr(issued.token)}" />
             </label>
@@ -1007,11 +1006,7 @@ export function createSpaceGovernanceRenderer({
   function renderApiTokenRows(user) {
     const rows = state.apiTokensByUser[user.user_id] || [];
     if (!state.apiTokensLoadedByUser[user.user_id]) {
-      refreshApiTokens(user.user_id).catch((err) => {
-        console.warn("Failed to load API tokens", err);
-        setSpaceGovernanceNotice(err?.message || "Failed to load API tokens.", "error", 7000);
-      });
-      return "<tr><td colspan='5' class='muted'>Loading tokens...</td></tr>";
+      return "<tr><td colspan='5' class='muted'>Select Load tokens to review this user's API tokens.</td></tr>";
     }
     if (!rows.length) return "<tr><td colspan='5' class='muted'>No API tokens issued</td></tr>";
     return rows.map((token) => {
@@ -1028,42 +1023,50 @@ export function createSpaceGovernanceRenderer({
     }).join("");
   }
 
-  function renderServiceAccountTokens() {
-    const serviceUsers = (state.users || []).filter((user) => user.is_service_account);
-    const sections = serviceUsers.length
-      ? serviceUsers.map((user) => `
+  function renderUserApiTokens() {
+    const users = state.users || [];
+    const selectedUser = users.find((user) => user.user_id === state.apiTokenUserId) || users[0] || null;
+    if (selectedUser && state.apiTokenUserId !== selectedUser.user_id) {
+      state.apiTokenUserId = selectedUser.user_id;
+    }
+    const userOptions = users.map((user) => {
+      const label = `${user.display_name || user.soeid || user.user_id} (${user.soeid || user.user_id})`;
+      return `<option value="${escapeAttr(user.user_id)}"${selectedUser?.user_id === user.user_id ? " selected" : ""}>${esc(label)}</option>`;
+    }).join("");
+    const tokenList = selectedUser
+      ? `
         <div class="panel soft">
           <div class="panel-header">
             <div>
-              <h3>${esc(user.display_name || user.soeid || user.user_id)}</h3>
-              <p class="muted">${esc(user.soeid || user.email || user.user_id)}</p>
+              <h3>${esc(selectedUser.display_name || selectedUser.soeid || selectedUser.user_id)}</h3>
+              <p class="muted">${esc(selectedUser.soeid || selectedUser.email || selectedUser.user_id)}</p>
             </div>
-            <button type="button" class="secondary" data-space-action="refresh-api-tokens" data-user-id="${escapeAttr(user.user_id)}">Refresh</button>
+            <button type="button" class="secondary" data-space-action="refresh-api-tokens" data-user-id="${escapeAttr(selectedUser.user_id)}">${state.apiTokensLoadedByUser[selectedUser.user_id] ? "Refresh" : "Load tokens"}</button>
           </div>
-          <form class="form compact inline-form api-token-issue-form" data-user-id="${escapeAttr(user.user_id)}">
-            <label class="wide">Token name <input name="name" placeholder="Automation token" /></label>
-            <label>Expires at <input name="expires_at" type="datetime-local" /></label>
-            <div class="form-actions full-span platform-command-actions"><button type="submit">Issue Token</button></div>
-          </form>
           <div class="table">
             <table>
               <thead><tr><th>Name</th><th>Status</th><th>Expires</th><th>Last Used</th><th>Actions</th></tr></thead>
-              <tbody>${renderApiTokenRows(user)}</tbody>
+              <tbody>${renderApiTokenRows(selectedUser)}</tbody>
             </table>
           </div>
         </div>
-      `).join("")
-      : "";
+      `
+      : "<p class='muted'>No users are available in the active space. You can still issue a token by SOEID.</p>";
     return `
       <div class="panel soft">
-        <form id="service-account-token-form" class="form compact inline-form">
+        <form id="user-api-token-form" class="form compact inline-form">
           <label>User SOEID <input name="soeid" placeholder="e.g. lgo12345" /></label>
           <label class="wide">Token name <input name="name" placeholder="Automation token" /></label>
           <label>Expires at <input name="expires_at" type="datetime-local" /></label>
-          <div class="form-actions full-span platform-command-actions"><button type="submit">Generate Token</button></div>
+          <div class="form-actions full-span platform-command-actions"><button type="submit">Issue Token</button></div>
         </form>
       </div>
-      ${sections}
+      <div class="panel soft">
+        <label class="wide">Account
+          <select id="api-token-user-select"${users.length ? "" : " disabled"}>${userOptions}</select>
+        </label>
+      </div>
+      ${tokenList}
     `;
   }
 
@@ -1071,19 +1074,17 @@ export function createSpaceGovernanceRenderer({
     const users = [...(state.users || [])]
       .sort((a, b) => (a.display_name || a.soeid || "").localeCompare(b.display_name || b.soeid || ""));
     if (!users.length) {
-      return "<tr><td colspan='9' class='muted'>No users loaded for the active space.</td></tr>";
+      return "<tr><td colspan='8' class='muted'>No users loaded for the active space.</td></tr>";
     }
     return users.map((user) => {
       const isGlobalAdmin = String(user.role || "").trim().toLowerCase().replace(/[\s-]+/g, "_") === "global_admin";
       const statusText = user.is_active ? "active" : "inactive";
-      const serviceText = user.is_service_account ? "service" : "interactive";
       return `<tr data-user-id="${escapeAttr(user.user_id)}" data-soeid="${escapeAttr(user.soeid)}">
         <td>${esc(user.display_name || user.soeid || user.user_id)}</td>
         <td>${esc(user.soeid || "-")}</td>
         <td>${esc(user.email || "-")}</td>
         <td>${esc(user.role || "user")}</td>
         <td><span class="pill ${user.is_active ? "positive" : "muted"}">${esc(statusText)}</span></td>
-        <td><span class="pill ${user.is_service_account ? "warn" : "muted"}">${esc(serviceText)}</span></td>
         <td>${esc(user.team_tag || "-")}</td>
         <td>${esc(formatDateTime(user.last_login_at) || "Never")}</td>
         <td>
@@ -1145,8 +1146,8 @@ export function createSpaceGovernanceRenderer({
       {
         id: "api-tokens",
         label: "API Tokens",
-        description: "Manage automation access",
-        count: (state.users || []).filter((user) => user.is_service_account).length,
+        description: "Manage user bearer tokens",
+        count: (state.users || []).length,
       },
       {
         id: "users",
@@ -1237,11 +1238,11 @@ export function createSpaceGovernanceRenderer({
           <div class="platform-tool-heading">
             <div>
               <p class="space-card-kicker">Automation access</p>
-              <h3 id="platform-api-token-title">Service Account API Tokens</h3>
-              <p class="muted">Issue and revoke bearer tokens for accounts explicitly used by automations.</p>
+              <h3 id="platform-api-token-title">User API Tokens</h3>
+              <p class="muted">Issue and revoke bearer tokens for user accounts without changing sign-in access.</p>
             </div>
           </div>
-          ${renderServiceAccountTokens()}
+          ${renderUserApiTokens()}
         </section>
       `;
     }
@@ -1252,7 +1253,7 @@ export function createSpaceGovernanceRenderer({
             <div>
               <p class="space-card-kicker">Local accounts</p>
               <h3 id="platform-user-directory-title">User Directory</h3>
-              <p class="muted">Review account state, authentication type, and administrative access in one place.</p>
+              <p class="muted">Review account status and administrative access in one place.</p>
             </div>
           </div>
           <div class="panel soft">
@@ -1265,7 +1266,6 @@ export function createSpaceGovernanceRenderer({
                     <th>Email</th>
                     <th>Role</th>
                     <th>Status</th>
-                    <th>Account Type</th>
                     <th>Team</th>
                     <th>Last Login</th>
                     <th>Actions</th>

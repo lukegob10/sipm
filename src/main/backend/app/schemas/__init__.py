@@ -155,7 +155,6 @@ class UserRead(BaseModel):
     display_name: str
     role: str
     is_active: bool
-    is_service_account: bool = False
     team_tag: Optional[str] = None
     capacity_hours: int = 40
     capacity_fte_month: float = 1.0
@@ -180,7 +179,6 @@ class UserUpdate(BaseModel):
     capacity_hours: Optional[int] = None
     capacity_fte_month: Optional[float] = None
     is_active: Optional[bool] = None
-    is_service_account: Optional[bool] = None
 
 
 class UserPreferenceUpdate(BaseModel):

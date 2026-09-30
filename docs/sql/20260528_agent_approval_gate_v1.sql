@@ -1,5 +1,5 @@
 -- Agent Approval Gate V1 migration.
--- Adds the pending approval queue used by service-account agent submissions.
+-- Adds the pending approval queue used by API-token agent submissions.
 -- Safe to re-run: each object is created only when it does not already exist.
 
 DECLARE

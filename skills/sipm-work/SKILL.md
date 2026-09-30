@@ -13,7 +13,7 @@ Keep credentials out of prompts and files:
 
 ```bash
 SIPM_BASE_URL=http://sipm/project-manager
-SIPM_AGENT_TOKEN=<service-account-token>
+SIPM_AGENT_TOKEN=<user-api-token>
 SIPM_SPACE_ID=<optional-exact-default-space-id>
 ```
 

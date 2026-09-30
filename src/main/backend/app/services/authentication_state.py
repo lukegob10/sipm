@@ -122,7 +122,6 @@ def try_record_successful_login(
             User.user_id == user.user_id,
             User.password_hash == password_hash,
             User.is_active == True,  # noqa: E712
-            User.is_service_account == False,  # noqa: E712
             User.force_password_reset == False,  # noqa: E712
             _authentication_is_unlocked(now),
         )

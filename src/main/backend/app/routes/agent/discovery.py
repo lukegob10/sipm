@@ -10,7 +10,7 @@ from ...auth.auth import DELEGATED_TOKEN_EXPIRE_MINUTES, create_token
 from ...deps import (
     current_agent_space,
     get_db,
-    require_agent_service_account,
+    require_agent_api_token,
     require_agent_space_role,
     require_interactive_user,
 )
@@ -113,7 +113,7 @@ def _values(enum_type) -> list[str]:
 def get_reference_data(
     response: Response,
     session: Session = Depends(get_db),
-    _user=Depends(require_agent_service_account),
+    _user=Depends(require_agent_api_token),
 ) -> AgentReferenceDataRead:
     response.headers["ETag"] = f'"agent-reference-{REFERENCE_VERSION}"'
     statuses = {
@@ -215,7 +215,7 @@ def get_reference_data(
 )
 def get_agent_openapi(
     request: Request,
-    _user=Depends(require_agent_service_account),
+    _user=Depends(require_agent_api_token),
 ) -> dict:
     source = request.app.openapi()
     agent_prefix = f"{API_PREFIX}/agent"

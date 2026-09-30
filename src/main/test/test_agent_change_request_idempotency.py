@@ -32,7 +32,6 @@ def _seed_actor(db_sessionmaker) -> tuple[str, str]:
                     password_hash="unused",
                     role="user",
                     is_active=True,
-                    is_service_account=True,
                 ),
             ]
         )
@@ -224,7 +223,6 @@ def test_change_request_approval_rolls_back_patch_if_final_commit_fails(
             password_hash="unused",
             role="user",
             is_active=True,
-            is_service_account=False,
         )
         session.add(reviewer)
         session.commit()
@@ -288,7 +286,6 @@ def test_change_request_publishes_applied_mutations_after_outer_commit(
             password_hash="unused",
             role="user",
             is_active=True,
-            is_service_account=False,
         )
         session.add(reviewer)
         session.commit()
@@ -356,7 +353,6 @@ def test_apply_flush_integrity_error_commits_failed_request_without_patch(
             password_hash="unused",
             role="user",
             is_active=True,
-            is_service_account=False,
         )
         session.add(reviewer)
         session.commit()
@@ -409,7 +405,6 @@ def test_bulk_review_rejects_duplicate_ids_before_transition(db_sessionmaker):
             password_hash="unused",
             role="user",
             is_active=True,
-            is_service_account=False,
         )
         session.add(reviewer)
         session.commit()

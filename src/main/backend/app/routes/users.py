@@ -15,6 +15,7 @@ from ..deps import (
     current_user as current_user_dep,
     get_db,
     require_global_admin,
+    require_interactive_user,
     require_space_role,
 )
 from ..models import ApiToken, Space, SpaceMembership, User
@@ -128,25 +129,6 @@ def _token_or_404(session: Session, user_id: str, token_id: str) -> ApiToken:
     if not token:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found")
     return token
-
-
-def _ensure_service_account_target(user: User) -> None:
-    if not user.is_service_account:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="API tokens can only be issued for service accounts",
-        )
-
-
-def _is_service_account_only_update(payload: UserUpdate) -> bool:
-    return (
-        payload.is_service_account is not None
-        and payload.display_name is None
-        and payload.team_tag is None
-        and payload.capacity_fte_month is None
-        and payload.capacity_hours is None
-        and payload.is_active is None
-    )
 
 
 def _invalidate_user_caches_for_user_memberships(session: Session, user_id: str) -> None:
@@ -404,10 +386,10 @@ def list_user_api_tokens(
     user_id: str,
     active_only: bool = False,
     session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
     _admin: User = Depends(require_global_admin),
 ) -> List[ApiTokenRead]:
     user = _user_or_404(session, user_id)
-    _ensure_service_account_target(user)
     query = session.query(ApiToken).filter(ApiToken.user_id == user.user_id)
     if active_only:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -422,10 +404,35 @@ def issue_user_api_token(
     user_id: str,
     payload: ApiTokenCreate,
     session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
     admin_user: User = Depends(require_global_admin),
 ) -> ApiTokenIssueResponse:
     user = _user_or_404(session, user_id)
-    _ensure_service_account_target(user)
+    return _issue_api_token_for_user(session, admin_user, user, payload)
+
+
+@router.post(
+    "/users/by-soeid/{soeid}/api-tokens",
+    response_model=ApiTokenIssueResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def issue_user_api_token_by_soeid(
+    soeid: str,
+    payload: ApiTokenCreate,
+    session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
+    admin_user: User = Depends(require_global_admin),
+) -> ApiTokenIssueResponse:
+    user = _user_by_soeid_or_404(session, soeid)
+    return _issue_api_token_for_user(session, admin_user, user, payload)
+
+
+def _issue_api_token_for_user(
+    session: Session,
+    admin_user: User,
+    user: User,
+    payload: ApiTokenCreate,
+) -> ApiTokenIssueResponse:
     expires_at = payload.expires_at
     if expires_at is not None:
         if expires_at.tzinfo is not None:
@@ -458,10 +465,10 @@ def revoke_user_api_token(
     user_id: str,
     token_id: str,
     session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
     admin_user: User = Depends(require_global_admin),
 ) -> ApiTokenRead:
     user = _user_or_404(session, user_id)
-    _ensure_service_account_target(user)
     token = _token_or_404(session, user.user_id, token_id)
     if api_token_is_active(token):
         token.revoked_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -487,14 +494,9 @@ def update_user(
     current_user: User = Depends(current_user_dep),
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> UserRead:
-    global_service_account_update = _is_global_admin(current_user) and _is_service_account_only_update(payload)
-    if global_service_account_update:
-        user = session.query(User).filter(User.user_id == user_id).first()
-    else:
-        user = _active_space_user_query(session, space_ctx).filter(User.user_id == user_id).first()
+    user = _active_space_user_query(session, space_ctx).filter(User.user_id == user_id).first()
     if not user:
-        detail = "User not found" if global_service_account_update else "User not found in active space"
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in active space")
     ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
         user.display_name = payload.display_name
@@ -511,10 +513,6 @@ def update_user(
             _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
-    if payload.is_service_account is not None:
-        if not _is_global_admin(current_user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
-        user.is_service_account = bool(payload.is_service_account)
     session.add(user)
     session.commit()
     session.refresh(user)
@@ -532,14 +530,9 @@ def update_user_by_soeid(
     _authz: SpaceContext = Depends(require_space_role("space_admin")),
 ) -> UserRead:
     soeid_norm = soeid.strip().lower()
-    global_service_account_update = _is_global_admin(current_user) and _is_service_account_only_update(payload)
-    if global_service_account_update:
-        user = session.query(User).filter(User.soeid == soeid_norm).first()
-    else:
-        user = _active_space_user_query(session, space_ctx).filter(User.soeid == soeid_norm).first()
+    user = _active_space_user_query(session, space_ctx).filter(User.soeid == soeid_norm).first()
     if not user:
-        detail = "User not found" if global_service_account_update else "User not found in active space"
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found in active space")
     ensure_actor_can_modify_user(actor=current_user, target=user)
     if payload.display_name is not None:
         user.display_name = payload.display_name
@@ -556,10 +549,6 @@ def update_user_by_soeid(
             _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
-    if payload.is_service_account is not None:
-        if not _is_global_admin(current_user):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
-        user.is_service_account = bool(payload.is_service_account)
     session.add(user)
     session.commit()
     session.refresh(user)

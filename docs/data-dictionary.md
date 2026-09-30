@@ -45,7 +45,7 @@ erDiagram
 
 SQLAlchemy model: `User`
 
-Purpose: stores SIPM application users, authentication state, capacity defaults, and service-account flags.
+Purpose: stores SIPM application users, authentication state, and capacity defaults.
 
 Key fields:
 
@@ -58,7 +58,7 @@ Key fields:
 | `password_hash` | string | Bcrypt hash for application-managed login. |
 | `role` | string | Global application role, including global admin. |
 | `is_active` | boolean | Whether user may authenticate and be assigned. |
-| `is_service_account` | boolean | Whether admin-issued API tokens may be used for this user. |
+| `is_service_account` | boolean | Legacy database column retained for compatibility; it no longer changes authentication or token access. |
 | `team_tag` | string nullable | Display/team assignment used by team capacity administration. |
 | `capacity_hours` | integer | Legacy weekly capacity value. |
 | `capacity_fte_month` | float | Monthly FTE capacity used by team capacity administration. |
@@ -113,14 +113,14 @@ Important constraints and behavior:
 
 SQLAlchemy model: `ApiToken`
 
-Purpose: stores hashed personal access tokens for service-account automation.
+Purpose: stores hashed personal access tokens issued by administrators for user accounts.
 
 Key fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `token_id` | string PK | Internal token id. |
-| `user_id` | FK users | Service-account user represented by the token. |
+| `user_id` | FK users | User represented by the token. |
 | `name` | string | Admin-facing token label. |
 | `token_hash` | string unique | SHA/hash of token; raw token is returned only once. |
 | `created_by_user_id` | string | Admin user that issued the token. |
@@ -130,11 +130,13 @@ Key fields:
 
 Data flow:
 
-1. Admin creates token under `/api/users/{user_id}/api-tokens`.
+1. An interactive global administrator creates a token under `/api/users/{user_id}/api-tokens` or `/api/users/by-soeid/{soeid}/api-tokens`.
 2. Backend returns raw token once.
 3. Automation sends `Authorization: Bearer <token>`.
 4. `require_user()` calls `authenticate_api_token()`.
 5. Token hash and status are validated.
+
+Tokens inherit the user's current roles and space memberships. Interactive global admins manage tokens, and API-token writes to shared work data must go through the Agent change-request workflow for human review.
 
 #### `TB_TA_PM_SPACES`
 

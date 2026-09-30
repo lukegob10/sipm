@@ -3752,10 +3752,6 @@ async function refreshAccessRequests(options = {}) {
   return spaceGovernanceController.refreshAccessRequests(options);
 }
 
-async function refreshApiTokens(userId, options = {}) {
-  return spaceGovernanceController.refreshApiTokens(userId, options);
-}
-
 async function refreshSpaceMembers(spaceId, options = {}) {
   return spaceGovernanceController.refreshSpaceMembers(spaceId, options);
 }

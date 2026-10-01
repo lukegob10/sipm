@@ -35,6 +35,12 @@ Retrieve live field allowlists from `/agent/reference-data`. Do not infer update
 
 Update requires `id`, `if_updated_at`, and at least one material field. No-op updates are rejected. Archive requires `id` and `if_updated_at`, accepts no fields, and is soft-delete only.
 
+Names are unique within these scopes: program/project names within a space, solution name plus version within a project, and task names within a solution. Completed and abandoned work still occupies its name until archived.
+
+Archive retains the record and its ID, adds a deletion marker to its stored name, and records the original name in the audit log. A later create can reuse the original name with a new ID; it does not restore the archived record or attach its descendants to the replacement. Older archived records that still hold a name are renamed transactionally when an approved create or rename needs that unique key. Validation and pending submission do not modify archived records or reserve names.
+
+Search archives using `lifecycle=archived`, preferably by entity ID; renamed archives no longer match the original `exact_name`. Use a new idempotency key for a fresh replacement intent. Replaying an old key returns the original request, including its terminal status.
+
 ## Atomic Hierarchy Creation
 
 Create operations may define a unique `ref`. Later operations may use a typed backward reference. Missing, forward, duplicate, or type-mismatched references fail validation.

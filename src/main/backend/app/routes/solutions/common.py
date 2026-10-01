@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -13,6 +13,7 @@ from ...schemas import SolutionRead
 from ...services.github_repo_urls import normalize_github_repo_url
 from ...services.mutations import publish_space_mutation
 from ...services.spaces import SpaceContext
+from ...services.work_item_names import deleted_work_item_name
 from ...utils import enable_all_phases, normalize_str, read_text_value
 from ...utils.enums import RagStatus, SolutionStatus
 
@@ -21,14 +22,7 @@ _SOLUTIONS_DETAIL_TTL_SECONDS = 30
 
 
 def _deleted_solution_name(name: str, solution_id: str, deleted_at: datetime) -> str:
-    timestamp = (
-        deleted_at.replace(tzinfo=timezone.utc)
-        if deleted_at.tzinfo is None
-        else deleted_at.astimezone(timezone.utc)
-    )
-    suffix = f" [deleted {timestamp.strftime('%Y%m%dT%H%M%SZ')} {(solution_id or '')[:8] or 'deleted'}]"
-    base = (name or "Solution").strip() or "Solution"
-    return f"{base[:max(1, 255 - len(suffix))]}{suffix}"
+    return deleted_work_item_name(name, solution_id, deleted_at)
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:

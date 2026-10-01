@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Iterable
 
 from fastapi import HTTPException, status
@@ -13,6 +13,7 @@ from ...services.mutations import publish_space_mutation
 from ...services.realtime import schedule_broadcast
 from ...services.smart_cache import invalidate_space
 from ...services.spaces import SpaceContext
+from ...services.work_item_names import deleted_work_item_name
 from ...utils import normalize_str
 
 _PROJECTS_LIST_TTL_SECONDS = 20
@@ -118,19 +119,8 @@ def _is_project_name_conflict_integrity_error(exc: IntegrityError) -> bool:
     return ("project_name" in text) or ("tb_ta_pm_projects" in text)
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
 def _deleted_project_name(project_name: str, project_id: str, deleted_at: datetime) -> str:
-    base = (project_name or "Project").strip() or "Project"
-    stamp = _as_utc(deleted_at).strftime("%Y%m%dT%H%M%SZ")
-    token = (project_id or "")[:8] or "deleted"
-    suffix = f" [deleted {stamp} {token}]"
-    max_base_len = max(1, 255 - len(suffix))
-    return f"{base[:max_base_len]}{suffix}"
+    return deleted_work_item_name(project_name, project_id, deleted_at)
 
 
 def _resolve_project_sponsor(

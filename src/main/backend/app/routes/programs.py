@@ -25,6 +25,7 @@ from ..services.program_dashboard_report_data import load_program_dashboard_repo
 from ..services.program_dashboard_report_xlsx import build_program_dashboard_report_xlsx
 from ..services.smart_cache import cached_call, make_scope_token
 from ..services.spaces import SpaceContext
+from ..services.work_item_names import deleted_work_item_name, release_deleted_work_item_names
 from ..utils import normalize_str
 
 router = APIRouter(prefix="/programs")
@@ -289,6 +290,9 @@ def create_program(
         updated_at=now,
     )
     try:
+        release_deleted_work_item_names(
+            session, space_ctx, current_user, entity="program", name=program_name
+        )
         session.add(program)
         session.flush()
         safe_log_changes(
@@ -337,6 +341,14 @@ def update_program(
         if conflict:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Program name already exists")
     before = {field: getattr(program, field) for field in update_data}
+    if "program_name" in update_data:
+        release_deleted_work_item_names(
+            session,
+            space_ctx,
+            current_user,
+            entity="program",
+            name=update_data["program_name"],
+        )
     for field, value in update_data.items():
         setattr(program, field, value)
     program.updated_at = datetime.now(timezone.utc)
@@ -386,6 +398,8 @@ def delete_program(
             detail="Program cannot be deleted while it has active projects",
         )
     now = datetime.now(timezone.utc)
+    previous_name = program.program_name
+    program.program_name = deleted_work_item_name(previous_name, program.program_id, now)
     program.deleted_at = now
     program.updated_at = now
     session.add(program)
@@ -396,7 +410,10 @@ def delete_program(
         user_id=current_user.user_id,
         action="delete",
         space_id=space_ctx.space_id,
-        changes={"deleted_at": (None, now)},
+        changes={
+            "deleted_at": (None, now),
+            "program_name": (previous_name, program.program_name),
+        },
     )
     session.commit()
     _publish_program_mutation(space_ctx.space_id)

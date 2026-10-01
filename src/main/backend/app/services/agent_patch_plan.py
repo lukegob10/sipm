@@ -30,15 +30,14 @@ from ..services.github_repo_urls import (
 from ..services.mutations import publish_space_mutation
 from ..services.programs import program_query as _program_query
 from ..services.spaces import SpaceContext
+from ..services.work_item_names import deleted_work_item_name, release_deleted_work_item_names
 from ..services.work_items import (
     active_project_name_conflict_query as _active_project_name_conflict_query,
     apply_solution_completion_state as _apply_solution_completion_state,
     apply_task_completion_state as _apply_task_completion_state,
     default_program as _default_program,
-    deleted_project_name as _deleted_project_name,
     ensure_program_exists as _ensure_program_exists,
     ensure_solution as _ensure_solution,
-    is_project_name_conflict_integrity_error as _is_project_name_conflict_integrity_error,
     project_change_set as _project_change_set,
     project_create_changes as _project_create_changes,
     project_query as _project_query,
@@ -143,32 +142,6 @@ def _has_material_change(row: Any, update_data: dict[str, Any]) -> bool:
     return any(
         _comparable(getattr(row, field, None)) != _comparable(value)
         for field, value in update_data.items()
-    )
-
-
-def _is_program_name_conflict_integrity_error(exc: Exception) -> bool:
-    if not isinstance(exc, IntegrityError):
-        return False
-    text = " ".join(
-        [
-            str(exc),
-            str(getattr(exc, "orig", "")),
-            str(getattr(exc, "statement", "")),
-        ]
-    ).lower()
-    if "uix_program_space_name" in text:
-        return True
-    has_unique_marker = any(
-        marker in text
-        for marker in (
-            "ora-03301",
-            "ora-00001",
-            "unique constraint",
-            "unique constraint failed",
-        )
-    )
-    return has_unique_marker and (
-        "program_name" in text or "tb_ta_pm_programs" in text
     )
 
 
@@ -1222,10 +1195,11 @@ def _apply_archive(
     row = _active_entity(session, space_ctx, operation)
     now = _now()
     changes: dict[str, tuple[Any, Any]] = {"deleted_at": (None, now)}
-    if operation.entity == "project":
-        previous_name = row.project_name
-        row.project_name = _deleted_project_name(previous_name, row.project_id, now)
-        changes["project_name"] = (previous_name, row.project_name)
+    name_field = f"{operation.entity}_name"
+    previous_name = getattr(row, name_field)
+    renamed = deleted_work_item_name(previous_name, operation.id, now)
+    setattr(row, name_field, renamed)
+    changes[name_field] = (previous_name, renamed)
     row.deleted_at = now
     row.updated_at = now
     session.add(row)
@@ -1239,6 +1213,44 @@ def _apply_archive(
         changes=changes,
     )
     return operation.id, row.updated_at
+
+
+def _release_operation_deleted_names(
+    session: Session,
+    space_ctx: SpaceContext,
+    current_user: User,
+    operation: AgentPatchOperation,
+) -> None:
+    name_field = f"{operation.entity}_name"
+    if operation.op == "update" and name_field not in operation.fields:
+        if operation.entity != "solution" or not {"project_id", "version"}.intersection(operation.fields):
+            return
+    row = (
+        _active_entity(session, space_ctx, operation)
+        if operation.op == "update"
+        else None
+    )
+    name = normalize_str(operation.fields.get(name_field)) or getattr(row, name_field, "")
+    parent_id = None
+    version = None
+    if operation.entity == "solution":
+        parent_id = operation.project_id if row is None else (
+            operation.fields.get("project_id", row.project_id)
+        )
+        version = normalize_str(operation.fields.get("version")) or (
+            row.version if row is not None else "0.1.0"
+        )
+    elif operation.entity == "task":
+        parent_id = operation.solution_id if row is None else row.solution_id
+    release_deleted_work_item_names(
+        session,
+        space_ctx,
+        current_user,
+        entity=operation.entity,
+        name=name,
+        parent_id=parent_id,
+        version=version,
+    )
 
 
 def publish_patch_plan_mutations(
@@ -1278,13 +1290,19 @@ def apply_patch_plan(
 
     results: list[AgentPatchOperationResult] = []
     resolved_refs: dict[str, str] = {}
+    failed_operation = payload.operations[0]
     try:
         nested = session.begin_nested() if not commit else nullcontext()
         with nested:
             for operation in payload.operations:
+                failed_operation = operation
                 effective_operation = _resolve_operation_references(
                     operation, resolved_refs
                 )
+                if effective_operation.op != "archive":
+                    _release_operation_deleted_names(
+                        session, space_ctx, current_user, effective_operation
+                    )
                 if effective_operation.op == "archive":
                     entity_id, updated_at = _apply_archive(
                         session, space_ctx, current_user, effective_operation
@@ -1322,7 +1340,6 @@ def apply_patch_plan(
     except Exception as exc:
         if commit:
             session.rollback()
-        first = payload.operations[0]
         return AgentPatchResponse(
             valid=False,
             applied=False,
@@ -1330,11 +1347,10 @@ def apply_patch_plan(
             operation_count=len(payload.operations),
             results=[
                 _invalid(
-                    first,
+                    failed_operation,
                     "APPLY_FAILED",
                     "Patch application failed due to a data conflict"
-                    if _is_project_name_conflict_integrity_error(exc)
-                    or _is_program_name_conflict_integrity_error(exc)
+                    if isinstance(exc, IntegrityError)
                     else str(exc),
                 )
             ],

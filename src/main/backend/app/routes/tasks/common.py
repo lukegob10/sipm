@@ -11,6 +11,7 @@ from ...schemas import TaskRead
 from ...services.github_repo_urls import normalize_github_repo_url, resolve_effective_github_repo_url
 from ...services.mutations import publish_space_mutation
 from ...services.spaces import SpaceContext
+from ...services.work_item_names import deleted_work_item_name
 from ...utils import enable_all_phases, normalize_str
 from ...utils.enums import TaskStatus
 
@@ -22,14 +23,7 @@ _DONE_STATUSES = {TaskStatus.complete, TaskStatus.abandoned}
 
 
 def _deleted_task_name(name: str, task_id: str, deleted_at: datetime) -> str:
-    timestamp = (
-        deleted_at.replace(tzinfo=timezone.utc)
-        if deleted_at.tzinfo is None
-        else deleted_at.astimezone(timezone.utc)
-    )
-    suffix = f" [deleted {timestamp.strftime('%Y%m%dT%H%M%SZ')} {(task_id or '')[:8] or 'deleted'}]"
-    base = (name or "Task").strip() or "Task"
-    return f"{base[:max(1, 255 - len(suffix))]}{suffix}"
+    return deleted_work_item_name(name, task_id, deleted_at)
 
 
 def _role_scope(space_ctx: SpaceContext) -> str:

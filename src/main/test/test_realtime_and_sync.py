@@ -6,6 +6,7 @@ import threading
 from datetime import timedelta
 
 import pytest
+from fastapi import HTTPException
 from starlette.websockets import WebSocketDisconnect
 
 import backend.app.routes.sync as sync_route
@@ -88,9 +89,16 @@ class SessionStub:
     def query(self, *_args, **_kwargs):
         return None
 
+    def get_bind(self):
+        return None
+
     def close(self):
         self.close_calls += 1
         self.events.append("session-close")
+
+
+class DummyAuthSession:
+    session_id = "session-1"
 
 
 class DummyUser:
@@ -153,6 +161,50 @@ async def test_broadcast_prunes_idle_connections_with_reconnectable_close_code()
     assert ws_idle.close_calls == [(realtime.WS_CLOSE_IDLE_TIMEOUT, "idle-timeout")]
     assert ws_idle not in realtime.connections
     assert ws_active.sent == [{"type": "refresh", "entity": "teams"}]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["register", "broadcast"])
+async def test_idle_pruning_closes_stalled_sockets_concurrently(monkeypatch, operation):
+    monkeypatch.setattr(realtime, "_SEND_TIMEOUT_SECONDS", 10)
+    all_started = asyncio.Event()
+    release = asyncio.Event()
+    started = []
+
+    class StalledCloseSocket(StubWebSocket):
+        async def close(self, code=None, reason=None):
+            started.append(self)
+            if len(started) == 3:
+                all_started.set()
+            await release.wait()
+            await super().close(code=code, reason=reason)
+
+    stale = [StalledCloseSocket() for _ in range(3)]
+    for index, socket in enumerate(stale):
+        await realtime.register(socket, user_id=f"stale-{index}", space_id="space-1")
+    healthy = StubWebSocket()
+    await realtime.register(healthy, user_id="healthy", space_id="space-1")
+    for socket in stale:
+        realtime._connection_meta[socket].last_seen = realtime._utc_now() - timedelta(
+            seconds=realtime.IDLE_TIMEOUT_SECONDS + 1
+        )
+
+    newcomer = StubWebSocket()
+    if operation == "register":
+        task = asyncio.create_task(realtime.register(newcomer, user_id="new", space_id="space-1"))
+    else:
+        task = asyncio.create_task(realtime._broadcast_local_refresh("tasks", space_id="space-1"))
+    try:
+        await asyncio.wait_for(all_started.wait(), timeout=1)
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
+
+    assert all(socket not in realtime.connections for socket in stale)
+    if operation == "register":
+        assert newcomer.accepted
+    else:
+        assert healthy.sent == [{"type": "refresh", "entity": "tasks"}]
 
 
 @pytest.mark.anyio
@@ -271,7 +323,7 @@ async def test_schedule_broadcast_from_worker_thread_uses_runtime_loop():
 
 def test_schedule_broadcast_falls_back_to_asyncio_run(monkeypatch):
     ws = StubWebSocket()
-    realtime.connections.add(ws)
+    asyncio.run(realtime.register(ws))
 
     def no_loop():
         raise RuntimeError("no current loop")
@@ -360,8 +412,8 @@ async def test_websocket_endpoint_closes_session_before_receive_loop(monkeypatch
 
     monkeypatch.setattr(
         sync_route,
-        "authenticate_access_token",
-        lambda _session, _token: DummyUser(),
+        "authenticate_access_token_context",
+        lambda _session, _token: (DummyUser(), DummyAuthSession(), {}),
     )
     monkeypatch.setattr(
         sync_route,
@@ -406,9 +458,9 @@ async def test_websocket_auth_offload_keeps_event_loop_responsive(monkeypatch):
         auth_thread_ids.append(threading.get_ident())
         auth_started.set()
         auth_release.wait(2)
-        return DummyUser()
+        return (DummyUser(), DummyAuthSession(), {})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", slow_authenticate)
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", slow_authenticate)
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -457,9 +509,9 @@ async def test_websocket_auth_cancellation_waits_for_worker_to_close_session(mon
     def blocked_authenticate(_session, _token):
         auth_started.set()
         auth_release.wait(2)
-        return DummyUser()
+        return (DummyUser(), DummyAuthSession(), {})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", blocked_authenticate)
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", blocked_authenticate)
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -489,9 +541,9 @@ async def test_websocket_endpoint_closes_with_auth_code_on_invalid_token(monkeyp
     ws = StubWebSocket(cookies={"access_token": "bad-token"})
 
     def reject_token(_session, _token):
-        raise RuntimeError("invalid token")
+        raise HTTPException(status_code=401, detail="invalid token")
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", reject_token)
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", reject_token)
 
     await websocket_endpoint(ws, session=SessionStub())
 
@@ -506,9 +558,9 @@ async def test_websocket_endpoint_rejects_query_token_auth(monkeypatch):
 
     def reject_token(_session, token):
         assert token is None
-        raise RuntimeError("missing token")
+        raise HTTPException(status_code=401, detail="missing token")
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", reject_token)
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", reject_token)
 
     await websocket_endpoint(ws, session=SessionStub())
 
@@ -533,7 +585,7 @@ async def test_websocket_endpoint_rejects_anonymous_session_outside_tests(monkey
 async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mismatch(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"}, query_params={"space_id": "requested-space"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", lambda _session, _token: (DummyUser(), DummyAuthSession(), {}))
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",
@@ -553,7 +605,7 @@ async def test_websocket_endpoint_closes_with_space_code_on_requested_space_mism
 async def test_websocket_endpoint_closes_with_per_user_limit_code(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", lambda _session, _token: (DummyUser(), DummyAuthSession(), {}))
     monkeypatch.setattr(sync_route, "resolve_active_space_context", lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"))
 
     async def reject_register(_ws, **_kwargs):
@@ -577,7 +629,7 @@ async def test_websocket_endpoint_closes_with_per_user_limit_code(monkeypatch):
 async def test_websocket_endpoint_closes_with_server_busy_code(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", lambda _session, _token: (DummyUser(), DummyAuthSession(), {}))
     monkeypatch.setattr(sync_route, "resolve_active_space_context", lambda _session, _user, requested_space_id=None: DummySpaceContext("space-1"))
 
     async def reject_register(_ws, **_kwargs):
@@ -601,7 +653,7 @@ async def test_websocket_endpoint_closes_with_server_busy_code(monkeypatch):
 async def test_websocket_endpoint_closes_with_server_busy_code_on_unexpected_register_error(monkeypatch):
     ws = StubWebSocket(cookies={"access_token": "good-token"})
 
-    monkeypatch.setattr(sync_route, "authenticate_access_token", lambda _session, _token: DummyUser())
+    monkeypatch.setattr(sync_route, "authenticate_access_token_context", lambda _session, _token: (DummyUser(), DummyAuthSession(), {}))
     monkeypatch.setattr(
         sync_route,
         "resolve_active_space_context",

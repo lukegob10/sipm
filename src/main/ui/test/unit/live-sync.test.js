@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   LIVE_SYNC_CLOSE_AUTH,
+  LIVE_SYNC_CLOSE_SESSION_CHANGED,
   LIVE_SYNC_CLOSE_BUSY,
   LIVE_SYNC_CLOSE_SPACE,
   createLiveSyncController,
@@ -70,7 +71,7 @@ describe("live sync controller", () => {
     vi.unstubAllGlobals();
   });
 
-  function createHarness() {
+  function createHarness(overrides = {}) {
     const state = {
       authed: true,
       user: { user_id: "user-1" },
@@ -102,6 +103,8 @@ describe("live sync controller", () => {
       refreshAgentChangeRequests,
       handleAuthError,
       handleSessionExpired,
+      getSessionBinding: overrides.getSessionBinding,
+      handleSessionBindingChanged: overrides.handleSessionBindingChanged,
       renderTopbarStatus: vi.fn(),
       setSpaceFeedback: vi.fn(),
       spaceNameForId: (spaceId) => spaceId,
@@ -121,6 +124,31 @@ describe("live sync controller", () => {
     };
   }
 
+  it("binds a websocket to the initiating session and invalidates only that binding on mismatch", async () => {
+    let binding = "old-session";
+    const handleSessionBindingChanged = vi.fn();
+    const { controller, refreshSessionTokens, handleSessionExpired } = createHarness({
+      getSessionBinding: () => binding,
+      handleSessionBindingChanged,
+    });
+    controller.startLiveSync();
+    const socket = FakeWebSocket.instances[0];
+    expect(new URL(socket.url).searchParams.get("session_binding")).toBe("old-session");
+    binding = "replacement-session";
+    socket.close(LIVE_SYNC_CLOSE_SESSION_CHANGED);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(handleSessionBindingChanged).toHaveBeenCalledExactlyOnceWith("old-session");
+    expect(refreshSessionTokens).not.toHaveBeenCalled();
+    expect(handleSessionExpired).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("omits a session binding from legacy websocket connections", () => {
+    const { controller } = createHarness();
+    controller.startLiveSync();
+    expect(new URL(FakeWebSocket.instances[0].url).searchParams.has("session_binding")).toBe(false);
+  });
+
   it("retries websocket auth failures by refreshing the session", async () => {
     const { controller, refreshSessionTokens } = createHarness();
 
@@ -134,7 +162,64 @@ describe("live sync controller", () => {
       force: true,
       silentFailure: true,
       suppressLiveSyncRestart: true,
+      throwOnFailure: true,
     });
+  });
+
+  it("retries sync after a transient token refresh failure without signing out", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { controller, state, refreshSessionTokens, handleSessionExpired } = createHarness();
+    refreshSessionTokens.mockRejectedValueOnce(Object.assign(new Error("Network unavailable"), { status: 0 }));
+    controller.startLiveSync();
+    FakeWebSocket.instances[0].close(LIVE_SYNC_CLOSE_AUTH);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(handleSessionExpired).not.toHaveBeenCalled();
+    expect(state.liveSync.phase).toBe("reconnecting");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    FakeWebSocket.instances[1].close(LIVE_SYNC_CLOSE_AUTH);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(refreshSessionTokens).toHaveBeenCalledTimes(2);
+    expect(handleSessionExpired).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(3);
+  });
+
+  it("signs out on a terminal token refresh failure", async () => {
+    const { controller, refreshSessionTokens, handleSessionExpired } = createHarness();
+    refreshSessionTokens.mockResolvedValueOnce(null);
+    controller.startLiveSync();
+    FakeWebSocket.instances[0].close(LIVE_SYNC_CLOSE_AUTH);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handleSessionExpired).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("ignores a token refresh result after the active space changes", async () => {
+    const { controller, state, refreshSessionTokens, handleSessionExpired } = createHarness();
+    const recovery = deferred();
+    refreshSessionTokens.mockReturnValueOnce(recovery.promise);
+    controller.startLiveSync();
+    FakeWebSocket.instances[0].close(LIVE_SYNC_CLOSE_AUTH);
+    state.activeSpace = { space_id: "space-2" };
+    recovery.resolve(null);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(handleSessionExpired).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("does not schedule a retry when a stale token refresh fails", async () => {
+    const { controller, refreshSessionTokens, handleSessionExpired } = createHarness();
+    const recovery = deferred();
+    refreshSessionTokens.mockReturnValueOnce(recovery.promise);
+    controller.startLiveSync();
+    FakeWebSocket.instances[0].close(LIVE_SYNC_CLOSE_AUTH);
+    controller.stopLiveSync();
+    recovery.reject(new Error("Network unavailable"));
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(handleSessionExpired).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
   it("schedules a reconnect for reconnectable close codes", () => {
@@ -188,6 +273,15 @@ describe("live sync controller", () => {
     expect(refreshSpaceContext).toHaveBeenCalledOnce();
     expect(state.liveSync.phase).toBe("attention");
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it.each([false, true])("keeps editors only when recovery stays in the same space: changed=%s", async (changed) => {
+    const { controller, state, refreshSpaceContext, clearDataState } = createHarness();
+    if (changed) refreshSpaceContext.mockImplementation(async () => { state.activeSpace = { space_id: "space-2" }; });
+    controller.startLiveSync();
+    FakeWebSocket.instances[0].close(LIVE_SYNC_CLOSE_SPACE);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(clearDataState).toHaveBeenCalledWith({ preserveEditors: !changed });
   });
 
   it("increases backoff when an opened handshake is rejected as busy", () => {

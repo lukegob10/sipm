@@ -22,7 +22,7 @@ def get_agent_manifest(
 ):
     return AgentManifestRead(
         name="SIPM Agent API",
-        version="1.5",
+        version="1.6",
         context_path=APP_CONTEXT_PATH or "",
         requires_space_id=True,
         space_discovery_requires_space_id=False,

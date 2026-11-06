@@ -1,3 +1,4 @@
+import { beginTaskMutations, captureEntityMutationContext, isEntityMutationContextCurrent } from "../utils/form-state.js";
 import {
   bindSharedActions,
   renderSharedActionNotice,
@@ -242,8 +243,8 @@ function taskCard(ctx, record, selected, lane, reorderEnabled) {
   const task = record.task;
   const closed = isClosedTask(task);
   const attention = !closed && !!(record.needs_attention || record.reminder_due || task.is_overdue || task.blocked);
-  const draggable = reorderEnabled && !closed;
-  const saving = myWorkState(ctx.state).savingPrivateTaskId === task.task_id;
+  const saving = !!myWorkState(ctx.state).savingPrivateTaskId;
+  const draggable = reorderEnabled && !closed && !saving;
   const targetLane = lane === "today" ? "later" : "today";
   return `
     <article class="my-work-card${selected ? " is-selected" : ""}${attention ? " needs-attention" : ""}${closed ? " is-closed" : ""}" data-my-work-card="${ctx.escapeHtml(task.task_id)}" data-my-work-lane="${lane}" role="listitem"${draggable ? ' draggable="true"' : ""}>
@@ -367,7 +368,7 @@ function editTaskForm(ctx, record) {
           <h2>${ctx.escapeHtml(task.task_name)}</h2>
         </div>
         <div class="my-work-edit-heading-actions">
-          <button type="submit">Save Task</button>
+          <button type="submit"${myWorkState(ctx.state).sharedTaskSaveRequest || myWorkState(ctx.state).sharedActions?.pendingTaskId ? " disabled" : ""}>Save Task</button>
           <button type="button" class="secondary" data-my-work-edit-cancel>Cancel</button>
         </div>
       </div>
@@ -397,7 +398,7 @@ function editTaskForm(ctx, record) {
 
 function notesPanel(ctx, record) {
   const work = myWorkState(ctx.state);
-  const saving = myWorkState(ctx.state).savingPrivateTaskId === record.task.task_id;
+  const saving = !!work.savingPrivateTaskId;
   const notice = work.privateNotice?.taskId === record.task.task_id
     ? work.privateNotice.message
     : "";
@@ -484,7 +485,7 @@ function detailPane(ctx, record) {
           <h2>${ctx.escapeHtml(task.task_name)}</h2>
           <p>${ctx.escapeHtml(record.program_name || "Unmapped Program")} / ${ctx.escapeHtml(record.project_name)} / ${ctx.escapeHtml(record.solution_name)}</p>
         </div>
-        ${notesSelected ? "" : '<button type="button" class="secondary" data-my-work-edit>Edit Task</button>'}
+        ${notesSelected ? "" : `<button type="button" class="secondary" data-my-work-edit${work.sharedActions?.pendingTaskId ? " disabled" : ""}>Edit Task</button>`}
       </div>
       <div class="my-work-detail-tabs" role="tablist" aria-label="Selected task workspace">
         <button id="my-work-task-tab" type="button" role="tab" aria-selected="${notesSelected ? "false" : "true"}" aria-controls="my-work-task-panel" data-my-work-detail-tab="task">Task details</button>
@@ -499,18 +500,17 @@ async function refreshMyWork(ctx) {
   const work = myWorkState(ctx.state);
   if (work.loading) return;
   const requestId = (Number(work.loadRequestId) || 0) + 1;
-  const userId = ctx.state.user?.user_id;
-  const spaceId = ctx.state.activeSpace?.space_id;
+  const context = captureEntityMutationContext(ctx.state);
   const authed = ctx.state.authed;
   work.loadRequestId = requestId;
+  work.needsRefresh = false;
   work.loading = true;
   work.error = "";
   // Clearing session data resets loading even before a replacement request starts.
   const isCurrentRequest = () => ctx.state.myWork === work
     && work.loading && work.loadRequestId === requestId
     && ctx.state.authed === authed
-    && ctx.state.user?.user_id === userId
-    && ctx.state.activeSpace?.space_id === spaceId;
+    && isEntityMutationContextCurrent(ctx.state, context);
   try {
     const records = await ctx.api("/my-work");
     if (!isCurrentRequest()) return;
@@ -521,7 +521,7 @@ async function refreshMyWork(ctx) {
   } catch (err) {
     if (!isCurrentRequest()) return;
     work.error = err.message || "My Work could not be loaded.";
-    work.records = [];
+    if (!Array.isArray(work.records)) work.records = [];
   } finally {
     if (isCurrentRequest()) {
       work.loading = false;
@@ -530,17 +530,33 @@ async function refreshMyWork(ctx) {
   }
 }
 
-async function patchPrivateState(ctx, taskId, patch) {
+async function patchPrivateState(ctx, taskId, patch, submittedValues, form) {
   const work = myWorkState(ctx.state);
+  if (work.savingPrivateTaskId) return;
+  const request = {};
+  const context = captureEntityMutationContext(ctx.state);
+  const authed = ctx.state.authed;
+  work.privateSaveRequest = request;
+  const isCurrent = () => ctx.state.myWork === work && work.privateSaveRequest === request
+    && isEntityMutationContextCurrent(ctx.state, context) && ctx.state.authed === authed;
   work.savingPrivateTaskId = taskId;
   work.privateNotice = null;
-  const feedback = ctx.els.myWorkRoot.querySelector("[data-my-work-private-feedback]");
+  if (work.loading) {
+    // A snapshot requested before this write must not replace its result.
+    work.loadRequestId = (Number(work.loadRequestId) || 0) + 1;
+    work.loading = false;
+    work.needsRefresh = true;
+  }
+  const feedback = form.querySelector("[data-my-work-private-feedback]");
+  const submit = form.querySelector('button[type="submit"]');
+  if (submit) submit.disabled = true;
   if (feedback) feedback.textContent = "Saving your note…";
   try {
     const saved = await ctx.api(`/my-work/tasks/${encodeURIComponent(taskId)}/state`, {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+    if (!isCurrent()) return;
     const record = (work.records || []).find((item) => item.task.task_id === taskId);
     if (record) {
       record.private_bucket = saved.bucket;
@@ -554,20 +570,38 @@ async function patchPrivateState(ctx, taskId, patch) {
     }
     work.savingPrivateTaskId = "";
     work.error = "";
-    work.privateNotice = { taskId, message: "Private note saved." };
-    renderMyWork(ctx);
+    const currentForm = work.selectedTaskId === taskId
+      ? ctx.els.myWorkRoot.querySelector("[data-my-work-private-form]") : null;
+    const hasNewerEdits = currentForm && Object.entries(submittedValues).some(([name, value]) => currentForm.elements.namedItem(name)?.value !== value);
+    work.privateNotice = { taskId, message: hasNewerEdits ? "Private note saved. Newer edits are not saved." : "Private note saved." };
+    renderMyWork(ctx, { draftBaseline: work.selectedTaskId === taskId ? submittedValues : null });
   } catch (err) {
+    if (!isCurrent()) return;
     work.savingPrivateTaskId = "";
-    if (feedback) feedback.textContent = err.message || "Your private note could not be saved.";
-    else work.error = err.message || "Your private note could not be saved.";
+    const currentForm = work.selectedTaskId === taskId
+      ? ctx.els.myWorkRoot.querySelector("[data-my-work-private-form]") : null;
+    const currentFeedback = currentForm?.querySelector("[data-my-work-private-feedback]");
+    const message = err.message || "Your private note could not be saved.";
+    work.privateNotice = { taskId, message, error: true };
+    if (currentFeedback) currentFeedback.textContent = message;
+    const currentSubmit = currentForm?.querySelector('button[type="submit"]');
+    if (currentSubmit) currentSubmit.disabled = false;
+    renderMyWork(ctx);
   } finally {
-    work.savingPrivateTaskId = "";
+    if (isCurrent()) {
+      work.savingPrivateTaskId = "";
+      work.privateSaveRequest = null;
+    }
   }
 }
 
 async function moveInPrivateLanes(ctx, taskId, targetBucket, targetTaskId, insertAfter) {
   if (!PRIVATE_BUCKETS.has(targetBucket)) return;
   const work = myWorkState(ctx.state);
+  if (work.savingPrivateTaskId) return;
+  const request = {};
+  const context = captureEntityMutationContext(ctx.state);
+  const authed = ctx.state.authed;
   const allLanes = plannedRecords((work.records || []).filter((record) => !isClosedTask(record.task)));
   const moving = (work.records || []).find((record) => record.task.task_id === taskId);
   const sourceBucket = normalizedPrivateBucket(moving || {});
@@ -597,38 +631,55 @@ async function moveInPrivateLanes(ctx, taskId, targetBucket, targetTaskId, inser
     record.private_bucket = targetBucket;
     record.private_sort_rank = desiredRank;
   });
+  work.privateLaneRequest = request;
+  const isCurrent = () => ctx.state.myWork === work && work.privateLaneRequest === request
+    && isEntityMutationContextCurrent(ctx.state, context) && ctx.state.authed === authed;
   work.savingPrivateTaskId = taskId;
   work.privateNotice = null;
+  if (work.loading) {
+    work.loadRequestId = (Number(work.loadRequestId) || 0) + 1;
+    work.loading = false;
+    work.needsRefresh = true;
+  }
   renderMyWork(ctx);
-  try {
-    await Promise.all(updates.map((update) => ctx.api(
-      `/my-work/tasks/${encodeURIComponent(update.record.task.task_id)}/state`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ bucket: update.bucket, sort_rank: update.sortRank }),
-      },
-    )));
-    work.savingPrivateTaskId = "";
-    work.error = "";
-    renderMyWork(ctx);
-  } catch (err) {
-    const saveError = err.message || "Private work order could not be saved.";
-    previousState.forEach((previous, previousTaskId) => {
-      const record = (work.records || []).find((item) => item.task.task_id === previousTaskId);
-      if (!record) return;
-      record.private_bucket = previous.bucket;
-      record.private_sort_rank = previous.sortRank;
+  const results = await Promise.allSettled(updates.map((update) => Promise.resolve().then(() => !isCurrent() ? undefined : ctx.api(
+    `/my-work/tasks/${encodeURIComponent(update.record.task.task_id)}/state`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ bucket: update.bucket, sort_rank: update.sortRank }),
+    },
+  ))));
+  if (!isCurrent()) return;
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) {
+    const saveError = failed.reason?.message || "Private work order could not be saved.";
+    results.forEach((result, index) => {
+      if (result.status !== "rejected") return;
+      const record = (work.records || []).find((item) => item.task.task_id === updates[index].record.task.task_id);
+      const previous = previousState.get(updates[index].record.task.task_id);
+      if (record && previous) {
+        record.private_bucket = previous.bucket;
+        record.private_sort_rank = previous.sortRank;
+      }
     });
-    work.savingPrivateTaskId = "";
+    work.needsRefresh = false;
     try {
-      work.records = await ctx.api("/my-work");
+      const records = await ctx.api("/my-work");
+      if (!isCurrent()) return;
+      if (!Array.isArray(records)) throw new Error("My Work returned an invalid response.");
+      work.records = records;
       work.error = saveError;
     } catch (refreshError) {
-      work.records = [];
-      work.error = `${saveError} ${refreshError.message || "My Work could not be refreshed."}`;
+      if (!isCurrent()) return;
+      work.error = `${saveError} ${refreshError.message || "My Work could not be refreshed."} The displayed order may be out of date.`;
     }
-    renderMyWork(ctx);
+  } else {
+    work.error = "";
   }
+  if (!isCurrent()) return;
+  work.savingPrivateTaskId = "";
+  work.privateLaneRequest = null;
+  renderMyWork(ctx);
 }
 
 function clearQueueDropPreview(root) {
@@ -693,17 +744,25 @@ function bindTaskEditing(ctx) {
   const work = myWorkState(ctx.state);
   const selectedRecord = (work.records || []).find((record) => record.task.task_id === work.selectedTaskId) || null;
   root.querySelector("[data-my-work-edit]")?.addEventListener("click", () => {
+    if (work.sharedActions?.pendingTaskId) return;
     work.editingTaskId = work.selectedTaskId;
+    work.taskEditSession = {};
     renderMyWork(ctx);
   });
   root.querySelectorAll("[data-my-work-edit-cancel]").forEach((button) => {
     button.addEventListener("click", () => {
       work.editingTaskId = "";
+      work.taskEditSession = null;
       renderMyWork(ctx);
     });
   });
 
   const form = root.querySelector("[data-my-work-edit-form]");
+  const readFields = (target) => [...target.querySelectorAll("input[name], textarea[name], select[name]")]
+    .map((field) => [field.name, field.type === "checkbox" || field.type === "radio" ? field.checked : field.value]);
+  if (form && work.taskEditSession && !work.taskEditSession.baseline) {
+    work.taskEditSession.baseline = Object.fromEntries(readFields(form));
+  }
   const blockedInput = form?.querySelector('[name="blocked"]');
   const blockerNote = form?.querySelector('[name="blocker_note"]');
   const assigneeSelect = form?.querySelector('[name="assignee"]');
@@ -723,6 +782,23 @@ function bindTaskEditing(ctx) {
   });
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (work.sharedTaskSaveRequest || work.sharedActions?.pendingTaskId) return;
+    const taskId = work.selectedTaskId;
+    const release = beginTaskMutations(ctx.state, [taskId]);
+    if (!release) {
+      const feedback = form.querySelector("[data-my-work-edit-feedback]");
+      if (feedback) feedback.textContent = "This task is already being updated. Try again when it finishes.";
+      return;
+    }
+    const editSession = work.taskEditSession;
+    const request = {};
+    const context = captureEntityMutationContext(ctx.state);
+    const authed = ctx.state.authed;
+    work.sharedTaskSaveRequest = request;
+    const isCurrent = () => ctx.state.myWork === work && work.sharedTaskSaveRequest === request
+      && isEntityMutationContextCurrent(ctx.state, context) && ctx.state.authed === authed;
+    const submittedValues = Object.fromEntries(readFields(form));
+    const submittedFields = JSON.stringify(readFields(form));
     const feedback = form.querySelector("[data-my-work-edit-feedback]");
     const submit = form.querySelector('button[type="submit"]');
     const data = new FormData(form);
@@ -736,9 +812,7 @@ function bindTaskEditing(ctx) {
     submit.disabled = true;
     if (feedback) feedback.textContent = "Saving shared Task…";
     try {
-      await ctx.api(`/tasks/${encodeURIComponent(work.selectedTaskId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({
+      const payload = {
           task_name: String(data.get("task_name") || "").trim(),
           description: String(data.get("description") || "").trim() || null,
           github_repo_url: String(data.get("github_repo_url") || "").trim() || null,
@@ -754,14 +828,53 @@ function bindTaskEditing(ctx) {
           capacity_hours: hoursFromFteInput(data.get("capacity_hours"), 0),
           blocked,
           blocker_note: blocked ? String(data.get("blocker_note") || "").trim() || null : null,
-        }),
+        };
+      const baseline = editSession?.baseline;
+      if (baseline) {
+        Object.keys(payload).forEach((field) => {
+          const group = field === "assignee" || field === "assignee_user_soeid"
+            ? ["assignee", "assignee_user_soeid"]
+            : field === "blocked" || field === "blocker_note" ? ["blocked", "blocker_note"] : [field];
+          if (group.every((name) => submittedValues[name] === baseline[name])) delete payload[field];
+        });
+      }
+      await ctx.api(`/tasks/${encodeURIComponent(taskId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
       });
-      work.editingTaskId = "";
-      work.records = null;
+      if (!isCurrent()) return;
+      const currentForm = work.selectedTaskId === taskId && work.editingTaskId === taskId
+        && work.taskEditSession === editSession ? root.querySelector("[data-my-work-edit-form]") : null;
+      const hasNewerEdits = currentForm && JSON.stringify(readFields(currentForm)) !== submittedFields;
+      if (hasNewerEdits && editSession) editSession.baseline = submittedValues;
+      if (currentForm && !hasNewerEdits) {
+        work.editingTaskId = "";
+        work.taskEditSession = null;
+      }
+      work.loadRequestId = (Number(work.loadRequestId) || 0) + 1;
+      work.loading = false;
       renderMyWork(ctx);
+      await refreshMyWork(ctx);
+      if (!isCurrent()) return;
+      work.sharedTaskSaveRequest = null;
+      renderMyWork(ctx);
+      if (hasNewerEdits && work.selectedTaskId === taskId && work.taskEditSession === editSession) {
+        const currentFeedback = root.querySelector("[data-my-work-edit-feedback]");
+        if (currentFeedback) currentFeedback.textContent = "Task saved. Newer edits are not saved.";
+      }
     } catch (err) {
-      if (feedback) feedback.textContent = err.message || "Task changes could not be saved.";
-      submit.disabled = false;
+      if (!isCurrent()) return;
+      const currentForm = work.selectedTaskId === taskId && work.taskEditSession === editSession
+        ? root.querySelector("[data-my-work-edit-form]") : null;
+      const currentFeedback = currentForm?.querySelector("[data-my-work-edit-feedback]");
+      if (currentFeedback) currentFeedback.textContent = err.message || "Task changes could not be saved.";
+      const currentSubmit = currentForm?.querySelector('button[type="submit"]');
+      if (currentSubmit) currentSubmit.disabled = false;
+      work.sharedTaskSaveRequest = null;
+      if (!currentForm) renderMyWork(ctx);
+    } finally {
+      if (isCurrent()) work.sharedTaskSaveRequest = null;
+      release();
     }
   });
 }
@@ -784,7 +897,8 @@ function bindPrivatePlanning(ctx, selected) {
         reminder_at: reminderUtcValue(String(data.get("reminder_at") || "")),
         private_note: String(data.get("private_note") || "").trim() || null,
       };
-      void patchPrivateState(ctx, selected.task.task_id, patch);
+      const submittedValues = { private_note: String(data.get("private_note") || ""), reminder_at: String(data.get("reminder_at") || "") };
+      void patchPrivateState(ctx, selected.task.task_id, patch, submittedValues, form);
     } catch (err) {
       if (feedback) feedback.textContent = err.message;
     }
@@ -892,6 +1006,7 @@ function bindInteractions(ctx, selected) {
     button.addEventListener("click", () => {
       work.selectedTaskId = button.dataset.myWorkSelect || "";
       work.editingTaskId = "";
+      work.taskEditSession = null;
       work.detailTab = "task";
       work.privateNotice = null;
       renderMyWork(ctx);
@@ -924,7 +1039,54 @@ function bindInteractions(ctx, selected) {
   });
 }
 
-export function renderMyWork(ctx) {
+function captureDraft(root, state, work, selected, draftBaseline) {
+  const previous = root._myWorkDraftContext;
+  if (!selected || !previous || previous.work !== work
+      || !isEntityMutationContextCurrent(state, previous.context)
+      || previous.taskId !== selected.task.task_id) return null;
+  const selector = work.editingTaskId === selected.task.task_id
+    ? "[data-my-work-edit-form]" : work.detailTab === "notes" ? "[data-my-work-private-form]" : "";
+  const form = selector && root.querySelector(selector);
+  if (!form) return null;
+  const fields = [...form.querySelectorAll("input[name], textarea[name], select[name]")].map((field) => {
+    const isCheck = field.type === "checkbox" || field.type === "radio";
+    const original = field.tagName === "SELECT"
+      ? [...field.options].find((option) => option.defaultSelected)?.value || field.options[0]?.value || ""
+      : isCheck ? field.defaultChecked : field.defaultValue;
+    const editBaseline = selector === "[data-my-work-edit-form]" ? work.taskEditSession?.baseline : null;
+    const baseline = editBaseline && Object.hasOwn(editBaseline, field.name) ? editBaseline[field.name]
+      : selector === "[data-my-work-private-form]" && draftBaseline && Object.hasOwn(draftBaseline, field.name)
+        ? draftBaseline[field.name] : original;
+    return { name: field.name, value: isCheck ? field.checked : field.value,
+      dirty: (isCheck ? field.checked : field.value) !== baseline,
+      focused: document.activeElement === field,
+      start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection };
+  });
+  return { selector, fields };
+}
+
+function restoreDraft(root, draft) {
+  if (!draft) return;
+  const form = root.querySelector(draft.selector);
+  if (!form) return;
+  draft.fields.forEach((saved) => {
+    const field = [...form.querySelectorAll("input[name], textarea[name], select[name]")].find((item) => item.name === saved.name);
+    if (!field) return;
+    if (saved.dirty) {
+      if (field.type === "checkbox" || field.type === "radio") field.checked = saved.value;
+      else field.value = saved.value;
+    }
+    if (saved.focused) {
+      field.focus({ preventScroll: true });
+      if (saved.start != null && saved.end != null) field.setSelectionRange(saved.start, saved.end, saved.direction || "none");
+    }
+  });
+  const blocked = form.querySelector('[name="blocked"]');
+  const blockerNote = form.querySelector('[name="blocker_note"]');
+  if (blocked && blockerNote) blockerNote.disabled = !blocked.checked;
+}
+
+export function renderMyWork(ctx, { draftBaseline = null } = {}) {
   const root = ctx.els.myWorkRoot;
   if (!root) return;
   const work = myWorkState(ctx.state);
@@ -934,6 +1096,8 @@ export function renderMyWork(ctx) {
     void refreshMyWork(ctx);
     return;
   }
+  if (work.needsRefresh && !work.loading && !work.savingPrivateTaskId
+      && !work.sharedTaskSaveRequest && !work.sharedActions?.pendingTaskId) void refreshMyWork(ctx);
   if (work.loading) return;
   const records = visibleRecords(ctx);
   const lanes = plannedRecords(records);
@@ -941,6 +1105,12 @@ export function renderMyWork(ctx) {
   const selected = displayRecords.find((record) => record.task.task_id === work.selectedTaskId)
     || displayRecords[0]
     || null;
+  const privateSaveError = work.privateNotice?.error
+    && (work.privateNotice.taskId !== selected?.task?.task_id || work.detailTab !== "notes" || work.editingTaskId)
+    ? work.privateNotice.message : "";
+  const routeError = [work.error, privateSaveError].filter(Boolean).join(" ");
+  const draft = captureDraft(root, ctx.state, work, selected, draftBaseline);
+  root._myWorkDraftContext = { work, context: captureEntityMutationContext(ctx.state), taskId: selected?.task?.task_id };
   if (selected && selected.task.task_id !== work.selectedTaskId) work.selectedTaskId = selected.task.task_id;
   const repositories = [...new Set((work.records || [])
     .map((record) => record.task.effective_github_repo_url)
@@ -959,8 +1129,8 @@ export function renderMyWork(ctx) {
       <div class="my-work-toolbar-summary"><strong>${records.length}</strong><span>${showCompleted ? "assigned" : "active assigned"} task${records.length === 1 ? "" : "s"}</span></div>
     </div>
     ${renderSharedActionNotice(ctx)}
-    ${work.error ? `<div class="route-error-card"><strong>My Work unavailable</strong><p>${ctx.escapeHtml(work.error)}</p></div>` : ""}
-    ${!work.error && !records.length && !work.search && !work.repository ? `<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>${ctx.escapeHtml(emptyMessage)}</p></div>` : `
+    ${routeError ? `<div class="route-error-card"><strong>My Work unavailable</strong><p>${ctx.escapeHtml(routeError)}</p></div>` : ""}
+    ${!routeError && !records.length && !work.search && !work.repository ? `<div class="my-work-empty"><span aria-hidden="true">✓</span><h2>You are clear</h2><p>${ctx.escapeHtml(emptyMessage)}</p></div>` : `
       <div class="my-work-layout${planLayout.collapsed ? " is-plan-collapsed" : ""}" style="--my-work-plan-width: ${planLayout.width}%">
         <div class="my-work-queue${planLayout.collapsed ? " is-collapsed" : ""}">${planLayout.collapsed
           ? renderCollapsedPlan(records.length)
@@ -970,6 +1140,7 @@ export function renderMyWork(ctx) {
       </div>`}
   `;
   bindInteractions(ctx, selected);
+  restoreDraft(root, draft);
 }
 
 export function render(ctx) {

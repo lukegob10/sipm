@@ -18,8 +18,12 @@ def test_team_capacity_view_uses_dedicated_loader_pipeline():
 
 def test_users_csv_import_refreshes_team_capacity_pipeline():
     text = APP_JS.read_text(encoding="utf-8")
-    assert 'if (kind === "users") {' in text
-    assert "await loadTeamCapacityData({ force: true });" in text
+    start = text.index("async function uploadCsvFile(")
+    upload = text[start:text.index("\n}", start)]
+    assert 'const entities = kind === "users" ? ["users"]' in upload
+    assert "dataStoreController.ensureEntityData(entities)" in upload
+    assert '...(kind === "users" ? [loadTeamCapacityData({ force: true })] : [])' in upload
+    assert 'if (kind === "users" && state.teamCapacity?.error)' in upload
 
 
 def test_team_capacity_route_supports_explicit_load_state_rendering():
@@ -70,8 +74,15 @@ def test_route_module_imports_use_standard_paths():
 
 
 def test_csv_download_upload_are_space_scoped():
-    text = APP_JS.read_text(encoding="utf-8")
-    assert 'headers["X-Space-Id"] = state.activeSpace.space_id;' in text
+    app = APP_JS.read_text(encoding="utf-8")
+    csv = (REPO_ROOT / "src" / "main" / "ui" / "js" / "utils" / "csv-import.js").read_text(encoding="utf-8")
+    import_start = csv.index("export async function requestCsvImport(")
+    export_start = csv.index("export async function requestCsvExport(")
+    for block in (csv[import_start:export_start], csv[export_start:]):
+        assert 'headers["X-Space-Id"] = context.spaceId;' in block
+        assert "isEntityMutationContextCurrent(state, context)" in block
+    assert "requestCsvImport({ state, file, kind, apiBase: API_BASE, fetchImpl: sessionBoundFetch, context })" in app
+    assert "requestCsvExport({ state, kind, apiBase: API_BASE, fetchImpl: sessionBoundFetch, context })" in app
 
 
 def test_team_capacity_has_clear_filters_control():
@@ -102,8 +113,10 @@ def test_team_capacity_name_filter_is_persisted_per_space():
     assert "function restoreTeamCapacityViewState() {" in app_text
     assert "return teamCapacityRouteController.restoreTeamCapacityViewState();" in app_text
     assert 'name_filter: String(els.capacityNameFilter?.value || ""),' in interactions_text
-    assert 'if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");' in interactions_text
-    assert "bindDebouncedInput(els.capacityNameFilter, () => {" in interactions_text
+    assert '[els.capacityNameFilter, "name_filter"]' in interactions_text
+    assert 'element.value = String(stored[key] || "");' in interactions_text
+    assert 'bindDebouncedInput(element, () => {' in interactions_text
+    assert 'isEntityMutationContextCurrent(state, pending.context)' in interactions_text
     assert "persistTeamCapacityViewState();" in interactions_text
 
 
@@ -124,7 +137,8 @@ def test_team_capacity_corrupt_scoped_view_state_is_rewritten_to_defaults():
     text = TEAM_CAPACITY_INTERACTIONS.read_text(encoding="utf-8")
 
     assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(teamCapacityViewStateKey), {});" in text
-    assert 'if (els.capacityTeamFilter) els.capacityTeamFilter.value = String(stored.team_filter || "");' in text
-    assert 'if (els.capacityNameFilter) els.capacityNameFilter.value = String(stored.name_filter || "");' in text
+    assert '[els.capacityTeamFilter, "team_filter"]' in text
+    assert '[els.capacityNameFilter, "name_filter"]' in text
+    assert 'element.value = String(stored[key] || "");' in text
     assert 'state.capacitySelectedSoeid = String(stored.selected_soeid || "");' in text
     assert "if (recovered) persistTeamCapacityViewState();" in text

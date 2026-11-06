@@ -88,6 +88,19 @@ describe("router controller", () => {
     expect(completed).toBe(true);
   });
 
+  it("invalidates cached repository inventory when entering the route", () => {
+    const { controller, state } = buildRouterHarness();
+    state.userPreferences.developer_mode_enabled = true;
+    state.repositoryInventory = { records: [{ repository_name: "old" }], loading: false, error: "", search: "draft", loadRequestId: 2 };
+    controller.setView("repositories", { loadContent: false });
+    expect(state.repositoryInventory.records).toBeNull();
+    expect(state.repositoryInventory.search).toBe("draft");
+    expect(state.repositoryInventory.loadRequestId).toBe(3);
+    state.repositoryInventory.records = [{ repository_name: "current" }];
+    controller.setView("repositories", { loadContent: false });
+    expect(state.repositoryInventory.records).toEqual([{ repository_name: "current" }]);
+  });
+
   it("selects the startup shell without fetching or rendering hidden route content", async () => {
     const { controller, state, loadData, renderActiveView, routeModuleLoaders } = buildRouterHarness();
     state.authed = false;

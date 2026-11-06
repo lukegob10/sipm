@@ -1,3 +1,4 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
 import {
   currentMonthToken,
   normalizeMonthToken,
@@ -12,10 +13,11 @@ function resolvePMDashboardApiBase(ctx) {
 
 async function downloadPMDashboardReport(pmDashboardState) {
   const ctx = pmDashboardState.ctx || {};
+  const requestContext = ctx.state ? captureEntityMutationContext(ctx.state) : null;
   const activeSpaceId = String(ctx?.state?.activeSpace?.space_id || "").trim();
   const headers = {};
   if (activeSpaceId) headers["X-Space-Id"] = activeSpaceId;
-  const response = await fetch(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`, {
+  const response = await (ctx.fetchImpl || fetch)(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`, {
     method: "GET",
     headers,
     credentials: "include",
@@ -37,6 +39,7 @@ async function downloadPMDashboardReport(pmDashboardState) {
     throw new Error("Download failed: server did not return a PDF.");
   }
   const blob = await response.blob();
+  if (requestContext && !isEntityMutationContextCurrent(ctx.state, requestContext)) return;
   const today = new Date().toISOString().slice(0, 10);
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -60,12 +63,17 @@ async function handlePMDashboardClick(event, pmDashboardState) {
   if (action === "download-report") {
     event.preventDefault();
     event.stopPropagation();
+    const ctx = pmDashboardState.ctx;
+    const state = ctx?.state;
+    const context = state ? captureEntityMutationContext(state) : null;
+    const isCurrent = () => !context || (ctx.state === state && isEntityMutationContextCurrent(state, context));
     try {
       await downloadPMDashboardReport(pmDashboardState);
-      pmDashboardState.ctx?.setStatus?.("PM Command Center report downloaded.", "success");
+      if (isCurrent()) ctx?.setStatus?.("PM Command Center report downloaded.", "success");
     } catch (err) {
+      if (!isCurrent()) return;
       console.error("PM Command Center report download failed", err);
-      pmDashboardState.ctx?.setStatus?.(err?.message || "PDF download failed", "danger");
+      ctx?.setStatus?.(err?.message || "PDF download failed", "danger");
     }
     return;
   }

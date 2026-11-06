@@ -1,4 +1,4 @@
-import { captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
+import { createContextualEntityMutationGate, createContextualFormSaveGate, createEditorModalFocus, captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
 import { createFormDraftGuard } from "../utils/form-draft.js";
 
 export function buildProjectPayload(data) {
@@ -23,8 +23,6 @@ export function createProjectEntityController({
   state,
   els,
   api,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -40,7 +38,10 @@ export function createProjectEntityController({
   trackWorkflow = null,
 }) {
   let projectFormRevision = 0;
-  let projectSaveInFlight = false;
+  let projectPayloadBaseline = null;
+  const modalFocus = createEditorModalFocus(state, els.projectModal, els.projectModalClose);
+  const beginMutation = createContextualEntityMutationGate(state);
+  const saveGate = createContextualFormSaveGate({ state, form: els.projectForm, submit: els.projectSubmitBtn });
   const projectDraft = createFormDraftGuard({
     form: els.projectForm,
     indicator: els.projectModal?.querySelector('[data-form-dirty-indicator="project"]'),
@@ -62,10 +63,10 @@ export function createProjectEntityController({
     }
   }
 
-  function fillProjectForm(project = null) {
+  function fillProjectForm(project = null, { preserveNotice = false } = {}) {
     if (!els.projectForm) return;
     els.projectForm.reset();
-    clearDeliverableFormNotice(els.projectFormStatus);
+    if (!preserveNotice) clearDeliverableFormNotice(els.projectFormStatus);
     const setVal = (name, value = "") => {
       const field = els.projectForm.querySelector(`[name="${name}"]`);
       if (field) field.value = value ?? "";
@@ -94,29 +95,37 @@ export function createProjectEntityController({
       els.deleteProjectBtn.disabled = !project?.project_id;
     }
     projectDraft.capture();
+    projectPayloadBaseline = project?.project_id ? buildProjectPayload(new FormData(els.projectForm)) : null;
   }
 
-  function openProjectForm(project = null) {
+  function openProjectForm(project = null, options = {}) {
+    const opening = modalFocus.open();
     projectFormRevision += 1;
-    fillProjectForm(project);
+    fillProjectForm(project, options);
     setProjectFormVisibility(true);
     setProjectActionButtonLabel(!!project?.project_id);
+    if (opening) modalFocus.focus();
   }
 
-  function finishClosingProjectForm() {
+  function finishClosingProjectForm(restoreFocus = true) {
     projectFormRevision += 1;
     fillProjectForm(null);
     setProjectFormVisibility(false);
     setProjectActionButtonLabel(false);
+    modalFocus.close(restoreFocus);
     return true;
   }
 
   function closeProjectForm(options = {}) {
     if (options.discardChanges || !projectDraft.isDirty()) {
-      return finishClosingProjectForm();
+      return finishClosingProjectForm(!options.discardChanges);
     }
+    const revision = projectFormRevision;
+    const context = captureEntityMutationContext(state);
+    const draft = JSON.stringify([...new FormData(els.projectForm).entries()]);
     return projectDraft.confirmDiscard().then((confirmed) => {
-      if (!confirmed) return false;
+      if (!confirmed || revision !== projectFormRevision || !isEntityMutationContextCurrent(state, context)
+          || draft !== JSON.stringify([...new FormData(els.projectForm).entries()])) return false;
       return finishClosingProjectForm();
     });
   }
@@ -128,28 +137,42 @@ export function createProjectEntityController({
     els.projectModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => void closeProjectForm());
     els.projectForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (projectSaveInFlight) return;
+      if (saveGate.isPending()) return;
       const data = new FormData(els.projectForm);
       const id = (data.get("project_id") || "").toString().trim();
       const isEditing = !!id;
-      const payload = buildProjectPayload(data);
+      const submittedPayload = buildProjectPayload(data);
+      let payload = submittedPayload;
+      if (isEditing && projectPayloadBaseline) {
+        payload = Object.fromEntries(Object.entries(submittedPayload)
+          .filter(([field, value]) => !Object.is(value, projectPayloadBaseline[field])));
+        for (const fields of [["owner", "owner_user_soeid"], ["sponsor", "sponsor_user_soeid"]]) {
+          if (fields.some((field) => Object.hasOwn(payload, field))) {
+            fields.forEach((field) => { payload[field] = submittedPayload[field]; });
+          }
+        }
+      }
       const formRevision = projectFormRevision;
       const formSnapshot = JSON.stringify([...data.entries()]);
-      const submitWasDisabled = !!els.projectSubmitBtn?.disabled;
+
       const requestContext = captureEntityMutationContext(state);
       const isSameEditor = () => formRevision === projectFormRevision;
       const isCurrentSubmission = () => isSameEditor()
         && JSON.stringify([...new FormData(els.projectForm).entries()]) === formSnapshot;
-      projectSaveInFlight = true;
-      if (els.projectSubmitBtn) els.projectSubmitBtn.disabled = true;
-      els.projectForm.setAttribute("aria-busy", "true");
+      const saveRequest = saveGate.begin();
+      if (!saveRequest) return;
+      const release = isEditing ? beginMutation(id) : () => {};
+      if (!release) {
+        saveGate.end(saveRequest);
+        setDeliverableFormNotice(els.projectFormStatus, "This project is being updated. Try again when it finishes.", "error");
+        return;
+      }
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.projectFormStatus, "Saving project...");
         } else {
           setDeliverableFormNotice(els.projectFormStatus, "Creating project...");
         }
-        markIgnoreRefresh("projects");
         const saved = isEditing
           ? await api(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api("/projects", { method: "POST", body: JSON.stringify(payload) });
@@ -159,10 +182,13 @@ export function createProjectEntityController({
         if (shouldUpdateForm) {
           fillProjectForm(saved);
           setProjectActionButtonLabel(true);
-        } else if (isSameEditor() && !isEditing && saved?.project_id) {
-          els.projectForm.querySelector('[name="project_id"]').value = saved.project_id;
-          setProjectActionButtonLabel(true);
-          projectDraft.sync();
+        } else if (isSameEditor()) {
+          projectPayloadBaseline = submittedPayload;
+          if (!isEditing && saved?.project_id) {
+            els.projectForm.querySelector('[name="project_id"]').value = saved.project_id;
+            setProjectActionButtonLabel(true);
+          }
+          projectDraft.rebase(formSnapshot, { project_id: saved?.project_id || id });
         }
         populateSelects();
         renderMasterTable();
@@ -179,14 +205,13 @@ export function createProjectEntityController({
         if (isSameEditor()) {
           setDeliverableFormNotice(
             els.projectFormStatus,
-            successMessage,
+            shouldUpdateForm ? successMessage : `${isEditing ? "Saved" : "Created"} project; you have unsaved edits.`,
             "success",
-            3200
+            shouldUpdateForm ? 3200 : 0
           );
         }
       } catch (err) {
         if (!isEntityMutationContextCurrent(state, requestContext)) return;
-        ignoreNextRefresh.delete("projects");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("projects", isEditing ? "update" : "create", "failure", { source: "project_form" });
         }
@@ -198,9 +223,8 @@ export function createProjectEntityController({
           );
         }
       } finally {
-        projectSaveInFlight = false;
-        els.projectForm.removeAttribute("aria-busy");
-        if (els.projectSubmitBtn) els.projectSubmitBtn.disabled = submitWasDisabled;
+        saveGate.end(saveRequest);
+        release();
       }
     });
     if (els.deleteProjectBtn) {
@@ -211,15 +235,19 @@ export function createProjectEntityController({
         const formRevision = projectFormRevision;
         const isSameEditor = () => formRevision === projectFormRevision;
         const requestContext = captureEntityMutationContext(state);
-        const confirmed = await showConfirmModal({
-          title: "Delete Project?",
-          message: `Delete project "${projectName}"? This cannot be undone.`,
-          confirmLabel: "Delete Project",
-        });
-        if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
+        const release = beginMutation(id);
+        if (!release) {
+          setDeliverableFormNotice(els.projectFormStatus, "This project is being updated. Try again when it finishes.", "error");
+          return;
+        }
         try {
+          const confirmed = await showConfirmModal({
+            title: "Delete Project?",
+            message: `Delete project "${projectName}"? This cannot be undone.`,
+            confirmLabel: "Delete Project",
+          });
+          if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
           setDeliverableFormNotice(els.projectFormStatus, "Deleting project...");
-          markIgnoreRefresh("projects");
           await api(`/projects/${id}`, { method: "DELETE" });
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.projects, id, "project_id");
@@ -235,7 +263,6 @@ export function createProjectEntityController({
           }
         } catch (err) {
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
-          ignoreNextRefresh.delete("projects");
           if (typeof trackWorkflow === "function") {
             trackWorkflow("projects", "delete", "failure", { source: "project_form" });
           }
@@ -246,12 +273,15 @@ export function createProjectEntityController({
               "error"
             );
           }
+        } finally {
+          release();
         }
       });
     }
   }
 
   return {
+    resetSaveForContext: saveGate.reset,
     bindProjectForm,
     closeProjectForm,
     openProjectForm,

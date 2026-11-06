@@ -142,8 +142,9 @@ def test_space_governance_controls_move_into_route_local_module():
     assert "spaceGovernanceController = mod.createSpaceGovernanceController({" in app_text
     assert "spaceGovernanceRenderer = mod.createSpaceGovernanceRenderer({" in app_text
     assert "spaceGovernanceController.bindSpaceAdminControls();" in app_text
-    assert "function closeSpaceDirectoryModal() {" in interactions_text
-    assert "async function refreshGlobalAdmins() {" in interactions_text
+    assert "function closeSpaceDirectoryModal({ restoreFocus = true } = {}) {" in interactions_text
+    assert "return spaceGovernanceController?.closeSpaceDirectoryModal(options);" in app_text
+    assert "async function refreshGlobalAdmins(" in interactions_text
     assert "async function refreshSpaceMembers(spaceId, options = {}) {" in interactions_text
     assert "function bindSpaceAdminControls() {" in interactions_text
     assert "function renderGovernanceHub(preferredSection = \"\") {" in render_text

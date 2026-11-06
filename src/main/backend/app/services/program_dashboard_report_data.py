@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from sqlalchemy import false, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from ..models import Phase, Program, Project, Solution
 from ..phase_catalog import canonical_phase_query
+from ..utils import read_text_value
 
 
 _IN_CLAUSE_BATCH_SIZE = 1000
@@ -36,6 +37,7 @@ def load_program_dashboard_report_data(
     )
     program_query = (
         session.query(Program)
+        .options(defer(Program.description))
         .filter(Program.deleted_at.is_(None))
         .filter(Program.space_id == space_id)
     )
@@ -50,6 +52,7 @@ def load_program_dashboard_report_data(
     if valid_program_ids:
         project_rows = (
             session.query(Project)
+            .options(defer(Project.success_criteria), defer(Project.strategic_objective))
             .filter(Project.deleted_at.is_(None))
             .filter(Project.space_id == space_id)
             .filter(_batched_in_filter(Project.program_id, list(valid_program_ids)))
@@ -62,6 +65,12 @@ def load_program_dashboard_report_data(
     if valid_project_ids:
         solution_rows = (
             session.query(Solution)
+            .options(
+                defer(Solution.success_criteria),
+                defer(Solution.problem_statement),
+                defer(Solution.blockers),
+                defer(Solution.risks),
+            )
             .filter(Solution.deleted_at.is_(None))
             .filter(Solution.space_id == space_id)
             .filter(_batched_in_filter(Solution.project_id, list(valid_project_ids)))
@@ -89,7 +98,7 @@ def load_program_dashboard_report_data(
                 "project_name": row.project_name,
                 "function": row.function,
                 "area": row.area,
-                "description": row.description,
+                "description": read_text_value(row.description),
                 "status": row.status.value if hasattr(row.status, "value") else row.status,
                 "sponsor": row.sponsor,
                 "sponsor_user_soeid": row.sponsor_user_soeid,
@@ -103,7 +112,7 @@ def load_program_dashboard_report_data(
                 "solution_id": row.solution_id,
                 "project_id": row.project_id,
                 "solution_name": row.solution_name,
-                "description": row.description,
+                "description": read_text_value(row.description),
                 "status": row.status.value if hasattr(row.status, "value") else row.status,
                 "planned_start_date": row.planned_start_date,
                 "due_date": row.due_date,

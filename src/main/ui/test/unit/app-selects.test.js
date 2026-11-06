@@ -30,7 +30,6 @@ function harness() {
     <section id="solution-modal"><form id="solution">
       <input name="solution_id"><select name="project_id"></select><select name="current_phase"></select>
     </form></section>
-    <form id="team"><select name="team_id"></select></form>
     <form id="task"><select name="assignee"></select><input name="assignee_user_soeid"></form>
     <datalist id="capacity"></datalist>
     <select id="ai-type"><option>project</option><option>solution</option><option>task</option></select>
@@ -39,7 +38,6 @@ function harness() {
     projectForm: document.querySelector("#project"),
     solutionForm: document.querySelector("#solution"),
     solutionModal: document.querySelector("#solution-modal"),
-    teamMemberForm: document.querySelector("#team"),
     taskForm: document.querySelector("#task"),
     capacityUserOptions: document.querySelector("#capacity"),
     aiEntityType: document.querySelector("#ai-type"),
@@ -49,24 +47,55 @@ function harness() {
     programs: [], projects: [], phases: [], teams: [], users: [], solutions: [], tasks: [],
     kanbanFilters: {}, calendarFilters: {},
   };
+  const calendarRouteController = { getPendingOwner: vi.fn(() => null) };
+  const kanbanRouteController = { getPendingOwner: vi.fn(() => null) };
   const refresh = () => runInNewContext(`${builders.join("\n")}\npopulateSelects();`, {
     state, els,
+    calendarRouteController,
+    kanbanRouteController,
     normalizeScopedProjectFilter: () => false,
-    normalizeScopedOwnerFilter: () => false,
     persistKanbanViewState: vi.fn(),
     persistCalendarViewState: vi.fn(),
     createTasksWorkbenchContext: () => ({}),
     populateTasksWorkbenchOptions: vi.fn(),
   });
-  return { state, els, refresh };
+  return { state, els, refresh, calendarRouteController, kanbanRouteController };
 }
 
 describe("app option rendering", () => {
   beforeEach(() => { document.body.innerHTML = ""; });
 
+  it("preserves unmatched and pending Calendar owner text during select refresh", () => {
+    const { state, els, refresh, calendarRouteController } = harness();
+    els.calendarFilterOwner = document.createElement("input");
+    state.calendarFilters.owner = "not currently assigned";
+    state.solutions = [{ owner: "Someone else" }];
+    state.tasks = [{ assignee: "Another person" }];
+    refresh();
+    expect(state.calendarFilters.owner).toBe("not currently assigned");
+    expect(els.calendarFilterOwner.value).toBe("not currently assigned");
+    calendarRouteController.getPendingOwner.mockReturnValue("still typing");
+    refresh();
+    expect(els.calendarFilterOwner.value).toBe("still typing");
+    expect(state.calendarFilters.owner).toBe("not currently assigned");
+  });
+
+  it("preserves unmatched and pending Kanban owner text during select refresh", () => {
+    const { state, els, refresh, kanbanRouteController } = harness();
+    els.kanbanFilterOwner = document.createElement("input");
+    state.kanbanFilters.owner = "not currently assigned";
+    state.solutions = [{ owner: "Someone else" }];
+    refresh();
+    expect(state.kanbanFilters.owner).toBe("not currently assigned");
+    expect(els.kanbanFilterOwner.value).toBe("not currently assigned");
+    kanbanRouteController.getPendingOwner.mockReturnValue("still typing");
+    refresh();
+    expect(els.kanbanFilterOwner.value).toBe("still typing");
+    expect(state.kanbanFilters.owner).toBe("not currently assigned");
+  });
+
   it.each([
     ["users", "soeid", "display_name", '#task [name="assignee"]', null],
-    ["teams", "team_id", "name", '#team [name="team_id"]', null],
     ["programs", "program_id", "program_name", '#project [name="program_id"]', null],
     ["projects", "project_id", "project_name", '#solution [name="project_id"]', null],
     ["phases", "phase_id", "phase_name", '#solution [name="current_phase"]', null],

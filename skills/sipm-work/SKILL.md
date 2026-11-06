@@ -11,21 +11,31 @@ Use the shared `skills/sipm-agent/scripts/sipm_agent.py` helper. This skill is i
 
 Keep credentials out of prompts and files:
 
+Enter the API token when prompted; terminal input is hidden and is not stored in shell history.
+
 ```bash
-SIPM_BASE_URL=http://sipm/project-manager
-SIPM_AGENT_TOKEN=<user-api-token>
-SIPM_SPACE_ID=<optional-exact-default-space-id>
+export SIPM_BASE_URL="https://<sipm-host>/project-manager"
+IFS= read -r -s -p "SIPM API token: " SIPM_AGENT_TOKEN
+printf "\n"
+export SIPM_AGENT_TOKEN
+# Optional: export SIPM_SPACE_ID="exact-space-id"
 ```
 
-Never print, echo, or commit the token. Resolve the space rather than guessing it.
+Never print, echo, or commit the token. Use HTTPS for deployed services; HTTP is suitable for local development. Resolve the space rather than guessing it. Use the final scheme, host, and port; the helper refuses redirects to a different origin.
 
 ## Work Loop
+
+Run the examples from the SIPM repository root, and replace the quoted angle-bracket placeholders with actual values. First discover accessible spaces and use the intended space's exact ID or unambiguous slug in the commands below:
+
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py list-spaces --all
+```
 
 1. List the active shared Tasks assigned to the developer's exact SOE ID:
 
 ```bash
 python skills/sipm-agent/scripts/sipm_agent.py list-assigned-work \
-  --space main --soeid <soeid> --all
+  --space "<resolved-space-id-or-slug>" --soeid "<soeid>" --all
 ```
 
 The result contains hierarchy, actionability, acceptance criteria, and the effective GitHub repository. It excludes completed, abandoned, archived, or parent-archived Tasks and excludes the user's private drag order.
@@ -34,7 +44,7 @@ The result contains hierarchy, actionability, acceptance criteria, and the effec
 
 ```bash
 python skills/sipm-agent/scripts/sipm_agent.py checkout-task \
-  --space main --task-id <task-id> --output-dir <empty-folder>
+  --space "<resolved-space-id-or-slug>" --task-id "<task-id>" --output-dir "<empty-folder>"
 ```
 
 The checkout contains `TASK.md`, `task.json`, and `context.json`. Treat it as a snapshot. The command does not clone GitHub, run code, launch an agent, claim the Task, or change SIPM.
@@ -43,16 +53,23 @@ The checkout contains `TASK.md`, `task.json`, and `context.json`. Treat it as a 
 
 ```bash
 python skills/sipm-agent/scripts/sipm_agent.py propose-update \
-  --space main --entity-type task --id <task-id> \
+  --space "<resolved-space-id-or-slug>" --entity-type task --id "<task-id>" \
   --fields-json '{"blocked":true,"blocker_note":"Waiting for test credentials"}' \
   --reason "Record the implementation blocker"
+```
+
+If submission has an ambiguous outcome, retain the idempotency key printed by the helper and look up the existing request before retrying:
+
+```bash
+python skills/sipm-agent/scripts/sipm_agent.py list-change-requests \
+  --space "<resolved-space-id-or-slug>" --status all --idempotency-key "<key>"
 ```
 
 4. When implementation is complete, propose the existing shared Task status transition:
 
 ```bash
 python skills/sipm-agent/scripts/sipm_agent.py propose-update \
-  --space main --entity-type task --id <task-id> \
+  --space "<resolved-space-id-or-slug>" --entity-type task --id "<task-id>" \
   --fields-json '{"status":"complete"}' \
   --reason "Implementation and acceptance checks are complete"
 ```

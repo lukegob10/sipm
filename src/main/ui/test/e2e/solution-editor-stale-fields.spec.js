@@ -1,0 +1,33 @@
+import { expect, test } from "@playwright/test";
+
+test("editing a solution name preserves a newer status from another surface", async ({ page }) => {
+  const soeid = `soldelta${Date.now()}`.slice(0, 20);
+  expect((await page.request.post("/project-manager/api/auth/register", { data: { soeid, display_name: "Solution Delta", password: "Password123" } })).ok()).toBeTruthy();
+  const personal = await page.request.post("/project-manager/api/spaces/personal", { data: {} });
+  expect(personal.ok()).toBeTruthy();
+  expect((await page.request.post("/project-manager/api/auth/active-space", { data: { space_id: (await personal.json()).space_id } })).ok()).toBeTruthy();
+  const program = await page.request.post("/project-manager/api/programs", { data: { program_name: "Solution Delta Program" } });
+  expect(program.ok()).toBeTruthy();
+  const project = await page.request.post("/project-manager/api/projects", { data: { program_id: (await program.json()).program_id, project_name: "Solution Delta Project" } });
+  expect(project.ok()).toBeTruthy();
+  const solution = await page.request.post(`/project-manager/api/projects/${(await project.json()).project_id}/solutions`, { data: { solution_name: "Original solution", version: "1.0", status: "not_started" } });
+  expect(solution.ok()).toBeTruthy();
+  const solutionId = (await solution.json()).solution_id;
+  await page.goto("/project-manager/");
+  await page.locator(`[data-action="edit"][data-type="solution"][data-id="${solutionId}"]`).first().click();
+  const form = page.locator("#solution-form");
+  await expect(form.locator('[name="status"]')).toHaveValue("not_started");
+  const changed = await page.request.patch(`/project-manager/api/solutions/${solutionId}`, { data: { status: "active" } });
+  expect(changed.ok()).toBeTruthy();
+  expect((await changed.json()).status).toBe("active");
+  await expect(form.locator('[name="status"]')).toHaveValue("not_started");
+  await form.locator('[name="solution_name"]').fill("Renamed solution");
+  const save = page.waitForResponse((response) => response.url().endsWith(`/api/solutions/${solutionId}`) && response.request().method() === "PATCH");
+  await page.locator("#solution-submit-btn").click();
+  const result = await save;
+  expect(result.ok()).toBeTruthy();
+  expect(result.request().postDataJSON()).toEqual({ solution_name: "Renamed solution" });
+  const persisted = await page.request.get(`/project-manager/api/solutions/${solutionId}`);
+  expect(persisted.ok()).toBeTruthy();
+  expect(await persisted.json()).toMatchObject({ solution_name: "Renamed solution", status: "active" });
+});

@@ -126,3 +126,73 @@ def test_checkout_task_fetches_direct_context_and_returns_repo(tmp_path):
     ]
     assert result["task_id"] == "task-1"
     assert result["github_repo_url"] == "https://github.com/example/sipm"
+
+
+def test_replace_request_uses_the_fetched_content_fingerprint(tmp_path, monkeypatch):
+    import sys
+
+    patch_file = tmp_path / "patch.json"
+    patch_file.write_text(json.dumps({"reason": "new", "operations": []}), encoding="utf-8")
+    calls = []
+
+    class Client:
+        def resolve_space_id(self, space):
+            return space
+
+        def request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            if method == "GET":
+                return {"updated_at": "2026-01-01T00:00:00", "content_fingerprint": "a" * 64}
+            return {"status": "pending"}
+
+    monkeypatch.setattr(sipm_agent, "client_from_args", lambda *_args, **_kwargs: Client())
+    monkeypatch.setattr(sys, "argv", ["sipm_agent.py", "replace-change-request", "--space", "s",
+                                      "--request-id", "r", "--patch-file", str(patch_file)])
+    assert sipm_agent.main() == 0
+    assert calls[1][2]["body"]["if_request_fingerprint"] == "a" * 64
+
+
+def test_delegated_approval_uses_explicitly_reviewed_fingerprint(monkeypatch):
+    import sys
+
+    monkeypatch.setenv("SIPM_AGENT_TOKEN", "test-agent-token")
+    calls = []
+
+    class Client:
+        def resolve_space_id(self, space):
+            return space
+
+        def request(self, method, path, **kwargs):
+            calls.append((method, path, kwargs))
+            return {"status": "approved"}
+
+    monkeypatch.setattr(sipm_agent, "client_from_args", lambda *_args, **_kwargs: Client())
+    monkeypatch.setattr(sys, "argv", ["sipm_agent.py", "delegated-approve", "--space", "s", "--request-id", "r",
+                                      "--observed-updated-at", "2026-01-01T00:00:00",
+                                      "--observed-fingerprint", "b" * 64])
+    assert sipm_agent.main() == 0
+    assert calls[0][2]["body"]["if_request_fingerprint"] == "b" * 64
+
+
+def test_list_change_requests_passes_idempotency_filter(monkeypatch, capsys):
+    import sys
+
+    calls = []
+
+    class Client:
+        def resolve_space_id(self, space):
+            return space
+
+        def request(self, method, path, *, space_id, query):
+            calls.append((method, path, space_id, query))
+            return {"items": []}
+
+    monkeypatch.setattr(sipm_agent, "client_from_args", lambda *_args, **_kwargs: Client())
+    monkeypatch.setattr(sys, "argv", [
+        "sipm_agent.py", "list-change-requests", "--space", "s", "--status", "all",
+        "--idempotency-key", "retry-key",
+    ])
+    assert sipm_agent.main() == 0
+    assert calls[0][3]["idempotency_key"] == "retry-key"
+    assert calls[0][3]["status"] == "all"
+    capsys.readouterr()

@@ -305,6 +305,7 @@ Data flow:
 6. Backend logs changes and broadcasts `projects`.
 
 - Project import/export includes `program_id` and `program_name`; imports resolve by `program_id`, then `program_name`, then the default program when both are blank.
+- Project, solution, and task CSV exports preserve text for re-import and can contain user-supplied spreadsheet formulas. Treat them as data, not trusted spreadsheets; when viewing one in spreadsheet software, import all columns as text using that application's safe import workflow. CSV quoting alone does not prevent formula interpretation. See [OWASP CSV Injection](https://owasp.org/www-community/attacks/CSV_Injection).
 - Updating `Project.program_id` reassigns the project to another active program without changing child solution or task identifiers.
 
 #### `TB_TA_PM_SOLUTIONS`

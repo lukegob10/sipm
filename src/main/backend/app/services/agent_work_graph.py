@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, false, or_
+from sqlalchemy.orm import Session, load_only
 
 from ..models import Program, Project, Solution, Task
 from ..schemas.agent import (
@@ -74,16 +74,42 @@ def build_work_graph(
     updated_since_value = _utc_naive(updated_since) if updated_since else None
     query = (
         session.query(Project)
+        .join(Program, Program.program_id == Project.program_id)
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
     )
+    if projection != "full":
+        query = query.options(
+            load_only(
+                Project.project_id,
+                Project.program_id,
+                Project.project_name,
+                Project.status,
+                Project.priority,
+                Project.sponsor,
+                Project.sponsor_user_soeid,
+                Project.owner,
+                Project.owner_user_soeid,
+                Project.updated_at,
+            )
+        )
     if project_id:
         query = query.filter(Project.project_id == project_id)
     active_solutions = session.query(Solution.project_id).filter(
         Solution.deleted_at.is_(None), Solution.space_id == space_ctx.space_id
     )
-    active_tasks = session.query(Task.project_id).filter(
-        Task.deleted_at.is_(None), Task.space_id == space_ctx.space_id
+    active_tasks = (
+        session.query(Task.project_id)
+        .join(Solution, Solution.solution_id == Task.solution_id)
+        .filter(
+            Task.deleted_at.is_(None),
+            Task.space_id == space_ctx.space_id,
+            Solution.deleted_at.is_(None),
+            Solution.space_id == space_ctx.space_id,
+            Solution.project_id == Task.project_id,
+        )
     )
     if solution_id:
         query = query.filter(
@@ -119,14 +145,7 @@ def build_work_graph(
                     )
             except ValueError:
                 pass
-        if not status_filters:
-            return AgentWorkGraphRead(
-                space_id=space_ctx.space_id,
-                projection=projection,
-                programs=programs,
-                records=[],
-            )
-        query = query.filter(or_(*status_filters))
+        query = query.filter(or_(*status_filters) if status_filters else false())
     if owner_user_soeid:
         query = query.filter(
             or_(
@@ -204,30 +223,66 @@ def build_work_graph(
             has_more=has_more,
         )
 
-    solutions = (
+    solutions_query = (
         session.query(Solution)
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space_ctx.space_id)
         .filter(Solution.project_id.in_(project_ids))
         .order_by(Solution.solution_name.asc(), Solution.version.asc())
-        .all()
     )
-    solution_ids = [solution.solution_id for solution in solutions]
+    if projection != "full":
+        solutions_query = solutions_query.options(
+            load_only(
+                Solution.solution_id,
+                Solution.project_id,
+                Solution.solution_name,
+                Solution.version,
+                Solution.status,
+                Solution.rag_status,
+                Solution.priority,
+                Solution.owner,
+                Solution.owner_user_soeid,
+                Solution.assignee,
+                Solution.assignee_user_soeid,
+                Solution.updated_at,
+            )
+        )
+    solutions = solutions_query.all()
     tasks = []
-    if solution_ids:
-        tasks = (
+    if solutions:
+        tasks_query = (
             session.query(Task)
+            .join(Solution, Solution.solution_id == Task.solution_id)
             .filter(Task.deleted_at.is_(None))
             .filter(Task.space_id == space_ctx.space_id)
-            .filter(Task.solution_id.in_(solution_ids))
+            .filter(Solution.deleted_at.is_(None))
+            .filter(Solution.space_id == space_ctx.space_id)
+            .filter(Solution.project_id == Task.project_id)
+            .filter(Solution.project_id.in_(project_ids))
             .order_by(Task.task_name.asc())
-            .all()
         )
+        if projection != "full":
+            tasks_query = tasks_query.options(
+                load_only(
+                    Task.task_id,
+                    Task.project_id,
+                    Task.solution_id,
+                    Task.task_name,
+                    Task.status,
+                    Task.priority,
+                    Task.assignee,
+                    Task.assignee_user_soeid,
+                    Task.updated_at,
+                )
+            )
+        tasks = tasks_query.all()
 
     tasks_by_solution: dict[str, list[AgentTaskNode]] = {}
-    solution_repo_urls = {
-        solution.solution_id: solution.github_repo_url for solution in solutions
-    }
+    solution_repo_urls = (
+        {solution.solution_id: solution.github_repo_url for solution in solutions}
+        if projection == "full"
+        else {}
+    )
     for task in tasks:
         if projection == "full":
             tasks_by_solution.setdefault(task.solution_id, []).append(

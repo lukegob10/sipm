@@ -8,8 +8,8 @@ import xlsxwriter
 from .program_dashboard_report_pdf import (
     _phase_name,
     _phase_summary,
+    _project_phase_summary,
     _progress_for_solution,
-    _status_is_closed,
     _status_label,
 )
 
@@ -252,9 +252,7 @@ def build_program_dashboard_report_xlsx(
                     or project.get("sponsor_user_soeid")
                 ),
                 "stakeholder": "-", "start": "-", "end": "-", "status": _status_label(project.get("status")),
-                "phase": _phase_summary(project_solutions, phase_by_id) if project_solutions else (
-                    "Complete" if _status_is_closed(project.get("status")) else "-"
-                ),
+                "phase": _project_phase_summary(project_solutions, project, phase_by_id),
                 "escalation": "", "progress": project_progress,
             }, level=1)
             for solution in project_solutions:

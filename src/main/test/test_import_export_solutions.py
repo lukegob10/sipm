@@ -380,7 +380,8 @@ async def test_solutions_import_updates_creates_and_exports(client, db_sessionma
 
 
 @pytest.mark.anyio
-async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmaker):
+async def test_solutions_export_is_scoped_to_active_space(client, db_sessionmaker, seed_space_memberships):
+    seed_space_memberships("space-solution-export-a", "space-solution-export-b")
     seed_minimal_phases(db_sessionmaker)
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
@@ -586,7 +587,7 @@ async def test_solutions_import_rolls_back_auto_created_rows_when_phase_enableme
     assert payload["projects_created"] == 0
     assert payload["total_rows"] == 1
     assert len(payload["errors"]) == 1
-    assert "phase seed failed" in payload["errors"][0]
+    assert "solution could not be saved" in payload["errors"][0]
 
     with db_sessionmaker() as session:
         assert session.query(Project).filter(Project.project_name == "Atomic Import Project").count() == 0

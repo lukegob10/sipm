@@ -24,11 +24,10 @@ import {
   createDashboardState,
   ensurePrefsLoaded,
   getSectionPrefs,
-  normalizeSectionSolutionSelections,
   selectedColumnsForSection,
 } from "./prefs.js";
 import { bindDashboardEvents } from "./interactions.js";
-import { renderDashboardConfigButton, renderDashboardConfigModal } from "./modal.js";
+import { renderDashboardConfigButton } from "./modal.js";
 
 function sectionPage(dashboardState, sectionId, rowCount, pageSize) {
   dashboardState.pages = dashboardState.pages || {};
@@ -137,7 +136,7 @@ export function renderDashboardView(dashboardState, ctx) {
         blockedTasks,
         unassignedTasks,
         isClosed: isClosedStatus(solution.status),
-        isMine: isOwnedByCurrentUser(solution, myTokens),
+        isMine: isOwnedByCurrentUser(solution, myTokens, state.user?.soeid),
         completedDate,
         completedDateLabel: completedDate ? completedDate.toISOString().slice(0, 10) : "-",
         horizonDays: prefs.horizon_days,
@@ -241,7 +240,6 @@ export function renderDashboardView(dashboardState, ctx) {
     upcoming: buildSectionOptions(upcomingAllRows, (entry) => entry.row),
     backlog: buildSectionOptions(deferredRows, (entry) => entry.row),
   };
-  normalizeSectionSolutionSelections(dashboardState, dashboardState.sectionOptions);
 
   const filteredMainRows = applySectionSolutionFilter(dashboardState, sortedScopedRows, "main", (row) => row.solutionId);
   const scopedActiveRows = scopedRows.filter((row) => !row.isClosed);
@@ -261,10 +259,6 @@ export function renderDashboardView(dashboardState, ctx) {
   };
   const columnDefsBySection = createColumnDefinitions(formatStatusLabel);
   dashboardState.columnDefsBySection = columnDefsBySection;
-
-  if (dashboardState.modalSection) {
-    renderDashboardConfigModal(dashboardState, dashboardState.modalSection, { columnDefsBySection });
-  }
 
   if (els.dashboardSpaceCapacity) {
     els.dashboardSpaceCapacity.innerHTML = `

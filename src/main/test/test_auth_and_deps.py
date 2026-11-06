@@ -11,6 +11,8 @@ import pytest
 from fastapi import HTTPException, Response
 from sqlalchemy import event
 from sqlalchemy.dialects import oracle
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.requests import Request
 
 from backend.app import deps as deps_module
@@ -522,6 +524,121 @@ async def test_local_login_sets_session_cookies_and_supports_register_refresh_lo
         json={"soeid": "newlocal1", "display_name": "New Local", "password": "Password123"},
     )
     assert registered.status_code == 201, registered.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure_point", ["provision", "membership", "session", "refresh"])
+async def test_failed_registration_does_not_leave_a_partial_account(auth_client, db_sessionmaker, monkeypatch, failure_point):
+    with db_sessionmaker() as session:
+        membership_count = session.query(SpaceMembership).count()
+        auth_session_count = session.query(AuthSession).count()
+
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("injected registration failure")
+
+    if failure_point == "refresh":
+        original_refresh = Session.refresh
+
+        def fail_user_refresh(session, instance, *args, **kwargs):
+            if isinstance(instance, User):
+                fail()
+            return original_refresh(session, instance, *args, **kwargs)
+
+        monkeypatch.setattr(Session, "refresh", fail_user_refresh)
+    else:
+        hook = {"provision": "_provision_self_registered_space", "membership": "ensure_space_membership",
+                "session": "_issue_session"}[failure_point]
+        monkeypatch.setattr(auth_routes_module, hook, fail)
+    with pytest.raises(RuntimeError, match="injected registration failure"):
+        await auth_client.post(
+            "/project-manager/api/auth/register",
+            json={"soeid": "partial", "display_name": "Partial User", "password": "Password123"},
+        )
+    with db_sessionmaker() as session:
+        assert session.query(User).filter_by(soeid="partial").first() is None
+        assert session.query(SpaceMembership).count() == membership_count
+        assert session.query(AuthSession).count() == auth_session_count
+
+
+@pytest.mark.anyio
+async def test_registration_creates_account_membership_and_usable_session(auth_client, db_sessionmaker):
+    response = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "registered", "display_name": "Registered User", "password": "Password123"},
+    )
+    assert response.status_code == 201, response.text
+    with db_sessionmaker() as session:
+        user = session.query(User).filter_by(soeid="registered").one()
+        assert session.query(SpaceMembership).filter_by(user_id=user.user_id, status="active").count() == 1
+        assert session.query(AuthSession).filter_by(user_id=user.user_id, revoked_at=None).count() == 1
+    assert (await auth_client.get("/project-manager/api/auth/me")).status_code == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("display_name", ["", "  ", "x" * 256])
+async def test_registration_rejects_invalid_display_name(auth_client, db_sessionmaker, display_name):
+    response = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "newuser", "display_name": display_name, "password": "Password123"},
+    )
+    assert response.status_code == 422
+    with db_sessionmaker() as session:
+        assert session.query(User).filter_by(soeid="newuser").first() is None
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("soeid", ["x" * 256, "x" * 250])
+async def test_registration_rejects_identifiers_that_exceed_columns(auth_client, db_sessionmaker, monkeypatch, soeid):
+    monkeypatch.setenv("DOMAIN_NAME", "citi.com")
+    response = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": soeid, "display_name": "User", "password": "Password123"},
+    )
+    assert response.status_code == 400
+    with db_sessionmaker() as session:
+        assert session.query(User).filter_by(soeid=soeid).first() is None
+
+
+@pytest.mark.anyio
+async def test_concurrent_registration_duplicate_returns_client_error(auth_client, db_sessionmaker):
+    injected = False
+
+    def create_competing_user(session, _context, _instances):
+        nonlocal injected
+        if not injected and any(isinstance(row, User) and row.soeid == "race" for row in session.new):
+            injected = True
+            with db_sessionmaker() as winner:
+                winner.add(User(soeid="race", email="race@citi.com", display_name="Winner",
+                                password_hash="unused", role="user", is_active=True))
+                winner.commit()
+
+    event.listen(Session, "before_flush", create_competing_user)
+    try:
+        response = await auth_client.post(
+            "/project-manager/api/auth/register",
+            json={"soeid": "race", "display_name": "Loser", "password": "Password123"},
+        )
+    finally:
+        event.remove(Session, "before_flush", create_competing_user)
+    assert response.status_code == 400
+    assert response.headers["X-Error-Code"] == "DUPLICATE_SOEID"
+    with db_sessionmaker() as session:
+        assert session.query(User).filter_by(soeid="race").one().display_name == "Winner"
+
+
+@pytest.mark.anyio
+async def test_unrelated_registration_integrity_error_is_not_misreported_as_duplicate(auth_client, db_sessionmaker, monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise IntegrityError("statement", {}, Exception("unrelated constraint"))
+
+    monkeypatch.setattr(auth_routes_module, "_issue_session", fail)
+    with pytest.raises(IntegrityError):
+        await auth_client.post(
+            "/project-manager/api/auth/register",
+            json={"soeid": "newuser", "display_name": "User", "password": "Password123"},
+        )
+    with db_sessionmaker() as session:
+        assert session.query(User).filter_by(soeid="newuser").first() is None
 
 
 @pytest.mark.anyio
@@ -1514,7 +1631,7 @@ async def test_user_keeps_interactive_login_and_uses_admin_issued_api_token(auth
 
     bearer_me = await auth_client.get(
         "/project-manager/api/auth/me",
-        headers={"Authorization": f"Bearer {token_value}"},
+        headers={"Authorization": f"Bearer {token_value}", "X-SIPM-Session": "unrelated"},
     )
     assert bearer_me.status_code == 200, bearer_me.text
     assert bearer_me.json()["soeid"] == "svcpat1"
@@ -2054,3 +2171,150 @@ async def test_bootstrap_uses_current_user_memberships_and_repairs_stale_cookie(
     assert other.json()["user_id"] == other_user.json()["user_id"]
     assert other.json()["active_space"]["space_id"] == "test-main-space"
     assert [space["space_id"] for space in other.json()["spaces"]] == ["test-main-space"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("same_user", [False, True])
+async def test_cookie_session_binding_prevents_cross_tab_writes_refresh_and_logout(
+    auth_client, db_sessionmaker, same_user,
+):
+    old_login = await _login_local_session(auth_client, db_sessionmaker, soeid="bindold")
+    old_binding = old_login.headers["X-SIPM-Session"]
+    old_user = old_login.json()["user_id"]
+    replacement = await _login_local_session(
+        auth_client, db_sessionmaker, soeid="bindold" if same_user else "bindnew"
+    )
+    binding = replacement.headers["X-SIPM-Session"]
+    assert binding != old_binding
+    assert (replacement.json()["user_id"] == old_user) is same_user
+
+    bootstrap = await auth_client.get("/project-manager/api/auth/bootstrap")
+    assert bootstrap.status_code == 200
+    assert bootstrap.headers["X-SIPM-Session"] == binding
+    stale = {"X-SIPM-Session": old_binding}
+    attempted = await auth_client.patch(
+        "/project-manager/api/users/me/preferences", headers=stale, json={"theme": "light"}
+    )
+    assert attempted.status_code == 409
+    assert attempted.headers["X-Error-Code"] == "SESSION_CONTEXT_CHANGED"
+    current = await auth_client.get("/project-manager/api/users/me/preferences", headers={"X-SIPM-Session": binding})
+    assert current.status_code == 200
+    assert current.json()["theme"] == "dark"
+
+    refresh = await auth_client.post("/project-manager/api/auth/refresh", headers=stale)
+    assert refresh.status_code == 409
+    assert refresh.headers["X-Error-Code"] == "SESSION_CONTEXT_CHANGED"
+    assert not refresh.headers.get_list("set-cookie")
+    logout = await auth_client.post("/project-manager/api/auth/logout", headers=stale)
+    assert logout.status_code == 409
+    assert logout.headers["X-Error-Code"] == "SESSION_CONTEXT_CHANGED"
+    assert not logout.headers.get_list("set-cookie")
+    assert (await auth_client.get("/project-manager/api/auth/me")).status_code == 200
+
+    refreshed = await auth_client.post("/project-manager/api/auth/refresh", headers={"X-SIPM-Session": binding})
+    assert refreshed.status_code == 200
+    assert refreshed.headers["X-SIPM-Session"] == binding
+    logged_out = await auth_client.post("/project-manager/api/auth/logout", headers={"X-SIPM-Session": binding})
+    assert logged_out.status_code == 204
+    assert (await auth_client.get("/project-manager/api/auth/me")).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_registration_emits_cookie_session_binding(auth_client):
+    registered = await auth_client.post(
+        "/project-manager/api/auth/register",
+        json={"soeid": "bindingreg", "display_name": "Binding User", "password": "Password123"},
+    )
+    assert registered.status_code == 201
+    binding = registered.headers["X-SIPM-Session"]
+    assert len(binding) == 64
+    assert (await auth_client.get("/project-manager/api/auth/me", headers={"X-SIPM-Session": binding})).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_bound_logout_rejects_mixed_session_cookies_before_revoking_either(
+    auth_client, db_sessionmaker,
+):
+    first = await _login_local_session(auth_client, db_sessionmaker, soeid="mixedbind1")
+    first_binding = first.headers["X-SIPM-Session"]
+    first_refresh = auth_client.cookies.get("refresh_token")
+    second = await _login_local_session(auth_client, db_sessionmaker, soeid="mixedbind2")
+    second_binding = second.headers["X-SIPM-Session"]
+    second_access = auth_client.cookies.get("access_token")
+    mixed = f"access_token={second_access}; refresh_token={first_refresh}"
+    for binding in (first_binding, second_binding):
+        logout = await auth_client.post(
+            "/project-manager/api/auth/logout", headers={"X-SIPM-Session": binding, "Cookie": mixed}
+        )
+        assert logout.status_code == 409
+        assert logout.headers["X-Error-Code"] == "SESSION_CONTEXT_CHANGED"
+        assert not logout.headers.get_list("set-cookie")
+    with db_sessionmaker() as session:
+        sessions = session.query(AuthSession).all()
+        assert len(sessions) == 2
+        assert all(auth_session.revoked_at is None for auth_session in sessions)
+
+
+@pytest.mark.anyio
+async def test_session_mismatch_precedes_replacement_account_lock_failure(auth_client, db_sessionmaker):
+    first = await _login_local_session(auth_client, db_sessionmaker, soeid="bindlockold")
+    stale = {"X-SIPM-Session": first.headers["X-SIPM-Session"]}
+    await _login_local_session(auth_client, db_sessionmaker, soeid="bindlocknew")
+    with db_sessionmaker() as session:
+        replacement = session.query(User).filter(User.soeid == "bindlocknew").one()
+        replacement.locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
+        session.commit()
+    for path, method in (("/auth/me", "get"), ("/auth/refresh", "post")):
+        response = await getattr(auth_client, method)(f"/project-manager/api{path}", headers=stale)
+        assert response.status_code == 409
+        assert response.headers["X-Error-Code"] == "SESSION_CONTEXT_CHANGED"
+        assert not response.headers.get_list("set-cookie")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cookie_case", ["same", "unrelated", "mixed", "expired"])
+async def test_password_reset_clears_only_unambiguously_matching_user_cookies(
+    auth_client, db_sessionmaker, cookie_case,
+):
+    first = await _login_local_session(auth_client, db_sessionmaker, soeid="resetcookieold")
+    old_user_id = first.json()["user_id"]
+    old_access = auth_client.cookies.get("access_token")
+    old_refresh = auth_client.cookies.get("refresh_token")
+    old_sid = decode_token(old_refresh, expected_type="refresh")["sid"]
+    if cookie_case != "same":
+        second = await _login_local_session(auth_client, db_sessionmaker, soeid="resetcookienew")
+        new_user_id = second.json()["user_id"]
+        new_refresh = auth_client.cookies.get("refresh_token")
+        new_sid = decode_token(new_refresh, expected_type="refresh")["sid"]
+    with db_sessionmaker() as session:
+        reset_user = session.query(User).filter(User.user_id == old_user_id).one()
+        reset_user.temp_password_hash = hash_password("TempPassword123")
+        reset_user.temp_password_expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+        reset_user.force_password_reset = True
+        session.commit()
+    headers = {}
+    if cookie_case == "mixed":
+        headers["Cookie"] = f"access_token={old_access}; refresh_token={new_refresh}"
+    elif cookie_case == "expired":
+        expired = _encode_test_token({
+            "sub": new_user_id, "sid": new_sid, "role": "user", "type": "refresh",
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        })
+        headers["Cookie"] = f"access_token={old_access}; refresh_token={expired}"
+    elif cookie_case == "same":
+        headers["Cookie"] = f"access_token={old_access}; refresh_token={old_refresh}"
+    response = await auth_client.post(
+        "/project-manager/api/auth/reset-password", headers=headers,
+        json={"soeid": "resetcookieold", "temp_password": "TempPassword123",
+              "new_password": "NewPassword123", "confirm_password": "NewPassword123"},
+    )
+    assert response.status_code == 200, response.text
+    assert bool(response.headers.get_list("set-cookie")) is (cookie_case == "same")
+    with db_sessionmaker() as session:
+        assert session.get(AuthSession, old_sid).revoked_at is not None
+        if cookie_case != "same":
+            assert session.get(AuthSession, new_sid).revoked_at is None
+    if cookie_case != "same":
+        current = await auth_client.get("/project-manager/api/auth/me")
+        assert current.status_code == 200
+        assert current.json()["user_id"] == new_user_id

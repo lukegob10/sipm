@@ -81,6 +81,12 @@ export function renderTasksWorkbench(ctx) {
 
   if (!els.tasksWorkbenchTable) return;
 
+  const focused = els.tasksWorkbenchTable.contains(document.activeElement) ? document.activeElement : null;
+  const focusedControl = focused?.id === "scwb-select-all" ? "all"
+    : focused?.matches("[data-twb-task-sort]") ? "sort"
+      : focused?.matches(".scwb-select-row") ? "row" : "";
+  const focusedTaskId = focusedControl === "row" ? focused.getAttribute("data-id") : "";
+
   if (!rows.length) {
     const hiddenClosed = Number(summary?.hiddenClosed || 0);
     els.tasksWorkbenchTable.innerHTML = hiddenClosed
@@ -100,9 +106,9 @@ export function renderTasksWorkbench(ctx) {
       const blocker = row.blocked ? "<span class='pill warn'>Blocked</span>" : "";
       const due = row.due_date || "—";
       return `
-        <tr data-id="${row.task_id}" class="${isActive ? "active-row" : ""}" tabindex="-1">
-          <td><input type="checkbox" class="scwb-select-row" data-id="${row.task_id}" ${isSelected ? "checked" : ""} /></td>
-          <td><strong>${esc(row.task_name || "—")}</strong></td>
+        <tr data-id="${esc(row.task_id)}" class="${isActive ? "active-row" : ""}" tabindex="-1">
+          <td><input type="checkbox" class="scwb-select-row" data-id="${esc(row.task_id)}" aria-label="Select task ${esc(row.task_name || "Unnamed task")}" ${isSelected ? "checked" : ""} /></td>
+          <td><button type="button" class="task-workbench-context-link task-workbench-task-link" data-twb-action="open-task" data-task-id="${esc(row.task_id)}" aria-label="Edit task ${esc(row.task_name || "Unnamed task")}"><strong>${esc(row.task_name || "—")}</strong></button></td>
           <td class="task-workbench-context-cell"><span class="task-workbench-context">${renderTasksWorkbenchProjectLink(row.project_name, row.project_id)} / ${renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)}</span></td>
           <td class="task-workbench-status-cell">${statusPillMarkup(row.status, statusLabel)} ${blocker}</td>
           <td>${esc(row.assignee || "Unassigned")}</td>
@@ -118,7 +124,7 @@ export function renderTasksWorkbench(ctx) {
     <table class="task-workbench-table">
       <thead>
         <tr>
-          <th><input type="checkbox" id="scwb-select-all" ${allSelected ? "checked" : ""} /></th>
+          <th><input type="checkbox" id="scwb-select-all" aria-label="Select all visible tasks" ${allSelected ? "checked" : ""} /></th>
           <th aria-sort="${sortPresentation.ariaSort}">
             <button class="task-name-sort-button task-workbench-name-sort-button" type="button" data-twb-task-sort aria-label="${sortPresentation.nextLabel}" title="${sortPresentation.nextLabel}">
               <span>Task</span>
@@ -136,6 +142,14 @@ export function renderTasksWorkbench(ctx) {
       <tbody>${rowsHtml}</tbody>
     </table>
   `;
+  const selectAll = els.tasksWorkbenchTable.querySelector("#scwb-select-all");
+  if (selectAll) selectAll.indeterminate = !allSelected && rows.some((row) => selectedIds.has(row.task_id));
+  if (focusedControl === "all") selectAll?.focus();
+  else if (focusedControl === "sort") els.tasksWorkbenchTable.querySelector("[data-twb-task-sort]")?.focus();
+  else if (focusedControl === "row") {
+    [...els.tasksWorkbenchTable.querySelectorAll(".scwb-select-row")]
+      .find((input) => input.getAttribute("data-id") === focusedTaskId)?.focus();
+  }
 }
 
 export function render(ctx) {

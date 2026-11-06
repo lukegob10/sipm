@@ -139,3 +139,20 @@
   background: var(--tone-danger-bg);
   border-color: var(--tone-danger-border);
 }
+#capacity-user-list .capacity-roster-select {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+#capacity-user-list .capacity-roster-select:hover,
+#capacity-user-list .capacity-roster-select:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}

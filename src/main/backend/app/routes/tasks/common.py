@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
+from sqlalchemy import false, or_
 from sqlalchemy.orm import Session
 
 from ...models import Project, Solution, Task
@@ -20,6 +21,13 @@ _TASKS_DETAIL_TTL_SECONDS = 30
 _DUE_SOON_DAYS = 14
 _STALE_DAYS = 7
 _DONE_STATUSES = {TaskStatus.complete, TaskStatus.abandoned}
+
+
+def _in_batches(column, values):
+    ids = list(values)
+    if not ids:
+        return false()
+    return or_(*(column.in_(ids[index:index + 500]) for index in range(0, len(ids), 500)))
 
 
 def _deleted_task_name(name: str, task_id: str, deleted_at: datetime) -> str:
@@ -55,7 +63,7 @@ def _task_actionability(task: Task) -> dict:
 
     urgency_score = 0.0
     if not is_done:
-        priority = max(1, min(5, int(task.priority or 3)))
+        priority = max(1, min(5, int(task.priority if task.priority not in (None, "") else 3)))
         priority_score = (6 - priority) * 15
 
         due_score = 0
@@ -183,21 +191,23 @@ def _task_query(session: Session, space_ctx: SpaceContext):
 
 
 def _solution_repo_map(session: Session, space_ctx: SpaceContext, solution_ids: list[str]) -> dict[str, Optional[str]]:
-    valid_ids = [solution_id for solution_id in solution_ids if solution_id]
+    valid_ids = list(dict.fromkeys(solution_id for solution_id in solution_ids if solution_id))
     if not valid_ids:
         return {}
     rows = (
         _solution_query(session, space_ctx)
-        .filter(Solution.solution_id.in_(valid_ids))
+        .with_entities(Solution.solution_id, Solution.github_repo_url)
+        .filter(_in_batches(Solution.solution_id, valid_ids))
         .all()
     )
-    return {row.solution_id: row.github_repo_url for row in rows}
+    return {solution_id: repo_url for solution_id, repo_url in rows}
 
 
 def _ensure_solution(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
     solution = (
         _solution_query(session, space_ctx)
         .filter(Solution.solution_id == solution_id)
+        .populate_existing()
         .first()
     )
     if not solution:
@@ -229,6 +239,7 @@ __all__ = [
     "_apply_task_completion_state",
     "_ensure_solution",
     "_get_task",
+    "_in_batches",
     "_project_query",
     "_publish_task_import",
     "_publish_task_mutation",

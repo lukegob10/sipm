@@ -29,7 +29,7 @@ const routes = [
     rootKey: "repositoryInventoryRoot",
     path: "/repository-inventory",
     render: renderRepositories,
-    record: (name) => ({ repository_name: name, github_repo_url: `https://github.com/example/${name}` }),
+    record: (name) => ({ repository_name: name, github_repo_url: `https://github.com/example/${name}`, program_names: [], project_names: [], solution_names: [], solution_count: 0, task_count: 0, solution_attachment_count: 0, task_override_count: 0, last_updated_at: null }),
   },
 ];
 
@@ -59,6 +59,26 @@ async function settle(request, outcome, records) {
   else request.reject(new Error("Old request failed"));
   await request.promise.catch(() => {});
 }
+
+describe("repository inventory freshness", () => {
+  it("replaces an in-flight inventory read when related data changes", async () => {
+    const route = routes[1];
+    const { ctx, root } = harness(route);
+    const oldRequest = deferred();
+    const newRequest = deferred();
+    ctx.api.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+    const store = createDataStoreController({ state: ctx.state, els: {}, renderActiveView: () => route.render(ctx) });
+    route.render(ctx);
+    ctx.state.currentView = "repositories";
+    store.invalidateRepositoryInventory();
+    expect(ctx.api).toHaveBeenCalledTimes(2);
+    await settle(oldRequest, "success", [route.record("obsolete")]);
+    expect(ctx.state.repositoryInventory.records).toBeNull();
+    await settle(newRequest, "success", [route.record("fresh")]);
+    expect(root.textContent).toContain("fresh");
+    expect(root.textContent).not.toContain("obsolete");
+  });
+});
 
 describe.each(routes)("$name route request context", (route) => {
   beforeEach(() => {

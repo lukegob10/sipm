@@ -38,9 +38,9 @@ export function pmDashboardActiveSectionStorageKey() {
 }
 
 export function readStoredCapacityMonth(spaceId) {
-  if (typeof window === "undefined" || !window.localStorage) return "";
+  if (typeof window === "undefined") return "";
   try {
-    return normalizeMonthToken(window.localStorage.getItem(pmDashboardStorageKey(spaceId)) || "");
+    return normalizeMonthToken(window.localStorage?.getItem(pmDashboardStorageKey(spaceId)) || "");
   } catch {
     return "";
   }
@@ -48,18 +48,18 @@ export function readStoredCapacityMonth(spaceId) {
 
 export function persistCapacityMonth(spaceId, monthToken) {
   const normalized = normalizeMonthToken(monthToken);
-  if (!normalized || typeof window === "undefined" || !window.localStorage) return;
+  if (!normalized || typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(pmDashboardStorageKey(spaceId), normalized);
+    window.localStorage?.setItem(pmDashboardStorageKey(spaceId), normalized);
   } catch {
     // Ignore persistence failures.
   }
 }
 
 export function readStoredActiveSection() {
-  if (typeof window === "undefined" || !window.localStorage) return DEFAULT_PM_DASHBOARD_SECTION;
+  if (typeof window === "undefined") return DEFAULT_PM_DASHBOARD_SECTION;
   try {
-    return normalizePMDashboardSection(window.localStorage.getItem(pmDashboardActiveSectionStorageKey()) || "");
+    return normalizePMDashboardSection(window.localStorage?.getItem(pmDashboardActiveSectionStorageKey()) || "");
   } catch {
     return DEFAULT_PM_DASHBOARD_SECTION;
   }
@@ -67,9 +67,9 @@ export function readStoredActiveSection() {
 
 export function persistActiveSection(sectionId) {
   const normalized = normalizePMDashboardSection(sectionId);
-  if (typeof window === "undefined" || !window.localStorage) return;
+  if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(pmDashboardActiveSectionStorageKey(), normalized);
+    window.localStorage?.setItem(pmDashboardActiveSectionStorageKey(), normalized);
   } catch {
     // Ignore persistence failures.
   }

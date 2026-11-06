@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, or_
+from fastapi import status
+from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session
 
-from ..models import ChangeLog
+from ..models import AgentChangeRequest, ChangeLog
 from ..schemas.agent import AgentAuditFeedRead, AgentAuditRecordRead
+from ..security import security_http_exception
 from .agent_pagination import decode_cursor, encode_cursor
 from .spaces import SpaceContext
 
-AUDIT_CURSOR_SCOPE = "agent_audit_v1"
+AUDIT_CURSOR_SCOPE = "agent_audit_v2"
 
 
 def _utc_naive(value: datetime) -> datetime:
@@ -23,6 +25,7 @@ def list_agent_audit_feed(
     session: Session,
     space_ctx: SpaceContext,
     *,
+    requester_user_id: str,
     since: datetime | None = None,
     until: datetime | None = None,
     entity_type: str | None = None,
@@ -32,10 +35,18 @@ def list_agent_audit_feed(
     cursor: str | None = None,
     limit: int = 100,
 ) -> AgentAuditFeedRead:
-    since_value = _utc_naive(since) if since else None
-    until_value = _utc_naive(until) if until else None
+    try:
+        since_value = _utc_naive(since) if since else None
+        until_value = _utc_naive(until) if until else None
+    except OverflowError as exc:
+        raise security_http_exception(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="INVALID_AUDIT_TIME",
+            message="Audit time filters must be representable in UTC",
+        ) from exc
     filters = {
         "space_id": space_ctx.space_id,
+        "requester_user_id": requester_user_id,
         "since": since_value,
         "until": until_value,
         "entity_type": entity_type,
@@ -43,7 +54,15 @@ def list_agent_audit_feed(
         "user_id": user_id,
         "request_id": request_id,
     }
-    query = session.query(ChangeLog).filter(ChangeLog.space_id == space_ctx.space_id)
+    own_request = exists().where(
+        AgentChangeRequest.change_request_id == ChangeLog.entity_id,
+        AgentChangeRequest.space_id == space_ctx.space_id,
+        AgentChangeRequest.proposed_by_user_id == requester_user_id,
+    )
+    query = session.query(ChangeLog).filter(
+        ChangeLog.space_id == space_ctx.space_id,
+        or_(ChangeLog.entity_type != "agent_change_request", own_request),
+    )
     if since_value:
         query = query.filter(ChangeLog.created_at >= since_value)
     if until_value:
@@ -60,7 +79,14 @@ def list_agent_audit_feed(
         cursor_at, cursor_id = decode_cursor(
             cursor, scope=AUDIT_CURSOR_SCOPE, filters=filters
         )
-        cursor_at = _utc_naive(cursor_at)
+        try:
+            cursor_at = _utc_naive(cursor_at)
+        except OverflowError as exc:
+            raise security_http_exception(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="INVALID_CURSOR",
+                message="Cursor is invalid for this request",
+            ) from exc
         query = query.filter(
             or_(
                 ChangeLog.created_at < cursor_at,

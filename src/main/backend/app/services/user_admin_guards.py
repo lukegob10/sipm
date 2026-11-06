@@ -21,7 +21,7 @@ def is_global_admin_user(user: User) -> bool:
 def _normalized_role_expr(column):
     return func.lower(
         func.replace(
-            func.replace(func.coalesce(column, ""), "-", "_"),
+            func.replace(func.trim(func.coalesce(column, "")), "-", "_"),
             " ",
             "_",
         )

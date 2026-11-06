@@ -138,7 +138,7 @@ async def test_readiness_returns_503_when_db_check_fails(client, monkeypatch):
             "auth": {"status": "ok"},
             "coordination": {"status": "ok", "backend": "redis"},
             "frontend": {"status": "ok"},
-            "db": {"status": "error", "detail": "db down"},
+            "db": {"status": "error", "detail": "Database readiness check failed"},
         },
     }
 
@@ -159,7 +159,7 @@ async def test_readiness_returns_503_when_coordination_config_fails(client, monk
         "status": "not_ready",
         "checks": {
             "auth": {"status": "ok"},
-            "coordination": {"status": "error", "detail": "redis required"},
+            "coordination": {"status": "error", "detail": "Coordination readiness check failed"},
             "frontend": {"status": "ok"},
             "db": {"status": "skipped", "detail": "startup disabled or test mode active"},
         },
@@ -183,7 +183,7 @@ async def test_readiness_degrades_and_recovers_with_redis_coordination_health(cl
     assert degraded_response.status_code == 503
     assert degraded_response.json()["checks"]["coordination"] == {
         "status": "error",
-        "detail": "Redis coordination listener is unavailable: redis disconnected",
+        "detail": "Coordination readiness check failed",
     }
 
     coordination_healthy = True

@@ -9,12 +9,13 @@ import {
 } from "./shell/paths.js";
 import {
   createShellContext,
+  normalizeMasterFilters,
   invalidateDataForSpaceContextChange,
   refreshSpaceContextData,
 } from "./shell/context.js";
 import { queryShellElements } from "./shell/dom.js";
 import { createRouterController } from "./shell/router.js";
-import { bindTaskRefreshDraft, createDataStoreController, restoreEditorSelections } from "./shell/data-store.js";
+import { createDataStoreController, restoreEditorSelections } from "./shell/data-store.js";
 import { createSessionController } from "./shell/session.js";
 import { createActivitySessionController } from "./shell/activity-session.js";
 import { createTelemetryController } from "./shell/telemetry.js";
@@ -29,16 +30,14 @@ import { createProgramEntityController } from "./entities/programs.js";
 import { createProjectEntityController } from "./entities/projects.js";
 import { createTaskEntityController } from "./entities/tasks.js";
 import { createSolutionEntityController } from "./entities/solutions.js";
-import { captureEntityMutationContext, isEntityMutationContextCurrent } from "./utils/form-state.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent, isSameMutationSession, createCsvImportGate, createSessionBoundFetch, registerMutationContextLifetime } from "./utils/form-state.js";
+import { requestWithMutationReconciliation } from "./utils/mutation-refresh.js";
+import { invalidateMyWorkRecords } from "./utils/my-work-state.js";
 import {
   renderSolutionActivityItems,
   renderSolutionTaskCard,
   renderSolutionTaskRow,
 } from "./entities/solution-rendering.js";
-import {
-  filteredDeliverables as filteredMasterDeliverables,
-  normalizeMasterFilters,
-} from "./routes/master/filters.js";
 import {
   clearTasksWorkbenchFilters as clearWorkbenchFilters,
   normalizeTasksWorkbenchUiState as normalizeWorkbenchUiState,
@@ -207,8 +206,10 @@ const state = {
   spaceDirectoryModalOpen: false,
   spaceMembersBySpace: {},
   spaceMembersLoadedBySpace: {},
+  spaceMembersErrorBySpace: {},
   globalAdmins: [],
   globalAdminsLoaded: false,
+  globalAdminsError: "",
   platformPasswordReset: null,
   apiTokensByUser: {},
   apiTokensLoadedByUser: {},
@@ -230,6 +231,7 @@ const state = {
   spaceAccessRequestsError: "",
   reviewableAccessRequests: [],
   reviewableAccessRequestsLoaded: false,
+  reviewableAccessRequestsError: "",
   lobbyPersonalSpaceCreating: false,
   accessRequestSubmittingSpaceId: "",
   lobbyRequestSearch: "",
@@ -333,7 +335,10 @@ const RECENT_SPACES_LIMIT = 5;
 const csvUploadState = {
   kind: "",
   file: null,
+  fileContext: null,
+  revision: 0,
 };
+const csvImportGate = createCsvImportGate();
 
 let routerController = null;
 let dataStoreController = null;
@@ -344,17 +349,11 @@ let telemetryController = null;
 let spaceContextGeneration = 0;
 let spaceAuthGeneration = 0;
 let spaceSwitchGeneration = 0;
-const ignoreNextRefresh = {
-  delete(entity) {
-    return dataStoreController.clearIgnoredRefresh(entity);
-  },
-};
+let mutationSpaceGeneration = 0;
 const programEntityController = createProgramEntityController({
   state,
   els,
   api,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -369,8 +368,6 @@ const projectEntityController = createProjectEntityController({
   state,
   els,
   api,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -391,8 +388,6 @@ const solutionEntityController = createSolutionEntityController({
   api,
   hoursFromFteInput,
   fteFromHoursForInput,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -407,6 +402,7 @@ const solutionEntityController = createSolutionEntityController({
   renderSolutionActivity,
   setTaskFormVisibility,
   setTaskActionButtonLabel,
+  confirmTaskDraftDiscard: () => taskEntityController.confirmTaskDraftDiscard(),
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   updateCurrentPhaseOptions,
@@ -428,14 +424,13 @@ const taskEntityController = createTaskEntityController({
   updateTaskRepoPreview,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   deleteTasksById,
   renderSolutionTasks,
   renderDashboard,
   renderGantt,
   timestampLabel,
+  showConfirmModal,
   trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
 });
 const calendarRouteController = createCalendarRouteController({
@@ -483,8 +478,6 @@ const kanbanRouteController = createKanbanRouteController({
   hideClosedDeliverables,
   isClosedSolutionStatus,
   api,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   setStatus,
   phaseDisplayName,
@@ -591,6 +584,9 @@ const topbarCreateController = createTopbarCreateController({
   state,
   els,
   escapeHtml,
+  ensureCreateData: (entities) => dataStoreController.ensureEntityData(entities),
+  setStatus,
+  getCreateContextVersion: () => `${spaceAuthGeneration}:${spaceContextGeneration}`,
   openProgramForm,
   openProjectForm,
   openSolutionModal,
@@ -657,12 +653,30 @@ function isSpaceGovernanceView(view) {
   return routerController.isSpaceGovernanceView(view);
 }
 
-function clearDataState() {
-  return dataStoreController.clearDataState();
-}
-
-function markIgnoreRefresh(entity) {
-  return dataStoreController.markIgnoreRefresh(entity);
+function clearDataState({ preserveEditors = false } = {}) {
+  if (!preserveEditors) {
+    closeConfirmModal(false);
+    programEntityController.resetSaveForContext();
+    projectEntityController.resetSaveForContext();
+    solutionEntityController.resetSaveForContext();
+    taskEntityController.resetSaveForContext();
+    programEntityController.closeProgramForm({ discardChanges: true });
+    projectEntityController.closeProjectForm({ discardChanges: true });
+    solutionEntityController.closeSolutionModal({ discardChanges: true });
+    if (els.taskForm) {
+      taskEntityController.setTaskFormVisibility(false);
+      els.taskForm.reset();
+    }
+    closeTaskCreatePicker({ restoreFocus: false });
+    calendarRouteController.resetForContext();
+    getRouteModule("dashboard")?.resetDashboardForContext?.();
+    if (els.kanbanBoard) els.kanbanBoard.replaceChildren();
+    closeCsvUploadModal({ restoreFocus: false });
+    if (els.solutionDocumentsList) els.solutionDocumentsList.replaceChildren();
+    if (els.solutionDocumentFile) els.solutionDocumentFile.value = "";
+    clearDeliverableFormNotice(els.solutionDocumentsStatus);
+  }
+  return dataStoreController.clearDataState({ preserveEditors });
 }
 
 function applyEntityData(entity, data) {
@@ -701,6 +715,22 @@ function initShellControllers() {
     onIdleLogout: () => sessionController.logoutForInactivity(),
     onRemoteLogout: () => sessionController.handleRemoteLogout(),
   });
+  window.addEventListener("keydown", (event) => {
+    if (!els.idleModal || els.idleModal.classList.contains("hidden")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    } else if (event.key === "Tab") {
+      const buttons = [els.idleStay, els.idleLogout].filter((button) => button && !button.disabled);
+      const focused = buttons.indexOf(document.activeElement);
+      if (!buttons.length || focused === -1 || (event.shiftKey && focused === 0)
+          || (!event.shiftKey && focused === buttons.length - 1)) {
+        event.preventDefault();
+        buttons[event.shiftKey ? buttons.length - 1 : 0]?.focus();
+      }
+      event.stopPropagation();
+    }
+  }, true);
   routerController = createRouterController({
     state,
     els,
@@ -775,9 +805,15 @@ function initShellControllers() {
     startLiveSync: (...args) => liveSyncController.startLiveSync(...args),
     stopLiveSync: (...args) => liveSyncController.stopLiveSync(...args),
   });
+  registerMutationContextLifetime(state, () => ({
+    session: sessionController.getSessionGeneration(),
+    space: mutationSpaceGeneration,
+  }));
   liveSyncController = createLiveSyncController({
     state,
     buildWsUrl,
+    getSessionBinding: () => sessionController.getSessionBinding(),
+    handleSessionBindingChanged: (binding) => sessionController.handleSessionBindingChanged(binding),
     isResetPath: (...args) => sessionController.isResetPath(...args),
     refreshSessionTokens: (...args) => sessionController.refreshSessionTokens(...args),
     refreshSpaceContext,
@@ -789,18 +825,27 @@ function initShellControllers() {
     renderTopbarStatus,
     setSpaceFeedback,
     spaceNameForId,
-    clearDataState: (...args) => dataStoreController.clearDataState(...args),
+    clearDataState: (...args) => clearDataState(...args),
   });
   telemetryController = createTelemetryController({
     state,
     apiBase: API_BASE,
     isEnabled: usageAnalyticsEnabled,
+    fetchImpl: sessionBoundFetch,
+    canUseBeacon: () => !sessionController.getSessionBinding(),
+    getQueueContext: () => `${sessionController.getSessionGeneration()}:${mutationSpaceGeneration}`,
   });
 }
 
 function setLiveSyncPhase(phase, options = {}) {
   return liveSyncController.setLiveSyncPhase(phase, options);
 }
+
+const sessionBoundFetch = createSessionBoundFetch({
+  fetchImpl: (...args) => fetch(...args),
+  getBinding: () => sessionController.getSessionBinding(),
+  handleMismatch: (response, binding) => sessionController.handleSessionBindingMismatch(response, binding),
+});
 
 initShellControllers();
 
@@ -971,6 +1016,7 @@ async function switchActiveSpace(targetSpaceId) {
   if (state.spaceSwitching) return false;
 
   const operationGeneration = ++spaceSwitchGeneration;
+  mutationSpaceGeneration += 1;
   const authGeneration = spaceAuthGeneration;
   const userId = sessionUserId();
   let expectedSpaceId = current;
@@ -1009,7 +1055,7 @@ async function switchActiveSpace(targetSpaceId) {
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaceMembershipSpaceId;
     stopLiveSync({ phase: "reconnecting" });
     clearDataState();
-    restoreGanttViewState();
+    restoreSpaceViewState();
     await reloadCurrentViewData({ force: true, preserveCapacitySelection: false });
     if (!isCurrentSwitch()) return false;
     startLiveSync({ force: true });
@@ -1049,11 +1095,16 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   state.activeSpace = activeSpace || null;
   const nextActiveSpaceId = state.activeSpace?.space_id || "";
   if (nextActiveSpaceId !== previousActiveSpaceId) {
+    mutationSpaceGeneration += 1;
+    state.spaceMembersBySpace = {};
+    state.spaceMembersLoadedBySpace = {};
+    state.spaceMembersErrorBySpace = {};
     state.requestableSpacesLoaded = false;
     state.requestableSpacesError = "";
     state.spaceAccessRequestsLoaded = false;
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequestsLoaded = false;
+    state.reviewableAccessRequestsError = "";
   }
   const dataInvalidated = invalidateDataForSpaceContextChange({
     previousSpaceId: previousActiveSpaceId,
@@ -1079,22 +1130,16 @@ function applySpaceContext(spaces, activeSpace, options = {}) {
   Object.keys(state.spaceMembersLoadedBySpace || {}).forEach((spaceId) => {
     if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersLoadedBySpace[spaceId];
   });
+  Object.keys(state.spaceMembersErrorBySpace || {}).forEach((spaceId) => {
+    if (!visibleSpaceIds.has(spaceId)) delete state.spaceMembersErrorBySpace[spaceId];
+  });
   if (!state.spaceMembershipSpaceId || !visibleSpaceIds.has(state.spaceMembershipSpaceId)) {
     state.spaceMembershipSpaceId = state.activeSpace?.space_id || state.spaces[0]?.space_id || "";
   }
   state.spaceRecentIds = readRecentSpaceIds().filter((spaceId) => visibleSpaceIds.has(spaceId));
   persistRecentSpaceIds();
-  restoreWorkspaceViewPreferences();
-  restoreMasterViewState();
-  restoreCalendarViewState();
-  restoreGanttViewState();
-  restoreKanbanViewState();
-  restoreTeamCapacityViewState();
-  restoreSpaceGovernanceViewState();
-  restoreTasksWorkbenchUiState();
+  restoreSpaceViewState();
   renderSpaceSwitcher();
-  loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
-  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
   if (
     !suppressLiveSyncRestart
     && state.authed
@@ -1136,8 +1181,15 @@ async function refreshSpaceContext(options = {}) {
     state.spaceDirectoryModalOpen = false;
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
+    state.spaceMembersErrorBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
+    state.globalAdminsError = "";
+    state.apiTokensByUser = {};
+    state.apiTokensLoadedByUser = {};
+    state.apiTokenUserId = "";
+    state.issuedApiToken = null;
+    state.platformPasswordReset = null;
     state.requestableSpaces = [];
     state.requestableSpacesLoaded = false;
     state.requestableSpacesError = "";
@@ -1146,6 +1198,7 @@ async function refreshSpaceContext(options = {}) {
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
+    state.reviewableAccessRequestsError = "";
     state.agentChangeRequestModalId = "";
     state.lobbyPersonalSpaceCreating = false;
     state.accessRequestSubmittingSpaceId = "";
@@ -1156,9 +1209,9 @@ async function refreshSpaceContext(options = {}) {
     state.masterCollapsed = new Set();
     state.ganttWindow = { from: "", to: "" };
     state.ganttCollapsed = new Set();
-    closeSpaceCreateModal();
-    closeSpaceMemberModal();
-    closeSpaceDirectoryModal();
+    closeSpaceCreateModal({ restoreFocus: false });
+    closeSpaceMemberModal({ restoreFocus: false });
+    closeSpaceDirectoryModal({ restoreFocus: false });
     renderSpaceSwitcher();
     updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
     return;
@@ -1206,7 +1259,7 @@ function setAuthed(user) {
   }
   if (user) {
     showAuthNotice("");
-    activitySessionController.start(user.user_id);
+    activitySessionController.start(user.user_id, sessionController.getSessionBinding());
     state.spaceRecentIds = readRecentSpaceIds();
   } else {
     state.userPreferences = { developer_mode_enabled: false, theme: state.theme || "dark" };
@@ -1231,8 +1284,15 @@ function setAuthed(user) {
     state.spaceDirectoryModalOpen = false;
     state.spaceMembersBySpace = {};
     state.spaceMembersLoadedBySpace = {};
+    state.spaceMembersErrorBySpace = {};
     state.globalAdmins = [];
     state.globalAdminsLoaded = false;
+    state.globalAdminsError = "";
+    state.apiTokensByUser = {};
+    state.apiTokensLoadedByUser = {};
+    state.apiTokenUserId = "";
+    state.issuedApiToken = null;
+    state.platformPasswordReset = null;
     state.requestableSpaces = [];
     state.requestableSpacesLoaded = false;
     state.requestableSpacesError = "";
@@ -1241,6 +1301,7 @@ function setAuthed(user) {
     state.spaceAccessRequestsError = "";
     state.reviewableAccessRequests = [];
     state.reviewableAccessRequestsLoaded = false;
+    state.reviewableAccessRequestsError = "";
     state.agentChangeRequestModalId = "";
     state.lobbyPersonalSpaceCreating = false;
     state.accessRequestSubmittingSpaceId = "";
@@ -1250,9 +1311,9 @@ function setAuthed(user) {
     state.ganttWindow = { from: "", to: "" };
     state.masterCollapsed = new Set();
     state.ganttCollapsed = new Set();
-    closeSpaceCreateModal();
-    closeSpaceMemberModal();
-    closeSpaceDirectoryModal();
+    closeSpaceCreateModal({ restoreFocus: false });
+    closeSpaceMemberModal({ restoreFocus: false });
+    closeSpaceDirectoryModal({ restoreFocus: false });
     activitySessionController.stop();
     setLiveSyncPhase("idle", { clear: true });
   }
@@ -1297,22 +1358,40 @@ function showResetSuccess(message) {
   if (els.resetSuccess) els.resetSuccess.textContent = message || "";
 }
 
+let idleReturnFocusEl = null;
+
 function showIdleModal(remainingSeconds) {
   if (!els.idleModal) return;
   if (els.idleCountdown) {
     const seconds = Math.max(1, Number(remainingSeconds) || 60);
     els.idleCountdown.textContent = `${seconds} second${seconds === 1 ? "" : "s"}`;
   }
+  const wasHidden = els.idleModal.classList.contains("hidden");
   els.idleModal.classList.remove("hidden");
+  if (wasHidden) {
+    idleReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    els.idleStay?.focus();
+  }
 }
 
 function hideIdleModal() {
   if (!els.idleModal) return;
+  const wasOpen = !els.idleModal.classList.contains("hidden");
   els.idleModal.classList.add("hidden");
+  if (wasOpen) {
+    const confirmOpen = els.confirmModal && !els.confirmModal.classList.contains("hidden");
+    const target = confirmOpen && !els.confirmModal.contains(idleReturnFocusEl)
+      ? els.confirmModalConfirm : idleReturnFocusEl;
+    if (target?.isConnected && target.getClientRects().length) target.focus();
+  }
+  idleReturnFocusEl = null;
 }
 
 async function api(path, options = {}) {
-  return sessionController.api(path, options);
+  return requestWithMutationReconciliation({
+    state, path, options, request: (requestPath, requestOptions) => sessionController.api(requestPath, requestOptions),
+    getStore: () => dataStoreController, schedule: (callback) => window.setTimeout(callback, 0),
+  });
 }
 
 function handleAuthError(err) {
@@ -1359,10 +1438,6 @@ function initTasksWorkbench() {
 
 async function bootstrapAuth() {
   return sessionController.bootstrapAuth();
-}
-
-async function loadData(options = {}) {
-  return dataStoreController.loadData(options);
 }
 
 async function reloadCurrentViewData(options = {}) {
@@ -1423,23 +1498,43 @@ function applyAuthBootstrap(payload) {
   ) {
     return false;
   }
-  applyPreferencesWithStoredTheme(payload.preferences);
   applySpaceContext(payload.spaces, payload.active_space);
+  applyPreferencesWithStoredTheme(payload.preferences);
   return true;
 }
 
-async function loadUserPreferences() {
+async function loadUserPreferences({ isCurrent = () => true } = {}) {
   if (!state.authed) return state.userPreferences;
   const preferences = await api("/users/me/preferences");
+  if (!isCurrent()) return state.userPreferences;
   return applyPreferencesWithStoredTheme(preferences);
 }
 
+let preferencesUpdateQueue = null;
 async function updateUserPreferences(patch) {
-  const updated = await api("/users/me/preferences", {
-    method: "PATCH",
-    body: JSON.stringify(patch),
-  });
-  return applyUserPreferences(updated);
+  const context = captureEntityMutationContext(state);
+  const authed = state.authed;
+  const isCurrent = () => state.authed === authed && isEntityMutationContextCurrent(state, context);
+  const previous = preferencesUpdateQueue;
+  const operation = (async () => {
+    if (previous && previous.authed === authed && isSameMutationSession(context, previous.context)) {
+      try { await previous.promise; } catch { /* A later save can still proceed. */ }
+    }
+    if (!isCurrent()) throw new Error("Preferences context changed.");
+    const updated = await api("/users/me/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    if (!isCurrent()) throw new Error("Preferences context changed.");
+    return applyUserPreferences(updated);
+  })();
+  const queued = { context, authed, promise: operation };
+  preferencesUpdateQueue = queued;
+  operation.then(
+    () => { if (preferencesUpdateQueue === queued) preferencesUpdateQueue = null; },
+    () => { if (preferencesUpdateQueue === queued) preferencesUpdateQueue = null; },
+  );
+  return operation;
 }
 
 function resolvePostAuthView(requestedView, pathname = window.location.pathname) {
@@ -1450,6 +1545,8 @@ function resolvePostAuthView(requestedView, pathname = window.location.pathname)
 }
 
 let preferencesReturnFocusEl = null;
+let preferencesEditorRevision = 0;
+let preferencesSaveRequest = null;
 
 function syncThemePreview(theme) {
   const normalized = normalizeTheme(theme);
@@ -1464,6 +1561,7 @@ function syncThemePreview(theme) {
 }
 
 function closePreferences() {
+  preferencesEditorRevision += 1;
   const wasOpen = !!els.preferencesModal && !els.preferencesModal.classList.contains("hidden");
   els.preferencesModal?.classList.add("hidden");
   if (wasOpen) {
@@ -1477,6 +1575,7 @@ function closePreferences() {
 
 function openPreferences() {
   if (!els.preferencesModal || !els.preferencesForm) return;
+  preferencesEditorRevision += 1;
   preferencesReturnFocusEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   els.preferencesForm.querySelector('[name="developer_mode_enabled"]').checked = !!state.userPreferences?.developer_mode_enabled;
   els.preferencesForm.querySelector('[name="theme"]').value = normalizeTheme(state.userPreferences?.theme);
@@ -1502,7 +1601,21 @@ function bindPreferences() {
   });
   els.preferencesForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const context = captureEntityMutationContext(state);
+    const authed = state.authed;
+    const isCurrent = () => state.authed === authed && isEntityMutationContextCurrent(state, context);
+    if (preferencesSaveRequest && preferencesSaveRequest.authed === authed
+        && isEntityMutationContextCurrent(state, preferencesSaveRequest.context)) {
+      if (els.preferencesStatus) els.preferencesStatus.textContent = "A preferences save is already in progress.";
+      return;
+    }
+    const request = { context, authed };
+    preferencesSaveRequest = request;
+    const editorRevision = preferencesEditorRevision;
     const data = new FormData(els.preferencesForm);
+    const snapshot = JSON.stringify([...data.entries()]);
+    const sameEditor = () => isCurrent() && preferencesEditorRevision === editorRevision
+      && !els.preferencesModal?.classList.contains("hidden");
     const wasEnabled = !!state.userPreferences?.developer_mode_enabled;
     if (els.preferencesStatus) els.preferencesStatus.textContent = "Saving preferences…";
     try {
@@ -1510,10 +1623,15 @@ function bindPreferences() {
         developer_mode_enabled: !!data.get("developer_mode_enabled"),
         theme: normalizeTheme(data.get("theme")),
       });
+      if (!sameEditor()) return;
       state.workspacePrefs.showCompleted = !!data.get("show_completed");
       persistWorkspaceViewPreferences();
       renderCompletedVisibilityToggle();
       renderActiveView();
+      if (JSON.stringify([...new FormData(els.preferencesForm).entries()]) !== snapshot) {
+        if (els.preferencesStatus) els.preferencesStatus.textContent = "Preferences saved. Newer edits are not saved.";
+        return;
+      }
       closePreferences();
       if (wasEnabled && !updated.developer_mode_enabled && ["my-work", "repositories"].includes(state.currentView)) {
         setView("master", { replacePath: true });
@@ -1521,7 +1639,9 @@ function bindPreferences() {
         setView("my-work");
       }
     } catch (err) {
-      if (els.preferencesStatus) els.preferencesStatus.textContent = err.message || "Preferences could not be saved.";
+      if (sameEditor() && els.preferencesStatus) els.preferencesStatus.textContent = err.message || "Preferences could not be saved.";
+    } finally {
+      if (preferencesSaveRequest === request) preferencesSaveRequest = null;
     }
   });
 }
@@ -1714,7 +1834,7 @@ function createMasterRouteContext(overrides = {}) {
     trackWorkflow: (...args) => telemetryController?.trackWorkflow?.(...args),
   }, { view: "master" });
   return createShellContext(base, {
-    filteredDeliverables: () => filteredMasterDeliverables(base),
+    filteredDeliverables: () => getRouteModule("master")?.filteredDeliverables(base) || [],
     renderMasterQuickstart: (rowCount = 0) => getRouteModule("master").renderMasterQuickstart(base, rowCount),
     ...overrides,
   });
@@ -1728,7 +1848,6 @@ function createTasksWorkbenchContext(overrides = {}) {
     upsertById,
     normalize,
     numberOr,
-    ignoreNextRefresh,
     deriveTaskActionability,
     isCompletedTaskStatus,
     showCompletedOperationalWork,
@@ -1738,7 +1857,6 @@ function createTasksWorkbenchContext(overrides = {}) {
     clearTasksWorkbenchBulkFeedback,
     setTasksWorkbenchBulkFeedback,
     deleteTasksById,
-    markIgnoreRefresh,
     renderSolutionTasks,
     renderDashboard,
     findUserBySoeid,
@@ -1834,20 +1952,19 @@ function deriveTaskActionability(task) {
   const dueDate = task?.due_date ? new Date(`${task.due_date}T00:00:00`) : null;
   const updated = task?.updated_at ? new Date(task.updated_at) : null;
 
-  const is_overdue = !!(dueDate && dueDate < today && !done);
-  const dueSoonDays = dueDate ? Math.ceil((dueDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000)) : null;
-  const is_due_soon = !!(dueSoonDays != null && dueSoonDays >= 0 && dueSoonDays <= 14 && !done);
-  const staleDays =
-    updated && Number.isFinite(updated.getTime())
-      ? Math.floor((today.getTime() - updated.getTime()) / (24 * 60 * 60 * 1000))
-      : 0;
+  const calendarDay = (value) => Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / (24 * 60 * 60 * 1000);
+  const todayDay = calendarDay(today);
+  const dueSoonDays = dueDate && Number.isFinite(dueDate.getTime()) ? calendarDay(dueDate) - todayDay : null;
+  const is_overdue = dueSoonDays != null && dueSoonDays < 0 && !done;
+  const is_due_soon = dueSoonDays != null && dueSoonDays >= 0 && dueSoonDays <= 14 && !done;
+  const staleDays = updated && Number.isFinite(updated.getTime()) ? todayDay - calendarDay(updated) : 0;
   const is_stale = !done && staleDays > 7;
 
   let urgency = 0;
   if (!done) {
-    const priority = Math.max(1, Math.min(5, Number(task?.priority || 3)));
+    const priority = Math.max(1, Math.min(5, Number(task?.priority === "" ? 3 : (task?.priority ?? 3))));
     const priorityScore = (6 - priority) * 15;
-    const dueScore = dueSoonDays == null ? 0 : dueSoonDays < 0 ? 45 : Math.max(0, (15 - dueSoonDays) * 2);
+    const dueScore = dueSoonDays == null || dueSoonDays > 14 ? 0 : dueSoonDays < 0 ? 45 : Math.max(8, (15 - dueSoonDays) * 2);
     const blockedScore = task?.blocked ? 18 : 0;
     const staleScore = is_stale ? 10 : 0;
     urgency = Math.min(100, priorityScore + dueScore + blockedScore + staleScore);
@@ -1903,7 +2020,6 @@ async function deleteTasksById(taskIds, options = {}) {
     return { cancelled: true, deletedIds: [], failed: [] };
   }
 
-  markIgnoreRefresh("tasks");
   const deletedIds = [];
   const failed = [];
   for (const id of ids) {
@@ -1919,6 +2035,7 @@ async function deleteTasksById(taskIds, options = {}) {
   }
 
   deletedIds.forEach((id) => removeById(state.tasks, id, "task_id"));
+  if (deletedIds.length) invalidateMyWorkRecords(state);
   const wb = state.tasksWorkbench;
   deletedIds.forEach((id) => wb.selected.delete(id));
   if (deletedIds.includes(wb.activeTaskId)) {
@@ -2148,6 +2265,7 @@ function renderProgramDashboard() {
     state,
     els,
     apiBase: API_BASE,
+    fetchImpl: sessionBoundFetch,
     setStatus,
     formatStatus,
     phaseDisplayName,
@@ -2261,8 +2379,15 @@ function openProgramDashboardTaskDrilldown(taskId) {
   if (!task) return;
   const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
   if (!solution) return;
-  openSolutionModal(solution, "tasks");
-  fillTaskForm(task);
+  const context = captureEntityMutationContext(state);
+  const opened = openSolutionModal(solution, "tasks");
+  if (opened instanceof Promise) void opened.then((ok) => {
+    if (!ok || !isEntityMutationContextCurrent(state, context)
+        || els.solutionForm?.querySelector('[name="solution_id"]')?.value !== solution.solution_id) return;
+    const latest = state.tasks.find((item) => item.task_id === task.task_id && item.solution_id === solution.solution_id);
+    if (latest) fillTaskForm(latest);
+  });
+  else if (opened) fillTaskForm(task);
 }
 
 function renderPMDashboard() {
@@ -2285,6 +2410,7 @@ function renderPMDashboard() {
     state,
     els,
     apiBase: API_BASE,
+    fetchImpl: sessionBoundFetch,
     setStatus,
     formatStatus,
     viewHref,
@@ -2335,8 +2461,15 @@ function openPMDashboardTaskDrilldown(taskId) {
   if (!task) return;
   const solution = state.solutions.find((row) => row.solution_id === task.solution_id);
   if (!solution) return;
-  openSolutionModal(solution, "tasks");
-  fillTaskForm(task);
+  const context = captureEntityMutationContext(state);
+  const opened = openSolutionModal(solution, "tasks");
+  if (opened instanceof Promise) void opened.then((ok) => {
+    if (!ok || !isEntityMutationContextCurrent(state, context)
+        || els.solutionForm?.querySelector('[name="solution_id"]')?.value !== solution.solution_id) return;
+    const latest = state.tasks.find((item) => item.task_id === task.task_id && item.solution_id === solution.solution_id);
+    if (latest) fillTaskForm(latest);
+  });
+  else if (opened) fillTaskForm(task);
 }
 
 function closeConfirmModal(result = false) {
@@ -2351,8 +2484,8 @@ function bindConfirmModal() {
   return modalShellController.bindConfirmModal();
 }
 
-function openProjectForm(project = null) {
-  return projectEntityController.openProjectForm(project);
+function openProjectForm(project = null, options = {}) {
+  return projectEntityController.openProjectForm(project, options);
 }
 
 function openProgramForm(program = null) {
@@ -2391,8 +2524,8 @@ function setTaskCreateAvailability(solutionId) {
   return solutionEntityController.setTaskCreateAvailability(solutionId);
 }
 
-function openSolutionModal(solution = null, tab = "details") {
-  return solutionEntityController.openSolutionModal(solution, tab);
+function openSolutionModal(solution = null, tab = "details", options = {}) {
+  return solutionEntityController.openSolutionModal(solution, tab, options);
 }
 
 function closeSolutionModal() {
@@ -2425,8 +2558,19 @@ function bindSolutionTabs() {
   tabs.addEventListener("click", (e) => {
     const btn = e.target.closest(".tab");
     if (!btn) return;
-    if (btn.dataset.tab === "tasks" && els.taskForm && !els.taskForm.classList.contains("hidden")) {
-      hideTaskForm();
+    if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
+      const context = captureEntityMutationContext(state);
+      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      const result = hideTaskForm();
+      if (result instanceof Promise) {
+        void result.then((allowed) => {
+          if (allowed && isEntityMutationContextCurrent(state, context)
+              && !els.solutionModal?.classList.contains("hidden")
+              && (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "") === solutionId) setSolutionTab(btn.dataset.tab);
+        });
+        return;
+      }
+      if (!result) return;
     }
     setSolutionTab(btn.dataset.tab);
   });
@@ -2437,8 +2581,8 @@ function showTaskForm(solution) {
   return taskEntityController.showTaskForm(solution);
 }
 
-function fillTaskForm(task) {
-  return taskEntityController.fillTaskForm(task);
+function fillTaskForm(task, options = {}) {
+  return taskEntityController.fillTaskForm(task, options);
 }
 
 function renderSolutionTasks(solutionId) {
@@ -2448,6 +2592,9 @@ function renderSolutionTasks(solutionId) {
     els.solutionTaskTable.innerHTML = "<p class='muted'>Save the solution to add tasks.</p>";
     return;
   }
+  const focused = els.solutionTaskTable.contains(document.activeElement) ? document.activeElement : null;
+  const focusSort = !!focused?.matches("[data-task-name-sort]");
+  const focusTaskId = focused?.matches(".edit-task-btn, .swimlane-card") ? focused.getAttribute("data-id") : "";
   setTaskCreateAvailability(solutionId);
   const allSubs = state.tasks.filter((s) => s.solution_id === solutionId);
   const hiddenClosedCount = !showCompletedOperationalWork()
@@ -2506,6 +2653,10 @@ function renderSolutionTasks(solutionId) {
         <tbody>${rows || `<tr><td colspan='6' class='muted'>${hiddenClosedCount ? "No open tasks in view." : "No tasks"}</td></tr>`}</tbody>
       </table>`;
   }
+  const focusTarget = focusSort ? els.solutionTaskTable.querySelector("[data-task-name-sort]")
+    : focusTaskId ? [...els.solutionTaskTable.querySelectorAll(".edit-task-btn, .swimlane-card")]
+      .find((button) => button.getAttribute("data-id") === focusTaskId) : null;
+  focusTarget?.focus({ preventScroll: true });
 }
 
 function formatFileSize(bytes) {
@@ -2527,16 +2678,41 @@ function documentDownloadUrl(solutionId, documentId) {
   );
 }
 
+const solutionDocumentReads = new Map();
+let solutionDocumentsRenderVersion = 0;
+let solutionDocumentRefreshWarning = null;
+
 async function loadSolutionDocuments(solutionId, { force = false } = {}) {
   if (!solutionId) return [];
-  if (!force && state.solutionDocuments[solutionId]) return state.solutionDocuments[solutionId];
-  state.solutionDocuments[solutionId] = await api(`/solutions/${encodeURIComponent(solutionId)}/documents`);
-  return state.solutionDocuments[solutionId];
+  const context = captureSolutionDocumentAction();
+  const cache = state.solutionDocuments;
+  if (!force && Array.isArray(cache[solutionId])) return cache[solutionId];
+  if (force) delete cache[solutionId];
+  const request = {};
+  solutionDocumentReads.set(solutionId, request);
+  try {
+    const documents = await api(`/solutions/${encodeURIComponent(solutionId)}/documents`);
+    if (!isSolutionDocumentContextCurrent(context)
+        || solutionDocumentReads.get(solutionId) !== request) return null;
+    if (!Array.isArray(documents) || documents.some((doc) => !doc || typeof doc !== "object" || !doc.document_id)) {
+      throw new Error("Invalid document list response.");
+    }
+    cache[solutionId] = documents;
+    return documents;
+  } finally {
+    if (solutionDocumentReads.get(solutionId) === request) solutionDocumentReads.delete(solutionId);
+  }
 }
 
 async function renderSolutionDocuments(solutionId, options = {}) {
   if (!els.solutionDocumentsList) return;
   const id = solutionId || els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+  const renderVersion = ++solutionDocumentsRenderVersion;
+  const context = captureSolutionDocumentAction();
+  const isCurrent = () => renderVersion === solutionDocumentsRenderVersion
+    && isSolutionDocumentContextCurrent(context)
+    && (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "") === id
+    && !els.solutionModal?.classList.contains("hidden");
   if (!id) {
     els.solutionDocumentsList.innerHTML = "<p class='muted'>Save the solution to upload documents.</p>";
     if (els.solutionDocumentUpload) els.solutionDocumentUpload.disabled = true;
@@ -2548,92 +2724,213 @@ async function renderSolutionDocuments(solutionId, options = {}) {
   }
   try {
     const documents = await loadSolutionDocuments(id, options);
+    if (!isCurrent() || !documents) return false;
     if (!documents.length) {
       els.solutionDocumentsList.innerHTML = "<p class='muted'>No documents uploaded.</p>";
-      return;
+      clearSolutionDocumentRefreshWarning();
+      return true;
     }
     const rows = documents
       .map((doc) => {
         const created = doc.created_at ? new Date(doc.created_at).toLocaleString() : "";
-        const downloadUrl = documentDownloadUrl(id, doc.document_id);
         return `<div class="solution-document-row" data-document-id="${escapeAttr(doc.document_id)}">
           <div class="solution-document-main">
-            <a href="${escapeAttr(downloadUrl)}" download="${escapeAttr(doc.filename || "document")}" class="solution-document-name">${esc(doc.filename || "document")}</a>
+            <button type="button" class="solution-document-name" data-document-download="${escapeAttr(doc.document_id)}" data-filename="${escapeAttr(doc.filename || "document")}">${esc(doc.filename || "document")}</button>
             <div class="solution-document-meta">${esc(formatFileSize(doc.size_bytes))}${created ? ` &middot; ${esc(created)}` : ""}</div>
           </div>
           <div class="solution-document-actions">
-            <a href="${escapeAttr(downloadUrl)}" download="${escapeAttr(doc.filename || "document")}" class="secondary button-like">Download</a>
+            <button type="button" class="secondary" data-document-download="${escapeAttr(doc.document_id)}" data-filename="${escapeAttr(doc.filename || "document")}">Download</button>
             <button type="button" class="secondary danger solution-document-delete" data-document-id="${escapeAttr(doc.document_id)}">Delete</button>
           </div>
         </div>`;
       })
       .join("");
     els.solutionDocumentsList.innerHTML = rows;
+    clearSolutionDocumentRefreshWarning();
+    return true;
   } catch (err) {
+    if (!isCurrent()) return false;
     els.solutionDocumentsList.innerHTML = "<p class='muted'>Unable to load documents.</p>";
-    setDeliverableFormNotice(els.solutionDocumentsStatus, `Unable to load documents: ${err.message}`, "error");
+    const warning = solutionDocumentRefreshWarning;
+    if (warning && isSolutionDocumentEditorCurrent(warning.action)) {
+      setDeliverableFormNotice(els.solutionDocumentsStatus, warning.message, "error");
+    } else {
+      setDeliverableFormNotice(els.solutionDocumentsStatus, `Unable to load documents: ${err.message}`, "error");
+    }
+    return false;
+  }
+}
+
+let solutionDocumentPicker = null;
+const solutionDocumentMutations = new Map();
+
+function captureSolutionDocumentAction() {
+  return {
+    sessionGeneration: sessionController.getSessionGeneration(),
+    switchGeneration: spaceSwitchGeneration,
+    userId: sessionUserId(),
+    spaceId: String(state.activeSpace?.space_id || ""),
+    cache: state.solutionDocuments,
+    solutionId: els.solutionForm?.querySelector('[name="solution_id"]')?.value || "",
+    editorRevision: solutionEntityController.getSolutionDocumentEditorRevision(),
+  };
+}
+
+function isSolutionDocumentContextCurrent(action) {
+  return state.authed && sessionController.getSessionGeneration() === action.sessionGeneration
+    && spaceSwitchGeneration === action.switchGeneration && sessionUserId() === action.userId
+    && String(state.activeSpace?.space_id || "") === action.spaceId && state.solutionDocuments === action.cache;
+}
+
+function isSolutionDocumentEditorCurrent(action) {
+  return isSolutionDocumentContextCurrent(action)
+    && solutionEntityController.getSolutionDocumentEditorRevision() === action.editorRevision
+    && (els.solutionForm?.querySelector('[name="solution_id"]')?.value || "") === action.solutionId
+    && !els.solutionModal?.classList.contains("hidden");
+}
+
+function beginSolutionDocumentMutation(action) {
+  const pending = solutionDocumentMutations.get(action.solutionId);
+  if (pending && isSolutionDocumentContextCurrent(pending)) return false;
+  solutionDocumentMutations.set(action.solutionId, action);
+  return true;
+}
+
+function finishSolutionDocumentMutation(action) {
+  if (solutionDocumentMutations.get(action.solutionId) === action) {
+    solutionDocumentMutations.delete(action.solutionId);
+  }
+}
+
+function clearSolutionDocumentRefreshWarning() {
+  const warning = solutionDocumentRefreshWarning;
+  if (warning && isSolutionDocumentEditorCurrent(warning.action)) {
+    solutionDocumentRefreshWarning = null;
+    setDeliverableFormNotice(els.solutionDocumentsStatus, warning.successMessage, "success", 3200);
+  }
+}
+
+async function refreshAfterSolutionDocumentMutation(action, successMessage) {
+  if (!isSolutionDocumentContextCurrent(action)) return;
+  delete action.cache[action.solutionId];
+  solutionDocumentReads.delete(action.solutionId);
+  if (!isSolutionDocumentEditorCurrent(action)) return;
+  const refreshed = await renderSolutionDocuments(action.solutionId, { force: true, silent: true });
+  if (!isSolutionDocumentEditorCurrent(action)) return;
+  if (refreshed) {
+    setDeliverableFormNotice(els.solutionDocumentsStatus, successMessage, "success", 3200);
+  } else {
+    const message = `${successMessage} Unable to refresh documents; reopen the solution to reload.`;
+    solutionDocumentRefreshWarning = { action, message, successMessage };
+    setDeliverableFormNotice(els.solutionDocumentsStatus, message, "error");
   }
 }
 
 function bindSolutionDocumentControls() {
   if (els.solutionDocumentUpload && !els.solutionDocumentUpload._bound) {
     els.solutionDocumentUpload.addEventListener("click", () => {
-      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
-      if (!solutionId) {
+      const action = captureSolutionDocumentAction();
+      if (!action.solutionId) {
         setDeliverableFormNotice(els.solutionDocumentsStatus, "Save the solution to upload documents.", "error");
         return;
       }
+      solutionDocumentPicker = action;
       els.solutionDocumentFile?.click();
     });
     els.solutionDocumentUpload._bound = true;
   }
   if (els.solutionDocumentFile && !els.solutionDocumentFile._bound) {
+    els.solutionDocumentFile.addEventListener("cancel", () => { solutionDocumentPicker = null; });
     els.solutionDocumentFile.addEventListener("change", async () => {
-      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      const action = solutionDocumentPicker;
+      solutionDocumentPicker = null;
       const file = els.solutionDocumentFile?.files?.[0] || null;
-      if (!solutionId || !file) return;
+      els.solutionDocumentFile.value = "";
+      if (!action || !file || !isSolutionDocumentEditorCurrent(action)) return;
+      if (!beginSolutionDocumentMutation(action)) {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "A document change is already in progress.", "error");
+        return;
+      }
+      solutionDocumentRefreshWarning = null;
       const formData = new FormData();
       formData.append("file", file);
       try {
         setDeliverableFormNotice(els.solutionDocumentsStatus, "Uploading document...");
-        await api(`/solutions/${encodeURIComponent(solutionId)}/documents`, {
+        await api(`/solutions/${encodeURIComponent(action.solutionId)}/documents`, {
           method: "POST",
           body: formData,
           timeoutMs: 60000,
         });
-        await renderSolutionDocuments(solutionId, { force: true, silent: true });
-        setDeliverableFormNotice(els.solutionDocumentsStatus, `Uploaded ${file.name}.`, "success", 3200);
+        await refreshAfterSolutionDocumentMutation(action, `Uploaded ${file.name}.`);
       } catch (err) {
-        setDeliverableFormNotice(els.solutionDocumentsStatus, `Upload failed: ${err.message}`, "error");
+        if (isSolutionDocumentEditorCurrent(action)) {
+          setDeliverableFormNotice(els.solutionDocumentsStatus, `Upload failed: ${err.message}`, "error");
+        }
       } finally {
-        els.solutionDocumentFile.value = "";
+        finishSolutionDocumentMutation(action);
       }
     });
     els.solutionDocumentFile._bound = true;
   }
   if (els.solutionDocumentsList && !els.solutionDocumentsList._bound) {
     els.solutionDocumentsList.addEventListener("click", async (event) => {
+      const download = event.target.closest("[data-document-download]");
+      if (download) {
+        event.preventDefault();
+        const action = captureSolutionDocumentAction();
+        try {
+          const headers = action.spaceId ? { "X-Space-Id": action.spaceId } : {};
+          const response = await sessionBoundFetch(documentDownloadUrl(action.solutionId, download.dataset.documentDownload), { credentials: "include", headers });
+          if (!response.ok) throw new Error(`Download failed (${response.status}).`);
+          const blob = await response.blob();
+          if (!isSolutionDocumentEditorCurrent(action)) return;
+          const url = URL.createObjectURL(blob);
+          try {
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = download.dataset.filename || "document";
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+          } finally {
+            window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+          }
+        } catch (err) {
+          if (isSolutionDocumentEditorCurrent(action)) {
+            setDeliverableFormNotice(els.solutionDocumentsStatus, `Download failed: ${err.message}`, "error");
+          }
+        }
+        return;
+      }
       const btn = event.target.closest(".solution-document-delete");
       if (!btn) return;
-      const solutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
+      const action = captureSolutionDocumentAction();
       const documentId = btn.getAttribute("data-document-id") || "";
-      if (!solutionId || !documentId) return;
-      const row = state.solutionDocuments[solutionId]?.find((item) => item.document_id === documentId);
+      if (!action.solutionId || !documentId) return;
+      const row = action.cache[action.solutionId]?.find((item) => item.document_id === documentId);
       const confirmed = await showConfirmModal({
         title: "Delete Document?",
         message: `Delete document "${row?.filename || "document"}"? This cannot be undone.`,
         confirmLabel: "Delete Document",
       });
-      if (!confirmed) return;
+      if (!confirmed || !isSolutionDocumentEditorCurrent(action)) return;
+      if (!beginSolutionDocumentMutation(action)) {
+        setDeliverableFormNotice(els.solutionDocumentsStatus, "A document change is already in progress.", "error");
+        return;
+      }
+      solutionDocumentRefreshWarning = null;
       try {
         setDeliverableFormNotice(els.solutionDocumentsStatus, "Deleting document...");
-        await api(`/solutions/${encodeURIComponent(solutionId)}/documents/${encodeURIComponent(documentId)}`, {
+        await api(`/solutions/${encodeURIComponent(action.solutionId)}/documents/${encodeURIComponent(documentId)}`, {
           method: "DELETE",
         });
-        await renderSolutionDocuments(solutionId, { force: true, silent: true });
-        setDeliverableFormNotice(els.solutionDocumentsStatus, "Deleted document.", "success", 3200);
+        await refreshAfterSolutionDocumentMutation(action, "Deleted document.");
       } catch (err) {
-        setDeliverableFormNotice(els.solutionDocumentsStatus, `Delete failed: ${err.message}`, "error");
+        if (isSolutionDocumentEditorCurrent(action)) {
+          setDeliverableFormNotice(els.solutionDocumentsStatus, `Delete failed: ${err.message}`, "error");
+        }
+      } finally {
+        finishSolutionDocumentMutation(action);
       }
     });
     els.solutionDocumentsList._bound = true;
@@ -2665,7 +2962,7 @@ function bindSolutionTaskControls() {
       if (!id) return;
       const task = state.tasks.find((item) => item.task_id === id);
       if (!task) return;
-      fillTaskForm(task);
+      void taskEntityController.requestFillTaskForm(task);
     });
     els.solutionTaskTable._bound = true;
   }
@@ -2674,11 +2971,7 @@ function bindSolutionTaskControls() {
 function bindModalShortcuts() {
   if (document._jiraLiteModalBound) return;
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    if (els.confirmModal && !els.confirmModal.classList.contains("hidden")) {
-      closeConfirmModal(false);
-      return;
-    }
+    if (e.key !== "Escape" || e.defaultPrevented || (els.idleModal && !els.idleModal.classList.contains("hidden"))) return;
     if (els.taskCreatePickerModal && !els.taskCreatePickerModal.classList.contains("hidden")) {
       closeTaskCreatePicker();
       return;
@@ -2693,20 +2986,33 @@ function bindModalShortcuts() {
     }
     if (els.projectModal && !els.projectModal.classList.contains("hidden")) {
       closeProjectForm();
+      return;
+    }
+    if (els.programModal && !els.programModal.classList.contains("hidden")) {
+      programEntityController.closeProgramForm();
     }
   });
   document._jiraLiteModalBound = true;
 }
 
+let solutionActivityRequestId = 0;
+
 async function renderSolutionActivity(solutionId) {
   if (!els.solutionActivity) return;
+  const requestId = ++solutionActivityRequestId;
   if (!solutionId) {
     els.solutionActivity.innerHTML = "<p class='muted'>Select a solution to see activity.</p>";
     return;
   }
   els.solutionActivity.innerHTML = "<p class='muted'>Loading activity…</p>";
+  const requestContext = captureEntityMutationContext(state);
+  const isCurrent = () => requestId === solutionActivityRequestId
+    && isEntityMutationContextCurrent(state, requestContext)
+    && els.solutionForm?.querySelector('[name="solution_id"]')?.value === solutionId
+    && !els.solutionModal?.classList.contains("hidden");
   try {
-    const rows = await api(`/audit?entity_type=solution&entity_id=${solutionId}`);
+    const rows = await api(`/solutions/${encodeURIComponent(solutionId)}/activity`);
+    if (!isCurrent()) return;
     if (!rows?.length) {
       els.solutionActivity.innerHTML = "<p class='muted'>No activity yet.</p>";
       return;
@@ -2714,6 +3020,7 @@ async function renderSolutionActivity(solutionId) {
     const html = renderSolutionActivityItems(rows);
     els.solutionActivity.innerHTML = html;
   } catch (_err) {
+    if (!isCurrent()) return;
     els.solutionActivity.innerHTML = `<p class='muted'>Unable to load activity.</p>`;
   }
 }
@@ -2745,12 +3052,7 @@ function populateSelects() {
     .map((p) => `<option value="${escapeHtml(p.project_id)}">${escapeHtml(projectLabel(p))}</option>`)
     .join("");
   const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);
-  const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });
   const calendarProjectFilterChanged = normalizeScopedProjectFilter(state.calendarFilters);
-  const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {
-    includeSolutions: true,
-    includeTasks: true,
-  });
   const projSelects = [
     els.solutionForm?.querySelector('[name="project_id"]'),
   ].filter(Boolean);
@@ -2791,32 +3093,20 @@ function populateSelects() {
     els.kanbanFilterProject.value = state.kanbanFilters.project || "";
   }
   if (els.kanbanFilterOwner) {
-    els.kanbanFilterOwner.value = state.kanbanFilters.owner || "";
+    els.kanbanFilterOwner.value = kanbanRouteController.getPendingOwner() ?? (state.kanbanFilters.owner || "");
   }
   if (els.calendarFilterProject) {
     els.calendarFilterProject.innerHTML = `<option value="">All</option>${projectOpts}`;
     els.calendarFilterProject.value = state.calendarFilters.project || "";
   }
   if (els.calendarFilterOwner) {
-    els.calendarFilterOwner.value = state.calendarFilters.owner || "";
+    els.calendarFilterOwner.value = calendarRouteController.getPendingOwner() ?? (state.calendarFilters.owner || "");
   }
   if (kanbanProjectFilterChanged) {
     persistKanbanViewState();
   }
-  if (kanbanOwnerFilterChanged) {
-    persistKanbanViewState();
-  }
   if (calendarProjectFilterChanged) {
     persistCalendarViewState();
-  }
-  if (calendarOwnerFilterChanged) {
-    persistCalendarViewState();
-  }
-  const teamOpts = state.teams.map((t) => `<option value="${escapeHtml(t.team_id)}">${escapeHtml(t.name)}</option>`).join("");
-  const teamSelects = [els.teamMemberForm?.querySelector('[name="team_id"]')].filter(Boolean);
-  teamSelects.forEach((sel) => (sel.innerHTML = `<option value="">Unassigned</option>${teamOpts}`));
-  if (els.teamMemberForm && els.teamMemberForm.querySelector('[name="team_id"]') && state.teams.length && !els.teamMemberForm.querySelector('[name="team_id"]').value) {
-    els.teamMemberForm.querySelector('[name="team_id"]').value = state.teams[0].team_id;
   }
   populateCapacityUserOptions();
 
@@ -2826,16 +3116,28 @@ function populateSelects() {
     const assigneeUserInput = els.taskForm.querySelector('[name="assignee_user_soeid"]');
     if (assigneeSel) {
       const previous = assigneeSel.value;
+      const selected = assigneeSel.selectedOptions[0]?.cloneNode(true);
       const users = state.users.filter((u) => u.display_name && u.soeid);
       assigneeSel.innerHTML =
         users.length > 0
-          ? `<option value="">Select</option>${users.map((u) => `<option value="${escapeHtml(u.soeid)}">${escapeHtml(u.display_name)}</option>`).join("")}`
+          ? `<option value="">Unassigned</option>${users.map((u) => `<option value="${escapeHtml(u.soeid)}">${escapeHtml(u.display_name)}</option>`).join("")}`
           : `<option value="">No users configured</option>`;
-      if (users.some((user) => user.soeid === previous)) assigneeSel.value = previous;
+      if (previous && !Array.from(assigneeSel.options).some((option) => option.value === previous) && selected) {
+        if (!selected.dataset.unresolvedAssignee) {
+          selected.dataset.unresolvedAssignee = "true";
+          selected.dataset.assigneeSoeid = previous;
+          selected.textContent = `${selected.textContent} (unavailable)`;
+        }
+        assigneeSel.appendChild(selected);
+      }
+      assigneeSel.value = previous || "";
       assigneeSel.onchange = () => {
-        if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
+        if (assigneeUserInput) {
+          const selectedOption = assigneeSel.selectedOptions[0];
+          assigneeUserInput.value = selectedOption?.dataset.unresolvedAssignee
+            ? selectedOption.dataset.assigneeSoeid || "" : assigneeSel.value || "";
+        }
       };
-      if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
     }
   }
   populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });
@@ -2878,24 +3180,6 @@ function renderKanban() {
     openKanbanProjectDrilldown,
     openKanbanSolutionDrilldown,
   });
-}
-
-function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {
-  if (!filterState || typeof filterState !== "object") return false;
-  const currentOwner = String(filterState.owner || "").trim();
-  if (!currentOwner) return false;
-  const ownerToken = currentOwner.toLowerCase();
-  const hasSolutionMatch = includeSolutions
-    && (state.solutions || []).some((solution) => String(solution?.owner || "").toLowerCase().includes(ownerToken));
-  const hasTaskMatch = includeTasks
-    && (state.tasks || []).some((task) => {
-      const assigneeName = String(task?.assignee || "").toLowerCase();
-      const assigneeSoeid = String(task?.assignee_user_soeid || "").toLowerCase();
-      return assigneeName.includes(ownerToken) || assigneeSoeid.includes(ownerToken);
-    });
-  if (hasSolutionMatch || hasTaskMatch) return false;
-  filterState.owner = "";
-  return true;
 }
 
 function normalizeScopedProjectFilter(filterState) {
@@ -2946,33 +3230,34 @@ function renderGantt() {
 }
 
 async function downloadCsv(kind, filename, resultEl) {
+  const context = captureEntityMutationContext(state);
+  const isCurrent = () => isEntityMutationContextCurrent(state, context);
   try {
-    const headers = {};
-    if (state.activeSpace?.space_id) {
-      headers["X-Space-Id"] = state.activeSpace.space_id;
-    }
-    const res = await fetch(`${API_BASE}/${kind}/export`, {
-      credentials: "include",
-      headers,
-    });
-    if (res.status === 401) {
+    const { requestCsvExport } = await import("./utils/csv-import.js");
+    if (!isCurrent()) return;
+    const result = await requestCsvExport({ state, kind, apiBase: API_BASE, fetchImpl: sessionBoundFetch, context });
+    if (result.stale || !isCurrent()) return;
+    if (result.unauthorized) {
       handleAuthError({ status: 401 });
       setImportResult(resultEl, "Portal sign-in required", true);
       return;
     }
-    if (!res.ok) throw new Error(await res.text());
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(result.blob);
+    let anchor;
+    try {
+      anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+    } finally {
+      anchor?.remove();
+      URL.revokeObjectURL(url);
+    }
     telemetryController?.trackWorkflow?.("csv", "export", "success", { kind, source: "csv_menu" });
     setImportResult(resultEl, `Downloaded ${filename}`);
   } catch (err) {
+    if (!isCurrent()) return;
     telemetryController?.trackWorkflow?.("csv", "export", "failure", { kind, source: "csv_menu" });
     setImportResult(resultEl, `Download failed: ${err.message}`, true);
   }
@@ -3054,6 +3339,7 @@ function setCsvUploadFile(file) {
   const fileNameEl = els.csvUploadFileName;
   const resetSelection = () => {
     csvUploadState.file = null;
+    csvUploadState.fileContext = null;
     if (els.csvUploadFile) els.csvUploadFile.value = "";
     if (fileNameEl) fileNameEl.textContent = "No file selected";
   };
@@ -3069,17 +3355,23 @@ function setCsvUploadFile(file) {
     return false;
   }
   csvUploadState.file = file;
+  csvUploadState.fileContext = captureEntityMutationContext(state);
   if (fileNameEl) fileNameEl.textContent = `Selected: ${fileName}`;
   setCsvUploadStatus("");
   return true;
 }
 
+let csvReturnFocus = null;
+
 function openCsvUploadModal(kind) {
   if (!els.csvUploadModal) return;
+  csvReturnFocus = { element: document.activeElement, context: captureEntityMutationContext(state), view: state.currentView };
   const normalizedKind = ["projects", "solutions", "tasks"].includes(kind) ? kind : "projects";
   const config = csvKindConfig(normalizedKind);
+  csvUploadState.revision += 1;
   csvUploadState.kind = normalizedKind;
   csvUploadState.file = null;
+  csvUploadState.fileContext = null;
   if (els.csvUploadTitle) {
     els.csvUploadTitle.textContent = `Upload ${config.label} CSV`;
   }
@@ -3091,6 +3383,7 @@ function openCsvUploadModal(kind) {
   }
   if (els.csvSubmitUpload) {
     els.csvSubmitUpload.textContent = `Upload ${config.label} CSV`;
+    els.csvSubmitUpload.disabled = false;
   }
   if (els.csvDropzone) {
     els.csvDropzone.classList.remove("drag-over");
@@ -3103,12 +3396,23 @@ function openCsvUploadModal(kind) {
   }
   setCsvUploadStatus("");
   els.csvUploadModal.classList.remove("hidden");
+  els.csvUploadClose?.focus();
 }
 
-function closeCsvUploadModal() {
+function closeCsvUploadModal({ restoreFocus = true } = {}) {
   if (!els.csvUploadModal) return;
+  const wasOpen = !els.csvUploadModal.classList.contains("hidden");
   els.csvUploadModal.classList.add("hidden");
+  const returnFocus = csvReturnFocus;
+  csvReturnFocus = null;
+  if (wasOpen && restoreFocus && returnFocus && state.currentView === returnFocus.view
+      && isEntityMutationContextCurrent(state, returnFocus.context)
+      && returnFocus.element?.isConnected && returnFocus.element.getClientRects().length) {
+    returnFocus.element.focus();
+  }
+  csvUploadState.revision += 1;
   csvUploadState.file = null;
+  csvUploadState.fileContext = null;
   if (els.csvUploadFile) els.csvUploadFile.value = "";
   if (els.csvUploadFileName) els.csvUploadFileName.textContent = "No file selected";
   if (els.csvDropzone) els.csvDropzone.classList.remove("drag-over");
@@ -3123,68 +3427,85 @@ async function uploadCsvFile(kind, file, resultEl) {
     setImportResult(resultEl, msg, true);
     return { ok: false, message: msg, partial: false };
   }
+  const context = captureEntityMutationContext(state);
+  const isCurrent = () => isEntityMutationContextCurrent(state, context);
+  const request = csvImportGate.begin(context);
+  if (!request) {
+    const msg = "Another CSV import is already in progress.";
+    setImportResult(resultEl, msg, true);
+    return { ok: false, message: msg, partial: false };
+  }
   try {
-    const csvText = await file.text();
-    const headers = { "Content-Type": "text/csv" };
-    if (state.activeSpace?.space_id) {
-      headers["X-Space-Id"] = state.activeSpace.space_id;
-    }
-    const res = await fetch(`${API_BASE}/${kind}/import`, {
-      method: "POST",
-      headers,
-      body: csvText,
-      credentials: "include",
-    });
-    if (res.status === 401) {
+    const { requestCsvImport } = await import("./utils/csv-import.js");
+    if (!isCurrent()) return { stale: true };
+    const response = await requestCsvImport({ state, file, kind, apiBase: API_BASE, fetchImpl: sessionBoundFetch, context });
+    if (response.stale || !isCurrent()) return { stale: true };
+    if (response.unauthorized) {
       handleAuthError({ status: 401 });
       const msg = "Portal sign-in required";
       setImportResult(resultEl, msg, true);
       return { ok: false, message: msg, partial: false };
     }
-    if (!res.ok) throw new Error(await res.text());
-    const data = await res.json();
-    const errs = data.errors || [];
-    const parts = [
-      `Created ${data.created || 0}`,
-      `Updated ${data.updated || 0}`,
-    ];
+    const data = response.data;
+    if (!data || typeof data !== "object" || !Array.isArray(data.errors)) throw new Error("Invalid import response");
+    const errs = data.errors;
+    const parts = [`Created ${data.created || 0}`, `Updated ${data.updated || 0}`];
     if (data.projects_created !== undefined) parts.push(`Projects created ${data.projects_created}`);
     if (data.solutions_created !== undefined) parts.push(`Solutions created ${data.solutions_created}`);
     const msg = parts.join(", ");
     const errorSnippet = errs.length ? ` Errors (${errs.length}): ${errs.slice(0, 3).join(" | ")}` : "";
     const detail = errs.length ? `${msg}.${errorSnippet}` : msg;
-    setImportResult(
-      resultEl,
-      detail,
-      errs.length > 0
-    );
     if (errs.length) console.warn("Import errors:", errs);
-    if (kind === "users") {
-      await loadTeamCapacityData({ force: true });
-    } else {
-      await loadData();
+    try {
+      const entities = kind === "users" ? ["users"] : ["projects", "solutions", "tasks"];
+      const refreshes = entities.map((entity) => refreshFromServer(entity));
+      const [ready] = await Promise.all([
+        dataStoreController.ensureEntityData(entities),
+        ...refreshes,
+        ...(kind === "users" ? [loadTeamCapacityData({ force: true })] : []),
+      ]);
+      if (!isCurrent()) return { stale: true };
+      if (!ready) throw new Error("The data refresh was interrupted");
+      if (kind === "users" && state.teamCapacity?.error) throw new Error(state.teamCapacity.error);
+    } catch (err) {
+      if (!isCurrent()) return { stale: true };
+      const message = `${detail} Refresh failed: ${err.message || "data unavailable"}. Reload before importing again.`;
+      setImportResult(resultEl, message, true);
+      return { ok: false, message, partial: true, refreshFailed: true };
     }
+    if (!isCurrent()) return { stale: true };
+    setImportResult(resultEl, detail, errs.length > 0);
     telemetryController?.trackWorkflow?.("csv", "import", errs.length ? "failure" : "success", {
-      kind,
-      result_kind: errs.length ? "partial" : "complete",
-      source: "csv_menu",
+      kind, result_kind: errs.length ? "partial" : "complete", source: "csv_menu",
     });
     return { ok: errs.length === 0, message: detail, partial: errs.length > 0 };
   } catch (err) {
+    if (!isCurrent()) return { stale: true };
     const msg = `Import failed: ${err.message}`;
     telemetryController?.trackWorkflow?.("csv", "import", "failure", { kind, source: "csv_menu" });
     setImportResult(resultEl, msg, true);
     return { ok: false, message: msg, partial: false };
+  } finally {
+    csvImportGate.finish(request);
   }
 }
 
 async function uploadCsv(kind, fileInput, resultEl) {
   const file = fileInput?.files?.[0];
+  const context = captureEntityMutationContext(state);
   try {
     return await uploadCsvFile(kind, file, resultEl);
   } finally {
-    if (fileInput) fileInput.value = "";
+    if (fileInput && isEntityMutationContextCurrent(state, context) && fileInput.files?.[0] === file) fileInput.value = "";
   }
+}
+
+let csvPickerRequest = null;
+let rosterPickerRequest = null;
+
+function openCsvFilePicker() {
+  csvPickerRequest = { context: captureEntityMutationContext(state), revision: csvUploadState.revision };
+  els.csvUploadFile?.click();
 }
 
 function bindCsvControls() {
@@ -3329,11 +3650,13 @@ function bindCsvControls() {
     els.csvUploadBackdrop._bound = true;
   }
   if (els.csvDropzone && !els.csvDropzone._bound) {
-    els.csvDropzone.addEventListener("click", () => els.csvUploadFile?.click());
+    els.csvDropzone.addEventListener("click", (event) => {
+      if (event.target !== els.csvUploadFile) openCsvFilePicker();
+    });
     els.csvDropzone.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
       event.preventDefault();
-      els.csvUploadFile?.click();
+      openCsvFilePicker();
     });
     const preventDropDefaults = (event) => {
       event.preventDefault();
@@ -3358,8 +3681,17 @@ function bindCsvControls() {
     els.csvDropzone._bound = true;
   }
   if (els.csvUploadFile && !els.csvUploadFile._bound) {
+    els.csvUploadFile.addEventListener("cancel", () => { csvPickerRequest = null; });
     els.csvUploadFile.addEventListener("change", () => {
+      const request = csvPickerRequest;
+      csvPickerRequest = null;
       const file = els.csvUploadFile?.files?.[0] || null;
+      if (!request || request.revision !== csvUploadState.revision
+          || !isEntityMutationContextCurrent(state, request.context)
+          || els.csvUploadModal?.classList.contains("hidden")) {
+        els.csvUploadFile.value = "";
+        return;
+      }
       setCsvUploadFile(file);
     });
     els.csvUploadFile._bound = true;
@@ -3375,26 +3707,41 @@ function bindCsvControls() {
   }
   if (els.csvSubmitUpload && !els.csvSubmitUpload._bound) {
     els.csvSubmitUpload.addEventListener("click", async () => {
+      if (els.csvSubmitUpload.disabled) return;
       const kind = csvUploadState.kind || "";
       if (!kind) return;
       const file = csvUploadState.file;
+      if (file && (!csvUploadState.fileContext || !isEntityMutationContextCurrent(state, csvUploadState.fileContext))) {
+        setCsvUploadStatus("The session or space changed. Select the file again.", "error");
+        return;
+      }
+      const context = captureEntityMutationContext(state);
+      const revision = csvUploadState.revision;
       const resultEl = csvImportResultElement(kind);
-      const result = await uploadCsvFile(kind, file, resultEl);
-      setCsvUploadStatus(result.message, result.ok ? "success" : "error");
-      if (result.ok) {
-        closeCsvUploadModal();
+      els.csvSubmitUpload.disabled = true;
+      try {
+        const result = await uploadCsvFile(kind, file, resultEl);
+        if (result.stale || revision !== csvUploadState.revision || !isEntityMutationContextCurrent(state, context)) return;
+        if (result.refreshFailed) setCsvUploadFile(null);
+        setCsvUploadStatus(result.message, result.ok ? "success" : "error");
+        if (result.ok) closeCsvUploadModal();
+      } finally {
+        if (revision === csvUploadState.revision) els.csvSubmitUpload.disabled = false;
       }
     });
     els.csvSubmitUpload._bound = true;
   }
   if (els.csvUploadModal && !els.csvUploadModal._escapeBound) {
     document.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented
+          || (els.idleModal && !els.idleModal.classList.contains("hidden"))
+          || (els.confirmModal && !els.confirmModal.classList.contains("hidden"))) return;
       if (els.csvActionsMenu && !els.csvActionsMenu.classList.contains("hidden")) {
         closeCsvMenu();
         return;
       }
       if (els.csvUploadModal.classList.contains("hidden")) return;
+      event.preventDefault();
       closeCsvUploadModal();
     });
     els.csvUploadModal._escapeBound = true;
@@ -3405,10 +3752,20 @@ function bindCsvControls() {
     );
   }
   if (els.rosterUpload && els.rosterFile) {
-    els.rosterUpload.addEventListener("click", () => els.rosterFile?.click());
-    els.rosterFile.addEventListener("change", () =>
-      uploadCsv("users", els.rosterFile, els.rosterImportResult)
-    );
+    els.rosterUpload.addEventListener("click", () => {
+      rosterPickerRequest = captureEntityMutationContext(state);
+      els.rosterFile?.click();
+    });
+    els.rosterFile.addEventListener("cancel", () => { rosterPickerRequest = null; });
+    els.rosterFile.addEventListener("change", () => {
+      const context = rosterPickerRequest;
+      rosterPickerRequest = null;
+      if (!context || !isEntityMutationContextCurrent(state, context)) {
+        els.rosterFile.value = "";
+        return;
+      }
+      void uploadCsv("users", els.rosterFile, els.rosterImportResult);
+    });
   }
 }
 
@@ -3601,6 +3958,19 @@ function restoreTasksWorkbenchUiState() {
   if (recovered || !Object.keys(stored || {}).length) persistTasksWorkbenchUiState();
 }
 
+function restoreSpaceViewState() {
+  restoreWorkspaceViewPreferences();
+  restoreMasterViewState();
+  restoreCalendarViewState();
+  restoreGanttViewState();
+  restoreKanbanViewState();
+  restoreTeamCapacityViewState();
+  restoreSpaceGovernanceViewState();
+  restoreTasksWorkbenchUiState();
+  loadTasksWorkbenchSavedViews(createTasksWorkbenchContext());
+  updateTasksWorkbenchSavedViewsUI(createTasksWorkbenchContext());
+}
+
 function restoreWorkspaceViewPreferences() {
   const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(WORKSPACE_VIEW_PREFS_KEY_PREFIX), {});
   const nextShowCompleted = stored.showCompleted === true;
@@ -3720,16 +4090,16 @@ function effectiveDirectorySpaces() {
   return Array.from(merged.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
-function closeSpaceCreateModal() {
-  return spaceGovernanceController?.closeSpaceCreateModal();
+function closeSpaceCreateModal(options) {
+  return spaceGovernanceController?.closeSpaceCreateModal(options);
 }
 
-function closeSpaceMemberModal() {
-  return spaceGovernanceController?.closeSpaceMemberModal();
+function closeSpaceMemberModal(options) {
+  return spaceGovernanceController?.closeSpaceMemberModal(options);
 }
 
-function closeSpaceDirectoryModal() {
-  return spaceGovernanceController?.closeSpaceDirectoryModal();
+function closeSpaceDirectoryModal(options) {
+  return spaceGovernanceController?.closeSpaceDirectoryModal(options);
 }
 
 function renderSpaceDirectoryModal() {
@@ -3758,10 +4128,9 @@ async function refreshSpaceMembers(spaceId, options = {}) {
 async function refreshAgentChangeRequests(options = {}) {
   // Live-sync catch-up can request governance data before the route is visited.
   if (!spaceGovernanceController) {
-    const user = state.user;
-    const spaceId = activeSpaceId();
+    const context = captureEntityMutationContext(state);
     const mod = await ensureRouteModule("spaces");
-    if (!state.authed || state.user !== user || activeSpaceId() !== spaceId) return;
+    if (!state.authed || !isEntityMutationContextCurrent(state, context)) return;
     if (!mod) throw new Error("Space governance module failed to load.");
   }
   return spaceGovernanceController.refreshAgentChangeRequests(options);
@@ -3865,7 +4234,6 @@ function init() {
   bindProgramForm();
   bindProjectForm();
   bindSolutionForm();
-  bindTaskRefreshDraft(els.taskForm);
   bindTaskForm();
   bindSolutionTabs();
   bindSolutionDocumentControls();

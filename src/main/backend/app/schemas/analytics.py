@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -26,6 +26,16 @@ class UsageEventIn(BaseModel):
     duration_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
     status_code: Optional[int] = Field(default=None, ge=100, le=599)
     details: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def _require_supported_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            try:
+                value.astimezone(timezone.utc)
+            except OverflowError:
+                raise ValueError("occurred_at is outside the supported UTC range") from None
+        return value
 
     @field_validator("session_id", "view_key", "category", "feature_key", "action_key", "outcome", mode="before")
     @classmethod
@@ -53,6 +63,16 @@ class PerformanceSampleIn(BaseModel):
     cls_score: Optional[float] = Field(default=None, ge=0, le=10)
     long_task_count: Optional[int] = Field(default=None, ge=0, le=100000)
     long_task_total_ms: Optional[int] = Field(default=None, ge=0, le=_MAX_DURATION_MS)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def _require_supported_timestamp(cls, value: datetime) -> datetime:
+        if value.tzinfo is not None:
+            try:
+                value.astimezone(timezone.utc)
+            except OverflowError:
+                raise ValueError("occurred_at is outside the supported UTC range") from None
+        return value
 
     @field_validator("session_id", "view_key", "sample_kind", "navigation_type", mode="before")
     @classmethod

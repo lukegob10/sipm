@@ -36,6 +36,7 @@ function taskController(api) {
     authed: true,
     solutions: [{ solution_id: "solution-1", project_id: "project-1" }],
     tasks: [],
+    myWork: { records: [], loading: true, loadRequestId: 7 },
   };
   const els = {
     taskForm: document.getElementById("task-form"),
@@ -59,8 +60,6 @@ function taskController(api) {
     updateTaskRepoPreview: vi.fn(),
     clearDeliverableFormNotice: vi.fn(),
     setDeliverableFormNotice: vi.fn(),
-    markIgnoreRefresh: vi.fn(),
-    ignoreNextRefresh: new Set(),
     upsertById: vi.fn((rows, saved, idKey) => {
       const index = rows.findIndex((row) => row[idKey] === saved[idKey]);
       if (index === -1) rows.push(saved);
@@ -90,6 +89,20 @@ function deferred() {
 }
 
 describe("task workbench form request races", () => {
+  it("reports newer unsaved edits after an existing task save", async () => {
+    const pending = deferred();
+    const { controller, deps } = taskController(vi.fn(() => pending.promise));
+    controller.bindTaskForm();
+    controller.fillTaskForm({ task_id: "t", project_id: "project-1", solution_id: "solution-1", task_name: "Original", status: "to_do" });
+    const name = deps.els.taskForm.querySelector('[name="task_name"]');
+    name.value = "Submitted";
+    submit(deps.els.taskForm);
+    name.value = "Newer draft";
+    pending.resolve({ task_id: "t", project_id: "project-1", solution_id: "solution-1", task_name: "Submitted", status: "to_do" });
+    await vi.waitFor(() => expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(deps.els.taskFormStatus, "Saved task; you have unsaved edits.", "success", 0));
+    expect(name.value).toBe("Newer draft");
+  });
+
   it("sends one create and preserves a newer draft without leaving it in create mode", async () => {
     let resolveRequest;
     const api = vi.fn(() => new Promise((resolve) => { resolveRequest = resolve; }));
@@ -122,6 +135,10 @@ describe("task workbench form request races", () => {
     expect(taskName.value).toBe("Next draft");
     expect(deps.els.taskSubmitBtn.textContent).toBe("Save Changes");
     expect(deps.els.taskSubmitBtn.disabled).toBe(false);
+    expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(deps.els.taskFormStatus, "Created task; you have unsaved edits.", "success", 0);
+    expect(deps.state.myWork.records).toBeNull();
+    expect(deps.state.myWork.loading).toBe(false);
+    expect(deps.state.myWork.loadRequestId).toBeGreaterThan(7);
   });
 
   it("ignores a task response after the active space changes", async () => {
@@ -146,9 +163,11 @@ describe("task workbench form request races", () => {
     await vi.waitFor(() => expect(deps.els.taskSubmitBtn.disabled).toBe(false));
     expect(deps.upsertById).not.toHaveBeenCalled();
     expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
+    expect(deps.state.myWork.records).toEqual([]);
+    expect(deps.state.myWork.loadRequestId).toBe(7);
   });
 
-  it("does not mark a task refresh when deletion is cancelled", async () => {
+  it("does not render when task deletion is cancelled", async () => {
     const { controller, deps } = taskController(vi.fn());
     deps.deleteTasksById.mockResolvedValue({ cancelled: true, deletedIds: [], failed: [] });
     controller.bindTaskForm();
@@ -162,7 +181,6 @@ describe("task workbench form request races", () => {
     deps.els.deleteTaskBtn.click();
 
     await vi.waitFor(() => expect(deps.deleteTasksById).toHaveBeenCalledOnce());
-    expect(deps.markIgnoreRefresh).not.toHaveBeenCalled();
     expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
   });
 
@@ -252,7 +270,7 @@ describe("task workbench form request races", () => {
     expect(deps.renderDashboard).not.toHaveBeenCalled();
   });
 
-  it("does not clear a new space's refresh marker when an old delete rejects", async () => {
+  it("does not render an old delete failure in a new space", async () => {
     const pendingDelete = deferred();
     const { controller, deps } = taskController(vi.fn());
     deps.deleteTasksById.mockReturnValue(pendingDelete.promise);
@@ -266,11 +284,9 @@ describe("task workbench form request races", () => {
 
     deps.els.deleteTaskBtn.click();
     deps.state.activeSpace = { space_id: "space-2" };
-    deps.ignoreNextRefresh.add("tasks");
     pendingDelete.reject(new Error("Old request failed"));
     await Promise.resolve();
 
-    expect(deps.ignoreNextRefresh.has("tasks")).toBe(true);
     expect(deps.setDeliverableFormNotice).not.toHaveBeenCalled();
     expect(deps.renderSolutionTasks).not.toHaveBeenCalled();
   });

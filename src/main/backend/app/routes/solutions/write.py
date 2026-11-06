@@ -13,6 +13,7 @@ from ...phase_catalog import get_canonical_phase
 from ...schemas import SolutionCreate, SolutionRead, SolutionUpdate
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_str, parse_priority
 from ...utils.enums import RagStatus, SolutionStatus
 from ...services.mutations import commit_refresh_and_publish, commit_session
@@ -42,6 +43,8 @@ def _required_solution_name(value: object) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="solution_name is required",
         )
+    if len(solution_name) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="solution_name must be 255 characters or fewer")
     return solution_name
 
 
@@ -52,6 +55,8 @@ def _required_solution_version(value: object) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="version is required",
         )
+    if len(version) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="version must be 255 characters or fewer")
     return version
 
 
@@ -74,6 +79,7 @@ def create_solution(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     _ensure_project_exists(session, project_id, space_ctx)
     solution_name = _required_solution_name(payload.solution_name)
 
@@ -86,7 +92,7 @@ def create_solution(
                 detail=f"current_phase '{current_phase}' does not exist",
             )
 
-    version = normalize_str(payload.version) or "0.1.0"
+    version = _required_solution_version(normalize_str(payload.version) or "0.1.0")
     try:
         github_repo_url = normalize_github_repo_url(payload.github_repo_url)
     except ValueError as exc:
@@ -106,6 +112,7 @@ def create_solution(
 
     conflict = (
         _solution_query(session, space_ctx)
+        .with_entities(Solution.solution_id)
         .filter(Solution.project_id == project_id)
         .filter(Solution.solution_name == solution_name)
         .filter(Solution.version == version)
@@ -236,9 +243,10 @@ def update_solution(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    update_data = payload.model_dump(exclude_unset=True)
+    lock_work_space(session, space_ctx, current_user)
     solution = _get_solution_or_404(session, solution_id, space_ctx)
 
-    update_data = payload.model_dump(exclude_unset=True)
     rag_updates = {k: update_data.pop(k) for k in list(update_data.keys()) if k in {"rag_status", "rag_reason"}}
     if "solution_name" in update_data:
         update_data["solution_name"] = _required_solution_name(update_data["solution_name"])
@@ -274,6 +282,7 @@ def update_solution(
         next_version = update_data.get("version", solution.version)
         conflict = (
             _solution_query(session, space_ctx)
+            .with_entities(Solution.solution_id)
             .filter(Solution.project_id == next_project_id)
             .filter(Solution.solution_name == next_solution_name)
             .filter(Solution.version == next_version)
@@ -356,11 +365,13 @@ def update_solution(
         "github_repo_url" in update_data and before.get("github_repo_url") != solution.github_repo_url
     )
     commit_session(session)
-    session.refresh(solution)
-    _publish_solution_mutation(
-        space_ctx.space_id,
-        invalidate_tasks=invalidate_tasks,
-    )
+    try:
+        session.refresh(solution)
+    finally:
+        _publish_solution_mutation(
+            space_ctx.space_id,
+            invalidate_tasks=invalidate_tasks,
+        )
     return _solution_payload(solution)
 
 
@@ -374,6 +385,7 @@ def delete_solution(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     solution = _get_solution_or_404(session, solution_id, space_ctx)
     now = datetime.now(timezone.utc)
     previous_name = solution.solution_name

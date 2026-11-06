@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import (
     http_exception_handler,
-    request_validation_exception_handler,
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -104,11 +104,22 @@ async def agent_http_exception_handler(request: Request, exc: StarletteHTTPExcep
     )
 
 
+def _json_safe_validation_value(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, list):
+        return [_json_safe_validation_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_safe_validation_value(item) for key, item in value.items()}
+    return value
+
+
 async def agent_request_validation_exception_handler(
     request: Request, exc: RequestValidationError
 ):
+    errors = _json_safe_validation_value(jsonable_encoder(exc.errors()))
     if not _is_agent_request(request):
-        return await request_validation_exception_handler(request, exc)
+        return JSONResponse(status_code=422, content={"detail": errors})
 
     code = "REQUEST_VALIDATION_ERROR"
     return JSONResponse(
@@ -118,7 +129,7 @@ async def agent_request_validation_exception_handler(
                 request,
                 code=code,
                 message="Agent request validation failed",
-                details={"errors": exc.errors()},
+                details={"errors": errors},
             )
         ),
         headers={ERROR_CODE_HEADER: code},

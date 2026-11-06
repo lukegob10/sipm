@@ -19,8 +19,14 @@ export function renderMasterQuickstart(ctx, rowCount = 0) {
     ? (state.projects || []).filter((project) => isClosedProjectStatus(project.status)).length
       + (state.solutions || []).filter((solution) => isClosedSolutionStatus(solution.status)).length
     : 0;
+  const projects = state.projects || [];
+  const visibleProjectIds = new Set(projects
+    .filter((project) => showCompletedOperationalWork() || !isClosedProjectStatus(project.status))
+    .map((project) => project.project_id));
+  const hasVisibleDeliverables = visibleProjectIds.size > 0
+    || (state.solutions || []).some((solution) => showCompletedOperationalWork() || !isClosedSolutionStatus(solution.status));
 
-  if (hasRows) {
+  if (hasRows && hasVisibleDeliverables) {
     els.masterQuickstart.classList.add("hidden");
     els.masterQuickstart.innerHTML = "";
     return;

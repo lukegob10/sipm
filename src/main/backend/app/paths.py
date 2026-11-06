@@ -7,9 +7,8 @@ DEFAULT_CONTEXT_PATH = "/project-manager"
 
 def normalize_context_path(value: str | None) -> str:
     raw = str(value or "").strip()
-    if not raw or raw == "/":
-        return ""
-    return f"/{raw.strip('/')}"
+    normalized = raw.strip("/")
+    return f"/{normalized}" if normalized else ""
 
 
 APP_CONTEXT_PATH = normalize_context_path(os.getenv("SIPM_CONTEXT_PATH", DEFAULT_CONTEXT_PATH))

@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import Query
-from sqlalchemy import and_, case, func, inspect, literal, or_, select, union
+from sqlalchemy import and_, bindparam, case, func, inspect, literal, or_, select, union, update
 
 from ..db.table_names import physical_table_name
 from ..models import (
@@ -277,6 +277,11 @@ def analytics_window_start(days: int) -> datetime:
     return datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc).replace(tzinfo=None)
 
 
+def _analytics_window_end() -> datetime:
+    tomorrow = datetime.now(timezone.utc).date() + timedelta(days=1)
+    return datetime.combine(tomorrow, datetime.min.time())
+
+
 def analytics_scope_read(*, days: int, all_spaces: bool, scope_space_id: str | None) -> dict:
     return {
         "days": days,
@@ -294,7 +299,7 @@ def _non_personal_space_ids_select():
 
 
 def _base_filters(model, *, since: datetime, scope_space_id: str | None) -> list:
-    filters = [model.occurred_at >= since]
+    filters = [model.occurred_at >= since, model.occurred_at < _analytics_window_end()]
     if scope_space_id:
         filters.append(model.space_id == scope_space_id)
     else:
@@ -326,17 +331,19 @@ def _rollup_space_filter(model, *, scope_space_id: str | None) -> list:
 def _rollup_date_filters(model, *, since: datetime, scope_space_id: str | None) -> list:
     return [
         model.rollup_date >= since.date(),
+        model.rollup_date < _analytics_window_end().date(),
         *_rollup_space_filter(model, scope_space_id=scope_space_id),
     ]
 
 
 def _rollups_have_data(session, *, since: datetime, scope_space_id: str | None) -> bool:
     value = session.execute(
-        select(func.count())
+        select(literal(1))
         .select_from(UsageDailyRollup)
         .where(*_rollup_date_filters(UsageDailyRollup, since=since, scope_space_id=scope_space_id))
+        .limit(1)
     ).scalar()
-    return _int_value(value) > 0
+    return value is not None
 
 
 def _event_rollup_key(event: UsageEvent) -> tuple:
@@ -386,6 +393,7 @@ def _load_existing_rollups(
 
 
 def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iterable[PerformanceSample]) -> None:
+    """Update rollups in the caller's transaction; retry that transaction on insert conflicts."""
     event_totals: dict[tuple, dict[str, object]] = {}
     identity_keys: set[tuple[date, str, str, str]] = set()
     route_identity_keys: set[tuple[date, str, str, str, str]] = set()
@@ -461,7 +469,10 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
         key_columns=("rollup_date", "space_id", "view_key", "token_type", "token_value"),
         keys=route_identity_keys,
     )
-    for key, totals in event_totals.items():
+    existing_updates = []
+    existing_rows = []
+    for key in sorted(event_totals):
+        totals = event_totals[key]
         rollup = event_rollups.get(key)
         if rollup is None:
             rollup = UsageDailyRollup(
@@ -480,6 +491,16 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
                 last_occurred_at=totals["last_occurred_at"],
             )
             session.add(rollup)
+        elif rollup not in session.new:
+            if session.is_modified(rollup, include_collections=False):
+                session.flush([rollup])
+            existing_rows.append(rollup)
+            existing_updates.append({
+                **dict(zip(("rollup_date", "space_id", "view_key", "category", "feature_key", "action_key", "outcome"), key)),
+                **totals,
+                "updated_at": now,
+            })
+            continue
         rollup.event_count += int(totals["event_count"])
         rollup.route_view_count += int(totals["route_view_count"])
         rollup.workflow_action_count += int(totals["workflow_action_count"])
@@ -489,7 +510,39 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
             rollup.last_occurred_at = totals["last_occurred_at"]
         rollup.updated_at = now
 
-    for key in identity_keys:
+    if existing_updates:
+        table = UsageDailyRollup.__table__
+        key_columns = ("rollup_date", "space_id", "view_key", "category", "feature_key", "action_key", "outcome")
+        count_columns = ("event_count", "route_view_count", "workflow_action_count", "success_count", "failure_count")
+        statement = (
+            update(table)
+            .where(*(table.c[name] == bindparam(f"key_{name}", type_=table.c[name].type) for name in key_columns))
+            .values(
+                **{name: table.c[name] + bindparam(f"delta_{name}", type_=table.c[name].type) for name in count_columns},
+                last_occurred_at=case(
+                    (table.c.last_occurred_at < bindparam("latest", type_=table.c.last_occurred_at.type),
+                     bindparam("latest", type_=table.c.last_occurred_at.type)),
+                    else_=table.c.last_occurred_at,
+                ),
+                updated_at=bindparam("changed_at", type_=table.c.updated_at.type),
+            )
+        )
+        parameters = [
+            {
+                **{f"key_{name}": row[name] for name in key_columns},
+                **{f"delta_{name}": row[name] for name in count_columns},
+                "latest": row["last_occurred_at"],
+                "changed_at": row["updated_at"],
+            }
+            for row in existing_updates
+        ]
+        # Updating counters in SQL avoids overwriting a concurrent increment.
+        # One executemany call keeps the 100-event batch bounded.
+        session.connection().execute(statement, parameters)
+        for rollup in existing_rows:
+            session.expire(rollup, [*count_columns, "last_occurred_at", "updated_at"])
+
+    for key in sorted(identity_keys):
         if key not in identity_rollups:
             session.add(
                 UsageIdentityDailyRollup(
@@ -501,7 +554,7 @@ def update_usage_rollups(session, *, events: Iterable[UsageEvent], samples: Iter
                 )
             )
 
-    for key in route_identity_keys:
+    for key in sorted(route_identity_keys):
         if key not in route_identity_rollups:
             session.add(
                 UsageRouteIdentityDailyRollup(
@@ -574,9 +627,15 @@ def _distinct_token_count(session, *, token_name: str, since: datetime, scope_sp
     sample_token = getattr(PerformanceSample, token_name)
     event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
     sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    # Performance-only batches retain identities even when event rollups are absent.
+    identity_filters = _rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id)
     tokens = union(
-        select(event_token.label("token")).where(*event_filters, event_token.isnot(None), event_token != ""),
-        select(sample_token.label("token")).where(*sample_filters, sample_token.isnot(None), sample_token != ""),
+        select(event_token.label("token")).where(*event_filters, event_token.isnot(None), func.length(event_token) > 0),
+        select(sample_token.label("token")).where(*sample_filters, sample_token.isnot(None), func.length(sample_token) > 0),
+        select(UsageIdentityDailyRollup.token_value.label("token")).where(
+            *identity_filters,
+            UsageIdentityDailyRollup.token_type == token_name.removesuffix("_id"),
+        ),
     ).subquery()
     value = session.execute(select(func.count()).select_from(tokens)).scalar()
     return _int_value(value)
@@ -595,16 +654,24 @@ def _daily_distinct_token_counts(
     sample_bucket = _date_bucket_expr(session, PerformanceSample.occurred_at).label("bucket")
     event_filters = _base_filters(UsageEvent, since=since, scope_space_id=scope_space_id)
     sample_filters = _base_filters(PerformanceSample, since=since, scope_space_id=scope_space_id)
+    identity_filters = _rollup_date_filters(UsageIdentityDailyRollup, since=since, scope_space_id=scope_space_id)
     tokens = union(
         select(event_bucket, event_token.label("token")).where(
             *event_filters,
             event_token.isnot(None),
-            event_token != "",
+            func.length(event_token) > 0,
         ),
         select(sample_bucket, sample_token.label("token")).where(
             *sample_filters,
             sample_token.isnot(None),
-            sample_token != "",
+            func.length(sample_token) > 0,
+        ),
+        select(
+            UsageIdentityDailyRollup.rollup_date.label("bucket"),
+            UsageIdentityDailyRollup.token_value.label("token"),
+        ).where(
+            *identity_filters,
+            UsageIdentityDailyRollup.token_type == token_name.removesuffix("_id"),
         ),
     ).subquery()
     rows = session.execute(

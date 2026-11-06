@@ -16,7 +16,7 @@ function dashboardPayload(sessions) {
       summary: { sessions },
       daily: [],
     },
-    routes: {},
+    routes: { top_routes: [], top_workflows: [], recent_failures: [] },
     performance: { summary: {}, routes: [] },
   };
 }

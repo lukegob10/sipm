@@ -70,8 +70,8 @@ def list_projects(
         if owner_user_soeid:
             query = query.filter(Project.owner_user_soeid == owner_user_soeid)
         return [
-            _project_payload(project, program_name=program.program_name)
-            for project, program in query.with_entities(Project, Program).all()
+            _project_payload(project, program_name=program_name)
+            for project, program_name in query.with_entities(Project, Program.program_name).all()
         ]
 
     return cached_call(
@@ -97,14 +97,14 @@ def get_project(
 
     def _load():
         project = _get_project_or_404(session, project_id, space_ctx)
-        program = (
-            session.query(Program)
+        program_name_row = (
+            session.query(Program.program_name)
             .filter(Program.program_id == project.program_id)
             .filter(Program.deleted_at.is_(None))
             .filter(Program.space_id == space_ctx.space_id)
             .first()
         )
-        return _project_payload(project, program_name=program.program_name if program else None)
+        return _project_payload(project, program_name=program_name_row[0] if program_name_row else None)
 
     return cached_call(
         endpoint="projects:detail",

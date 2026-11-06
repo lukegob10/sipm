@@ -1,6 +1,17 @@
 import pytest
 
-from backend.app.models import User
+from backend.app.models import Space, User
+
+
+@pytest.fixture(autouse=True)
+def seed_import_admin(db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add_all([
+            Space(space_id="test-space", name="Test Space", slug="test-space"),
+            User(user_id="test-user", soeid="tu12345", email="admin@example.com",
+                 display_name="Test User", password_hash="unused", role="global_admin", is_active=True),
+        ])
+        session.commit()
 
 
 @pytest.mark.anyio
@@ -20,7 +31,7 @@ async def test_user_import_rejects_rows_with_more_values_than_headers(client, db
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("column", ["capacity_fte_month", "capacity_hours"])
-@pytest.mark.parametrize("invalid_capacity", ["nan", "inf", "-inf", "1e309"])
+@pytest.mark.parametrize("invalid_capacity", ["nan", "inf", "-inf", "1e309", "1e100"])
 @pytest.mark.parametrize("dry_run", [False, True])
 async def test_user_import_rejects_nonfinite_capacity_and_keeps_valid_rows(
     client, db_sessionmaker, column, invalid_capacity, dry_run

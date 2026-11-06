@@ -14,6 +14,7 @@ from ...deps import (
     require_agent_or_interactive_user,
     require_agent_or_user_space_role,
     require_agent_api_token,
+    require_agent_space_role,
     require_human_delegated_token,
     require_delegated_human_space_role,
     require_interactive_user,
@@ -61,6 +62,7 @@ def submit_agent_change_request(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
+    _authz: SpaceContext = Depends(require_agent_space_role("member")),
 ):
     return create_change_request(session, space_ctx, current_user, payload)
 
@@ -141,6 +143,7 @@ def update_agent_change_request(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
+    _authz: SpaceContext = Depends(require_agent_space_role("member")),
 ):
     return update_change_request(
         session,
@@ -195,7 +198,7 @@ def cancel_agent_change_request(
 )
 def approve_agent_change_request(
     change_request_id: str,
-    payload: AgentChangeRequestReview | None = None,
+    payload: AgentChangeRequestReview,
     session: Session = Depends(get_db),
     current_user: User = Depends(require_interactive_user),
     space_ctx: SpaceContext = Depends(current_space_dep),
@@ -206,7 +209,8 @@ def approve_agent_change_request(
         space_ctx,
         current_user,
         change_request_id,
-        review_note=payload.review_note if payload else None,
+        review_note=payload.review_note,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
 
 
@@ -222,7 +226,7 @@ def delegated_approve_agent_change_request(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_human_delegated_token),
     space_ctx: SpaceContext = Depends(current_delegated_human_space),
-    _authz: SpaceContext = Depends(require_delegated_human_space_role("member")),
+    _authz: SpaceContext = Depends(require_delegated_human_space_role("member", block_lobby_work_write=True)),
 ):
     verify_delegated_review_confirmation(
         session,
@@ -230,6 +234,7 @@ def delegated_approve_agent_change_request(
         change_request_id,
         confirmed_change_request_id=payload.confirm_change_request_id,
         if_request_updated_at=payload.if_request_updated_at,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
     return approve_change_request(
         session,
@@ -237,6 +242,7 @@ def delegated_approve_agent_change_request(
         current_user,
         change_request_id,
         review_note=payload.review_note,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
 
 
@@ -261,6 +267,7 @@ def approve_selected_agent_change_request_operations(
         change_request_id,
         payload.client_operation_ids,
         review_note=payload.review_note,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
 
 
@@ -272,7 +279,7 @@ def approve_selected_agent_change_request_operations(
 )
 def reject_agent_change_request(
     change_request_id: str,
-    payload: AgentChangeRequestReview | None = None,
+    payload: AgentChangeRequestReview,
     session: Session = Depends(get_db),
     current_user: User = Depends(require_interactive_user),
     space_ctx: SpaceContext = Depends(current_space_dep),
@@ -283,7 +290,8 @@ def reject_agent_change_request(
         space_ctx,
         current_user,
         change_request_id,
-        review_note=payload.review_note if payload else None,
+        review_note=payload.review_note,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
 
 
@@ -307,6 +315,7 @@ def delegated_reject_agent_change_request(
         change_request_id,
         confirmed_change_request_id=payload.confirm_change_request_id,
         if_request_updated_at=payload.if_request_updated_at,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
     return reject_change_request(
         session,
@@ -314,6 +323,7 @@ def delegated_reject_agent_change_request(
         current_user,
         change_request_id,
         review_note=payload.review_note,
+        if_request_fingerprint=payload.if_request_fingerprint,
     )
 
 
@@ -336,6 +346,7 @@ def approve_selected_agent_change_requests(
         current_user,
         payload.change_request_ids,
         review_note=payload.review_note,
+        if_request_fingerprints=payload.if_request_fingerprints,
     )
 
 
@@ -358,4 +369,5 @@ def reject_selected_agent_change_requests(
         current_user,
         payload.change_request_ids,
         review_note=payload.review_note,
+        if_request_fingerprints=payload.if_request_fingerprints,
     )

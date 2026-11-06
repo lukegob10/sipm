@@ -47,12 +47,13 @@ def configure_sqlite_runtime(temp_dir: Path) -> None:
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sipm-ui-smoke-") as temp_dir:
-        configure_sqlite_runtime(Path(temp_dir))
-        port = int(os.getenv("SIPM_UI_SMOKE_PORT", "8000"))
         try:
+            configure_sqlite_runtime(Path(temp_dir))
+            port = int(os.getenv("SIPM_UI_SMOKE_PORT", "8000"))
             uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
         finally:
-            db_module.engine.dispose()
+            if db_module.engine is not None:
+                db_module.engine.dispose()
             db_module.engine = None
             db_module.SessionLocal = None
 

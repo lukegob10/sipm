@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy.orm import Session
 
 from backend.app import deps as deps_module
 from backend.app.models import SolutionDocument
@@ -26,6 +27,50 @@ async def upload_document(client, solution_id: str, *, name: str = "notes.txt", 
         f"/project-manager/api/solutions/{solution_id}/documents",
         files={"file": (name, content, "text/plain")},
     )
+
+
+def test_download_filename_header_excludes_ascii_control_characters():
+    header = solution_documents_route._content_disposition("report\x00\x1f\x7f.txt")
+    assert all(32 <= ord(char) <= 126 for char in header)
+    assert "report%00%1F%7F.txt" in header
+
+
+@pytest.mark.anyio
+async def test_document_upload_returns_committed_metadata_without_post_commit_refresh(client, db_sessionmaker, monkeypatch):
+    solution = await create_solution(client)
+    published = []
+    original_refresh = Session.refresh
+
+    def fail_document_refresh(session, instance, *args, **kwargs):
+        if isinstance(instance, SolutionDocument):
+            raise RuntimeError("refresh failed")
+        return original_refresh(session, instance, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "refresh", fail_document_refresh)
+    monkeypatch.setattr(solution_documents_route, "_publish_solution_mutation", published.append)
+    response = await upload_document(client, solution["solution_id"])
+    assert response.status_code == 201, response.text
+    assert response.json()["filename"] == "notes.txt"
+    assert published == ["test-space"]
+    with db_sessionmaker() as session:
+        assert session.query(SolutionDocument).filter_by(solution_id=solution["solution_id"]).count() == 1
+
+
+@pytest.mark.anyio
+async def test_document_upload_rolls_back_if_metadata_cannot_be_built(client, db_sessionmaker, monkeypatch):
+    solution = await create_solution(client)
+    published = []
+    monkeypatch.setattr(solution_documents_route, "_publish_solution_mutation", published.append)
+
+    def fail_payload(_document):
+        raise RuntimeError("metadata failed")
+
+    monkeypatch.setattr(solution_documents_route, "_document_payload", fail_payload)
+    with pytest.raises(RuntimeError, match="metadata failed"):
+        await upload_document(client, solution["solution_id"])
+    assert published == []
+    with db_sessionmaker() as session:
+        assert session.query(SolutionDocument).filter_by(solution_id=solution["solution_id"]).count() == 0
 
 
 @pytest.mark.anyio
@@ -89,7 +134,8 @@ async def test_solution_document_upload_rejects_missing_solution_and_oversized_f
 
 
 @pytest.mark.anyio
-async def test_solution_documents_are_space_scoped(client):
+async def test_solution_documents_are_space_scoped(client, seed_space_memberships):
+    seed_space_memberships("space-documents-a", "space-documents-b")
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(

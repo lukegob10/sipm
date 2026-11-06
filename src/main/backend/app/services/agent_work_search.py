@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 from fastapi import status
 from sqlalchemy import and_, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..models import Program, Project, Solution, Task
 from ..schemas.agent import AgentWorkItemListRead, AgentWorkItemSummary
@@ -116,7 +116,31 @@ def search_agent_work_items(
         "updated_since": updated_since_value,
         "lifecycle": lifecycle,
     }
-    query = session.query(model).filter(model.space_id == space_ctx.space_id)
+    # Summaries do not use the potentially large text fields on work items.
+    summary_columns = [
+        id_column, name_column, model.deleted_at, model.created_at, model.updated_at,
+    ]
+    summary_columns.extend(
+        column
+        for field in (
+            "program_id",
+            "project_id",
+            "solution_id",
+            "status",
+            "priority",
+            "due_date",
+            "owner_user_soeid",
+            "assignee_user_soeid",
+            "sponsor_user_soeid",
+            "approver_user_soeid",
+        )
+        if (column := getattr(model, field, None)) is not None
+    )
+    query = (
+        session.query(model)
+        .options(load_only(*summary_columns))
+        .filter(model.space_id == space_ctx.space_id)
+    )
     query = query.filter(
         model.deleted_at.isnot(None)
         if lifecycle == "archived"
@@ -136,7 +160,13 @@ def search_agent_work_items(
                 Solution.space_id == space_ctx.space_id,
                 Project.deleted_at.is_(None),
                 Project.space_id == space_ctx.space_id,
+                Task.project_id == Project.project_id,
             )
+        )
+    if lifecycle == "active" and entity_type in {"project", "solution", "task"}:
+        query = query.join(Program, Program.program_id == Project.program_id).filter(
+            Program.deleted_at.is_(None),
+            Program.space_id == space_ctx.space_id,
         )
     if normalized_id:
         query = query.filter(id_column == normalized_id)

@@ -478,7 +478,7 @@ CREATE TABLE "TB_TA_PM_TASKS" (
 	due_date DATE,
 	completed_at DATE,
 	assignee_user_soeid VARCHAR2(255 CHAR),
-	assignee VARCHAR2(255 CHAR) NOT NULL,
+	assignee VARCHAR2(255 CHAR),
 	github_repo_url VARCHAR2(1024 CHAR),
 	estimate_hours INTEGER,
 	blocked SMALLINT NOT NULL,

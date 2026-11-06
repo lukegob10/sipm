@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException, status
@@ -8,7 +8,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from ..models import Phase, Program, Project, Solution, SolutionPhase, Task
+from ..models import Phase, Program, Project, Solution, SolutionPhase, SpaceMembership, Task, User
+from ..security import security_http_exception
 from ..phase_catalog import CANONICAL_PHASE_IDS, get_canonical_phase
 from ..schemas import ProjectRead, SolutionRead, TaskRead
 from ..utils import enable_all_phases, normalize_str
@@ -18,7 +19,8 @@ from .mutations import publish_space_mutation
 from .programs import ensure_default_program
 from .realtime import schedule_broadcast
 from .smart_cache import invalidate_space
-from .spaces import SpaceContext
+from .spaces import SpaceContext, _normalize_space_role, is_global_admin_role, normalize_space_kind
+from .user_admin_guards import lock_global_admin_users, lock_space_admin_spaces
 
 PROJECTS_LIST_TTL_SECONDS = 20
 PROJECTS_DETAIL_TTL_SECONDS = 30
@@ -44,6 +46,35 @@ PROJECT_CREATE_AUDIT_FIELDS = (
 DUE_SOON_DAYS = 14
 STALE_DAYS = 7
 DONE_STATUSES = {TaskStatus.complete, TaskStatus.abandoned}
+
+
+def lock_work_space(session: Session, space_ctx: SpaceContext, actor: User) -> None:
+    """Serialize work mutations that must agree on hierarchy and access."""
+    if space_ctx.is_global_admin:
+        lock_global_admin_users(session)
+    spaces = lock_space_admin_spaces(session, [space_ctx.space_id])
+    if not spaces or spaces[0].deleted_at is not None or not spaces[0].is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space is not accessible")
+    if normalize_space_kind(spaces[0].space_kind) == "lobby":
+        raise security_http_exception(status_code=status.HTTP_400_BAD_REQUEST, code="LOBBY_SPACE_READ_ONLY", message="Home is for onboarding only. Create or join a working space first.")
+    current = session.query(User.role, User.is_active).filter(User.user_id == actor.user_id).first()
+    if not current or not current.is_active:
+        raise security_http_exception(status_code=status.HTTP_403_FORBIDDEN, code="FORBIDDEN_SPACE", message="Space is not accessible")
+    if space_ctx.is_global_admin and is_global_admin_role(current.role):
+        return
+    space = spaces[0]
+    if normalize_space_kind(space.space_kind) == "personal" and space.owner_user_id != actor.user_id:
+        raise security_http_exception(status_code=status.HTTP_403_FORBIDDEN, code="FORBIDDEN_SPACE", message="Space is not accessible")
+    membership = (
+        session.query(SpaceMembership.role)
+        .filter(SpaceMembership.space_id == space_ctx.space_id)
+        .filter(SpaceMembership.user_id == actor.user_id)
+        .filter(SpaceMembership.status == "active")
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .first()
+    )
+    if membership is None or _normalize_space_role(membership.role) not in {"member", "space_admin"}:
+        raise security_http_exception(status_code=status.HTTP_403_FORBIDDEN, code="FORBIDDEN_ROLE", message="Insufficient space role")
 
 
 def role_scope(space_ctx: SpaceContext) -> str:
@@ -399,8 +430,8 @@ def is_done_status(status_value: TaskStatus | str | None) -> bool:
     return raw in {TaskStatus.complete.value, TaskStatus.abandoned.value}
 
 
-def task_actionability(task: Task) -> dict:
-    today = datetime.now(timezone.utc).date()
+def task_actionability(task: Task, *, as_of: date | None = None) -> dict:
+    today = as_of if as_of is not None else datetime.now(timezone.utc).date()
     is_done = is_done_status(task.status)
     due_date = task.due_date
     updated_date = task.updated_at.date() if task.updated_at else today
@@ -413,7 +444,7 @@ def task_actionability(task: Task) -> dict:
 
     urgency_score = 0.0
     if not is_done:
-        priority = max(1, min(5, int(task.priority or 3)))
+        priority = max(1, min(5, int(task.priority if task.priority not in (None, "") else 3)))
         priority_score = (6 - priority) * 15
 
         due_score = 0
@@ -440,6 +471,7 @@ def task_payload(
     task: Task,
     *,
     solution_repo_url: Optional[str] = None,
+    actionability_date: date | None = None,
 ) -> dict:
     payload = TaskRead.model_validate(task).model_dump(mode="json")
     effective_repo_url, repo_source = resolve_effective_github_repo_url(
@@ -448,7 +480,7 @@ def task_payload(
     )
     payload["effective_github_repo_url"] = effective_repo_url
     payload["repo_source"] = repo_source
-    payload.update(task_actionability(task))
+    payload.update(task_actionability(task, as_of=actionability_date))
     return payload
 
 

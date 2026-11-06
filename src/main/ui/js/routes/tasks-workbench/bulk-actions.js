@@ -1,4 +1,7 @@
+import { beginTaskMutations } from "../../utils/form-state.js";
 import { updateTasksWorkbenchSelectionCount } from "./filters.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+import { invalidateMyWorkRecords } from "../../utils/my-work-state.js";
 
 export function syncTasksWorkbenchBulkInputs(ctx) {
   const { els, clearTasksWorkbenchBulkFeedback } = ctx;
@@ -18,13 +21,29 @@ export function syncTasksWorkbenchBulkInputs(ctx) {
 }
 
 export async function applyTasksWorkbenchBulkAction(ctx) {
+  const { state, els } = ctx;
+  const wb = state.tasksWorkbench;
+  const ids = Array.from(wb.selected);
+  if (!ids.length && els.tasksWorkbenchBulkAction?.value === "delete" && wb.activeTaskId) ids.push(wb.activeTaskId);
+  const release = beginTaskMutations(state, ids);
+  if (!release) {
+    ctx.setTasksWorkbenchBulkFeedback("A selected task is being updated. Wait for it to finish and try again.", "error");
+    return;
+  }
+  try {
+    await runTasksWorkbenchBulkAction(ctx, captureEntityMutationContext(state));
+  } finally {
+    release();
+  }
+}
+
+async function runTasksWorkbenchBulkAction(ctx, requestContext) {
   const {
     state,
     els,
     api,
     upsertById,
     deleteTasksById,
-    ignoreNextRefresh,
     renderTasksWorkbench,
     renderSolutionTasks,
     renderDashboard,
@@ -55,10 +74,7 @@ export async function applyTasksWorkbenchBulkAction(ctx) {
       title: deleteTargets.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
       confirmLabel: deleteTargets.length === 1 ? "Delete Task" : `Delete ${deleteTargets.length} Tasks`,
     });
-    if (result.cancelled) return;
-    if (!result.deletedIds.length) {
-      ignoreNextRefresh.delete("tasks");
-    }
+    if (result.cancelled || !isEntityMutationContextCurrent(state, requestContext)) return;
     renderTasksWorkbench();
     const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
@@ -98,24 +114,48 @@ export async function applyTasksWorkbenchBulkAction(ctx) {
     }
   } else if (action === "shift_due") {
     const shift = Number(els.tasksWorkbenchBulkShift?.value || "");
-    if (!Number.isFinite(shift) || Math.abs(shift) < 1) {
+    if (!Number.isSafeInteger(shift) || shift === 0) {
       setTasksWorkbenchBulkFeedback("Enter a due date shift in whole days (e.g. 3 or -2).", "error");
       return;
     }
-    payload.due_date_shift_days = Math.trunc(shift);
+    payload.due_date_shift_days = shift;
   } else {
     setTasksWorkbenchBulkFeedback("Unsupported bulk action.", "error");
     return;
   }
 
+  let receivedResponse = false;
   try {
     const updated = await api("/tasks/actions/batch", {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
-    (Array.isArray(updated) ? updated : []).forEach((row) => {
+    receivedResponse = true;
+    if (!isEntityMutationContextCurrent(state, requestContext)) return;
+    const expectedIds = new Set(selectedIds);
+    const returnedIds = new Set();
+    const validResponse = Array.isArray(updated) && updated.length === expectedIds.size
+      && updated.every((row) => {
+        if (!row || typeof row !== "object" || typeof row.task_id !== "string"
+            || !expectedIds.has(row.task_id) || returnedIds.has(row.task_id)
+            || typeof row.task_name !== "string" || typeof row.status !== "string"
+            || typeof row.project_id !== "string" || typeof row.solution_id !== "string"
+            || !Number.isFinite(row.priority)) return false;
+        returnedIds.add(row.task_id);
+        return true;
+      });
+    if (!validResponse) {
+      invalidateMyWorkRecords(state);
+      setTasksWorkbenchBulkFeedback(
+        "The server returned an incomplete response. The update may have succeeded; refresh before retrying.",
+        "error"
+      );
+      return;
+    }
+    updated.forEach((row) => {
       upsertById(state.tasks, row, "task_id");
     });
+    invalidateMyWorkRecords(state);
     renderTasksWorkbench();
     const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
     if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
@@ -127,6 +167,17 @@ export async function applyTasksWorkbenchBulkAction(ctx) {
       3200
     );
   } catch (err) {
-    setTasksWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");
+    if (!isEntityMutationContextCurrent(state, requestContext)) return;
+    const uncertain = receivedResponse || err?.code === "NETWORK_UNAVAILABLE"
+      || err?.status === 0 || err?.status === 408 || err?.status >= 500;
+    if (uncertain) {
+      invalidateMyWorkRecords(state);
+      setTasksWorkbenchBulkFeedback(
+        "The update may have succeeded. Refresh before retrying.",
+        "error"
+      );
+    } else {
+      setTasksWorkbenchBulkFeedback(`Bulk update failed: ${err.message || err}`, "error");
+    }
   }
 }

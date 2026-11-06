@@ -1,3 +1,5 @@
+import { formatUtcTimestamp } from "../utils/date-only.js";
+
 export const APP_CONTEXT_PATH = (() => {
   try {
     const modulePath = new URL(import.meta.url, window.location.href).pathname || "";
@@ -36,9 +38,7 @@ export function buildWsUrl(path = "/ws") {
 
 export function formatDateTime(value) {
   if (!value) return "";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return String(value);
-  return parsed.toLocaleString();
+  return formatUtcTimestamp(value) || String(value);
 }
 
 export function buildResetPageUrl() {

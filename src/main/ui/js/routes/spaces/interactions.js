@@ -1,4 +1,6 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent, isSameMutationSession } from "../../utils/form-state.js";
 import {
+  AGENT_BULK_REVIEW_LIMIT,
   captureAgentChangeRequestContext,
   clearAgentChangeRequestData,
   sameAgentChangeRequestContext,
@@ -30,29 +32,63 @@ export function createSpaceGovernanceController({
   buildResetPageUrl,
   trackWorkflow = null,
 }) {
-  let globalAdminsInFlight = null;
-  const spaceMembersInFlight = {};
   const apiTokensInFlight = {};
+  const apiTokensContexts = {};
   let agentChangeRequestsInFlight = null;
-  let requestableSpacesInFlight = null;
-  let accessRequestsInFlight = null;
-  let reviewableAccessRequestsInFlight = null;
+  let passwordResetInFlight = null;
+  let accessRequestInFlight = null;
+  let apiTokenIssueInFlight = null;
+  let apiTokenDialogContext = null;
+  let spaceCreateModalRevision = 0;
+  let spaceMemberModalRevision = 0;
+  let createFocus = null;
+  let memberFocus = null;
+  let directoryFocus = null;
+
+  function captureModalFocus(opener = document.activeElement) {
+    const action = opener?.closest?.("button[data-space-action]");
+    const actionIdentity = action && els.spaceGovernanceShell?.contains(action)
+      ? [action.dataset.spaceAction, action.dataset.spaceId || "", action.className] : null;
+    return { opener, actionIdentity, context: captureEntityMutationContext(state), view: state.currentView };
+  }
+
+  function focusIfTop(modal, target) {
+    const top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+    if (!top || top === modal) target?.focus();
+  }
+
+  function restoreModalFocus(saved) {
+    if (!saved || !state.authed || state.currentView !== saved.view
+        || !isEntityMutationContextCurrent(state, saved.context)) return;
+    let target = saved.opener;
+    if (!target?.isConnected && saved.actionIdentity) {
+      target = [...(els.spaceGovernanceShell?.querySelectorAll("button[data-space-action]") || [])]
+        .find((button) => button.dataset.spaceAction === saved.actionIdentity[0]
+          && (button.dataset.spaceId || "") === saved.actionIdentity[1] && button.className === saved.actionIdentity[2]);
+    }
+    const top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+    if (target?.isConnected && target.getClientRects().length && (!top || top.contains(target))) target.focus();
+  }
 
   function openSpaceCreateModal() {
     if (!userIsGlobalAdmin() || !els.spaceCreateModal) return;
+    if (els.spaceCreateModal.classList.contains("hidden")) createFocus = captureModalFocus();
+    spaceCreateModalRevision += 1;
     els.spaceCreateModal.classList.remove("hidden");
     els.spaceCreateModalForm?.reset();
     clearDeliverableFormNotice(els.spaceCreateStatus);
-    window.setTimeout(() => {
-      els.spaceCreateModalForm?.querySelector('[name="name"]')?.focus();
-    }, 0);
+    focusIfTop(els.spaceCreateModal, els.spaceCreateModalForm?.querySelector('[name="name"]'));
   }
 
-  function closeSpaceCreateModal() {
+  function closeSpaceCreateModal({ restoreFocus = true } = {}) {
+    const wasOpen = els.spaceCreateModal && !els.spaceCreateModal.classList.contains("hidden");
+    spaceCreateModalRevision += 1;
     els.spaceCreateModal?.classList.add("hidden");
+    if (wasOpen && restoreFocus) restoreModalFocus(createFocus);
+    createFocus = null;
   }
 
-  function openSpaceMemberModal(spaceId = activeSpaceId()) {
+  function openSpaceMemberModal(spaceId = activeSpaceId(), returnFocus = null) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId || !canManageSpaceMembership(targetSpaceId) || !els.spaceMemberModalForm) return;
     const targetSpace = effectiveDirectorySpaces().find((space) => space.space_id === targetSpaceId)
@@ -61,6 +97,8 @@ export function createSpaceGovernanceController({
       setSpaceGovernanceNotice("Private spaces cannot add members.", "error", 5000);
       return;
     }
+    if (els.spaceMemberModal?.classList.contains("hidden")) memberFocus = returnFocus || captureModalFocus();
+    spaceMemberModalRevision += 1;
     els.spaceMemberModalForm.reset();
     els.spaceMemberModalForm.querySelector('[name="space_id"]').value = targetSpaceId;
     if (els.spaceMemberModalContext) {
@@ -68,53 +106,107 @@ export function createSpaceGovernanceController({
     }
     clearDeliverableFormNotice(els.spaceMemberStatus);
     els.spaceMemberModal.classList.remove("hidden");
-    window.setTimeout(() => {
-      els.spaceMemberModalForm?.querySelector('[name="soeid"]')?.focus();
-    }, 0);
+    focusIfTop(els.spaceMemberModal, els.spaceMemberModalForm?.querySelector('[name="soeid"]'));
   }
 
-  function closeSpaceMemberModal() {
+  function closeSpaceMemberModal({ restoreFocus = true } = {}) {
+    const wasOpen = els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden");
+    spaceMemberModalRevision += 1;
     els.spaceMemberModal?.classList.add("hidden");
+    if (wasOpen && restoreFocus) restoreModalFocus(memberFocus);
+    memberFocus = null;
   }
 
   function openSpaceDirectoryModal(spaceId) {
     const targetSpaceId = String(spaceId || state.spaceMembershipSpaceId || "").trim();
     if (!targetSpaceId || !els.spaceDirectoryModal) return;
+    if (els.spaceDirectoryModal.classList.contains("hidden")) directoryFocus = captureModalFocus();
     state.spaceMembershipSpaceId = targetSpaceId;
     state.spaceDirectoryModalOpen = true;
     renderSpaceDirectoryModal();
     els.spaceDirectoryModal.classList.remove("hidden");
-    window.setTimeout(() => {
-      els.spaceDirectoryModalClose?.focus();
-    }, 0);
+    focusIfTop(els.spaceDirectoryModal, els.spaceDirectoryModalClose);
   }
 
-  function closeSpaceDirectoryModal() {
+  function closeSpaceDirectoryModal({ restoreFocus = true } = {}) {
+    const wasOpen = els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden");
     state.spaceDirectoryModalOpen = false;
     els.spaceDirectoryModal?.classList.add("hidden");
+    if (wasOpen && restoreFocus) restoreModalFocus(directoryFocus);
+    directoryFocus = null;
   }
 
-  async function refreshGlobalAdmins() {
+  const governanceReads = new Map();
+  const governanceCacheContexts = new Map();
+
+  function hasCurrentGovernanceCache(key, loaded) {
+    return loaded && sameAgentChangeRequestContext(
+      governanceCacheContexts.get(key), captureAgentChangeRequestContext(state, activeSpaceId)
+    );
+  }
+
+  function readGovernanceList(key, path, apply, { force = false, onError, allowed = () => true } = {}) {
+    const context = captureAgentChangeRequestContext(state, activeSpaceId);
+    const existing = governanceReads.get(key);
+    if (!force && existing && sameAgentChangeRequestContext(existing.context, context)) return existing.promise;
+    const request = { context, promise: null };
+    governanceReads.set(key, request);
+    const isCurrent = () => governanceReads.get(key) === request && allowed() && sameAgentChangeRequestContext(
+      context, captureAgentChangeRequestContext(state, activeSpaceId)
+    );
+    request.promise = api(path)
+      .then((rows) => {
+        if (!isCurrent()) return [];
+        if (!Array.isArray(rows)) throw new Error("Invalid governance list response.");
+        governanceCacheContexts.set(key, context);
+        return apply(rows);
+      })
+      .catch((err) => {
+        if (!isCurrent()) return [];
+        if (onError) {
+          governanceCacheContexts.set(key, context);
+          onError(err);
+        }
+        throw err;
+      })
+      .finally(() => {
+        if (governanceReads.get(key) === request) governanceReads.delete(key);
+      });
+    return request.promise;
+  }
+
+  async function refreshGlobalAdmins(options = {}) {
     if (!userIsGlobalAdmin()) {
       state.globalAdmins = [];
       state.globalAdminsLoaded = false;
-      return;
+      state.globalAdminsError = "";
+      return [];
     }
-    if (globalAdminsInFlight) return globalAdminsInFlight;
-    globalAdminsInFlight = api("/users/global-admins?active_only=false")
-      .then((rows) => {
-        state.globalAdmins = Array.isArray(rows) ? rows : [];
-        state.globalAdminsLoaded = true;
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.globalAdmins;
-      })
-      .finally(() => {
-        globalAdminsInFlight = null;
-      });
-    return globalAdminsInFlight;
+    return readGovernanceList("globalAdmins", "/users/global-admins?active_only=false", (rows) => {
+      state.globalAdmins = rows;
+      state.globalAdminsLoaded = true;
+      state.globalAdminsError = "";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      return rows;
+    }, {
+      force: !!options.force,
+      allowed: userIsGlobalAdmin,
+      onError: () => { state.globalAdminsError = "Could not load global admins."; },
+    });
+  }
+
+  function governanceSessionIsCurrent(context) {
+    return isSameMutationSession(context, captureEntityMutationContext(state));
+  }
+
+  function privilegedContextIsCurrent(context) {
+    return userIsGlobalAdmin() && sameAgentChangeRequestContext(
+      context, captureAgentChangeRequestContext(state, activeSpaceId)
+    );
   }
 
   async function issuePasswordResetForSoeid(soeid, expiresMinutes = null) {
+    const context = captureAgentChangeRequestContext(state, activeSpaceId);
     const soeidNorm = String(soeid || "").trim().toLowerCase();
     if (!soeidNorm) {
       throw new Error("SOEID is required.");
@@ -123,41 +215,65 @@ export function createSpaceGovernanceController({
     if (expiresMinutes !== null && expiresMinutes !== undefined && String(expiresMinutes).trim() !== "") {
       body.expires_minutes = Number(expiresMinutes);
     }
-    const issued = await api(`/users/by-soeid/${encodeURIComponent(soeidNorm)}/password-reset-request`, {
-      method: "POST",
-      ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
-    });
-    state.platformPasswordReset = {
-      soeid: soeidNorm,
-      temp_password: issued?.temp_password || "",
-      expires_at: issued?.expires_at || "",
-      reset_url: buildResetPageUrl(),
-    };
-    if (isSpaceGovernanceView(state.currentView)) {
-      renderGovernanceHub();
+    if (passwordResetInFlight && isSameMutationSession(passwordResetInFlight, context)) {
+      throw new Error("A password reset is already in progress.");
     }
-    return state.platformPasswordReset;
+    const request = { ...context };
+    passwordResetInFlight = request;
+    try {
+      state.platformPasswordReset = null;
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      const issued = await api(`/users/by-soeid/${encodeURIComponent(soeidNorm)}/password-reset-request`, {
+        method: "POST",
+        ...(Object.keys(body).length ? { body: JSON.stringify(body) } : {}),
+      });
+      if (!privilegedContextIsCurrent(context)) return null;
+      state.platformPasswordReset = {
+        soeid: soeidNorm,
+        temp_password: issued?.temp_password || "",
+        expires_at: issued?.expires_at || "",
+        reset_url: buildResetPageUrl(),
+      };
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      return state.platformPasswordReset;
+    } finally {
+      if (passwordResetInFlight === request) passwordResetInFlight = null;
+    }
   }
 
   async function refreshApiTokens(userId, options = {}) {
     const targetUserId = String(userId || "").trim();
     if (!targetUserId || !userIsGlobalAdmin()) return [];
+    const context = captureAgentChangeRequestContext(state, activeSpaceId);
     const force = !!options.force;
-    if (!force && state.apiTokensLoadedByUser[targetUserId]) {
+    if (!force && state.apiTokensLoadedByUser[targetUserId]
+      && sameAgentChangeRequestContext(apiTokensContexts[targetUserId], context)) {
       return state.apiTokensByUser[targetUserId] || [];
     }
-    if (apiTokensInFlight[targetUserId]) return apiTokensInFlight[targetUserId];
-    apiTokensInFlight[targetUserId] = api(`/users/${encodeURIComponent(targetUserId)}/api-tokens`)
+    const existing = apiTokensInFlight[targetUserId];
+    if (!force && existing && sameAgentChangeRequestContext(existing.context, context)) return existing.promise;
+    const request = { context, promise: null };
+    apiTokensInFlight[targetUserId] = request;
+    const isCurrent = () => apiTokensInFlight[targetUserId] === request && userIsGlobalAdmin()
+      && sameAgentChangeRequestContext(context, captureAgentChangeRequestContext(state, activeSpaceId));
+    request.promise = api(`/users/${encodeURIComponent(targetUserId)}/api-tokens`)
       .then((rows) => {
-        state.apiTokensByUser[targetUserId] = Array.isArray(rows) ? rows : [];
+        if (!isCurrent()) return [];
+        if (!Array.isArray(rows)) throw new Error("Invalid API token list response.");
+        state.apiTokensByUser[targetUserId] = rows;
         state.apiTokensLoadedByUser[targetUserId] = true;
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.apiTokensByUser[targetUserId];
+        apiTokensContexts[targetUserId] = context;
+        if (options.render !== false && isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+        return rows;
+      })
+      .catch((err) => {
+        if (!isCurrent()) return [];
+        throw err;
       })
       .finally(() => {
-        delete apiTokensInFlight[targetUserId];
+        if (apiTokensInFlight[targetUserId] === request) delete apiTokensInFlight[targetUserId];
       });
-    return apiTokensInFlight[targetUserId];
+    return request.promise;
   }
 
   async function refreshAgentChangeRequests(options = {}) {
@@ -177,6 +293,7 @@ export function createSpaceGovernanceController({
     if (!force && state.agentChangeRequestsLoaded && cachedContextMatches) {
       return state.agentChangeRequests || [];
     }
+    if (!force && state.agentChangeRequestsError && cachedContextMatches) return state.agentChangeRequests || [];
     if (agentChangeRequestsInFlight
       && sameAgentChangeRequestContext(agentChangeRequestsInFlight.context, requestedContext)) {
       if (force) {
@@ -204,8 +321,23 @@ export function createSpaceGovernanceController({
           return state.agentChangeRequests || [];
         }
         let payload;
+        const records = [];
+        const seenCursors = new Set();
+        let cursor = "";
         try {
-          payload = await api("/agent/change-requests?status=pending");
+          while (true) {
+            const suffix = cursor ? `&cursor=${encodeURIComponent(cursor)}` : "";
+            payload = await api(`/agent/change-requests?status=pending${suffix}`);
+            if (!sameAgentChangeRequestContext(requestContext, captureAgentChangeRequestContext(state, activeSpaceId))
+              || agentChangeRequestsInFlight !== request) break;
+            if (!Array.isArray(payload?.records)) throw new Error("Invalid agent approval queue response.");
+            records.push(...payload.records);
+            if (!payload.has_more) break;
+            const next = typeof payload.next_cursor === "string" ? payload.next_cursor.trim() : "";
+            if (!next || seenCursors.has(next)) throw new Error("Invalid agent approval queue pagination.");
+            seenCursors.add(next);
+            cursor = next;
+          }
         } catch (err) {
           const currentContext = captureAgentChangeRequestContext(state, activeSpaceId);
           if (!sameAgentChangeRequestContext(requestContext, currentContext)
@@ -217,6 +349,8 @@ export function createSpaceGovernanceController({
             }
             return [];
           }
+          state.agentChangeRequestsContext = requestContext;
+          state.agentChangeRequestsError = "Could not load the approval queue.";
           throw err;
         }
         const currentContext = captureAgentChangeRequestContext(state, activeSpaceId);
@@ -229,19 +363,28 @@ export function createSpaceGovernanceController({
           }
           return [];
         }
-        state.agentChangeRequests = Array.isArray(payload?.records) ? payload.records : [];
+        const previousFingerprints = new Map((state.agentChangeRequests || []).map(
+          (row) => [row.change_request_id, row.content_fingerprint]
+        ));
+        state.agentChangeRequests = records;
         state.agentChangeRequestPendingCount = Number(payload?.pending_count || 0);
         state.agentChangeRequestFailedCount = Number(payload?.failed_count || 0);
         state.agentChangeRequestsLoaded = true;
+        state.agentChangeRequestsError = "";
         state.agentChangeRequestsContext = requestContext;
         const knownIds = new Set(state.agentChangeRequests.map((row) => row.change_request_id));
+        const changedIds = new Set(state.agentChangeRequests.filter((row) => (
+          previousFingerprints.has(row.change_request_id)
+          && previousFingerprints.get(row.change_request_id) !== row.content_fingerprint
+        )).map((row) => row.change_request_id));
         state.agentChangeRequestSelectedIds = new Set(
-          [...(state.agentChangeRequestSelectedIds || new Set())].filter((id) => knownIds.has(id))
+          [...(state.agentChangeRequestSelectedIds || new Set())].filter((id) => knownIds.has(id) && !changedIds.has(id))
         );
         state.agentChangeRequestSelectedOperationIds = Object.fromEntries(
           Object.entries(state.agentChangeRequestSelectedOperationIds || {})
-            .filter(([id]) => knownIds.has(id))
+            .filter(([id]) => knownIds.has(id) && !changedIds.has(id))
         );
+        for (const id of changedIds) state.agentChangeRequestSelectedOperationIds[id] = new Set();
         if (!knownIds.has(state.agentChangeRequestModalId)) {
           state.agentChangeRequestModalId = "";
         }
@@ -262,102 +405,109 @@ export function createSpaceGovernanceController({
   }
 
   async function refreshRequestableSpaces(options = {}) {
-    const force = !!options.force;
-    if (!force && state.requestableSpacesLoaded) return state.requestableSpaces || [];
-    if (requestableSpacesInFlight) return requestableSpacesInFlight;
-    requestableSpacesInFlight = api("/spaces/requestable")
-      .then((rows) => {
-        state.requestableSpaces = Array.isArray(rows) ? rows : [];
-        state.requestableSpacesLoaded = true;
-        state.requestableSpacesError = "";
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.requestableSpaces;
-      })
-      .catch((err) => {
-        state.requestableSpaces = [];
-        state.requestableSpacesLoaded = true;
-        state.requestableSpacesError = err?.message || "Failed to load available spaces.";
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        throw err;
-      })
-      .finally(() => {
-        requestableSpacesInFlight = null;
-      });
-    return requestableSpacesInFlight;
+    const key = "requestableSpaces";
+    if (!options.force && hasCurrentGovernanceCache(key, state.requestableSpacesLoaded)) return state.requestableSpaces || [];
+    return readGovernanceList(key, "/spaces/requestable", (rows) => {
+      state.requestableSpaces = rows;
+      state.requestableSpacesLoaded = true;
+      state.requestableSpacesError = "";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      return rows;
+    }, { force: !!options.force, onError: (err) => {
+      state.requestableSpaces = [];
+      state.requestableSpacesLoaded = true;
+      state.requestableSpacesError = err?.message || "Failed to load available spaces.";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+    } });
   }
 
   async function refreshAccessRequests(options = {}) {
-    const force = !!options.force;
-    if (!force && state.spaceAccessRequestsLoaded) return state.spaceAccessRequests || [];
-    if (accessRequestsInFlight) return accessRequestsInFlight;
-    accessRequestsInFlight = api("/spaces/access-requests")
-      .then((rows) => {
-        state.spaceAccessRequests = Array.isArray(rows) ? rows : [];
-        state.spaceAccessRequestsLoaded = true;
-        state.spaceAccessRequestsError = "";
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.spaceAccessRequests;
-      })
-      .catch((err) => {
-        state.spaceAccessRequests = [];
-        state.spaceAccessRequestsLoaded = true;
-        state.spaceAccessRequestsError = err?.message || "Failed to load access requests.";
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        throw err;
-      })
-      .finally(() => {
-        accessRequestsInFlight = null;
-      });
-    return accessRequestsInFlight;
+    const key = "accessRequests";
+    if (!options.force && hasCurrentGovernanceCache(key, state.spaceAccessRequestsLoaded)) return state.spaceAccessRequests || [];
+    return readGovernanceList(key, "/spaces/access-requests", (rows) => {
+      state.spaceAccessRequests = rows;
+      state.spaceAccessRequestsLoaded = true;
+      state.spaceAccessRequestsError = "";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      return rows;
+    }, { force: !!options.force, onError: (err) => {
+      state.spaceAccessRequests = [];
+      state.spaceAccessRequestsLoaded = true;
+      state.spaceAccessRequestsError = err?.message || "Failed to load access requests.";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+    } });
   }
 
   async function refreshReviewableAccessRequests(options = {}) {
-    const force = !!options.force;
-    if (!force && state.reviewableAccessRequestsLoaded) return state.reviewableAccessRequests || [];
-    if (reviewableAccessRequestsInFlight) return reviewableAccessRequestsInFlight;
-    reviewableAccessRequestsInFlight = api("/spaces/access-requests/reviewable")
-      .then((rows) => {
-        state.reviewableAccessRequests = Array.isArray(rows) ? rows : [];
-        state.reviewableAccessRequestsLoaded = true;
-        if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
-        return state.reviewableAccessRequests;
-      })
-      .finally(() => {
-        reviewableAccessRequestsInFlight = null;
-      });
-    return reviewableAccessRequestsInFlight;
+    const key = "reviewableAccessRequests";
+    if (!options.force && hasCurrentGovernanceCache(key, state.reviewableAccessRequestsLoaded)) return state.reviewableAccessRequests || [];
+    return readGovernanceList(key, "/spaces/access-requests/reviewable", (rows) => {
+      state.reviewableAccessRequests = rows;
+      state.reviewableAccessRequestsLoaded = true;
+      state.reviewableAccessRequestsError = "";
+      if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
+      return rows;
+    }, { force: !!options.force, onError: () => { state.reviewableAccessRequestsError = "Could not load access requests."; } });
   }
 
   async function refreshSpaceMembers(spaceId, options = {}) {
     const targetSpaceId = String(spaceId || "").trim();
     if (!targetSpaceId) return [];
-    const force = !!options.force;
-    if (!force && state.spaceMembersLoadedBySpace[targetSpaceId]) {
+    const key = `spaceMembers:${targetSpaceId}`;
+    if (!options.force && hasCurrentGovernanceCache(key, state.spaceMembersLoadedBySpace[targetSpaceId])) {
       return state.spaceMembersBySpace[targetSpaceId] || [];
     }
-    if (spaceMembersInFlight[targetSpaceId]) {
-      return spaceMembersInFlight[targetSpaceId];
-    }
-    spaceMembersInFlight[targetSpaceId] = api(`/spaces/${encodeURIComponent(targetSpaceId)}/members`)
-      .then((rows) => {
-        state.spaceMembersBySpace[targetSpaceId] = Array.isArray(rows) ? rows : [];
-        state.spaceMembersLoadedBySpace[targetSpaceId] = true;
-        if (isSpaceGovernanceView(state.currentView) && state.spaceMembershipSpaceId === targetSpaceId) {
-          renderGovernanceHub();
-        } else if (isSpaceGovernanceView(state.currentView) && targetSpaceId === activeSpaceId()) {
-          renderGovernanceHub();
-        }
-        return state.spaceMembersBySpace[targetSpaceId];
-      })
-      .finally(() => {
-        delete spaceMembersInFlight[targetSpaceId];
-      });
-    return spaceMembersInFlight[targetSpaceId];
+    return readGovernanceList(key, `/spaces/${encodeURIComponent(targetSpaceId)}/members`, (rows) => {
+      state.spaceMembersBySpace[targetSpaceId] = rows;
+      state.spaceMembersLoadedBySpace[targetSpaceId] = true;
+      if (state.spaceMembersErrorBySpace) delete state.spaceMembersErrorBySpace[targetSpaceId];
+      if (isSpaceGovernanceView(state.currentView)
+        && (state.spaceMembershipSpaceId === targetSpaceId || targetSpaceId === activeSpaceId())) {
+        renderGovernanceHub();
+      }
+      return rows;
+    }, { force: !!options.force, onError: () => {
+      state.spaceMembersErrorBySpace ||= {};
+      state.spaceMembersErrorBySpace[targetSpaceId] = true;
+    } });
+  }
+
+  function agentReviewContextIsCurrent(context) {
+    return sameAgentChangeRequestContext(context, captureAgentChangeRequestContext(state, activeSpaceId));
+  }
+
+  async function refreshAfterAgentReviewFailure(context) {
+    if (!agentReviewContextIsCurrent(context)) return false;
+    state.agentChangeRequestsLoaded = false;
+    const results = await Promise.allSettled([
+      refreshAgentChangeRequests({ force: true }),
+      refreshFromServer("all"),
+    ]);
+    if (!agentReviewContextIsCurrent(context)) return false;
+    renderGovernanceHub("agent-approvals");
+    return results.every((result) => result.status === "fulfilled");
+  }
+
+  async function showAgentReviewFailure(context, err) {
+    if (!agentReviewContextIsCurrent(context)) return;
+    const message = err?.code === "CHANGE_REQUEST_CHANGED"
+      ? "The proposal or its work changed. Review the refreshed proposal; if needed, ask the proposer to update it."
+      : (err?.message || "Agent proposal review failed.");
+    setSpaceGovernanceNotice(`${message} Checking for applied changes...`, "error", 7000);
+    const refreshed = await refreshAfterAgentReviewFailure(context);
+    if (!agentReviewContextIsCurrent(context)) return;
+    setSpaceGovernanceNotice(
+      refreshed
+        ? `${message} Some changes may have been applied; review the refreshed queue.`
+        : `${message} Refresh failed; reload to see current results.`,
+      "error", 7000,
+    );
   }
 
   async function handleSpaceGovernanceAction(button) {
     if (!button) return false;
     const action = button.getAttribute("data-space-action") || "";
+    const actionContext = captureAgentChangeRequestContext(state, activeSpaceId);
     if (action === "refresh-lobby-data") {
       state.requestableSpacesLoaded = false;
       state.requestableSpacesError = "";
@@ -393,6 +543,15 @@ export function createSpaceGovernanceController({
     if (action !== "toggle-member-menu") {
       state.spaceMembershipActionMenuId = "";
     }
+    if (action === "retry-space-members" && spaceId
+        && (userIsGlobalAdmin() || canManageSpaceMembership(spaceId))) {
+      try {
+        await refreshSpaceMembers(spaceId, { force: true });
+      } catch (err) {
+        setSpaceGovernanceNotice(err?.message || "Failed to load space memberships.", "error", 7000);
+      }
+      return true;
+    }
     if (action === "select-section") {
       state.spaceAdminSection = normalizeGovernanceSection(button.getAttribute("data-section"));
       renderGovernanceHub();
@@ -401,6 +560,19 @@ export function createSpaceGovernanceController({
     if (action === "select-platform-tool" && userIsGlobalAdmin()) {
       state.platformAccessPanel = button.getAttribute("data-platform-tool") || "administrators";
       renderGovernanceHub("platform-access");
+      return true;
+    }
+    if (action === "retry-global-admins" && userIsGlobalAdmin()) {
+      state.globalAdminsError = "";
+      state.globalAdminsLoaded = false;
+      renderGovernanceHub("platform-access");
+      return true;
+    }
+    if (action === "retry-reviewable-access-requests"
+        && (userIsGlobalAdmin() || canManageSpaceMembership(activeSpaceId()))) {
+      state.reviewableAccessRequestsError = "";
+      state.reviewableAccessRequestsLoaded = false;
+      renderGovernanceHub();
       return true;
     }
     if (action === "open-agent-change-request") {
@@ -422,12 +594,10 @@ export function createSpaceGovernanceController({
     if (action === "toggle-agent-change-request-selection") {
       const rows = state.agentChangeRequests || [];
       const selected = new Set(state.agentChangeRequestSelectedIds || []);
-      const allSelected = rows.length > 0 && rows.every(
-        (row) => selected.has(row.change_request_id)
-      );
+      const allSelected = rows.length > 0 && selected.size >= Math.min(rows.length, AGENT_BULK_REVIEW_LIMIT);
       state.agentChangeRequestSelectedIds = allSelected
         ? new Set()
-        : new Set(rows.map((row) => row.change_request_id));
+        : new Set(rows.slice(0, AGENT_BULK_REVIEW_LIMIT).map((row) => row.change_request_id));
       renderGovernanceHub("agent-approvals");
       return true;
     }
@@ -449,12 +619,18 @@ export function createSpaceGovernanceController({
       return true;
     }
     if (action === "approve-agent-change-request" || action === "reject-agent-change-request") {
+      const reviewContext = captureAgentChangeRequestContext(state, activeSpaceId);
       const id = button.getAttribute("data-change-request-id") || state.agentChangeRequestActiveId || "";
       if (!id) return true;
       const approving = action === "approve-agent-change-request";
       const request = (state.agentChangeRequests || []).find(
         (row) => row.change_request_id === id
       );
+      if (!request?.content_fingerprint) {
+        setSpaceGovernanceNotice("Reload this proposal before reviewing it.", "error", 5000);
+        return true;
+      }
+      const fingerprint = request.content_fingerprint;
       const storedSelection = state.agentChangeRequestSelectedOperationIds?.[id];
       const selectedOperationIds = [
         ...(storedSelection instanceof Set
@@ -475,7 +651,7 @@ export function createSpaceGovernanceController({
             : "Reject this entire agent proposal?",
           confirmLabel: approving ? "Approve selected" : "Reject proposal",
         });
-        if (!confirmed) return true;
+        if (!confirmed || !agentReviewContextIsCurrent(reviewContext)) return true;
       }
       try {
         const endpoint = approving
@@ -485,17 +661,20 @@ export function createSpaceGovernanceController({
           method: "POST",
           body: JSON.stringify(
             approving
-              ? { client_operation_ids: selectedOperationIds }
-              : { change_request_ids: [id] }
+              ? { client_operation_ids: selectedOperationIds, if_request_fingerprint: fingerprint }
+              : { change_request_ids: [id], if_request_fingerprints: { [id]: fingerprint } }
           ),
         });
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         const selected = new Set(state.agentChangeRequestSelectedIds || []);
         selected.delete(id);
         state.agentChangeRequestSelectedIds = selected;
         delete state.agentChangeRequestSelectedOperationIds?.[id];
         state.agentChangeRequestsLoaded = false;
         await refreshAgentChangeRequests({ force: true });
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         await refreshFromServer("all");
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         renderGovernanceHub("agent-approvals");
         const completed = approving ? selectedOperationIds.length : Number(result?.rejected || 0);
         const approvalFailed = approving
@@ -512,14 +691,27 @@ export function createSpaceGovernanceController({
           7000
         );
       } catch (err) {
-        setSpaceGovernanceNotice(err?.message || "Agent proposal review failed.", "error", 7000);
+        await showAgentReviewFailure(reviewContext, err);
       }
       return true;
     }
     if (action === "approve-agent-change-requests" || action === "reject-agent-change-requests") {
+      const reviewContext = captureAgentChangeRequestContext(state, activeSpaceId);
       const ids = [...(state.agentChangeRequestSelectedIds || new Set())];
       if (!ids.length) {
         setSpaceGovernanceNotice("Select at least one agent proposal first.", "error", 5000);
+        return true;
+      }
+      if (ids.length > AGENT_BULK_REVIEW_LIMIT) {
+        setSpaceGovernanceNotice(`Select at most ${AGENT_BULK_REVIEW_LIMIT} proposals for one review.`, "error", 5000);
+        return true;
+      }
+      const fingerprints = Object.fromEntries(ids.map((id) => [
+        id,
+        (state.agentChangeRequests || []).find((row) => row.change_request_id === id)?.content_fingerprint,
+      ]));
+      if (ids.some((id) => !fingerprints[id])) {
+        setSpaceGovernanceNotice("Reload the selected proposals before reviewing them.", "error", 5000);
         return true;
       }
       const approving = action === "approve-agent-change-requests";
@@ -528,19 +720,22 @@ export function createSpaceGovernanceController({
         message: `${approving ? "Approve" : "Reject"} ${ids.length} selected agent proposal${ids.length === 1 ? "" : "s"}?`,
         confirmLabel: approving ? "Approve selected" : "Reject selected",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !agentReviewContextIsCurrent(reviewContext)) return true;
       try {
         const endpoint = approving
           ? "/agent/change-requests/actions/approve-selected"
           : "/agent/change-requests/actions/reject-selected";
         const result = await api(endpoint, {
           method: "POST",
-          body: JSON.stringify({ change_request_ids: ids }),
+          body: JSON.stringify({ change_request_ids: ids, if_request_fingerprints: fingerprints }),
         });
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         state.agentChangeRequestSelectedIds = new Set();
         state.agentChangeRequestsLoaded = false;
         await refreshAgentChangeRequests({ force: true });
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         await refreshFromServer("all");
+        if (!agentReviewContextIsCurrent(reviewContext)) return true;
         renderGovernanceHub("agent-approvals");
         const completed = approving
           ? Number(result?.approved || 0)
@@ -552,7 +747,7 @@ export function createSpaceGovernanceController({
           7000
         );
       } catch (err) {
-        setSpaceGovernanceNotice(err?.message || "Agent proposal review failed.", "error", 7000);
+        await showAgentReviewFailure(reviewContext, err);
       }
       return true;
     }
@@ -574,7 +769,9 @@ export function createSpaceGovernanceController({
       return true;
     }
     if (action === "request-space-access") {
-      if (!spaceId) return true;
+      if (!spaceId || (accessRequestInFlight && isSameMutationSession(accessRequestInFlight, actionContext))) return true;
+      const request = { ...actionContext };
+      accessRequestInFlight = request;
       state.accessRequestSubmittingSpaceId = spaceId;
       renderGovernanceHub();
       try {
@@ -582,24 +779,30 @@ export function createSpaceGovernanceController({
           method: "POST",
           body: JSON.stringify({ requested_role: "member" }),
         });
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         state.requestableSpacesLoaded = false;
         state.spaceAccessRequestsLoaded = false;
         await Promise.all([
           refreshRequestableSpaces({ force: true }),
           refreshAccessRequests({ force: true }),
         ]);
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(`Requested access to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", "access_request", "success", { source: "lobby" });
         }
       } catch (err) {
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", "access_request", "failure", { source: "lobby" });
         }
         setSpaceGovernanceNotice(err?.message || "Access request failed.", "error", 7000);
       } finally {
-        state.accessRequestSubmittingSpaceId = "";
-        renderGovernanceHub();
+        if (accessRequestInFlight === request) accessRequestInFlight = null;
+        if (governanceSessionIsCurrent(actionContext) && state.accessRequestSubmittingSpaceId === spaceId) {
+          state.accessRequestSubmittingSpaceId = "";
+          renderGovernanceHub();
+        }
       }
       return true;
     }
@@ -608,14 +811,17 @@ export function createSpaceGovernanceController({
       if (!requestId) return true;
       try {
         await api(`/spaces/access-requests/${encodeURIComponent(requestId)}`, { method: "DELETE" });
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         state.spaceAccessRequestsLoaded = false;
         state.requestableSpacesLoaded = false;
         await Promise.all([
           refreshAccessRequests({ force: true }),
           refreshRequestableSpaces({ force: true }),
         ]);
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice("Access request canceled.", "success", 3500);
       } catch (err) {
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(err?.message || "Cancel request failed.", "error", 7000);
       }
       return true;
@@ -629,23 +835,28 @@ export function createSpaceGovernanceController({
           method: "POST",
           body: JSON.stringify({}),
         });
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         state.reviewableAccessRequestsLoaded = false;
         await refreshReviewableAccessRequests({ force: true });
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         if (approving && spaceId) {
           state.spaceMembersLoadedBySpace[spaceId] = false;
           await refreshSpaceMembers(spaceId, { force: true });
         }
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(`Access request ${approving ? "approved" : "rejected"}.`, "success", 4500);
       } catch (err) {
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(err?.message || "Access request review failed.", "error", 7000);
       }
       return true;
     }
     if (action === "open-member-modal") {
+      const returnFocus = launchedFromDirectoryModal ? directoryFocus : null;
       if (launchedFromDirectoryModal) {
-        closeSpaceDirectoryModal();
+        closeSpaceDirectoryModal({ restoreFocus: false });
       }
-      openSpaceMemberModal(spaceId || activeSpaceId());
+      openSpaceMemberModal(spaceId || activeSpaceId(), returnFocus);
       return true;
     }
     if (action === "switch-space") {
@@ -670,18 +881,20 @@ export function createSpaceGovernanceController({
           : `Archive ${targetName}? It will stop appearing in active space lists until reactivated.`,
         confirmLabel: nextActive ? "Reactivate" : "Archive",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !privilegedContextIsCurrent(actionContext)) return true;
       try {
         const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
           method: "PATCH",
           body: JSON.stringify({ is_active: nextActive }),
         });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         if (updated?.is_active === false) {
           state.archivedSpacesById[updated.space_id] = updated;
         } else if (updated?.space_id) {
           delete state.archivedSpacesById[updated.space_id];
         }
         await refreshSpaceContext();
+        if (!governanceSessionIsCurrent(actionContext) || !userIsGlobalAdmin()) return true;
         state.spaceMembershipSpaceId = updated?.space_id || state.spaceMembershipSpaceId;
         state.spaceAdminSection = "space-directory";
         if (launchedFromDirectoryModal) {
@@ -696,6 +909,7 @@ export function createSpaceGovernanceController({
           trackWorkflow("spaces", "update", "success", { source: "space_governance" });
         }
       } catch (err) {
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", "update", "failure", { source: "space_governance" });
         }
@@ -727,18 +941,21 @@ export function createSpaceGovernanceController({
             message: "Remove this member from the selected space?",
             confirmLabel: "Remove",
           });
-          if (!confirmed) return true;
+          if (!confirmed || !agentReviewContextIsCurrent(actionContext) || !canManageSpaceMembership(spaceId)) return true;
           await api(`/spaces/${encodeURIComponent(spaceId)}/members/${encodeURIComponent(membershipId)}`, {
             method: "DELETE",
           });
         }
+        if (!agentReviewContextIsCurrent(actionContext) || !canManageSpaceMembership(spaceId)) return true;
         state.spaceMembersLoadedBySpace[spaceId] = false;
         await refreshSpaceMembers(spaceId, { force: true });
+        if (!agentReviewContextIsCurrent(actionContext) || !canManageSpaceMembership(spaceId)) return true;
         setSpaceGovernanceNotice("Membership updated.", "success", 3500);
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", action === "delete-space-member" ? "delete" : "update", "success", { source: "space_governance" });
         }
       } catch (err) {
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", action === "delete-space-member" ? "delete" : "update", "failure", { source: "space_governance" });
         }
@@ -747,17 +964,19 @@ export function createSpaceGovernanceController({
       return true;
     }
     if (action === "issue-password-reset" && userIsGlobalAdmin()) {
+      const context = captureAgentChangeRequestContext(state, activeSpaceId);
       const confirmed = await showConfirmModal({
         title: "Issue Password Reset",
         message: `Issue a one-time password reset for ${soeid}? This will invalidate their active sessions.`,
         confirmLabel: "Issue Reset",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !privilegedContextIsCurrent(context)) return true;
       try {
         await issuePasswordResetForSoeid(soeid);
+        if (!privilegedContextIsCurrent(context)) return true;
         setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
       } catch (err) {
-        setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
+        if (privilegedContextIsCurrent(context)) setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
       }
       return true;
     }
@@ -786,12 +1005,13 @@ export function createSpaceGovernanceController({
           : `Disable the public program dashboard for ${targetName}? Existing links will stop working.`,
         confirmLabel: nextEnabled ? "Expose Dashboard" : "Disable Dashboard",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !agentReviewContextIsCurrent(actionContext) || !canManageSpaceMembership(spaceId)) return true;
       try {
         const updated = await api(`/spaces/${encodeURIComponent(spaceId)}`, {
           method: "PATCH",
           body: JSON.stringify({ public_program_dashboard_enabled: nextEnabled }),
         });
+        if (!agentReviewContextIsCurrent(actionContext) || !canManageSpaceMembership(spaceId)) return true;
         if (updated?.space_id) {
           state.spaces = (state.spaces || []).map((space) => space.space_id === updated.space_id ? updated : space);
           if (state.archivedSpacesById?.[updated.space_id]) state.archivedSpacesById[updated.space_id] = updated;
@@ -811,6 +1031,7 @@ export function createSpaceGovernanceController({
           trackWorkflow("spaces", "update", "success", { source: "public_program_dashboard" });
         }
       } catch (err) {
+        if (!agentReviewContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("spaces", "update", "failure", { source: "public_program_dashboard" });
         }
@@ -828,8 +1049,7 @@ export function createSpaceGovernanceController({
       return true;
     }
     if (action === "clear-api-token-result") {
-      state.issuedApiToken = null;
-      renderGovernanceHub("platform-access");
+      closeApiTokenDialog();
       return true;
     }
     if (action === "refresh-api-tokens" && userIsGlobalAdmin()) {
@@ -842,13 +1062,16 @@ export function createSpaceGovernanceController({
         message: "Revoke this user API token?",
         confirmLabel: "Revoke",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !privilegedContextIsCurrent(actionContext)) return true;
       try {
         await api(`/users/${encodeURIComponent(userId)}/api-tokens/${encodeURIComponent(tokenId)}`, { method: "DELETE" });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         state.apiTokensLoadedByUser[userId] = false;
         await refreshApiTokens(userId, { force: true });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice("API token revoked.", "success", 4500);
       } catch (err) {
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(err?.message || "API token revoke failed.", "error", 7000);
       }
       return true;
@@ -864,17 +1087,21 @@ export function createSpaceGovernanceController({
         message: `Revoke global admin from ${soeid}?`,
         confirmLabel: "Revoke",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !privilegedContextIsCurrent(actionContext)) return true;
       try {
         await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "DELETE" });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         state.globalAdminsLoaded = false;
-        await refreshGlobalAdmins();
+        await refreshGlobalAdmins({ force: true });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         await refreshFromServer("users");
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(`Revoked global admin from ${soeid}.`, "success", 4500);
         if (typeof trackWorkflow === "function") {
           trackWorkflow("users", "update", "success", { source: "space_governance" });
         }
       } catch (err) {
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("users", "update", "failure", { source: "space_governance" });
         }
@@ -888,17 +1115,21 @@ export function createSpaceGovernanceController({
         message: `Grant global admin to ${soeid}?`,
         confirmLabel: "Grant",
       });
-      if (!confirmed) return true;
+      if (!confirmed || !privilegedContextIsCurrent(actionContext)) return true;
       try {
         await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "POST" });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         state.globalAdminsLoaded = false;
-        await refreshGlobalAdmins();
+        await refreshGlobalAdmins({ force: true });
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         await refreshFromServer("users");
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
         if (typeof trackWorkflow === "function") {
           trackWorkflow("users", "update", "success", { source: "space_governance" });
         }
       } catch (err) {
+        if (!privilegedContextIsCurrent(actionContext)) return true;
         if (typeof trackWorkflow === "function") {
           trackWorkflow("users", "update", "failure", { source: "space_governance" });
         }
@@ -907,6 +1138,30 @@ export function createSpaceGovernanceController({
       return true;
     }
     return false;
+  }
+
+  let spaceCreateSubmission = null;
+  let spaceMemberSubmission = null;
+
+  function topVisibleModal() {
+    return document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+  }
+
+  function focusApiTokenDialog() {
+    const modal = els.spaceGovernanceShell?.querySelector(".api-token-modal");
+    const top = topVisibleModal();
+    if (modal && (!top || top === modal)) modal.querySelector('[data-space-action="copy-api-token"]')?.focus();
+  }
+
+  function closeApiTokenDialog() {
+    const saved = apiTokenDialogContext;
+    apiTokenDialogContext = null;
+    state.issuedApiToken = null;
+    renderGovernanceHub("platform-access");
+    if (!saved || !privilegedContextIsCurrent(saved.context) || state.currentView !== saved.view) return;
+    const target = els.spaceGovernanceShell?.querySelector('#user-api-token-form button[type="submit"]');
+    const top = topVisibleModal();
+    if (target?.isConnected && (!top || top.contains(target))) target.focus();
   }
 
   function bindSpaceAdminControls() {
@@ -929,26 +1184,60 @@ export function createSpaceGovernanceController({
           setDeliverableFormNotice(els.spaceCreateStatus, "Space name is required.", "error");
           return;
         }
+        const context = captureAgentChangeRequestContext(state, activeSpaceId);
+        if (spaceCreateSubmission && isSameMutationSession(spaceCreateSubmission.context, context)) {
+          setDeliverableFormNotice(els.spaceCreateStatus, "A space creation is already in progress.", "error");
+          return;
+        }
+        const submission = { context };
+        spaceCreateSubmission = submission;
+        const revision = spaceCreateModalRevision;
+        const view = state.currentView;
+        const snapshot = JSON.stringify([...data.entries()]);
+        const ownsEditor = () => revision === spaceCreateModalRevision
+          && !els.spaceCreateModal?.classList.contains("hidden");
+        let created = null;
         try {
-          const created = await api("/spaces", {
+          created = await api("/spaces", {
             method: "POST",
             body: JSON.stringify({ name, slug: slug || null }),
           });
-          clearDeliverableFormNotice(els.spaceCreateStatus);
-          closeSpaceCreateModal();
+          if (!privilegedContextIsCurrent(context)) return;
+          let navigateToCreatedSpace = false;
+          if (ownsEditor()) {
+            if (JSON.stringify([...new FormData(els.spaceCreateModalForm).entries()]) === snapshot) {
+              clearDeliverableFormNotice(els.spaceCreateStatus);
+              closeSpaceCreateModal();
+              navigateToCreatedSpace = true;
+            } else {
+              setDeliverableFormNotice(els.spaceCreateStatus, "Space created. Newer edits were not submitted.", "success");
+            }
+          }
+          const completedRevision = spaceCreateModalRevision;
           setSpaceGovernanceNotice(`Created ${created?.name || name}.`, "success", 4500);
           await refreshSpaceContext();
-          state.spaceMembershipSpaceId = created?.space_id || state.spaceMembershipSpaceId;
-          state.spaceAdminSection = "space-directory";
-          renderGovernanceHub();
+          if (!governanceSessionIsCurrent(context) || !userIsGlobalAdmin()) return;
+          if (navigateToCreatedSpace && spaceCreateModalRevision === completedRevision
+              && state.currentView === view && privilegedContextIsCurrent(context)) {
+            state.spaceMembershipSpaceId = created?.space_id || state.spaceMembershipSpaceId;
+            state.spaceAdminSection = "space-directory";
+            renderGovernanceHub();
+          }
           if (typeof trackWorkflow === "function") {
             trackWorkflow("spaces", "create", "success", { source: "space_governance" });
           }
         } catch (err) {
+          if (!privilegedContextIsCurrent(context)) return;
+          if (created) {
+            setSpaceGovernanceNotice("Space created, but the space list could not be refreshed. Refresh before retrying.", "error", 7000);
+            return;
+          }
           if (typeof trackWorkflow === "function") {
             trackWorkflow("spaces", "create", "failure", { source: "space_governance" });
           }
-          setDeliverableFormNotice(els.spaceCreateStatus, err?.message || "Space create failed.", "error");
+          if (ownsEditor()) setDeliverableFormNotice(els.spaceCreateStatus, err?.message || "Space create failed.", "error");
+        } finally {
+          if (spaceCreateSubmission === submission) spaceCreateSubmission = null;
         }
       });
       els.spaceCreateModalForm._bound = true;
@@ -982,23 +1271,51 @@ export function createSpaceGovernanceController({
           setDeliverableFormNotice(els.spaceMemberStatus, "SOEID is required.", "error");
           return;
         }
+        const context = captureAgentChangeRequestContext(state, activeSpaceId);
+        if (spaceMemberSubmission && isSameMutationSession(spaceMemberSubmission.context, context)) {
+          setDeliverableFormNotice(els.spaceMemberStatus, "A member addition is already in progress.", "error");
+          return;
+        }
+        const submission = { context };
+        spaceMemberSubmission = submission;
+        const revision = spaceMemberModalRevision;
+        const snapshot = JSON.stringify([...data.entries()]);
+        const ownsEditor = () => revision === spaceMemberModalRevision
+          && !els.spaceMemberModal?.classList.contains("hidden");
+        let added = false;
         try {
           await api(`/spaces/${encodeURIComponent(spaceId)}/members/by-soeid`, {
             method: "POST",
             body: JSON.stringify({ soeid, role, status }),
           });
+          added = true;
+          if (!agentReviewContextIsCurrent(context) || !canManageSpaceMembership(spaceId)) return;
           state.spaceMembersLoadedBySpace[spaceId] = false;
           await refreshSpaceMembers(spaceId, { force: true });
-          closeSpaceMemberModal();
+          if (!agentReviewContextIsCurrent(context) || !canManageSpaceMembership(spaceId)) return;
+          if (ownsEditor()) {
+            if (JSON.stringify([...new FormData(els.spaceMemberModalForm).entries()]) === snapshot) {
+              closeSpaceMemberModal();
+            } else {
+              setDeliverableFormNotice(els.spaceMemberStatus, "Member added. Newer edits were not submitted.", "success");
+            }
+          }
           setSpaceGovernanceNotice(`Added ${soeid} to ${spaceNameForId(spaceId) || "the selected space"}.`, "success", 4500);
           if (typeof trackWorkflow === "function") {
             trackWorkflow("spaces", "create", "success", { source: "space_governance" });
           }
         } catch (err) {
+          if (!agentReviewContextIsCurrent(context)) return;
+          if (added) {
+            setSpaceGovernanceNotice("Member added, but the member list could not be refreshed. Refresh before retrying.", "error", 7000);
+            return;
+          }
           if (typeof trackWorkflow === "function") {
             trackWorkflow("spaces", "create", "failure", { source: "space_governance" });
           }
-          setDeliverableFormNotice(els.spaceMemberStatus, err?.message || "Add member failed.", "error");
+          if (ownsEditor()) setDeliverableFormNotice(els.spaceMemberStatus, err?.message || "Add member failed.", "error");
+        } finally {
+          if (spaceMemberSubmission === submission) spaceMemberSubmission = null;
         }
       });
       els.spaceMemberModalForm._bound = true;
@@ -1043,6 +1360,7 @@ export function createSpaceGovernanceController({
         if (!form) return;
         if (form.id === "space-personal-create-form") {
           event.preventDefault();
+          const context = captureAgentChangeRequestContext(state, activeSpaceId);
           state.lobbyPersonalSpaceCreating = true;
           renderGovernanceHub();
           try {
@@ -1050,6 +1368,7 @@ export function createSpaceGovernanceController({
               method: "POST",
               body: JSON.stringify({}),
             });
+            if (!agentReviewContextIsCurrent(context)) return;
             if (created?.space_id && !state.spaces.some((space) => space.space_id === created.space_id)) {
               state.spaces = [...state.spaces, created];
             }
@@ -1057,9 +1376,11 @@ export function createSpaceGovernanceController({
             if (created?.space_id) {
               switched = await switchActiveSpace(created.space_id);
             }
+            if (!governanceSessionIsCurrent(context)) return;
             if (!switched) {
               await refreshSpaceContext();
             }
+            if (!governanceSessionIsCurrent(context)) return;
             form.reset();
             state.requestableSpacesLoaded = false;
             state.spaceAccessRequestsLoaded = false;
@@ -1068,14 +1389,15 @@ export function createSpaceGovernanceController({
               trackWorkflow("spaces", "create_personal", "success", { source: "lobby" });
             }
           } catch (err) {
+            if (!governanceSessionIsCurrent(context)) return;
             if (typeof trackWorkflow === "function") {
               trackWorkflow("spaces", "create_personal", "failure", { source: "lobby" });
             }
             setSpaceGovernanceNotice(err?.message || "Private space create failed.", "error", 7000);
           } finally {
-            state.lobbyPersonalSpaceCreating = false;
-            if (isSpaceGovernanceView(state.currentView)) {
-              renderGovernanceHub();
+            if (governanceSessionIsCurrent(context)) {
+              state.lobbyPersonalSpaceCreating = false;
+              if (isSpaceGovernanceView(state.currentView)) renderGovernanceHub();
             }
           }
           return;
@@ -1089,17 +1411,22 @@ export function createSpaceGovernanceController({
             setSpaceGovernanceNotice("SOEID is required.", "error", 5000);
             return;
           }
+          const context = captureAgentChangeRequestContext(state, activeSpaceId);
           try {
             await api(`/users/by-soeid/${encodeURIComponent(soeid)}/global-admin`, { method: "POST" });
+            if (!privilegedContextIsCurrent(context)) return;
             state.globalAdminsLoaded = false;
-            await refreshGlobalAdmins();
+            await refreshGlobalAdmins({ force: true });
+            if (!privilegedContextIsCurrent(context)) return;
             await refreshFromServer("users");
+            if (!privilegedContextIsCurrent(context)) return;
             form.reset();
             setSpaceGovernanceNotice(`Granted global admin to ${soeid}.`, "success", 4500);
             if (typeof trackWorkflow === "function") {
               trackWorkflow("users", "update", "success", { source: "space_governance" });
             }
           } catch (err) {
+            if (!privilegedContextIsCurrent(context)) return;
             if (typeof trackWorkflow === "function") {
               trackWorkflow("users", "update", "failure", { source: "space_governance" });
             }
@@ -1124,12 +1451,14 @@ export function createSpaceGovernanceController({
               return;
             }
           }
+          const context = captureAgentChangeRequestContext(state, activeSpaceId);
           try {
             await issuePasswordResetForSoeid(soeid, expiresMinutesRaw || null);
+            if (!privilegedContextIsCurrent(context)) return;
             form.reset();
             setSpaceGovernanceNotice(`Issued password reset for ${soeid}.`, "success", 4500);
           } catch (err) {
-            setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
+            if (privilegedContextIsCurrent(context)) setSpaceGovernanceNotice(err?.message || "Password reset failed.", "error", 7000);
           }
           return;
         }
@@ -1149,26 +1478,58 @@ export function createSpaceGovernanceController({
             return;
           }
           const body = { name };
-          if (expiresRaw) body.expires_at = new Date(expiresRaw).toISOString();
+          if (expiresRaw) {
+            const expiration = new Date(expiresRaw);
+            if (!Number.isFinite(expiration.getTime())) {
+              setSpaceGovernanceNotice("Enter a valid token expiration.", "error", 5000);
+              return;
+            }
+            body.expires_at = expiration.toISOString();
+          }
+          const context = captureAgentChangeRequestContext(state, activeSpaceId);
+          const issueView = state.currentView;
+          const issueSection = state.spaceAdminSection;
+          if ((apiTokenIssueInFlight && isSameMutationSession(apiTokenIssueInFlight, context)) || state.issuedApiToken?.token) {
+            setSpaceGovernanceNotice("Finish the current token issuance before issuing another.", "error", 5000);
+            return;
+          }
+          const request = { ...context };
+          apiTokenIssueInFlight = request;
           try {
-            state.spaceAdminSection = "platform-access";
             const issued = await api(`/users/by-soeid/${encodeURIComponent(soeid)}/api-tokens`, {
               method: "POST",
               body: JSON.stringify(body),
             });
-            state.issuedApiToken = {
-              ...issued,
-              user_label: soeid,
-            };
+            if (!privilegedContextIsCurrent(context)) return;
+            if (typeof issued?.token !== "string" || !issued.token || !issued?.user_id) {
+              setSpaceGovernanceNotice("Token issuance may have succeeded, but the response was invalid. Review the token list before retrying.", "error", 9000);
+              return;
+            }
+            state.issuedApiToken = { ...issued, user_label: soeid };
+            apiTokenDialogContext = { context, view: issueView };
             form.reset();
             state.apiTokenUserId = issued.user_id;
             state.apiTokensLoadedByUser[issued.user_id] = false;
-            state.spaceAdminSection = "platform-access";
-            await refreshApiTokens(issued.user_id, { force: true });
-            renderGovernanceHub("platform-access");
+            if (state.currentView === issueView && state.spaceAdminSection === issueSection && isSpaceGovernanceView(state.currentView)) {
+              renderGovernanceHub("platform-access");
+              focusApiTokenDialog();
+            }
             setSpaceGovernanceNotice("User API token issued. Copy it now.", "success", 7000);
+            try {
+              await refreshApiTokens(issued.user_id, { force: true, render: false });
+              if (privilegedContextIsCurrent(context) && !state.issuedApiToken?.token
+                  && state.currentView === issueView && state.spaceAdminSection === issueSection && isSpaceGovernanceView(state.currentView)) {
+                renderGovernanceHub("platform-access");
+              }
+            } catch {
+              if (privilegedContextIsCurrent(context)) {
+                setSpaceGovernanceNotice("Token issued. Copy it now; the token list could not be refreshed.", "error", 9000);
+              }
+            }
           } catch (err) {
-            setSpaceGovernanceNotice(err?.message || "Token generation failed.", "error", 7000);
+            if (privilegedContextIsCurrent(context)) setSpaceGovernanceNotice(err?.message || "Token generation failed.", "error", 7000);
+          } finally {
+            if (apiTokenIssueInFlight === request) apiTokenIssueInFlight = null;
           }
           return;
         }
@@ -1198,7 +1559,9 @@ export function createSpaceGovernanceController({
         if (event.target.matches("[data-agent-change-request-checkbox]")) {
           const id = event.target.getAttribute("data-change-request-id") || "";
           const selected = new Set(state.agentChangeRequestSelectedIds || []);
-          if (event.target.checked) selected.add(id);
+          if (event.target.checked && !selected.has(id) && selected.size >= AGENT_BULK_REVIEW_LIMIT) {
+            setSpaceGovernanceNotice(`Select at most ${AGENT_BULK_REVIEW_LIMIT} proposals for one review.`, "error", 5000);
+          } else if (event.target.checked) selected.add(id);
           else selected.delete(id);
           state.agentChangeRequestSelectedIds = selected;
           renderGovernanceHub("agent-approvals");
@@ -1229,22 +1592,34 @@ export function createSpaceGovernanceController({
 
     if (!document._spaceGovernanceEscapeBound) {
       document.addEventListener("keydown", (event) => {
-        if (event.key !== "Escape") return;
-        if (els.spaceCreateModal && !els.spaceCreateModal.classList.contains("hidden")) {
+        if (event.key !== "Escape" || event.defaultPrevented || !isSpaceGovernanceView(state.currentView)) return;
+        const top = topVisibleModal();
+        const tokenModal = els.spaceGovernanceShell?.querySelector(".api-token-modal");
+        const governanceModals = [els.spaceCreateModal, els.spaceDirectoryModal, els.spaceMemberModal, tokenModal];
+        if (top && !governanceModals.includes(top)) return;
+        if (top && top === tokenModal && state.issuedApiToken?.token) {
+          event.preventDefault();
+          closeApiTokenDialog();
+          return;
+        }
+        if ((!top || top === els.spaceCreateModal) && els.spaceCreateModal && !els.spaceCreateModal.classList.contains("hidden")) {
+          event.preventDefault();
           closeSpaceCreateModal();
           return;
         }
-        if (els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden")) {
+        if ((!top || top === els.spaceDirectoryModal) && els.spaceDirectoryModal && !els.spaceDirectoryModal.classList.contains("hidden")) {
+          event.preventDefault();
           closeSpaceDirectoryModal();
           return;
         }
-        if (els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
+        if ((!top || top === els.spaceMemberModal) && els.spaceMemberModal && !els.spaceMemberModal.classList.contains("hidden")) {
+          event.preventDefault();
           closeSpaceMemberModal();
           return;
         }
-        if (state.issuedApiToken?.token) {
-          state.issuedApiToken = null;
-          renderGovernanceHub("platform-access");
+        if (state.issuedApiToken?.token && tokenModal) {
+          event.preventDefault();
+          closeApiTokenDialog();
           return;
         }
         if (state.agentChangeRequestModalId) {

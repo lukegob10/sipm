@@ -1,0 +1,37 @@
+import { expect, test } from "@playwright/test";
+
+test("search temporarily expands the outline without changing the saved collapse state", async ({ page }) => {
+  const soeid = `outline${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`.slice(0, 20);
+  expect((await page.request.post("/project-manager/api/auth/register", { data: { soeid, display_name: "Outline Test", password: "Password123" } })).ok()).toBeTruthy();
+  const personal = await page.request.post("/project-manager/api/spaces/personal", { data: {} });
+  expect(personal.ok()).toBeTruthy();
+  expect((await page.request.post("/project-manager/api/auth/active-space", { data: { space_id: (await personal.json()).space_id } })).ok()).toBeTruthy();
+  const program = await page.request.post("/project-manager/api/programs", { data: { program_name: "Outline Program" } });
+  expect(program.ok()).toBeTruthy();
+  const programId = (await program.json()).program_id;
+  const project = await page.request.post("/project-manager/api/projects", { data: { program_id: programId, project_name: "Outline Project" } });
+  expect(project.ok()).toBeTruthy();
+  const solution = await page.request.post(`/project-manager/api/projects/${(await project.json()).project_id}/solutions`, { data: { solution_name: "Outline Solution", version: "1.0" } });
+  expect(solution.ok()).toBeTruthy();
+  await page.goto("/project-manager/");
+  const programToggle = page.locator(`[data-master-collapse-key="program:${programId}"]`);
+  await expect(programToggle).toBeVisible();
+  await programToggle.click();
+  await expect(programToggle).toHaveAttribute("aria-expanded", "false");
+  const search = page.locator("[data-master-query]");
+  await search.fill("Outline Solution");
+  await search.press("Enter");
+  await expect(programToggle).toBeDisabled();
+  await expect(programToggle).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[data-master-outline-action="collapse-all"]')).toBeDisabled();
+  await expect(page.locator("[data-master-search-outline-note]")).toBeVisible();
+  await expect(page.getByRole("spinbutton", { name: "Priority for Outline Solution" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "RAG for Outline Solution" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Status for Outline Solution" })).toBeVisible();
+  await search.fill("");
+  await search.press("Enter");
+  await expect(programToggle).toBeEnabled();
+  await expect(programToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator('[data-master-outline-action="collapse-all"]')).toBeEnabled();
+  await expect(page.locator("[data-master-search-outline-note]")).toBeHidden();
+});

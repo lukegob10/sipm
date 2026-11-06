@@ -38,6 +38,9 @@ describe("solution detail rendering", () => {
 
     const card = container.querySelector(".swimlane-card");
     const meta = card.querySelectorAll(".swimlane-meta");
+    expect(card.tagName).toBe("BUTTON");
+    expect(card.type).toBe("button");
+    expect(card.getAttribute("aria-label")).toBe(`Edit task ${task.task_name}`);
     expect(container.querySelector(injectedSelector)).toBeNull();
     expect(card.dataset.id).toBe(task.task_id);
     expect(card.querySelector(".swimlane-title").textContent).toBe(task.task_name);
@@ -59,6 +62,7 @@ describe("solution detail rendering", () => {
     expect(body.querySelector(injectedSelector)).toBeNull();
     expect(row.dataset.id).toBe(task.task_id);
     expect(editButton.dataset.id).toBe(task.task_id);
+    expect(editButton.getAttribute("aria-label")).toBe(`Edit task ${task.task_name}`);
     expect(cells[1].textContent).toBe(task.task_name);
     expect(cells[2].textContent).toBe(task.status);
     expect(cells[3].textContent).toBe(task.assignee);

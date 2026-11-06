@@ -296,6 +296,7 @@ class TeamMember(TimestampMixin, SoftDeleteMixin, Base):
 
 
 __all__ = [
+    "ApiToken",
     "AuthSession",
     "ChangeLog",
     "Space",
@@ -304,4 +305,6 @@ __all__ = [
     "Team",
     "TeamMember",
     "User",
+    "UserPreference",
+    "UserTaskState",
 ]

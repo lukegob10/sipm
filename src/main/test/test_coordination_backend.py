@@ -88,6 +88,7 @@ class _FakePubSub:
 
     async def listen(self):
         self.listen_started.set()
+        yield {"type": "subscribe", "channel": coordination._REFRESH_CHANNEL, "data": 1}
         for message in self.messages:
             yield message
         if self.wait_before_listen_error or self.listen_error is None:
@@ -111,7 +112,7 @@ class _FakeAsyncRedis:
         self.close_calls = 0
 
     def pubsub(self, *, ignore_subscribe_messages: bool):
-        assert ignore_subscribe_messages is True
+        assert ignore_subscribe_messages is False
         self.pubsub_calls += 1
         if not self.pubsubs:
             raise AssertionError("No fake PubSub attempt remains")
@@ -326,7 +327,8 @@ async def test_redis_listener_reconnects_after_listen_disconnect_and_dispatches_
 
     async def handler(entity: str, space_id: str | None) -> None:
         messages.append((entity, space_id))
-        received.set()
+        if entity == "tasks":
+            received.set()
 
     try:
         await backend.start_refresh_listener(handler)
@@ -342,9 +344,87 @@ async def test_redis_listener_reconnects_after_listen_disconnect_and_dispatches_
         controlled_sleep.release.set()
         await asyncio.wait_for(received.wait(), timeout=1)
         assert fake_async.pubsub_calls == 2
-        assert messages == [("tasks", "space-1")]
+        assert messages == [("all", None), ("agent_change_requests", None), ("tasks", "space-1")]
         assert backend._listener_live is True
         assert backend._listener_last_error is None
+    finally:
+        await backend.aclose()
+
+
+@pytest.mark.anyio
+async def test_redis_listener_catches_up_on_supervised_recovery():
+    disconnected = _FakePubSub(listen_error=ConnectionError("lost"), wait_before_listen_error=True)
+    recovered = _FakePubSub()
+    backend, _, _ = await _fake_redis_backend(disconnected, recovered)
+    sleep = _ControlledSleep()
+    backend._listener_sleep = sleep
+    events = []
+    catchup_done = asyncio.Event()
+
+    async def handler(entity, space_id):
+        events.append((entity, space_id))
+        if entity == "agent_change_requests":
+            catchup_done.set()
+
+    try:
+        await backend.start_refresh_listener(handler)
+        await asyncio.wait_for(disconnected.listen_started.wait(), timeout=1)
+        assert events == []
+        disconnected.release_listen.set()
+        await asyncio.wait_for(sleep.entered.wait(), timeout=1)
+        sleep.release.set()
+        await asyncio.wait_for(recovered.listen_started.wait(), timeout=1)
+        assert catchup_done.is_set()
+        assert events == [("all", None), ("agent_change_requests", None)]
+    finally:
+        await backend.aclose()
+
+
+@pytest.mark.anyio
+async def test_redis_listener_catches_up_after_initial_subscription_failure():
+    failed = _FakePubSub(subscribe_error=ConnectionError("unavailable"))
+    recovered = _FakePubSub()
+    backend, _, _ = await _fake_redis_backend(failed, recovered)
+    sleep = _ControlledSleep()
+    backend._listener_sleep = sleep
+    events = []
+    catchup_done = asyncio.Event()
+
+    async def handler(entity, space_id):
+        events.append((entity, space_id))
+        if entity == "agent_change_requests":
+            catchup_done.set()
+
+    try:
+        await backend.start_refresh_listener(handler)
+        await asyncio.wait_for(sleep.entered.wait(), timeout=1)
+        assert events == []
+        sleep.release.set()
+        await asyncio.wait_for(catchup_done.wait(), timeout=1)
+        assert events == [("all", None), ("agent_change_requests", None)]
+    finally:
+        await backend.aclose()
+
+
+@pytest.mark.anyio
+async def test_redis_listener_catches_up_on_redis_internal_resubscription():
+    pubsub = _FakePubSub(messages=(
+        {"type": "subscribe", "channel": coordination._REFRESH_CHANNEL, "data": 1},
+        {"type": "message", "data": '{"entity":"tasks","space_id":"space-1"}'},
+    ))
+    backend, _, _ = await _fake_redis_backend(pubsub)
+    events = []
+    received = asyncio.Event()
+
+    async def handler(entity, space_id):
+        events.append((entity, space_id))
+        if entity == "tasks":
+            received.set()
+
+    try:
+        await backend.start_refresh_listener(handler)
+        await asyncio.wait_for(received.wait(), timeout=1)
+        assert events == [("all", None), ("agent_change_requests", None), ("tasks", "space-1")]
     finally:
         await backend.aclose()
 

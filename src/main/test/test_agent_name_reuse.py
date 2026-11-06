@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import event
 from sqlalchemy.dialects import oracle
+from sqlalchemy.exc import IntegrityError
 
 from backend.app.models import ChangeLog, Program, Project, Solution, Space, Task, User
 from backend.app.schemas.agent import AgentPatchRequest
@@ -12,6 +13,7 @@ from backend.app.services.agent_change_requests import (
     approve_change_request,
     create_change_request,
 )
+from backend.app.services import agent_patch_plan
 from backend.app.services.agent_patch_plan import apply_patch_plan, validate_patch_plan
 from backend.app.services.spaces import SpaceContext
 from backend.app.services.work_item_names import deleted_work_item_name
@@ -95,7 +97,7 @@ def _create_row(session, context, actor, operation):
 def _approve(session, context, actor, payload):
     request = create_change_request(session, context, actor, payload)
     assert request.status == "pending"
-    return approve_change_request(session, context, actor, request.change_request_id)
+    return approve_change_request(session, context, actor, request.change_request_id, if_request_fingerprint=request.content_fingerprint)
 
 
 @pytest.mark.parametrize("entity", MODELS)
@@ -164,7 +166,7 @@ def test_agent_reclaims_legacy_deleted_names_only_during_application(
     request = create_change_request(session, context, actor, payload)
     session.refresh(old)
     assert getattr(old, f"{entity}_name") == "Reusable"
-    result = approve_change_request(session, context, actor, request.change_request_id)
+    result = approve_change_request(session, context, actor, request.change_request_id, if_request_fingerprint=request.content_fingerprint)
     assert result.status == "approved", result.model_dump()
     session.refresh(old)
     assert old.deleted_at is not None
@@ -181,15 +183,25 @@ def test_agent_reclaims_legacy_deleted_names_only_during_application(
 
 
 @pytest.mark.parametrize("entity", MODELS)
-def test_failed_patch_rolls_back_legacy_name_reclamation(name_reuse_context, entity):
+def test_failed_patch_rolls_back_legacy_name_reclamation(name_reuse_context, entity, monkeypatch):
     session, context, actor, program, project, solution = name_reuse_context
     operation = _create_operation(entity, program, project, solution)
     old = _create_row(session, context, actor, operation)
     old.deleted_at = datetime.now(timezone.utc)
     session.commit()
-    duplicate = {**operation, "client_operation_id": "second-create"}
+    second = _create_operation(entity, program, project, solution, name="Another item")
+    second["client_operation_id"] = "second-create"
+    apply_name = f"_apply_{entity}"
+    apply_original = getattr(agent_patch_plan, apply_name)
+
+    def fail_second(session, context, actor, candidate):
+        if candidate.client_operation_id == "second-create":
+            raise IntegrityError("insert", {}, Exception("conflict"))
+        return apply_original(session, context, actor, candidate)
+
+    monkeypatch.setattr(agent_patch_plan, apply_name, fail_second)
     result = _approve(
-        session, context, actor, _patch(operation, duplicate, key="duplicate-patch")
+        session, context, actor, _patch(operation, second, key="failed-patch")
     )
     assert result.status == "failed"
     assert result.validation.results[0].code == "APPLY_FAILED"
@@ -208,6 +220,50 @@ def test_failed_patch_rolls_back_legacy_name_reclamation(name_reuse_context, ent
         field=f"{entity}_name",
         action="update",
     ).count() == 0
+
+
+@pytest.mark.parametrize("entity", MODELS)
+def test_validation_rejects_duplicate_creates_in_one_plan(name_reuse_context, entity):
+    session, context, _, program, project, solution = name_reuse_context
+    first = _create_operation(entity, program, project, solution, name="  Same name  ")
+    second = _create_operation(entity, program, project, solution, name="Same name")
+    second["client_operation_id"] = "second-create"
+    result = validate_patch_plan(session, context, _patch(first, second))
+    assert not result.valid
+    assert result.results[0].valid
+    assert result.results[1].code == {
+        "program": "PROGRAM_NAME_CONFLICT",
+        "project": "PROJECT_NAME_CONFLICT",
+        "solution": "SOLUTION_CONFLICT",
+        "task": "TASK_CONFLICT",
+    }[entity]
+
+
+def test_duplicate_create_validation_respects_parent_refs_and_versions(name_reuse_context):
+    session, context, _, _, _, _ = name_reuse_context
+    operations = [
+        {"client_operation_id": "p1", "op": "create", "entity": "project", "ref": "p1", "fields": {"project_name": "One"}},
+        {"client_operation_id": "p2", "op": "create", "entity": "project", "ref": "p2", "fields": {"project_name": "Two"}},
+        {"client_operation_id": "s1", "op": "create", "entity": "solution", "ref": "s1", "project_ref": "p1", "fields": {"solution_name": "Same"}},
+        {"client_operation_id": "s2", "op": "create", "entity": "solution", "project_ref": "p2", "fields": {"solution_name": "Same"}},
+        {"client_operation_id": "s3", "op": "create", "entity": "solution", "project_ref": "p1", "fields": {"solution_name": "Same", "version": "2"}},
+        {"client_operation_id": "t1", "op": "create", "entity": "task", "solution_ref": "s1", "fields": {"task_name": "  Task  "}},
+        {"client_operation_id": "t2", "op": "create", "entity": "task", "solution_ref": "s1", "fields": {"task_name": "Task"}},
+    ]
+    result = validate_patch_plan(session, context, _patch(*operations))
+    assert all(item.valid for item in result.results[:-1])
+    assert result.results[-1].code == "TASK_CONFLICT"
+
+
+@pytest.mark.parametrize("entity,parent", [("solution", "project_id"), ("task", "solution_id")])
+def test_validation_errors_do_not_echo_raw_input(name_reuse_context, entity, parent):
+    session, context, _, _, project, solution = name_reuse_context
+    operation = _create_operation(entity, None, project, solution)
+    operation["fields"]["priority"] = "private raw input"
+    result = validate_patch_plan(session, context, _patch(operation))
+    assert result.results[0].code == "VALIDATION_ERROR"
+    assert result.results[0].message.startswith("priority:")
+    assert "private raw input" not in result.results[0].message
 
 
 @pytest.mark.parametrize("entity", MODELS)
@@ -341,7 +397,7 @@ def test_legacy_name_lock_query_is_valid_for_oracle(name_reuse_context):
 
     def capture_sql(orm_execute_state):
         sql = str(orm_execute_state.statement.compile(dialect=oracle.dialect())).upper()
-        if "FOR UPDATE" in sql:
+        if "FOR UPDATE" in sql and '"TB_TA_PM_TASKS"' in sql:
             statements.append(sql)
 
     event.listen(session, "do_orm_execute", capture_sql)

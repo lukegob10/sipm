@@ -34,6 +34,12 @@ export function createFormDraftGuard({
     render();
   }
 
+  function rebase(snapshot, replacements = {}) {
+    const entries = JSON.parse(snapshot);
+    baseline = JSON.stringify(entries.map(([key, value]) => [key, Object.prototype.hasOwnProperty.call(replacements, key) ? String(replacements[key] ?? "") : value]));
+    return sync();
+  }
+
   function bind() {
     if (!form || bound) return;
     form.addEventListener("input", sync);
@@ -59,6 +65,7 @@ export function createFormDraftGuard({
   return {
     bind,
     capture,
+    rebase,
     confirmDiscard,
     isDirty,
     sync,

@@ -54,3 +54,12 @@ export async function refreshSpaceContextData({
   });
   return true;
 }
+
+export function normalizeMasterFilters(filters = {}) {
+  const source = filters && typeof filters === "object" ? filters : {};
+  const query = typeof source.query === "string" ? source.query : "";
+  const changed = filters !== source
+    || Object.keys(source).some((key) => key !== "query")
+    || source.query !== query;
+  return { filters: { query }, changed };
+}

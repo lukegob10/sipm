@@ -18,6 +18,18 @@ from backend.app.services.user_admin_guards import _space_admin_lock_statement
 from backend.main import app as fastapi_app
 
 
+@pytest.fixture(autouse=True)
+def _persist_client_actor(request, db_sessionmaker):
+    if "client" not in request.fixturenames:
+        return
+    with db_sessionmaker() as session:
+        session.add(User(
+            user_id="test-user", soeid="tu12345", email="test-user@example.com",
+            display_name="Test User", password_hash="unused", role="global_admin", is_active=True,
+        ))
+        session.commit()
+
+
 def _seed_space_with_members(db_sessionmaker, *, admin_count: int, include_member: bool = False):
     with db_sessionmaker() as session:
         space = Space(
@@ -76,20 +88,23 @@ def _seed_space_with_members(db_sessionmaker, *, admin_count: int, include_membe
         return space.space_id, admin_membership_ids, member_membership_id
 
 
-def _set_current_space_override(space_id: str, role: str = "space_admin"):
+def _set_current_space_override(space_id: str, role: str = "space_admin", actor_id: str = "admin-user-0"):
     fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
         space_id=space_id,
         space_name="Admin Guard Space",
         is_global_admin=False,
         space_role=role,
     )
+    fastapi_app.dependency_overrides[deps_module.require_user] = lambda: SimpleNamespace(user_id=actor_id)
 
 
 def _restore_current_space_override(original):
+    original, original_user = original
     if original is None:
         fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
     else:
         fastapi_app.dependency_overrides[deps_module.current_space] = original
+    fastapi_app.dependency_overrides[deps_module.require_user] = original_user
 
 
 def test_resolve_active_space_does_not_create_default_membership_for_unassigned_user(db_sessionmaker):
@@ -118,7 +133,7 @@ def test_resolve_active_space_does_not_create_default_membership_for_unassigned_
 async def test_cannot_remove_last_active_space_admin(client, db_sessionmaker):
     space_id, admin_memberships, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
     membership_id = admin_memberships[0]
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
         demote = await client.patch(
@@ -208,7 +223,7 @@ async def test_space_create_and_update_reject_blank_names(client):
 @pytest.mark.anyio
 async def test_space_admin_can_toggle_public_program_dashboard(client, db_sessionmaker):
     space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
         enabled = await client.patch(
@@ -270,6 +285,7 @@ def test_membership_mutation_reloads_stale_row_after_space_lock(db_sessionmaker)
                 SpaceMembershipUpdate(role="space_admin"),
                 session=competing_session,
                 ctx=ctx,
+                current_user=competing_session.get(User, "admin-user-0"),
             )
             spaces_routes.update_space_member(
                 space_id,
@@ -277,6 +293,7 @@ def test_membership_mutation_reloads_stale_row_after_space_lock(db_sessionmaker)
                 SpaceMembershipUpdate(role="member"),
                 session=competing_session,
                 ctx=ctx,
+                current_user=competing_session.get(User, "member-user-0"),
             )
 
         with pytest.raises(HTTPException) as exc:
@@ -285,6 +302,7 @@ def test_membership_mutation_reloads_stale_row_after_space_lock(db_sessionmaker)
                 member_membership_id,
                 session=stale_session,
                 ctx=ctx,
+                current_user=stale_session.get(User, "member-user-0"),
             )
 
         assert exc.value.status_code == 400
@@ -337,6 +355,7 @@ def test_concurrent_demote_and_user_deactivation_retain_space_admin(db_sessionma
                 SpaceMembershipUpdate(role="member"),
                 session=session,
                 ctx=ctx,
+                current_user=session.get(User, "admin-user-1"),
             )
             return row.role
 
@@ -390,7 +409,7 @@ def test_concurrent_demote_and_user_deactivation_retain_space_admin(db_sessionma
 @pytest.mark.anyio
 async def test_space_member_cannot_toggle_public_program_dashboard(client, db_sessionmaker):
     space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1, include_member=True)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="member")
         response = await client.patch(
@@ -424,7 +443,7 @@ async def test_global_admin_can_toggle_public_program_dashboard_for_any_space(cl
 @pytest.mark.anyio
 async def test_space_admin_cannot_rename_space_through_public_dashboard_toggle(client, db_sessionmaker):
     space_id, _, _ = _seed_space_with_members(db_sessionmaker, admin_count=1)
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
         response = await client.patch(
@@ -446,9 +465,9 @@ async def test_can_change_admin_membership_when_another_admin_exists(client, db_
     )
     first_admin = admin_memberships[0]
     second_admin = admin_memberships[1]
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
-        _set_current_space_override(space_id, role="space_admin")
+        _set_current_space_override(space_id, role="space_admin", actor_id="admin-user-1")
         demote = await client.patch(
             f"/project-manager/api/spaces/{space_id}/members/{first_admin}",
             json={"role": "member"},
@@ -589,9 +608,11 @@ async def test_inactive_admin_user_does_not_count_as_remaining_active_space_admi
         session.add_all([space, active_admin, inactive_admin, active_membership, inactive_membership])
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
-        _set_current_space_override("space-inactive-admin-guard", role="space_admin")
+        _set_current_space_override(
+            "space-inactive-admin-guard", role="space_admin", actor_id="active-admin-guard-user"
+        )
         demote = await client.patch(
             "/project-manager/api/spaces/space-inactive-admin-guard/members/active-admin-guard-membership",
             json={"role": "member"},
@@ -621,7 +642,7 @@ async def test_add_member_by_soeid_and_restore_soft_deleted_membership(client, d
         )
         session.add(new_user)
         session.commit()
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
 
@@ -661,7 +682,7 @@ async def test_list_space_members_includes_user_identity_fields(client, db_sessi
         admin_count=1,
         include_member=True,
     )
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
         resp = await client.get(f"/project-manager/api/spaces/{space_id}/members")
@@ -697,7 +718,7 @@ async def test_space_membership_changes_invalidate_cached_user_roster(client, db
         session.add(new_user)
         session.commit()
 
-    original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
+    original_current_space = (fastapi_app.dependency_overrides.get(deps_module.current_space), fastapi_app.dependency_overrides.get(deps_module.require_user))
     try:
         _set_current_space_override(space_id, role="space_admin")
 

@@ -1,4 +1,4 @@
-import { parseDateOnly } from "../utils/date-only.js";
+import { localDateFromParts, parseDateOnly } from "../utils/date-only.js";
 import { renderRouteState } from "../ui/route-state.js";
 
 function esc(value) {
@@ -25,12 +25,12 @@ function resolveCalendarMonth(value) {
   if (monthMatch) {
     const year = Number(monthMatch[1]);
     const monthIndex = Number(monthMatch[2]) - 1;
-    if (monthIndex >= 0 && monthIndex <= 11) return new Date(year, monthIndex, 1);
+    if (year >= 1 && year <= 9999 && monthIndex >= 0 && monthIndex <= 11) return localDateFromParts(year, monthIndex, 1);
   }
   const dateOnly = typeof value === "string" ? parseDateOnly(value) : null;
-  if (dateOnly) return new Date(dateOnly.year, dateOnly.monthIndex, 1);
+  if (dateOnly) return localDateFromParts(dateOnly.year, dateOnly.monthIndex, 1);
   const month = value ? new Date(value) : new Date();
-  return Number.isNaN(month.getTime()) ? new Date() : month;
+  return Number.isNaN(month.getTime()) || month.getFullYear() < 1 || month.getFullYear() > 9999 ? new Date() : month;
 }
 
 function renderCalendarPreviewTitle(item, type, titleField) {
@@ -94,8 +94,8 @@ export function renderCalendar(ctx) {
   const baseMonth = resolveCalendarMonth(state.calendarMonth);
   const year = baseMonth.getFullYear();
   const month = baseMonth.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = localDateFromParts(year, month, 1);
+  const daysInMonth = localDateFromParts(year, month + 1, 0).getDate();
   const startWeekday = firstDay.getDay();
 
   const solutions = sortByName(filteredSolutionsForCalendar(), "solution_name");
@@ -135,7 +135,7 @@ export function renderCalendar(ctx) {
         .map((day) => {
           if (!day) return `<div class="calendar-cell empty" aria-hidden="true"></div>`;
           const dayItems = itemsByDay[day] || { solutions: [], tasks: [] };
-          const calendarDateLabel = new Date(year, month, day).toLocaleDateString(undefined, {
+          const calendarDateLabel = localDateFromParts(year, month, day).toLocaleDateString(undefined, {
             month: "long",
             day: "numeric",
             year: "numeric",
@@ -179,7 +179,7 @@ export function renderCalendar(ctx) {
     const populatedDays = Object.entries(itemsByDay)
       .filter(([, dayItems]) => dayItems.solutions.length || dayItems.tasks.length)
       .map(([day, dayItems]) => {
-        const date = new Date(year, month, Number(day));
+        const date = localDateFromParts(year, month, Number(day));
         const itemCount = dayItems.solutions.length + dayItems.tasks.length;
         const items = [
           ...dayItems.solutions.map((item) => renderAgendaItem(item, "solution", "solution_name", formatStatus)),
@@ -216,7 +216,7 @@ export function openCalendarModal(day, ctx) {
   if (!els.calendarModal) return;
 
   const baseMonth = resolveCalendarMonth(state.calendarMonth);
-  const date = new Date(baseMonth.getFullYear(), baseMonth.getMonth(), day || 1);
+  const date = localDateFromParts(baseMonth.getFullYear(), baseMonth.getMonth(), day || 1);
   const solutions = sortByName(itemsForDay(filteredSolutionsForCalendar(), date), "solution_name");
   const tasks = sortByName(itemsForDay(filteredTasksForCalendar(), date), "task_name");
   const projectsById = new Map((state.projects || []).map((project) => [project.project_id, project]));

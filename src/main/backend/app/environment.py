@@ -23,7 +23,7 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
         return
     if override_existing is None:
         override_existing = _bool_env("SIPM_ENV_OVERRIDE", False)
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         raw = line.strip()
         if not raw or raw.startswith("#"):
             continue
@@ -35,10 +35,17 @@ def _load_env_file(path: Path, *, override_existing: bool | None = None) -> None
         if key.lower().startswith("export "):
             parts = key.split(None, 1)
             key = parts[1].strip() if len(parts) > 1 else ""
-        value = value.strip().strip("'").strip('"')
-        # Support inline comments: KEY=value # comment
-        if " #" in value:
-            value = value.split(" #", 1)[0].rstrip()
+        value = value.strip()
+        quote = value[:1]
+        closing_quote = value.find(quote, 1) if quote in {"'", '"'} else -1
+        remainder = value[closing_quote + 1:].strip() if closing_quote >= 0 else ""
+        if closing_quote >= 0 and (not remainder or remainder.startswith("#")):
+            value = value[1:closing_quote]
+        else:
+            # Support unquoted inline comments: KEY=value # comment.
+            if " #" in value:
+                value = value.split(" #", 1)[0].rstrip()
+            value = value.strip("'").strip('"')
         # Prefer explicit process env by default. Opt in to file overrides with
         # SIPM_ENV_OVERRIDE=true when local development needs it.
         if key and (override_existing or key not in os.environ or not str(os.environ.get(key) or "").strip()):
@@ -57,9 +64,16 @@ def _repo_root_with_env(directories: tuple[Path, ...]) -> Path | None:
 def _find_repo_root() -> Path:
     cwd = Path.cwd().resolve()
     directories = (cwd, *cwd.parents)
+    source_directories = tuple(Path(__file__).resolve().parents)
 
-    # The repo-root environment is authoritative over the deprecated
-    # src/main/.env fallback, even when the process starts inside src/main.
+    # The source repository's environment is authoritative even when the
+    # process starts in an unrelated directory containing another .env.
+    repo_root = _repo_root_with_env(source_directories)
+    if repo_root is not None:
+        return repo_root
+    runtime_root = Path(__file__).resolve().parents[2]
+    if (runtime_root / ".env").exists() or (runtime_root / ".env.local").exists():
+        return runtime_root
     repo_root = _repo_root_with_env(directories)
     if repo_root is not None:
         return repo_root
@@ -67,11 +81,7 @@ def _find_repo_root() -> Path:
     for candidate in directories:
         if (candidate / ".env").exists() or (candidate / ".env.local").exists():
             return candidate
-    # Walk upward to locate the first directory that contains `.env`.
-    source_directories = tuple(Path(__file__).resolve().parents)
-    repo_root = _repo_root_with_env(source_directories)
-    if repo_root is not None:
-        return repo_root
+    # Walk upward from the source when no working-directory file exists.
     for candidate in source_directories:
         if (candidate / ".env").exists() or (candidate / ".env.local").exists():
             return candidate

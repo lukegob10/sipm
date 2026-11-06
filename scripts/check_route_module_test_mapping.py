@@ -26,7 +26,7 @@ def validate_route_module_test_mapping(repo_root: Path) -> list[str]:
     except (OSError, json.JSONDecodeError) as exc:
         return [f"Unable to parse route module mapping file: {exc}"]
 
-    modules = payload.get("modules")
+    modules = payload.get("modules") if isinstance(payload, dict) else None
     if not isinstance(modules, dict):
         return ["route-module-test-map.json must contain a top-level `modules` object."]
 
@@ -47,7 +47,7 @@ def validate_route_module_test_mapping(repo_root: Path) -> list[str]:
                 )
                 continue
             test_path = repo_root / rel_test_path
-            if not test_path.exists():
+            if not test_path.is_file():
                 errors.append(f"{route_file} maps to missing test file: {test_path}")
 
     for mapped_file in sorted(mapped_files - set(route_files)):

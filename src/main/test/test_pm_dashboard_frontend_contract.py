@@ -263,9 +263,14 @@ def test_pm_dashboard_report_download_uses_fetch_blob_not_direct_anchor():
 
     assert "async function downloadPMDashboardReport(pmDashboardState) {" in text
     assert 'headers["X-Space-Id"] = activeSpaceId;' in text
-    assert 'fetch(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`' in text
+    assert '(ctx.fetchImpl || fetch)(`${resolvePMDashboardApiBase(ctx)}/pm-dashboard/report.pdf`' in text
+    app_text = (REPO_ROOT / "src" / "main" / "ui" / "js" / "app.js").read_text(encoding="utf-8")
+    render_start = app_text.index("function renderPMDashboard()")
+    render_block = app_text[render_start:app_text.index("\n}", render_start)]
+    assert "fetchImpl: sessionBoundFetch," in render_block
     assert 'credentials: "include"' in text
     assert 'contentType.includes("application/pdf")' in text
     assert 'link.download = `pm-command-center-report-${today}.pdf`;' in text
-    assert 'pmDashboardState.ctx?.setStatus?.("PM Command Center report downloaded.", "success");' in text
-    assert 'pmDashboardState.ctx?.setStatus?.(err?.message || "PDF download failed", "danger");' in text
+    assert 'if (isCurrent()) ctx?.setStatus?.("PM Command Center report downloaded.", "success");' in text
+    assert 'ctx?.setStatus?.(err?.message || "PDF download failed", "danger");' in text
+    assert 'if (!isCurrent()) return;' in text

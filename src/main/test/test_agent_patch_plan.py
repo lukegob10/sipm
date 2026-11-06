@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.dialects import oracle
 
+from backend.app.models import Space, SpaceMembership, User
 from backend.app.schemas.agent import AgentPatchRequest
 from backend.app.services.agent_patch_plan import validate_patch_plan
 from backend.app.services.spaces import SpaceContext
@@ -52,14 +53,21 @@ def test_apply_validation_lock_queries_are_valid_for_oracle(
         )
 
     with db_sessionmaker() as session:
+        actor = User(user_id="oracle-actor", soeid="oracle-actor", email="oracle-actor@example.com", display_name="Actor", password_hash="unused", role="user", is_active=True)
+        session.add_all([
+            actor,
+            Space(space_id=space_ctx.space_id, name=space_ctx.space_name, slug=space_ctx.space_id),
+            SpaceMembership(space_id=space_ctx.space_id, user_id=actor.user_id, role="member", status="active"),
+        ])
+        session.commit()
         # Inspect the actual statement executed by each validator. SQLite alone
         # would silently accept a limit and ignore FOR UPDATE.
         event.listen(session, "do_orm_execute", capture_oracle_sql)
-        response = validate_patch_plan(session, space_ctx, payload, for_apply=True)
+        response = validate_patch_plan(session, space_ctx, payload, for_apply=True, actor=actor)
 
     assert response.results[0].code == f"{entity.upper()}_NOT_FOUND"
-    assert len(statements) == 1
-    sql = statements[0]
+    assert any(Space.__tablename__.upper() in sql and "FOR UPDATE" in sql for sql in statements[:-1])
+    sql = statements[-1]
     assert "FOR UPDATE" in sql
     assert "FETCH FIRST" not in sql
     assert "FETCH NEXT" not in sql

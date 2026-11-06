@@ -2,8 +2,11 @@ import { DASHBOARD_SECTIONS, DEFAULT_PREFS, num } from "./common.js";
 import { updatePrefs } from "./prefs.js";
 import {
   applyModalConfig,
+  captureModalDraft,
   closeDashboardConfigModal,
   ensureDashboardConfigModal,
+  isDashboardModalContextCurrent,
+  resetDashboardConfigForContext,
   moveModalColumn,
   openDashboardConfigModal,
   renderDashboardConfigModal,
@@ -111,7 +114,7 @@ export function bindDashboardEvents(dashboardState, rerender) {
         || dashboardState.lastConfigSection
         || "main"
       );
-      openDashboardConfigModal(dashboardState, sectionId);
+      openDashboardConfigModal(dashboardState, sectionId, actionEl);
       renderDashboardConfigModal(dashboardState, sectionId, {
         columnDefsBySection: dashboardState.columnDefsBySection || {},
       });
@@ -125,6 +128,10 @@ export function bindDashboardEvents(dashboardState, rerender) {
     const actionEl = event.target.closest("[data-dashboard-action]");
     if (!actionEl) return;
     const action = actionEl.getAttribute("data-dashboard-action") || "";
+    if (actionEl.closest("#dashboard-config-modal") && !isDashboardModalContextCurrent(dashboardState)) {
+      resetDashboardConfigForContext(dashboardState);
+      return;
+    }
 
     if (action === "close-config") {
       closeDashboardConfigModal(dashboardState);
@@ -142,12 +149,14 @@ export function bindDashboardEvents(dashboardState, rerender) {
       event.preventDefault();
       const sectionId = String(actionEl.getAttribute("data-dashboard-section") || "");
       if (!DASHBOARD_SECTIONS.includes(sectionId)) return;
+      captureModalDraft(dashboardState);
       dashboardState.modalSection = sectionId;
       dashboardState.lastConfigSection = sectionId;
       updatePrefs(dashboardState, { last_config_section: sectionId });
       renderDashboardConfigModal(dashboardState, sectionId, {
         columnDefsBySection: dashboardState.columnDefsBySection || {},
       });
+      ensureDashboardConfigModal()?.querySelector(".dashboard-config-section-tabs .tab.active")?.focus();
       return;
     }
     if (action === "move-column-up") {

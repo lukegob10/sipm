@@ -210,7 +210,7 @@ async def test_agent_auth_requires_bearer_api_token_and_space(
     )
     assert accepted.status_code == 200, accepted.text
     manifest = accepted.json()
-    assert manifest["version"] == "1.5"
+    assert manifest["version"] == "1.6"
     assert manifest["auth"]["api_token_required"] is True
     assert manifest["capabilities"] == [
         "read_programs",
@@ -381,6 +381,115 @@ async def test_agent_errors_use_stable_envelope_and_request_id(
         "body",
         "operations",
     ]
+
+
+@pytest.mark.anyio
+async def test_agent_validation_error_handles_nonfinite_input(agent_client, db_sessionmaker):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    response = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers={**_auth_headers(token, space_id), "Content-Type": "application/json"},
+        content='{"operations": NaN}',
+    )
+    assert response.status_code == 422
+    assert response.headers["X-Error-Code"] == "REQUEST_VALIDATION_ERROR"
+    assert response.json()["details"]["errors"][0]["loc"] == ["body", "operations"]
+
+
+@pytest.mark.anyio
+async def test_agent_patch_validation_rejects_nonfinite_solution_confidence(agent_client, db_sessionmaker):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    with db_sessionmaker() as session:
+        session.add(Program(program_id="program", space_id=space_id, program_name="Program"))
+        session.add(Project(project_id="project", space_id=space_id, program_id="program", project_name="Project"))
+        session.commit()
+    response = await agent_client.post(
+        "/project-manager/api/agent/patches/validate",
+        headers=_auth_headers(token, space_id),
+        json={"operations": [{"client_operation_id": "solution", "op": "create", "entity": "solution",
+                               "project_id": "project", "fields": {"solution_name": "Solution", "rag_confidence": "NaN"}}]},
+    )
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+    with db_sessionmaker() as session:
+        assert session.query(Solution).count() == 0
+
+
+@pytest.mark.anyio
+async def test_agent_patch_validation_rejects_null_task_status(agent_client, db_sessionmaker):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    with db_sessionmaker() as session:
+        session.add(Program(program_id="program", space_id=space_id, program_name="Program"))
+        session.add(Project(project_id="project", space_id=space_id, program_id="program", project_name="Project"))
+        session.add(Solution(solution_id="solution", space_id=space_id, project_id="project", solution_name="Solution"))
+        task = Task(task_id="task", space_id=space_id, project_id="project", solution_id="solution", task_name="Task")
+        session.add(task)
+        session.commit()
+        updated_at = task.updated_at.isoformat()
+    response = await agent_client.post(
+        "/project-manager/api/agent/patches/validate", headers=_auth_headers(token, space_id),
+        json={"operations": [{"client_operation_id": "task", "op": "update", "entity": "task",
+                               "id": "task", "if_updated_at": updated_at, "fields": {"status": None}}]},
+    )
+    assert response.status_code == 200
+    assert response.json()["valid"] is False
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field", ["reason", "idempotency_key"])
+async def test_change_request_rejects_values_longer_than_database_columns(agent_client, db_sessionmaker, field):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    payload = {
+        "reason": "Reason", "idempotency_key": "key", "dry_run": False,
+        "operations": [{"client_operation_id": "program", "op": "create", "entity": "program",
+                        "fields": {"program_name": "Program"}}],
+    }
+    payload[field] = "x" * 256
+    response = await agent_client.post(
+        "/project-manager/api/agent/change-requests", headers=_auth_headers(token, space_id), json=payload
+    )
+    assert response.status_code == 400
+    assert field in response.json()["message"]
+    with db_sessionmaker() as session:
+        assert session.query(AgentChangeRequest).count() == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("field", ["reason", "idempotency_key"])
+async def test_change_request_accepts_trimmed_database_column_limit(agent_client, db_sessionmaker, field):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    payload = {
+        "reason": "Reason", "idempotency_key": "key",
+        "operations": [{"client_operation_id": "program", "op": "create", "entity": "program",
+                        "fields": {"program_name": "Program"}}],
+    }
+    payload[field] = " " + "x" * 255 + " "
+    response = await agent_client.post(
+        "/project-manager/api/agent/change-requests", headers=_auth_headers(token, space_id), json=payload
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()[field] == "x" * 255
+
+
+@pytest.mark.anyio
+async def test_change_request_update_rejects_reason_longer_than_database_column(agent_client, db_sessionmaker):
+    token, space_id = _seed_agent_token(db_sessionmaker)
+    operations = [{"client_operation_id": "program", "op": "create", "entity": "program",
+                   "fields": {"program_name": "Program"}}]
+    created = await agent_client.post(
+        "/project-manager/api/agent/change-requests", headers=_auth_headers(token, space_id),
+        json={"reason": "Original", "idempotency_key": "key", "operations": operations},
+    )
+    assert created.status_code == 201, created.text
+    request = created.json()
+    response = await agent_client.put(
+        f"/project-manager/api/agent/change-requests/{request['change_request_id']}",
+        headers=_auth_headers(token, space_id),
+        json={"if_request_updated_at": request["updated_at"], "if_request_fingerprint": request["content_fingerprint"], "reason": "x" * 256, "operations": operations},
+    )
+    assert response.status_code == 400
+    with db_sessionmaker() as session:
+        assert session.get(AgentChangeRequest, request["change_request_id"]).reason == "Original"
 
 
 @pytest.mark.anyio
@@ -731,7 +840,7 @@ async def test_agent_work_graph_reads_programs_once_per_page(
     program_queries = [
         statement
         for statement in statements
-        if "TB_TA_PM_PROGRAMS" in statement.upper()
+        if 'FROM "TB_TA_PM_PROGRAMS"' in statement.upper()
     ]
     assert len(program_queries) == 1
 
@@ -1171,7 +1280,7 @@ async def test_agent_change_request_approval_applies_and_audits(
     approved = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{request_id}/approve",
         headers={"X-Space-Id": space_id},
-        json={"review_note": "Looks good"},
+        json={"review_note": "Looks good", "if_request_fingerprint": submitted.json()["content_fingerprint"]},
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
@@ -1334,6 +1443,7 @@ async def test_agent_change_request_can_approve_selected_operations(
         headers={"X-Space-Id": space_id},
         json={
             "client_operation_ids": ["approved-project"],
+            "if_request_fingerprint": submitted.json()["content_fingerprint"],
             "review_note": "Only the first project is ready",
         },
     )
@@ -1385,7 +1495,7 @@ async def test_agent_change_request_can_approve_selected_operations(
     approved_remainder = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{request_id}/approve-selected-operations",
         headers={"X-Space-Id": space_id},
-        json={"client_operation_ids": ["skipped-project"]},
+        json={"client_operation_ids": ["skipped-project"], "if_request_fingerprint": approved.json()["content_fingerprint"]},
     )
     assert approved_remainder.status_code == 200, approved_remainder.text
     assert approved_remainder.json()["status"] == "approved"
@@ -1459,7 +1569,7 @@ async def test_agent_program_change_request_approval_applies_and_audits(
     approved = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{submitted.json()['change_request_id']}/approve",
         headers={"X-Space-Id": space_id},
-        json={"review_note": "Create program"},
+        json={"review_note": "Create program", "if_request_fingerprint": submitted.json()["content_fingerprint"]},
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
@@ -1508,7 +1618,7 @@ async def test_agent_program_change_request_approval_applies_and_audits(
     update_approved = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{update_submitted.json()['change_request_id']}/approve",
         headers={"X-Space-Id": space_id},
-        json={"review_note": "Rename program"},
+        json={"review_note": "Rename program", "if_request_fingerprint": update_submitted.json()["content_fingerprint"]},
     )
     assert update_approved.status_code == 200, update_approved.text
     assert update_approved.json()["status"] == "approved"
@@ -1853,6 +1963,7 @@ async def test_api_token_can_update_its_pending_request_in_place(
     request_id = original_value["change_request_id"]
     replacement_body = {
         "if_request_updated_at": original_value["updated_at"],
+        "if_request_fingerprint": original_value["content_fingerprint"],
         "reason": "create the corrected project",
         "operations": [
             {
@@ -1917,6 +2028,7 @@ async def test_api_token_can_update_its_pending_request_in_place(
         json={
             **replacement_body,
             "if_request_updated_at": cancelled.json()["updated_at"],
+            "if_request_fingerprint": cancelled.json()["content_fingerprint"],
         },
     )
     assert terminal_update.status_code == 409
@@ -1966,7 +2078,7 @@ async def test_agent_change_request_reject_and_stale_failure(
     reject_resp = await agent_client.post(
         "/project-manager/api/agent/change-requests/actions/reject-selected",
         headers={"X-Space-Id": space_id},
-        json={"change_request_ids": [reject_id], "review_note": "No"},
+        json={"change_request_ids": [reject_id], "review_note": "No", "if_request_fingerprints": {reject_id: rejected.json()["content_fingerprint"]}},
     )
     assert reject_resp.status_code == 200, reject_resp.text
     assert reject_resp.json()["rejected"] == 1
@@ -2005,7 +2117,7 @@ async def test_agent_change_request_reject_and_stale_failure(
     stale_approval = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{stale_id}/approve",
         headers={"X-Space-Id": space_id},
-        json={},
+        json={"if_request_fingerprint": stale.json()["content_fingerprint"]},
     )
     assert stale_approval.status_code == 200, stale_approval.text
     assert stale_approval.json()["status"] == "failed"
@@ -2258,7 +2370,7 @@ async def test_agent_patch_client_refs_create_hierarchy_atomically(
     approved = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{body['change_request_id']}/approve",
         headers={"X-Space-Id": space_id},
-        json={"review_note": "Hierarchy reviewed"},
+        json={"review_note": "Hierarchy reviewed", "if_request_fingerprint": body["content_fingerprint"]},
     )
     assert approved.status_code == 200, approved.text
     result_rows = approved.json()["validation"]["results"]
@@ -2364,7 +2476,7 @@ async def test_agent_archive_is_approval_gated_scoped_and_explicit_about_descend
     approved = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{submitted.json()['change_request_id']}/approve",
         headers={"X-Space-Id": space_id},
-        json={"review_note": "Archive confirmed"},
+        json={"review_note": "Archive confirmed", "if_request_fingerprint": submitted.json()["content_fingerprint"]},
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["status"] == "approved"
@@ -2502,6 +2614,7 @@ async def test_human_delegated_review_requires_session_token_and_exact_request_v
     )
     assert reviewed.status_code == 200, reviewed.text
     observed_at = reviewed.json()["updated_at"]
+    observed_fingerprint = reviewed.json()["content_fingerprint"]
 
     service_attempt = await agent_client.post(
         f"/project-manager/api/agent/change-requests/{request_id}/delegated-approve",
@@ -2509,6 +2622,7 @@ async def test_human_delegated_review_requires_session_token_and_exact_request_v
         json={
             "confirm_change_request_id": request_id,
             "if_request_updated_at": observed_at,
+            "if_request_fingerprint": observed_fingerprint,
         },
     )
     assert service_attempt.status_code == 403
@@ -2520,6 +2634,7 @@ async def test_human_delegated_review_requires_session_token_and_exact_request_v
         json={
             "confirm_change_request_id": "different-request",
             "if_request_updated_at": observed_at,
+            "if_request_fingerprint": observed_fingerprint,
         },
     )
     assert mismatch.status_code == 409
@@ -2531,6 +2646,7 @@ async def test_human_delegated_review_requires_session_token_and_exact_request_v
         json={
             "confirm_change_request_id": request_id,
             "if_request_updated_at": observed_at,
+            "if_request_fingerprint": observed_fingerprint,
             "review_note": "Explicit delegated confirmation",
         },
     )
@@ -2550,6 +2666,7 @@ async def test_human_delegated_review_requires_session_token_and_exact_request_v
         json={
             "confirm_change_request_id": request_id,
             "if_request_updated_at": observed_at,
+            "if_request_fingerprint": observed_fingerprint,
         },
     )
     assert replay.status_code == 409
@@ -2629,7 +2746,7 @@ async def test_agent_audit_feed_reference_data_and_filtered_openapi_are_machine_
         headers={"Authorization": f"Bearer {token}"},
     )
     assert reference.status_code == 200, reference.text
-    assert reference.headers["etag"] == '"agent-reference-1.2"'
+    assert reference.headers["etag"].startswith('W/"agent-reference-1.3-')
     reference_data = reference.json()
     assert reference_data["operations"] == ["archive", "create", "update"]
     assert "project_id" not in reference_data["fields"]["solution"]["create"]

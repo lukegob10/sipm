@@ -104,16 +104,18 @@ def test_kanban_corrupt_scoped_view_state_is_rewritten_to_defaults():
 
     assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(kanbanViewStateKey), {});" in text
     assert 'project: String(stored.filters?.project || ""),' in text
-    assert 'owner: String(stored.filters?.owner || ""),' in text
+    assert 'owner: retainPending ? pending.value : String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistKanbanViewState();" in text
 
 
 def test_kanban_owner_filter_control_is_restored_from_persisted_state():
     text = KANBAN_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'owner: String(stored.filters?.owner || ""),' in text
+    assert 'owner: retainPending ? pending.value : String(stored.filters?.owner || ""),' in text
     assert "bindDebouncedInput(els.kanbanFilterOwner, (value) => {" in text
     assert "state.kanbanFilters.owner = value;" in text
+    assert "if (retainPending) pending.filters = state.kanbanFilters;" in text
+    assert "!isEntityMutationContextCurrent(state, captured.context)) return;" in text
 
 
 def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
@@ -124,16 +126,6 @@ def test_kanban_invalid_project_filter_is_auto_cleared_when_projects_refresh():
     assert "filterState.project = \"\";" in text
     assert "const kanbanProjectFilterChanged = normalizeScopedProjectFilter(state.kanbanFilters);" in text
     assert "if (kanbanProjectFilterChanged) {" in text
-    assert "persistKanbanViewState();" in text
-
-
-def test_kanban_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_solution_owner():
-    text = APP_JS.read_text(encoding="utf-8")
-
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {" in text
-    assert 'const kanbanOwnerFilterChanged = normalizeScopedOwnerFilter(state.kanbanFilters, { includeSolutions: true });' in text
-    assert 'filterState.owner = "";' in text
-    assert "if (kanbanOwnerFilterChanged) {" in text
     assert "persistKanbanViewState();" in text
 
 

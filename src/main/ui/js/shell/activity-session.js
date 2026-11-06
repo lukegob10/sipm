@@ -22,12 +22,14 @@ export function createActivitySessionController({
   let policy = { ...DEFAULT_POLICY };
   let active = false;
   let userId = "";
+  let sessionBinding = "";
   let lastActivityAt = 0;
   let lastHeartbeatAt = 0;
   let lastBroadcastAt = 0;
   let deadlineTimer = null;
   let trailingHeartbeatTimer = null;
   let logoutStarted = false;
+  let warningVisible = false;
   let listenersBound = false;
 
   const activityEvents = ["mousemove", "keydown", "pointerdown", "click", "scroll", "touchstart"];
@@ -40,13 +42,14 @@ export function createActivitySessionController({
   function writeStorage(key, at) {
     try {
       const activeStorage = storage === undefined ? windowRef.localStorage : storage;
-      activeStorage?.setItem(key, JSON.stringify({ version: 1, user_id: userId, at }));
+      activeStorage?.setItem(key, JSON.stringify({ version: 1, user_id: userId, session_binding: sessionBinding, at }));
     } catch {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }
   }
 
   function hideWarning() {
+    warningVisible = false;
     onWarningDismissed?.();
   }
 
@@ -70,6 +73,7 @@ export function createActivitySessionController({
       return;
     }
     if (remainingMs <= warningMs) {
+      warningVisible = true;
       onWarning?.(Math.max(1, Math.ceil(remainingMs / 1000)));
       scheduleEvaluation(Math.min(1000, remainingMs));
       return;
@@ -114,7 +118,10 @@ export function createActivitySessionController({
     scheduleTrailingHeartbeat();
   }
 
-  function noteUserActivity() {
+  function noteUserActivity(event) {
+    // Once the warning is shown, the user must be able to reach either action
+    // without pointer movement or Tab dismissing the dialog first.
+    if (event && warningVisible) return;
     applyActivity(now(), { broadcast: true, heartbeat: true });
   }
 
@@ -127,7 +134,8 @@ export function createActivitySessionController({
     } catch {
       return;
     }
-    if (message?.version !== 1 || message.user_id !== userId) return;
+    if (message?.version !== 1 || message.user_id !== userId
+        || String(message.session_binding || "") !== sessionBinding) return;
     if (event.key === LOGOUT_STORAGE_KEY) {
       active = false;
       logoutStarted = true;
@@ -201,12 +209,14 @@ export function createActivitySessionController({
     }
   }
 
-  function start(nextUserId) {
+  function start(nextUserId, nextSessionBinding = "") {
     const normalizedUserId = String(nextUserId || "").trim();
+    const normalizedBinding = String(nextSessionBinding || "");
     if (!normalizedUserId) return;
-    if (active && userId === normalizedUserId) return;
+    if (active && userId === normalizedUserId && sessionBinding === normalizedBinding) return;
     stopTimers();
     userId = normalizedUserId;
+    sessionBinding = normalizedBinding;
     active = true;
     logoutStarted = false;
     lastActivityAt = now();
@@ -224,6 +234,7 @@ export function createActivitySessionController({
     unbindListeners();
     hideWarning();
     userId = "";
+    sessionBinding = "";
   }
 
   function broadcastLogout() {

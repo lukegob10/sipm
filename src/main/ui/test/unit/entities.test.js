@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { buildProgramPayload, createProgramEntityController } from "../../js/entities/programs.js";
 import { buildProjectPayload, createProjectEntityController } from "../../js/entities/projects.js";
+import { createDataStoreController } from "../../js/shell/data-store.js";
+import { requestWithMutationReconciliation } from "../../js/utils/mutation-refresh.js";
 import { buildSolutionPayload, createSolutionEntityController } from "../../js/entities/solutions.js";
 import { buildTaskPayload, createTaskEntityController } from "../../js/entities/tasks.js";
+import { beginSolutionMutation } from "../../js/utils/form-state.js";
 
 function formData(values) {
   const data = new FormData();
@@ -29,6 +32,7 @@ function programEls() {
       <div class="modal-backdrop"></div>
       <button id="program-close" type="button"></button>
       <h2 id="program-title"></h2>
+      <span data-form-dirty-indicator="program" hidden>Unsaved changes</span>
       <form id="program-form">
         <input name="program_id" />
         <input name="program_name" />
@@ -56,8 +60,6 @@ function buildProgramController(overrides = {}) {
     state: { programs: [], projects: [] },
     els: programEls(),
     api: vi.fn(),
-    markIgnoreRefresh: vi.fn(),
-    ignoreNextRefresh: new Set(),
     upsertById: vi.fn(),
     removeById: vi.fn(),
     populateSelects: vi.fn(),
@@ -130,8 +132,6 @@ function buildSolutionController(overrides = {}) {
     api: vi.fn(),
     hoursFromFteInput: (value) => Number(value || 0) * 160,
     fteFromHoursForInput: (hours) => String(Number(hours || 0) / 160),
-    markIgnoreRefresh: vi.fn(),
-    ignoreNextRefresh: new Set(),
     upsertById: vi.fn(),
     removeById: vi.fn(),
     populateSelects: vi.fn(),
@@ -198,13 +198,10 @@ function projectEls() {
 
 function buildProjectController(overrides = {}) {
   const state = { programs: [{ program_id: "program-1", program_name: "Default Program" }], projects: [] };
-  const ignoreNextRefresh = new Set();
   const deps = {
     state,
     els: projectEls(),
     api: vi.fn(),
-    markIgnoreRefresh: vi.fn(),
-    ignoreNextRefresh,
     upsertById: vi.fn((rows, saved) => rows.push(saved)),
     removeById: vi.fn((rows, id) => {
       const index = rows.findIndex((row) => row.project_id === id);
@@ -271,7 +268,6 @@ function buildTaskController(overrides = {}) {
     solutions: [{ solution_id: "solution-1", project_id: "project-1" }],
     tasks: [],
   };
-  const ignoreNextRefresh = new Set();
   const deps = {
     state,
     els: taskEls(),
@@ -284,8 +280,6 @@ function buildTaskController(overrides = {}) {
     updateTaskRepoPreview: vi.fn(),
     clearDeliverableFormNotice: vi.fn(),
     setDeliverableFormNotice: vi.fn(),
-    markIgnoreRefresh: vi.fn(),
-    ignoreNextRefresh,
     upsertById: vi.fn(),
     deleteTasksById: vi.fn(),
     renderSolutionTasks: vi.fn(),
@@ -588,8 +582,6 @@ describe("project entity controller", () => {
 
     deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await flushPromises();
-
-    expect(deps.markIgnoreRefresh).toHaveBeenCalledWith("projects");
     expect(deps.api).toHaveBeenCalledWith("/projects", expect.objectContaining({ method: "POST" }));
     expect(JSON.parse(deps.api.mock.calls[0][1].body)).toMatchObject({ project_name: "Created", priority: 2 });
     expect(deps.upsertById).toHaveBeenCalledWith(deps.state.projects, saved, "project_id");
@@ -629,11 +621,9 @@ describe("project entity controller", () => {
     );
   });
 
-  it("reports create failures and clears the ignored refresh marker", async () => {
-    const ignoreNextRefresh = new Set(["projects"]);
+  it("reports create failures", async () => {
     const { controller, deps } = buildProjectController({
       api: vi.fn().mockRejectedValue(new Error("backend down")),
-      ignoreNextRefresh,
     });
     controller.bindProjectForm();
     deps.els.projectForm.querySelector("[name='project_name']").value = "Created";
@@ -641,7 +631,6 @@ describe("project entity controller", () => {
     deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await flushPromises();
 
-    expect(ignoreNextRefresh.has("projects")).toBe(false);
     expect(deps.trackWorkflow).toHaveBeenCalledWith("projects", "create", "failure", { source: "project_form" });
     expect(deps.setDeliverableFormNotice).toHaveBeenLastCalledWith(
       deps.els.projectFormStatus,
@@ -721,6 +710,35 @@ describe("entity form submissions", () => {
     await flushPromises();
   });
 
+  it.each(submissionCases)("isolates pending $name saves across sessions", async (testCase) => {
+    const oldSave = deferred();
+    const newSave = deferred();
+    const api = vi.fn().mockReturnValueOnce(oldSave.promise).mockReturnValueOnce(newSave.promise);
+    const { controller, deps } = testCase.build({ api });
+    deps.state.user = { user_id: "old" };
+    deps.state.activeSpace = { space_id: "space" };
+    const form = testCase.form(deps.els);
+    const submit = form.querySelector('button[type="submit"]');
+    testCase.bind(controller);
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "Old";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    deps.state.user = { user_id: "new" };
+    controller.resetSaveForContext?.();
+    form.querySelector(`[name="${testCase.nameField}"]`).value = "New";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(api).toHaveBeenCalledTimes(2);
+    expect(submit.disabled).toBe(true);
+    oldSave.resolve(testCase.saved);
+    await flushPromises();
+    expect(submit.disabled).toBe(true);
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(api).toHaveBeenCalledTimes(2);
+    newSave.reject(new Error("cleanup"));
+    await flushPromises();
+    expect(submit.disabled).toBe(false);
+  });
+
   it.each(submissionCases)("preserves a newer $name draft and reuses the created ID", async (testCase) => {
     const request = deferred();
     const { controller, deps } = testCase.build({ api: vi.fn(() => request.promise) });
@@ -735,6 +753,7 @@ describe("entity form submissions", () => {
 
     expect(form.querySelector(`[name="${testCase.nameField}"]`).value).toBe("Newer draft");
     expect(form.querySelector(`[name="${testCase.idField}"]`).value).toBe(testCase.saved[testCase.idField]);
+    expect(form.hasAttribute("data-dirty")).toBe(true);
     expect(deps.upsertById).toHaveBeenCalledWith(
       deps.state[testCase.name === "program" ? "programs" : testCase.name === "project" ? "projects" : "solutions"],
       testCase.saved,
@@ -757,6 +776,34 @@ describe("entity form submissions", () => {
     await flushPromises();
 
     expect(deps.upsertById).not.toHaveBeenCalled();
+  });
+
+  it("isolates pending task saves across sessions", async () => {
+    const oldSave = deferred();
+    const newSave = deferred();
+    const api = vi.fn().mockReturnValueOnce(oldSave.promise).mockReturnValueOnce(newSave.promise);
+    const { controller, deps } = buildTaskController({ api });
+    deps.state.user = { user_id: "old" };
+    deps.state.activeSpace = { space_id: "space" };
+    controller.bindTaskForm();
+    const form = deps.els.taskForm;
+    form.querySelector('[name="solution_id"]').value = "solution-1";
+    form.querySelector('[name="task_name"]').value = "Old";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    deps.state.user = { user_id: "new" };
+    controller.resetSaveForContext?.();
+    form.querySelector('[name="task_name"]').value = "New";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(api).toHaveBeenCalledTimes(2);
+    oldSave.resolve({ task_id: "old", solution_id: "solution-1" });
+    await flushPromises();
+    expect(deps.els.taskSubmitBtn.disabled).toBe(true);
+    expect(form.getAttribute("aria-busy")).toBe("true");
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    expect(api).toHaveBeenCalledTimes(2);
+    newSave.reject(new Error("cleanup"));
+    await flushPromises();
+    expect(deps.els.taskSubmitBtn.disabled).toBe(false);
   });
 
   it("does not attach a pending program create to the form after an explicit reset", async () => {
@@ -923,4 +970,299 @@ describe("entity delete editor races", () => {
     expect(testCase.form(deps.els).querySelector(`[name="${testCase.idField}"]`).value).toBe("entity-b");
     expect(testCase.modal(deps.els).classList.contains("hidden")).toBe(false);
   });
+});
+
+it("applies another user's project refresh while a project save is pending", async () => {
+  const save = deferred();
+  const { deps } = buildProjectController({ api: vi.fn(() => save.promise) });
+  deps.upsertById = (rows, saved) => {
+    const index = rows.findIndex((row) => row.project_id === saved.project_id);
+    if (index < 0) rows.push(saved); else rows[index] = saved;
+  };
+  Object.assign(deps.state, {
+    authed: true, activeSpace: { space_id: "space-1" }, currentView: "master", loading: false,
+    loadedEntities: new Set(), phases: [], solutions: [], tasks: [], teams: [], users: [],
+  });
+  const read = vi.fn().mockImplementation(async () => [{ project_id: "mine", project_name: "Other user's change" }]);
+  const store = createDataStoreController({
+    state: deps.state, els: {}, api: read, setStatus: vi.fn(), setAuthVisible: vi.fn(),
+    renderActiveView: vi.fn(), populateSelects: vi.fn(), restoreSelections: vi.fn(),
+    handleAuthError: vi.fn(), loadTeamCapacityData: vi.fn(), onViewDataLoaded: vi.fn(),
+    entitiesForView: () => ["projects"], isKnownEntity: (entity) => entity === "projects",
+    dataEntities: ["projects"], viewPrefetchTarget: {},
+  });
+  const scheduled = [];
+  const request = deps.api;
+  deps.api = (path, options) => requestWithMutationReconciliation({
+    state: deps.state, path, options, request, getStore: () => store,
+    schedule: (callback) => scheduled.push(callback),
+  });
+  const project = createProjectEntityController(deps);
+  project.bindProjectForm();
+  deps.els.projectForm.querySelector('[name="project_name"]').value = "My project";
+  deps.els.projectForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(request).toHaveBeenCalledOnce());
+
+  await store.refreshFromServer("projects");
+  expect(read).toHaveBeenCalledOnce();
+  expect(deps.state.projects).toEqual([{ project_id: "mine", project_name: "Other user's change" }]);
+
+  save.resolve({ project_id: "mine", project_name: "My project" });
+  await vi.waitFor(() => expect(deps.els.projectSubmitBtn.disabled).toBe(false));
+  expect(scheduled).toHaveLength(1);
+  scheduled[0]();
+  await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(deps.state.projects).toEqual([
+    { project_id: "mine", project_name: "Other user's change" },
+  ]));
+});
+
+describe("solution editor draft lifetime", () => {
+  it("does not discard after an active space change", async () => {
+    const confirmation = deferred();
+    const { controller, deps } = buildSolutionController({ showConfirmModal: vi.fn(() => confirmation.promise) });
+    deps.state.user = { user_id: "u" }; deps.state.activeSpace = { space_id: "a" };
+    controller.bindSolutionForm();
+    controller.openSolutionModal({ solution_id: "a", project_id: "p", solution_name: "First" });
+    const name = deps.els.solutionForm.querySelector('[name="solution_name"]');
+    name.value = "Unsaved"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    const closing = controller.closeSolutionModal();
+    deps.state.activeSpace = { space_id: "b" };
+    confirmation.resolve(true);
+    expect(await closing).toBe(false);
+    expect(deps.els.solutionModal.classList.contains("hidden")).toBe(false);
+  });
+
+  it("does not close a replacement editor after an old discard confirmation", async () => {
+    const confirmation = deferred();
+    const { controller, deps } = buildSolutionController({ showConfirmModal: vi.fn(() => confirmation.promise) });
+    deps.state.user = { user_id: "u" }; deps.state.activeSpace = { space_id: "a" };
+    controller.bindSolutionForm();
+    controller.openSolutionModal({ solution_id: "a", project_id: "p", solution_name: "First" });
+    const name = deps.els.solutionForm.querySelector('[name="solution_name"]');
+    name.value = "Unsaved"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    const closing = controller.closeSolutionModal();
+    controller.closeSolutionModal({ discardChanges: true });
+    controller.openSolutionModal({ solution_id: "b", project_id: "p", solution_name: "Second" });
+    confirmation.resolve(true);
+    expect(await closing).toBe(false);
+    expect(deps.els.solutionModal.classList.contains("hidden")).toBe(false);
+    expect(name.value).toBe("Second");
+  });
+
+  it("reports newer unsaved changes after a solution save", async () => {
+    const request = deferred();
+    const { controller, deps } = buildSolutionController({ api: vi.fn(() => request.promise) });
+    controller.bindSolutionForm();
+    controller.openSolutionModal({ solution_id: "a", project_id: "p", solution_name: "First" });
+    const form = deps.els.solutionForm;
+    const name = form.querySelector('[name="solution_name"]');
+    name.value = "Submitted";
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    name.value = "Newer";
+    request.resolve({ solution_id: "a", project_id: "p", solution_name: "Submitted" });
+    await vi.waitFor(() => expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(deps.els.solutionFormStatus, "Saved solution; you have unsaved edits.", "success", 0));
+    expect(name.value).toBe("Newer");
+  });
+});
+
+it("blocks solution editor save and delete while another surface owns the solution", async () => {
+  const { controller, deps } = buildSolutionController();
+  controller.bindSolutionForm();
+  controller.openSolutionModal({ solution_id: "one", project_id: "p", solution_name: "One" });
+  const release = beginSolutionMutation(deps.state, "one");
+  deps.els.solutionForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  deps.els.deleteSolutionBtn.click();
+  await Promise.resolve();
+  expect(deps.api).not.toHaveBeenCalled();
+  expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(deps.els.solutionFormStatus, expect.stringMatching(/being updated/), "error");
+  release();
+});
+
+it("holds solution ownership during a pending editor save", () => {
+  const { controller, deps } = buildSolutionController();
+  controller.bindSolutionForm();
+  controller.openSolutionModal({ solution_id: "one", project_id: "p", solution_name: "One" });
+  deps.api.mockReturnValue(new Promise(() => {}));
+  deps.els.solutionForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(beginSolutionMutation(deps.state, "one")).toBeNull();
+  const releaseOther = beginSolutionMutation(deps.state, "other");
+  expect(releaseOther).toBeTypeOf("function");
+  releaseOther();
+});
+
+describe("program and project draft lifetime", () => {
+  it("requires confirmation before discarding a program draft", async () => {
+    const confirmation = deferred();
+    const { controller, deps } = buildProgramController({ showConfirmModal: vi.fn(() => confirmation.promise) });
+    controller.bindProgramForm(); controller.openProgramForm({ program_id: "p", program_name: "Program" });
+    const name = deps.els.programForm.querySelector('[name="program_name"]');
+    name.value = "Draft"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(deps.els.programModal.querySelector('[data-form-dirty-indicator="program"]').hidden).toBe(false);
+    const closing = controller.closeProgramForm();
+    expect(deps.showConfirmModal).toHaveBeenCalled();
+    confirmation.resolve(false);
+    expect(await closing).toBe(false);
+    expect(name.value).toBe("Draft");
+    expect(deps.els.programModal.classList.contains("hidden")).toBe(false);
+    expect(controller.closeProgramForm({ discardChanges: true })).toBe(true);
+    expect(deps.els.programModal.classList.contains("hidden")).toBe(true);
+  });
+
+  it.each([
+    ["program", buildProgramController, "bindProgramForm", "openProgramForm", "closeProgramForm", "programForm", "programModal", "program_id", "program_name"],
+    ["project", buildProjectController, "bindProjectForm", "openProjectForm", "closeProjectForm", "projectForm", "projectModal", "project_id", "project_name"],
+  ])("does not close a replacement %s editor after an old discard confirmation", async (_kind, build, bind, open, close, formKey, modalKey, idKey, nameKey) => {
+    const confirmation = deferred();
+    const { controller, deps } = build({ showConfirmModal: vi.fn(() => confirmation.promise) });
+    deps.state.user = { user_id: "u" }; deps.state.activeSpace = { space_id: "a" };
+    controller[bind](); controller[open]({ [idKey]: "first", [nameKey]: "First", program_id: "program-1" });
+    const name = deps.els[formKey].querySelector(`[name="${nameKey}"]`);
+    name.value = "Draft"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    const closing = controller[close]();
+    controller[open]({ [idKey]: "second", [nameKey]: "Second", program_id: "program-1" });
+    confirmation.resolve(true);
+    expect(await closing).toBe(false);
+    expect(name.value).toBe("Second");
+    expect(deps.els[modalKey].classList.contains("hidden")).toBe(false);
+  });
+
+  it.each([
+    ["program", buildProgramController, "bindProgramForm", "openProgramForm", "programForm", "programFormStatus", "program_id", "program_name"],
+    ["project", buildProjectController, "bindProjectForm", "openProjectForm", "projectForm", "projectFormStatus", "project_id", "project_name"],
+  ])("reports a newer unsaved %s draft after save", async (kind, build, bind, open, formKey, statusKey, idKey, nameKey) => {
+    const request = deferred();
+    const { controller, deps } = build({ api: vi.fn(() => request.promise) });
+    controller[bind](); controller[open]({ [idKey]: "one", [nameKey]: "First", program_id: "program-1" });
+    const form = deps.els[formKey]; const name = form.querySelector(`[name="${nameKey}"]`);
+    name.value = "Submitted"; form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    name.value = "Newer"; request.resolve({ [idKey]: "one", [nameKey]: "Submitted", program_id: "program-1" });
+    await vi.waitFor(() => expect(deps.setDeliverableFormNotice).toHaveBeenCalledWith(deps.els[statusKey], `Saved ${kind}; you have unsaved edits.`, "success", 0));
+    expect(name.value).toBe("Newer");
+  });
+});
+
+it.each(["program", "project"])("blocks %s deletion while its save is pending", async (kind) => {
+  const title = kind === "program" ? "Program" : "Project";
+  const { controller, deps } = kind === "program" ? buildProgramController() : buildProjectController();
+  controller[`bind${title}Form`]();
+  controller[`open${title}Form`]({ [`${kind}_id`]: "one", [`${kind}_name`]: "One" });
+  deps.api.mockReturnValue(new Promise(() => {}));
+  deps.els[`${kind}Form`].dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  deps.els[`delete${title}Btn`].click();
+  await Promise.resolve();
+  expect(deps.api).toHaveBeenCalledTimes(1);
+  expect(deps.showConfirmModal).not.toHaveBeenCalled();
+});
+
+it.each(["program", "project"])("blocks duplicate %s confirmation and saving until deletion resolves", async (kind) => {
+  const title = kind === "program" ? "Program" : "Project";
+  let confirm;
+  const { controller, deps } = kind === "program"
+    ? buildProgramController({ showConfirmModal: vi.fn(() => new Promise((resolve) => { confirm = resolve; })) })
+    : buildProjectController({ showConfirmModal: vi.fn(() => new Promise((resolve) => { confirm = resolve; })) });
+  controller[`bind${title}Form`]();
+  controller[`open${title}Form`]({ [`${kind}_id`]: "one", [`${kind}_name`]: "One" });
+  deps.els[`delete${title}Btn`].click();
+  deps.els[`delete${title}Btn`].click();
+  deps.els[`${kind}Form`].dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(deps.showConfirmModal).toHaveBeenCalledTimes(1);
+  expect(deps.api).not.toHaveBeenCalled();
+  confirm(false);
+  await Promise.resolve(); await Promise.resolve();
+  deps.api.mockReturnValue(new Promise(() => {}));
+  deps.els[`${kind}Form`].dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  expect(deps.api).toHaveBeenCalledTimes(1);
+});
+
+describe("saved draft baseline", () => {
+  it.each([
+    ["program", buildProgramController, "bindProgramForm", "openProgramForm", "closeProgramForm", "programForm", "program_id", "program_name"],
+    ["project", buildProjectController, "bindProjectForm", "openProjectForm", "closeProjectForm", "projectForm", "project_id", "project_name"],
+    ["solution", buildSolutionController, "bindSolutionForm", "openSolutionModal", "closeSolutionModal", "solutionForm", "solution_id", "solution_name"],
+  ])("keeps a reverted %s draft dirty after the submitted value commits", async (_kind, build, bind, open, close, formKey, idKey, nameKey) => {
+    const request = deferred();
+    const { controller, deps } = build({ api: vi.fn(() => request.promise), showConfirmModal: vi.fn().mockResolvedValue(false) });
+    controller[bind](); controller[open]({ [idKey]: "one", [nameKey]: "Original", project_id: "project-1", program_id: "program-1" });
+    const form = deps.els[formKey]; const name = form.querySelector(`[name="${nameKey}"]`);
+    name.value = "Submitted"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    name.value = "Original"; name.dispatchEvent(new Event("input", { bubbles: true }));
+    request.resolve({ [idKey]: "one", [nameKey]: "Submitted", project_id: "project-1", program_id: "program-1" });
+    await flushPromises();
+    expect(await controller[close]()).toBe(false);
+    expect(deps.showConfirmModal).toHaveBeenCalled();
+    expect(name.value).toBe("Original");
+  });
+});
+
+describe.each([
+  ["program", buildProgramController, "openProgramForm", "closeProgramForm", "programModalClose"],
+  ["project", buildProjectController, "openProjectForm", "closeProjectForm", "projectModalClose"],
+  ["solution", buildSolutionController, "openSolutionModal", "closeSolutionModal", "solutionModalClose"],
+])("%s editor focus", (_name, build, open, close, closeElement) => {
+  it("focuses the editor and restores its original opener on close", async () => {
+    const { controller, deps } = build();
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    vi.spyOn(opener, "getClientRects").mockReturnValue([{}]);
+    opener.focus();
+    await controller[open]();
+    expect(document.activeElement).toBe(deps.els[closeElement]);
+    await controller[open](); // Refreshing the same editor must not replace its opener.
+    await controller[close]();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("does not restore focus after a context change or forced reset", async () => {
+    const { controller, deps } = build();
+    deps.state.user = { user_id: "one" };
+    deps.state.activeSpace = { space_id: "one" };
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    vi.spyOn(opener, "getClientRects").mockReturnValue([{}]);
+    opener.focus();
+    await controller[open]();
+    deps.state.activeSpace = { space_id: "two" };
+    await controller[close]();
+    expect(document.activeElement).not.toBe(opener);
+    opener.focus();
+    await controller[open]();
+    await controller[close]({ discardChanges: true });
+    expect(document.activeElement).not.toBe(opener);
+  });
+});
+
+it("does not restore an editor opener through a newer modal", async () => {
+  const { controller, deps } = buildProgramController();
+  const opener = document.createElement("button");
+  const newer = document.createElement("div");
+  newer.className = "modal";
+  deps.els.programModal.classList.add("modal");
+  document.body.append(opener, newer);
+  vi.spyOn(opener, "getClientRects").mockReturnValue([{}]);
+  Object.defineProperty(document, "elementFromPoint", { configurable: true, writable: true, value: () => deps.els.programModal });
+  opener.focus();
+  await controller.openProgramForm();
+  expect(document.activeElement).toBe(deps.els.programModalClose);
+  document.elementFromPoint = () => newer;
+  await controller.closeProgramForm();
+  expect(document.activeElement).not.toBe(opener);
+  delete document.elementFromPoint;
+});
+
+it("restores the matching Deliverables editor trigger after a table refresh", async () => {
+  const { controller, deps } = buildProgramController();
+  deps.state.currentView = "master";
+  const table = document.createElement("div");
+  table.id = "master-table";
+  table.innerHTML = '<button class="program-link" data-action="edit" data-type="program" data-id="one">Edit</button>';
+  document.body.append(table);
+  table.querySelector("button").focus();
+  await controller.openProgramForm();
+  table.innerHTML = '<button class="program-link" data-action="edit" data-type="program" data-id="one">Edit</button>';
+  const replacement = table.querySelector("button");
+  vi.spyOn(replacement, "getClientRects").mockReturnValue([{}]);
+  await controller.closeProgramForm();
+  expect(document.activeElement).toBe(replacement);
 });

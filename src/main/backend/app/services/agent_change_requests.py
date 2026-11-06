@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 from datetime import datetime, timezone
 from typing import Any
@@ -23,7 +25,8 @@ from ..schemas.agent import (
 from ..security import security_http_exception
 from ..services.audit_log import log_changes
 from ..services.agent_patch_plan import (
-    apply_patch_plan,
+    _apply_patch_plan_locked,
+    _validate_patch_plan_locked,
     publish_patch_plan_mutations,
     validate_patch_plan,
 )
@@ -31,12 +34,13 @@ from ..services.agent_pagination import decode_cursor, encode_cursor
 from ..services.mutations import publish_space_mutation
 from ..services.spaces import SpaceContext
 from ..services.work_items import (
+    lock_work_space,
     project_query as _project_query,
     solution_query as _solution_query,
     task_query as _task_query,
 )
 from ..services.programs import program_query as _program_query
-from ..utils import normalize_str
+from ..utils import normalize_str, read_text_value
 
 VALID_CHANGE_REQUEST_STATUSES = {
     "pending",
@@ -67,13 +71,18 @@ def _dumps(value: Any) -> str:
 def _loads(value: str | None, fallback: Any) -> Any:
     if not value:
         return fallback
+    text = read_text_value(value)
+    if not text:
+        return fallback
     try:
-        return json.loads(value)
-    except Exception:
+        return json.loads(text)
+    except (TypeError, ValueError):
         return fallback
 
 
 def _enum_value(value: Any) -> Any:
+    if isinstance(value, bytes) or callable(getattr(value, "read", None)):
+        return read_text_value(value)
     return value.value if hasattr(value, "value") else value
 
 
@@ -84,13 +93,64 @@ def _operation_payloads(payload: AgentPatchRequest) -> list[dict[str, Any]]:
     ]
 
 
+def _require_selected_parents(
+    operations: list[AgentPatchOperation], selected_ids: set[str],
+) -> None:
+    creators = {
+        normalize_str(operation.ref): operation.client_operation_id
+        for operation in operations if operation.ref
+    }
+    for operation in operations:
+        if operation.client_operation_id not in selected_ids:
+            continue
+        for reference in (operation.program_ref, operation.project_ref, operation.solution_ref):
+            creator = creators.get(normalize_str(reference)) if reference else None
+            if creator and creator not in selected_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Select parent operation '{creator}' before '{operation.client_operation_id}'",
+                )
+
+
+def _resolve_remaining_parent_refs(
+    remaining: list[AgentPatchOperation],
+    selected: list[AgentPatchOperation],
+    result: AgentPatchResponse,
+) -> list[AgentPatchOperation]:
+    results_by_id = {item.client_operation_id: item for item in result.results}
+    resolved: dict[str, str] = {}
+    for operation in selected:
+        if operation.ref:
+            applied = results_by_id.get(operation.client_operation_id)
+            if not applied or not applied.entity_id:
+                raise RuntimeError("Applied parent operation is missing its entity ID")
+            resolved[normalize_str(operation.ref)] = applied.entity_id
+
+    output = []
+    for operation in remaining:
+        updates: dict[str, Any] = {}
+        for ref_field, id_field in (("program_ref", "program_id"), ("project_ref", "project_id"),
+                                    ("solution_ref", "solution_id")):
+            reference = getattr(operation, ref_field)
+            entity_id = resolved.get(normalize_str(reference)) if reference else None
+            if entity_id is None:
+                continue
+            updates[ref_field] = None
+            if ref_field == "program_ref":
+                updates["fields"] = {**operation.fields, "program_id": entity_id}
+            else:
+                updates[id_field] = entity_id
+        output.append(operation.model_copy(update=updates) if updates else operation)
+    return output
+
+
 def _same_idempotent_request(
     row: AgentChangeRequest,
     *,
     reason: str,
     operations_json: str,
 ) -> bool:
-    return row.reason == reason and row.operations_json == operations_json
+    return row.reason == reason and read_text_value(row.operations_json) == operations_json
 
 
 def _find_idempotent_request(
@@ -229,20 +289,59 @@ def _proposer_label(row: AgentChangeRequest, users_by_id: dict[str, User]) -> st
     return user.display_name or user.soeid or user.user_id
 
 
+def _content_fingerprint(row: AgentChangeRequest, *, parsed: tuple[Any, Any, Any] | None = None) -> str:
+    # Use reviewed content rather than timestamps, which can have only second
+    # precision in Oracle. The canonical JSON representation is stable.
+    operations, validation, diff = parsed if parsed is not None else (
+        _loads(row.operations_json, []), _loads(row.validation_json, None), _loads(row.diff_json, [])
+    )
+    content = {
+        "id": row.change_request_id, "space": row.space_id, "status": row.status,
+        "reason": row.reason, "operations": operations, "validation": validation, "diff": diff,
+    }
+    return hashlib.sha256(_dumps(content).encode("utf-8")).hexdigest()
+
+
+def _verify_content_fingerprint(row: AgentChangeRequest, expected: str) -> None:
+    value = str(expected or "")
+    if (
+        len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+        or not hmac.compare_digest(_content_fingerprint(row), value)
+    ):
+        raise security_http_exception(
+            status_code=status.HTTP_409_CONFLICT,
+            code="CHANGE_REQUEST_CHANGED",
+            message="Change request changed after it was reviewed",
+        )
+
+
+def _verify_current_diff(session: Session, space_ctx: SpaceContext, row: AgentChangeRequest, payload: AgentPatchRequest) -> None:
+    selected = {operation.client_operation_id for operation in payload.operations}
+    reviewed = [item for item in _loads(row.diff_json, []) if item.get("client_operation_id") in selected]
+    current = build_patch_diff(session, space_ctx, payload)
+    if _dumps(reviewed) != _dumps(current):
+        raise security_http_exception(
+            status_code=status.HTTP_409_CONFLICT,
+            code="CHANGE_REQUEST_CHANGED",
+            message="The work changed after this proposal was reviewed",
+        )
+
+
 def _row_to_read(
     row: AgentChangeRequest,
     *,
     users_by_id: dict[str, User] | None = None,
 ) -> AgentChangeRequestRead:
-    operations = [
-        AgentPatchOperation(**operation)
-        for operation in _loads(row.operations_json, [])
-    ]
+    operations_payload = _loads(row.operations_json, [])
+    operations = [AgentPatchOperation(**operation) for operation in operations_payload]
     validation_payload = _loads(row.validation_json, None)
+    diff_payload = _loads(row.diff_json, [])
     validation = (
         AgentPatchResponse(**validation_payload) if isinstance(validation_payload, dict) else None
     )
     return AgentChangeRequestRead(
+        content_fingerprint=_content_fingerprint(row, parsed=(operations_payload, validation_payload, diff_payload)),
         change_request_id=row.change_request_id,
         space_id=row.space_id,
         proposed_by_user_id=row.proposed_by_user_id,
@@ -255,15 +354,15 @@ def _row_to_read(
         validation=validation,
         diff=[
             AgentChangeRequestDiffItem(**item)
-            for item in _loads(row.diff_json, [])
+            for item in diff_payload
         ],
         created_at=row.created_at,
         updated_at=row.updated_at,
         reviewed_by_user_id=row.reviewed_by_user_id,
         reviewed_at=row.reviewed_at,
-        review_note=row.review_note,
+        review_note=read_text_value(row.review_note),
         applied_at=row.applied_at,
-        failed_reason=row.failed_reason,
+        failed_reason=read_text_value(row.failed_reason),
     )
 
 
@@ -301,6 +400,10 @@ def create_change_request(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="idempotency_key is required",
         )
+    if len(idempotency_key) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="idempotency_key must be 255 characters or fewer")
+    if len(reason) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reason must be 255 characters or fewer")
     effective_payload = AgentPatchRequest(
         dry_run=False,
         reason=reason,
@@ -358,8 +461,10 @@ def create_change_request(
             reason=reason,
             operations_json=operations_json,
         )
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    try:
+        session.refresh(row)
+    finally:
+        _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id={current_user.user_id: current_user})
 
 
@@ -530,6 +635,7 @@ def update_change_request(
             code="CHANGE_REQUEST_NOT_PENDING",
             message="Only pending change requests can be updated",
         )
+    _verify_content_fingerprint(row, payload.if_request_fingerprint)
     if _naive_utc(row.updated_at) != _naive_utc(payload.if_request_updated_at):
         raise security_http_exception(
             status_code=status.HTTP_409_CONFLICT,
@@ -543,6 +649,8 @@ def update_change_request(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="reason is required",
         )
+    if len(reason) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reason must be 255 characters or fewer")
     effective_payload = AgentPatchRequest(
         dry_run=False,
         reason=reason,
@@ -550,12 +658,16 @@ def update_change_request(
         operations=payload.operations,
     )
     operations_json = _dumps(_operation_payloads(effective_payload))
-    if _same_idempotent_request(
+    unchanged = _same_idempotent_request(
         row,
         reason=reason,
         operations_json=operations_json,
-    ):
-        return _row_to_read(row, users_by_id={proposer.user_id: proposer})
+    )
+    refreshed_diff = None
+    if unchanged:
+        refreshed_diff = build_patch_diff(session, space_ctx, effective_payload)
+        if _dumps(refreshed_diff) == _dumps(_loads(row.diff_json, [])):
+            return _row_to_read(row, users_by_id={proposer.user_id: proposer})
 
     validation = validate_patch_plan(session, space_ctx, effective_payload)
     if not validation.valid:
@@ -569,7 +681,9 @@ def update_change_request(
     row.reason = reason
     row.operations_json = operations_json
     row.validation_json = validation.model_dump_json()
-    row.diff_json = _dumps(build_patch_diff(session, space_ctx, effective_payload))
+    row.diff_json = _dumps(
+        refreshed_diff if refreshed_diff is not None else build_patch_diff(session, space_ctx, effective_payload)
+    )
     row.updated_at = _utc_now_naive()
     session.add(row)
     log_changes(
@@ -586,8 +700,10 @@ def update_change_request(
         space_id=space_ctx.space_id,
     )
     session.commit()
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    try:
+        session.refresh(row)
+    finally:
+        _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id={proposer.user_id: proposer})
 
 
@@ -597,7 +713,9 @@ def approve_change_request(
     reviewer: User,
     change_request_id: str,
     *,
+    if_request_fingerprint: str,
     review_note: str | None = None,
+    _defer_commit: bool = False,
 ) -> AgentChangeRequestRead:
     row = (
         session.query(AgentChangeRequest)
@@ -608,11 +726,15 @@ def approve_change_request(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")
+    _verify_content_fingerprint(row, if_request_fingerprint)
     if row.status != "pending":
         raise HTTPException(status_code=400, detail="Only pending requests can be approved")
 
     payload = _stored_payload(row)
-    validation = validate_patch_plan(session, space_ctx, payload, for_apply=True)
+    lock_work_space(session, space_ctx, reviewer)
+    validation = _validate_patch_plan_locked(session, space_ctx, payload, for_apply=True)
+    if validation.valid:
+        _verify_current_diff(session, space_ctx, row, payload)
     now = _utc_now_naive()
     row.reviewed_by_user_id = reviewer.user_id
     row.reviewed_at = now
@@ -623,12 +745,18 @@ def approve_change_request(
         row.status = "failed"
         row.failed_reason = "Validation failed during approval"
         session.add(row)
-        session.commit()
-        session.refresh(row)
-        _publish_change_requests(space_ctx.space_id)
+        if _defer_commit:
+            session.flush()
+        else:
+            session.commit()
+        try:
+            session.refresh(row)
+        finally:
+            if not _defer_commit:
+                _publish_change_requests(space_ctx.space_id)
         return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
-    apply_result = apply_patch_plan(
+    apply_result = _apply_patch_plan_locked(
         session, space_ctx, reviewer, payload, commit=False
     )
     patch_applied = apply_result.valid and apply_result.applied
@@ -641,11 +769,17 @@ def approve_change_request(
         row.failed_reason = None
     row.validation_json = apply_result.model_dump_json()
     session.add(row)
-    session.commit()
-    if patch_applied:
-        publish_patch_plan_mutations(space_ctx.space_id, payload)
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    if _defer_commit:
+        session.flush()
+    else:
+        session.commit()
+    try:
+        if not _defer_commit and patch_applied:
+            publish_patch_plan_mutations(space_ctx.space_id, payload)
+        session.refresh(row)
+    finally:
+        if not _defer_commit:
+            _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
 
@@ -656,6 +790,7 @@ def verify_delegated_review_confirmation(
     *,
     confirmed_change_request_id: str,
     if_request_updated_at: datetime,
+    if_request_fingerprint: str,
 ) -> None:
     if normalize_str(confirmed_change_request_id) != change_request_id:
         raise security_http_exception(
@@ -676,6 +811,7 @@ def verify_delegated_review_confirmation(
             code="CHANGE_REQUEST_NOT_FOUND",
             message="Agent change request not found",
         )
+    _verify_content_fingerprint(row, if_request_fingerprint)
     if _naive_utc(row.updated_at) != _naive_utc(if_request_updated_at):
         raise security_http_exception(
             status_code=status.HTTP_409_CONFLICT,
@@ -732,8 +868,10 @@ def cancel_change_request(
         space_id=space_ctx.space_id,
     )
     session.commit()
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    try:
+        session.refresh(row)
+    finally:
+        _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id={proposer.user_id: proposer})
 
 
@@ -744,6 +882,7 @@ def approve_change_request_operations(
     change_request_id: str,
     client_operation_ids: list[str],
     *,
+    if_request_fingerprint: str,
     review_note: str | None = None,
 ) -> AgentChangeRequestRead:
     row = (
@@ -755,6 +894,7 @@ def approve_change_request_operations(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")
+    _verify_content_fingerprint(row, if_request_fingerprint)
     if row.status != "pending":
         raise HTTPException(status_code=400, detail="Only pending requests can be approved")
 
@@ -778,6 +918,7 @@ def approve_change_request_operations(
         )
 
     selected_id_set = set(selected_ids)
+    _require_selected_parents(original_payload.operations, selected_id_set)
     selected_payload = AgentPatchRequest(
         dry_run=False,
         reason=original_payload.reason,
@@ -788,7 +929,10 @@ def approve_change_request_operations(
             if operation.client_operation_id in selected_id_set
         ],
     )
-    validation = validate_patch_plan(session, space_ctx, selected_payload, for_apply=True)
+    lock_work_space(session, space_ctx, reviewer)
+    validation = _validate_patch_plan_locked(session, space_ctx, selected_payload, for_apply=True)
+    if validation.valid:
+        _verify_current_diff(session, space_ctx, row, selected_payload)
     now = _utc_now_naive()
     row.reviewed_by_user_id = reviewer.user_id
     row.reviewed_at = now
@@ -799,11 +943,13 @@ def approve_change_request_operations(
         row.failed_reason = "Validation failed during approval"
         session.add(row)
         session.commit()
-        session.refresh(row)
-        _publish_change_requests(space_ctx.space_id)
+        try:
+            session.refresh(row)
+        finally:
+            _publish_change_requests(space_ctx.space_id)
         return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
-    apply_result = apply_patch_plan(
+    apply_result = _apply_patch_plan_locked(
         session, space_ctx, reviewer, selected_payload, commit=False
     )
     patch_applied = apply_result.valid and apply_result.applied
@@ -819,6 +965,9 @@ def approve_change_request_operations(
             if operation.client_operation_id not in selected_id_set
         ]
         if remaining_operations:
+            remaining_operations = _resolve_remaining_parent_refs(
+                remaining_operations, selected_payload.operations, apply_result,
+            )
             remaining_payload = AgentPatchRequest(
                 dry_run=False,
                 reason=original_payload.reason,
@@ -864,10 +1013,12 @@ def approve_change_request_operations(
             row.validation_json = apply_result.model_dump_json()
     session.add(row)
     session.commit()
-    if patch_applied:
-        publish_patch_plan_mutations(space_ctx.space_id, selected_payload)
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    try:
+        if patch_applied:
+            publish_patch_plan_mutations(space_ctx.space_id, selected_payload)
+        session.refresh(row)
+    finally:
+        _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
 
@@ -877,7 +1028,9 @@ def reject_change_request(
     reviewer: User,
     change_request_id: str,
     *,
+    if_request_fingerprint: str,
     review_note: str | None = None,
+    _defer_commit: bool = False,
 ) -> AgentChangeRequestRead:
     row = (
         session.query(AgentChangeRequest)
@@ -888,6 +1041,7 @@ def reject_change_request(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Agent change request not found")
+    _verify_content_fingerprint(row, if_request_fingerprint)
     if row.status != "pending":
         raise HTTPException(status_code=400, detail="Only pending requests can be rejected")
     row.status = "rejected"
@@ -895,9 +1049,15 @@ def reject_change_request(
     row.reviewed_at = _utc_now_naive()
     row.review_note = normalize_str(review_note) or None
     session.add(row)
-    session.commit()
-    session.refresh(row)
-    _publish_change_requests(space_ctx.space_id)
+    if _defer_commit:
+        session.flush()
+    else:
+        session.commit()
+    try:
+        session.refresh(row)
+    finally:
+        if not _defer_commit:
+            _publish_change_requests(space_ctx.space_id)
     return _row_to_read(row, users_by_id=_users_by_id(session, [row]))
 
 
@@ -911,25 +1071,63 @@ def _validate_bulk_change_request_ids(change_request_ids: list[str]) -> None:
         )
 
 
+def _lock_bulk_review_requests(
+    session: Session, space_ctx: SpaceContext, change_request_ids: list[str],
+    fingerprints: dict[str, str],
+) -> dict[str, AgentChangeRequest]:
+    # Acquire request locks in a deterministic order before the work-space
+    # lock, matching single-review lock ordering and avoiding lock cycles.
+    locked = {}
+    for request_id in sorted(change_request_ids):
+        row = (
+            session.query(AgentChangeRequest)
+            .filter(AgentChangeRequest.space_id == space_ctx.space_id)
+            .filter(AgentChangeRequest.change_request_id == request_id)
+            .with_for_update()
+            .populate_existing()
+            .one_or_none()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Agent change request not found")
+        _verify_content_fingerprint(row, fingerprints[request_id])
+        if row.status != "pending":
+            raise HTTPException(status_code=400, detail="Only pending requests can be reviewed")
+        locked[request_id] = row
+    return locked
+
+
 def approve_selected_change_requests(
     session: Session,
     space_ctx: SpaceContext,
     reviewer: User,
     change_request_ids: list[str],
     *,
+    if_request_fingerprints: dict[str, str],
     review_note: str | None = None,
 ) -> AgentChangeRequestBulkReviewResult:
     _validate_bulk_change_request_ids(change_request_ids)
-    records = [
-        approve_change_request(
-            session,
-            space_ctx,
-            reviewer,
-            change_request_id,
-            review_note=review_note,
-        )
-        for change_request_id in change_request_ids
-    ]
+    if set(if_request_fingerprints) != set(change_request_ids):
+        raise HTTPException(status_code=400, detail="A reviewed fingerprint is required for every request")
+    try:
+        locked = _lock_bulk_review_requests(session, space_ctx, change_request_ids, if_request_fingerprints)
+        payloads = {request_id: _stored_payload(row) for request_id, row in locked.items()}
+        records = [
+            approve_change_request(
+                session, space_ctx, reviewer, change_request_id, review_note=review_note,
+                if_request_fingerprint=if_request_fingerprints[change_request_id], _defer_commit=True,
+            )
+            for change_request_id in change_request_ids
+        ]
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    try:
+        for record in records:
+            if record.status == "approved":
+                publish_patch_plan_mutations(space_ctx.space_id, payloads[record.change_request_id])
+    finally:
+        _publish_change_requests(space_ctx.space_id)
     return AgentChangeRequestBulkReviewResult(
         requested=len(change_request_ids),
         approved=sum(1 for record in records if record.status == "approved"),
@@ -944,19 +1142,26 @@ def reject_selected_change_requests(
     reviewer: User,
     change_request_ids: list[str],
     *,
+    if_request_fingerprints: dict[str, str],
     review_note: str | None = None,
 ) -> AgentChangeRequestBulkReviewResult:
     _validate_bulk_change_request_ids(change_request_ids)
-    records = [
-        reject_change_request(
-            session,
-            space_ctx,
-            reviewer,
-            change_request_id,
-            review_note=review_note,
-        )
-        for change_request_id in change_request_ids
-    ]
+    if set(if_request_fingerprints) != set(change_request_ids):
+        raise HTTPException(status_code=400, detail="A reviewed fingerprint is required for every request")
+    try:
+        _lock_bulk_review_requests(session, space_ctx, change_request_ids, if_request_fingerprints)
+        records = [
+            reject_change_request(
+                session, space_ctx, reviewer, change_request_id, review_note=review_note,
+                if_request_fingerprint=if_request_fingerprints[change_request_id], _defer_commit=True,
+            )
+            for change_request_id in change_request_ids
+        ]
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    _publish_change_requests(space_ctx.space_id)
     return AgentChangeRequestBulkReviewResult(
         requested=len(change_request_ids),
         rejected=sum(1 for record in records if record.status == "rejected"),

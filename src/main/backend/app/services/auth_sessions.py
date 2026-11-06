@@ -1,12 +1,35 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import hmac
 
 from sqlalchemy.orm import Session
 
 from ..auth.auth import SESSION_IDLE_MINUTES
 from ..models import AuthSession, User
 from ..security import security_http_exception
+
+
+SESSION_BINDING_HEADER = "X-SIPM-Session"
+
+
+def session_binding(session_id: str) -> str:
+    """Return a non-credential fingerprint identifying an interactive session."""
+    return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+def require_session_binding(expected: str | None, session_id: str) -> None:
+    # Omitted headers preserve compatibility for non-browser and older clients.
+    if expected is None:
+        return
+    actual = session_binding(session_id)
+    if not session_id or not expected.isascii() or not hmac.compare_digest(expected, actual):
+        raise security_http_exception(
+            status_code=409,
+            code="SESSION_CONTEXT_CHANGED",
+            message="Your session changed in another tab.",
+        )
 
 
 def utcnow_naive() -> datetime:
@@ -67,16 +90,20 @@ def record_activity(session: Session, auth_session: AuthSession) -> datetime:
             AuthSession.session_id == auth_session.session_id,
             AuthSession.revoked_at.is_(None),
             AuthSession.last_activity_at > cutoff,
+            AuthSession.last_activity_at <= now,
         )
         .update({AuthSession.last_activity_at: now}, synchronize_session=False)
     )
     if updated != 1:
         session.rollback()
-        require_auth_session(
+        current_session = require_auth_session(
             session,
             {"sid": auth_session.session_id},
             user_id=auth_session.user_id,
         )
+        deadline = idle_deadline(current_session)
+        session.commit()
+        return deadline
     session.commit()
     return now + timedelta(minutes=SESSION_IDLE_MINUTES)
 

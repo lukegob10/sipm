@@ -30,7 +30,8 @@ def test_workbench_route_renders_project_context_as_drilldown_link():
     assert 'data-solution-id="${esc(targetId)}"' in text
     assert 'renderTasksWorkbenchProjectLink(row.project_name, row.project_id)' in text
     assert 'renderTasksWorkbenchSolutionLink(row.solution_name, row.solution_id)' in text
-    assert '<td><strong>${esc(row.task_name || "—")}</strong></td>' in text
+    assert 'data-twb-action="open-task" data-task-id="${esc(row.task_id)}"' in text
+    assert '<strong>${esc(row.task_name || "—")}</strong></button>' in text
     assert '<td class="task-workbench-context-cell"><span class="task-workbench-context">' in text
     assert '<th>Project / Solution</th>\n          <th>Status</th>' in text
 
@@ -84,11 +85,11 @@ def test_workbench_editor_uses_centered_modal_shell():
     assert 'textarea name="acceptance_criteria"' in html_text
     assert '<label>Assignee SOEID' in html_text
     assert 'input type="text" name="assignee_user_soeid"' in html_text
-    # Field population is exercised against the DOM in tasks-workbench.test.js.
+    # Field population and assignment submission are exercised against the DOM
+    # in tasks-workbench.test.js, including saves with unchanged assignments.
     assert 'description: data.get("description") || null,' in drawer_text
     assert 'acceptance_criteria: data.get("acceptance_criteria") || null,' in drawer_text
     assert 'String(data.get("assignee_user_soeid") || "").trim()' in drawer_text
-    assert 'assignee_user_soeid: assigneeUserId || null,' in drawer_text
     assert 'form="tasks-workbench-form">Save Changes</button>' in html_text
     assert "task-workbench-layout-drawer-hidden" not in html_text
     assert 'els.tasksWorkbenchDrawer.setAttribute("aria-hidden", drawerOpen ? "false" : "true");' in drawer_text
@@ -260,7 +261,7 @@ def test_workbench_restore_and_saved_view_apply_reuse_filter_normalization():
     assert "export function normalizeTasksWorkbenchUiState(ctx, { persist = false } = {}) {" in filters_text
     assert "normalizeWorkbenchUiState(createTasksWorkbenchContext());" in app_text
     assert "function applyTasksWorkbenchSavedView(ctx, savedView) {" in saved_views_text
-    assert "normalizeTasksWorkbenchUiState({ persist: true });" in saved_views_text
+    assert "normalizeTasksWorkbenchUiState();\n  persistTasksWorkbenchUiState();" in saved_views_text
     assert "populateTasksWorkbenchOptions(createTasksWorkbenchContext(), { projectOptionsHtml: projectOpts });" in app_text
     assert "normalizeTasksWorkbenchUiState({ persist: true });" in options_text
 
@@ -294,7 +295,7 @@ def test_workbench_saved_view_selection_self_heals_when_saved_view_disappears():
     text = WORKBENCH_SAVED_VIEWS.read_text(encoding="utf-8")
 
     assert "if (wb.selectedSavedViewId && wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId)) {" in text
-    assert "} else if (wb.selectedSavedViewId) {" in text
+    assert "} else if (wb.selectedSavedViewId && !wb.savedViewsLoadFailed) {" in text
     assert 'wb.selectedSavedViewId = "";' in text
     assert "selectionChanged = true;" in text
     assert "if (selectionChanged) persistTasksWorkbenchUiState();" in text
@@ -316,7 +317,6 @@ def test_workbench_saved_views_corrupt_or_invalid_storage_is_rewritten():
     assert 'preset: VALID_TASKS_WORKBENCH_PRESETS.has(String(row.preset || "all"))' in text
     assert "if (recovered || JSON.stringify(parsed) !== JSON.stringify(normalizedViews)) {" in text
     assert "persistTasksWorkbenchSavedViews(ctx);" in text
-    assert "normalizeTasksWorkbenchUiState({ persist: true });" in text
 
 
 def test_workbench_interactions_own_filter_and_selection_bindings():

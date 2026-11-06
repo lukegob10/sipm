@@ -8,6 +8,15 @@ from backend.app.services.smart_cache import clear_cache
 from backend.main import app as fastapi_app
 
 
+def _seed_import_admin(db_sessionmaker):
+    with db_sessionmaker() as session:
+        session.add(User(user_id="test-user", soeid="tu12345", email="admin@example.com",
+                         display_name="Test User", password_hash="unused", role="global_admin", is_active=True))
+        if not session.get(Space, "test-space"):
+            session.add(Space(space_id="test-space", name="Test Space", slug="test-space"))
+        session.commit()
+
+
 def _seed_users_in_two_spaces(db_sessionmaker):
     with db_sessionmaker() as session:
         space_a = Space(space_id="space-users-a", name="Users A", slug="users-a", is_active=True)
@@ -119,6 +128,7 @@ async def test_update_user_requires_space_admin_and_space_membership(client, db_
 
 @pytest.mark.anyio
 async def test_import_users_links_new_users_to_active_space(client, db_sessionmaker):
+    _seed_import_admin(db_sessionmaker)
     with db_sessionmaker() as session:
         space = Space(space_id="space-users-import", name="Users Import", slug="users-import", is_active=True)
         session.add(space)
@@ -163,7 +173,8 @@ async def test_import_users_links_new_users_to_active_space(client, db_sessionma
 
 
 @pytest.mark.anyio
-async def test_import_users_rejects_duplicate_soeid_rows(client):
+async def test_import_users_rejects_duplicate_soeid_rows(client, db_sessionmaker):
+    _seed_import_admin(db_sessionmaker)
     csv_text = "\n".join(
         [
             "soeid,display_name,team_tag,capacity_fte_month",
@@ -187,6 +198,7 @@ async def test_import_users_rejects_duplicate_soeid_rows(client):
 
 @pytest.mark.anyio
 async def test_importing_shared_user_invalidates_other_space_user_caches(client, db_sessionmaker):
+    _seed_import_admin(db_sessionmaker)
     with db_sessionmaker() as session:
         space_a = Space(space_id="space-users-import-cache-a", name="Users Import Cache A", slug="users-import-cache-a", is_active=True)
         space_b = Space(space_id="space-users-import-cache-b", name="Users Import Cache B", slug="users-import-cache-b", is_active=True)
@@ -324,7 +336,11 @@ async def test_import_users_cannot_modify_global_admin_account_as_space_admin(cl
             role="global-admin",
             is_active=False,
         )
-        session.add_all([space, target])
+        actor = User(user_id="space-admin-actor", soeid="actor1", email="actor@example.com",
+                     display_name="Actor", password_hash="unused", role="user", is_active=True)
+        membership = SpaceMembership(space_id=space.space_id, user_id=actor.user_id,
+                                     role="space_admin", status="active")
+        session.add_all([space, target, actor, membership])
         session.commit()
 
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)

@@ -80,7 +80,7 @@
     </div>
   </div>
 
-  <div id="csv-upload-modal" class="modal hidden">
+  <div id="csv-upload-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="csv-upload-title" aria-describedby="csv-upload-description">
     <div id="csv-upload-backdrop" class="modal-backdrop"></div>
     <div class="modal-content csv-upload-modal-content">
       <div class="modal-header">
@@ -647,7 +647,7 @@
         </div>
       </section>
 
-      <div id="program-modal" class="modal hidden">
+      <div id="program-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="program-modal-title">
         <div class="modal-backdrop"></div>
         <div class="modal-content">
           <div class="modal-header modal-header-sticky">
@@ -673,6 +673,7 @@
             </form>
             <div class="modal-form-footer full-span">
               <div class="form-actions">
+                <span class="entity-editor-dirty-indicator" data-form-dirty-indicator="program" hidden>Unsaved changes</span>
                 <button type="submit" id="program-submit-btn" form="program-form">Create Program</button>
                 <button type="reset" class="secondary" form="program-form">Reset</button>
                 <button type="button" id="delete-program" class="secondary" disabled>Delete</button>
@@ -683,7 +684,7 @@
         </div>
       </div>
 
-      <div id="project-modal" class="modal hidden">
+      <div id="project-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="project-modal-title">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
           <div class="modal-header modal-header-sticky">
@@ -774,7 +775,7 @@
         </div>
       </div>
 
-      <div id="solution-modal" class="modal hidden">
+      <div id="solution-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="solution-modal-title">
         <div class="modal-backdrop"></div>
         <div class="modal-content wide">
           <div class="modal-sticky-chrome">
@@ -1172,7 +1173,7 @@
                   <button type="button" id="calendar-prev" class="secondary icon-btn" aria-label="Previous month" title="Previous month" data-tooltip="Previous month">
                     <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 18l-6-6 6-6"></path></svg>
                   </button>
-                  <input type="month" id="calendar-month" />
+                  <input type="month" id="calendar-month" min="0001-01" max="9999-12" />
                   <button type="button" id="calendar-next" class="secondary icon-btn" aria-label="Next month" title="Next month" data-tooltip="Next month">
                     <svg class="icon-btn-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"></path></svg>
                   </button>
@@ -1320,7 +1321,7 @@
     </div>
   </div>
 
-  <div id="calendar-modal" class="modal hidden">
+  <div id="calendar-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="calendar-modal-title">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
       <div class="modal-header">

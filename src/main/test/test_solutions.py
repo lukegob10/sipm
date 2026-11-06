@@ -5,7 +5,7 @@ import pytest
 import backend.app.routes.solutions as solutions_route
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
-from backend.app.models import Solution
+from backend.app.models import Solution, Space, SpaceMembership, User
 from backend.app.services import audit_log as audit_log_module
 from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext
@@ -28,7 +28,11 @@ async def create_project(client):
     return resp.json()
 
 
-async def create_working_space_headers(client, slug: str) -> dict[str, str]:
+async def create_working_space_headers(client, db_sessionmaker, test_user, slug: str) -> dict[str, str]:
+    with db_sessionmaker() as session:
+        session.add(User(user_id=test_user.user_id, soeid=test_user.soeid, email="test-user@fixture.invalid",
+                         display_name=test_user.display_name, password_hash="unused", role="global_admin", is_active=True))
+        session.commit()
     resp = await client.post(
         "/project-manager/api/spaces",
         json={"name": slug.replace("-", " ").title(), "slug": slug},
@@ -96,8 +100,8 @@ async def test_solution_crud_normalizes_required_identifiers(client):
 
 
 @pytest.mark.anyio
-async def test_update_solution_can_move_to_another_project(client):
-    headers = await create_working_space_headers(client, "solution-move-space")
+async def test_update_solution_can_move_to_another_project(client, db_sessionmaker, test_user):
+    headers = await create_working_space_headers(client, db_sessionmaker, test_user, "solution-move-space")
     first_project_resp = await client.post(
         "/project-manager/api/projects/",
         headers=headers,
@@ -141,8 +145,8 @@ async def test_update_solution_can_move_to_another_project(client):
 
 
 @pytest.mark.anyio
-async def test_update_solution_move_rejects_name_version_conflict_in_target_project(client):
-    headers = await create_working_space_headers(client, "solution-move-conflict-space")
+async def test_update_solution_move_rejects_name_version_conflict_in_target_project(client, db_sessionmaker, test_user):
+    headers = await create_working_space_headers(client, db_sessionmaker, test_user, "solution-move-conflict-space")
     first_project_resp = await client.post(
         "/project-manager/api/projects/",
         headers=headers,
@@ -566,7 +570,12 @@ async def test_soft_deleted_project_hides_solution_reads_and_clears_solution_cac
 
 
 @pytest.mark.anyio
-async def test_member_can_delete_solution(client):
+async def test_member_can_delete_solution(client, db_sessionmaker, test_user):
+    with db_sessionmaker() as session:
+        session.add(User(user_id=test_user.user_id, soeid=test_user.soeid, email="test@example.com", display_name=test_user.display_name, password_hash="unused", role="user", is_active=True))
+        session.add(Space(space_id="space-delete-solution", name="Delete Solution Space", slug="space-delete-solution"))
+        session.add(SpaceMembership(space_id="space-delete-solution", user_id=test_user.user_id, role="member", status="active"))
+        session.commit()
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(

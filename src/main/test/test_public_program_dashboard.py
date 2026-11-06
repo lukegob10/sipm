@@ -1,6 +1,6 @@
 import pytest
 
-from backend.app.models import Program, Project, Solution, Space
+from backend.app.models import Program, Project, Solution, Space, User
 
 
 @pytest.mark.anyio
@@ -28,7 +28,14 @@ async def test_public_program_dashboard_returns_404_when_unpublished_or_missing(
 
 
 @pytest.mark.anyio
-async def test_public_program_dashboard_returns_404_for_archived_space(client):
+async def test_public_program_dashboard_returns_404_for_archived_space(client, db_sessionmaker, test_user):
+    with db_sessionmaker() as session:
+        session.add(User(
+            user_id=test_user.user_id, soeid=test_user.soeid, email="test-user@example.com",
+            display_name=test_user.display_name, password_hash="unused",
+            role=test_user.role, is_active=True,
+        ))
+        session.commit()
     created = await client.post(
         "/project-manager/api/spaces",
         json={"name": "Archived Public Space", "slug": "archived-public-space"},

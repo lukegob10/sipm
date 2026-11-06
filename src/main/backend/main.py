@@ -139,7 +139,13 @@ def _db_keepwarm_interval_seconds() -> int:
 async def _db_keepwarm_loop(interval_seconds: int) -> None:
     while True:
         await asyncio.sleep(interval_seconds)
-        await asyncio.to_thread(check_db_connection)
+        try:
+            await asyncio.to_thread(check_db_connection)
+        except Exception as exc:
+            logger.warning(
+                "Database keepwarm check failed (%s); retrying at the next interval.",
+                type(exc).__name__,
+            )
 
 
 def _request_id_for(request: Request) -> str:
@@ -193,7 +199,7 @@ def _request_log_line(
 
 
 def _frontend_bundle_error() -> str | None:
-    missing = [path.relative_to(BASE_DIR).as_posix() for path in FRONTEND_REQUIRED_FILES if not path.exists()]
+    missing = [path.relative_to(BASE_DIR).as_posix() for path in FRONTEND_REQUIRED_FILES if not path.is_file()]
     if not missing:
         return None
     return f"Frontend bundle missing required files: {', '.join(missing)}"
@@ -216,7 +222,8 @@ def _readiness_payload() -> tuple[int, dict]:
         checks["coordination"] = {"status": "ok", "backend": backend_name}
     except Exception as exc:
         ready = False
-        checks["coordination"] = {"status": "error", "detail": str(exc)}
+        logger.warning("Coordination readiness check failed (%s)", type(exc).__name__)
+        checks["coordination"] = {"status": "error", "detail": "Coordination readiness check failed"}
 
     frontend_error = _frontend_bundle_error()
     if frontend_error:
@@ -233,7 +240,8 @@ def _readiness_payload() -> tuple[int, dict]:
             checks["db"] = {"status": "ok"}
         except Exception as exc:
             ready = False
-            checks["db"] = {"status": "error", "detail": str(exc)}
+            logger.warning("Database readiness check failed (%s)", type(exc).__name__)
+            checks["db"] = {"status": "error", "detail": "Database readiness check failed"}
 
     return (200 if ready else 503), {"status": "ok" if ready else "not_ready", "checks": checks}
 
@@ -411,13 +419,15 @@ def _should_serve_spa(path: str) -> bool:
     return "." not in normalized.split("/")[-1]
 
 async def _serve_frontend(request: Request, frontend_path: str = ""):
+    normalized = str(frontend_path or "").lstrip("/")
+    if normalized == "api" or normalized.startswith("api/"):
+        raise StarletteHTTPException(status_code=404)
     frontend_error = _frontend_bundle_error()
     if frontend_error:
         return JSONResponse({"detail": frontend_error}, status_code=503)
     if frontend_static is None:
         return JSONResponse({"detail": "Frontend bundle is not configured."}, status_code=503)
 
-    normalized = str(frontend_path or "").lstrip("/")
     response = None
     try:
         response = await frontend_static.get_response(normalized or ".", request.scope)

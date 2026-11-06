@@ -102,7 +102,8 @@ async def test_projects_import_updates_creates_and_exports(client):
 
 
 @pytest.mark.anyio
-async def test_projects_export_is_scoped_to_active_space(client):
+async def test_projects_export_is_scoped_to_active_space(client, seed_space_memberships):
+    seed_space_memberships("space-project-export-a", "space-project-export-b")
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(

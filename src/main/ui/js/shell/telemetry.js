@@ -2,6 +2,11 @@ const DEFAULT_SESSION_STORAGE_KEY = "sipm-usage-analytics-session-id";
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000;
 // The ingest API limits the combined number of events and performance samples.
 const MAX_BATCH_SIZE = 100;
+// Analytics is best effort. Keep the newest records if ingestion is unavailable
+// for a long time, and do not accumulate hung requests indefinitely.
+const MAX_QUEUED_PER_KIND = 1000;
+const MAX_IN_FLIGHT_PER_CONTEXT = 2;
+const INGEST_TIMEOUT_MS = 15_000;
 
 function createFallbackSessionId() {
   return `session-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -83,6 +88,8 @@ export function createTelemetryController({
   flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS,
   fetchImpl = (...args) => fetch(...args),
   navigatorRef = typeof navigator === "undefined" ? null : navigator,
+  canUseBeacon = () => true,
+  getQueueContext = () => "",
   documentRef = typeof document === "undefined" ? null : document,
   performanceRef = typeof performance === "undefined" ? null : performance,
   now = () => Date.now(),
@@ -100,6 +107,21 @@ export function createTelemetryController({
     longTaskCount: 0,
     longTaskTotalMs: 0,
   };
+  let queueContext = getQueueContext();
+  const inFlight = new Set();
+  function trimQueue(items) {
+    if (items.length > MAX_QUEUED_PER_KIND) items.splice(0, items.length - MAX_QUEUED_PER_KIND);
+  }
+  function syncQueueContext() {
+    const current = getQueueContext();
+    if (current !== queueContext) {
+      queue.events.length = 0;
+      queue.performanceSamples.length = 0;
+      pendingTransition = null;
+      queueContext = current;
+    }
+    return current;
+  }
   let bootTracked = false;
   let navigationSampleQueued = false;
   let navigationLoadListenerBound = false;
@@ -122,6 +144,7 @@ export function createTelemetryController({
 
   function enqueueEvent(payload) {
     if (!enabled()) return;
+    syncQueueContext();
     queue.events.push({
       occurred_at: payload.occurred_at || toIsoTimestamp(now()),
       session_id: sessionId,
@@ -134,10 +157,12 @@ export function createTelemetryController({
       status_code: payload.status_code ?? null,
       details: payload.details || {},
     });
+    trimQueue(queue.events);
   }
 
   function enqueuePerformanceSample(payload) {
     if (!enabled()) return;
+    syncQueueContext();
     queue.performanceSamples.push({
       occurred_at: payload.occurred_at || toIsoTimestamp(now()),
       session_id: sessionId,
@@ -157,11 +182,14 @@ export function createTelemetryController({
       long_task_count: payload.long_task_count == null ? null : Math.max(0, Math.round(Number(payload.long_task_count))),
       long_task_total_ms: safeDurationMs(payload.long_task_total_ms),
     });
+    trimQueue(queue.performanceSamples);
   }
 
   async function flush(options = {}) {
     if (!enabled()) return false;
+    const batchContext = syncQueueContext();
     if (!queue.events.length && !queue.performanceSamples.length) return false;
+    if ([...inFlight].filter((request) => request.context === batchContext).length >= MAX_IN_FLIGHT_PER_CONTEXT) return false;
 
     // Reserve only this batch so lifecycle flushes cannot resend an in-flight
     // request or remove telemetry collected while that request is pending.
@@ -171,38 +199,57 @@ export function createTelemetryController({
       performance_samples: queue.performanceSamples.splice(0, MAX_BATCH_SIZE - events.length),
     };
     function restoreBatch() {
+      if (syncQueueContext() !== batchContext) return;
       queue.events.unshift(...payload.events);
       queue.performanceSamples.unshift(...payload.performance_samples);
+      trimQueue(queue.events);
+      trimQueue(queue.performanceSamples);
     }
     const headers = { "Content-Type": "application/json" };
     if (state?.activeSpace?.space_id) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
 
+    const request = { context: batchContext };
+    inFlight.add(request);
+    let timeoutId = null;
+    const controller = new AbortController();
     try {
       const body = JSON.stringify(payload);
-      if (options.useBeacon && navigatorRef && typeof navigatorRef.sendBeacon === "function") {
+      if (options.useBeacon && canUseBeacon() && navigatorRef && typeof navigatorRef.sendBeacon === "function") {
         const blob = new Blob([body], { type: "application/json" });
         const sent = navigatorRef.sendBeacon(`${apiBase}/analytics/ingest`, blob);
         if (sent) {
           return true;
         }
       }
-      const response = await fetchImpl(`${apiBase}/analytics/ingest`, {
-        method: "POST",
-        credentials: "include",
-        keepalive: !!options.useBeacon,
-        headers,
-        body,
-      });
+      const response = await Promise.race([
+        fetchImpl(`${apiBase}/analytics/ingest`, {
+          method: "POST",
+          credentials: "include",
+          keepalive: !!options.useBeacon,
+          headers,
+          body,
+          signal: controller.signal,
+        }),
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => {
+            controller.abort();
+            reject(new Error("Telemetry ingest timed out"));
+          }, INGEST_TIMEOUT_MS);
+        }),
+      ]);
       if (!response?.ok) {
         if (!shouldDropFailedBatch(response?.status)) restoreBatch();
         return false;
       }
       return true;
-    } catch {
-      restoreBatch();
+    } catch (err) {
+      if (err?.code !== "REQUEST_CONTEXT_CHANGED") restoreBatch();
       return false;
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      inFlight.delete(request);
     }
   }
 
@@ -351,6 +398,7 @@ export function createTelemetryController({
 
   function beginRouteTransition(viewKey, previousView = "", options = {}) {
     if (!enabled()) return;
+    syncQueueContext();
     pendingTransition = {
       viewKey: String(viewKey || currentView() || "master"),
       previousView: String(previousView || ""),
@@ -373,12 +421,14 @@ export function createTelemetryController({
   }
 
   function noteRouteDataLoaded(viewKey, durationMs = 0) {
+    syncQueueContext();
     if (!pendingTransition || pendingTransition.viewKey !== String(viewKey || currentView())) return;
     pendingTransition.dataLoadMs = safeDurationMs(durationMs) || 0;
     maybeCompletePendingTransition();
   }
 
   function noteViewRendered(viewKey, renderMs = 0) {
+    syncQueueContext();
     if (!pendingTransition || pendingTransition.viewKey !== String(viewKey || currentView())) return;
     pendingTransition.renderMs = safeDurationMs(renderMs) || 0;
     maybeCompletePendingTransition();

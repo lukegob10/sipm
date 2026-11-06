@@ -26,4 +26,8 @@ describe("route registry", () => {
     expect(routeDefinition("repositories")).toMatchObject({ section: "Work", label: "Repositories" });
     expect(routeDefinition("access")).toMatchObject({ domView: "spaces", navView: "spaces" });
   });
+  it.each(["dashboard", "calendar"])("loads tasks consumed by %s", (view) => {
+    expect(VIEW_DATA_REQUIREMENTS[view]).toContain("tasks");
+  });
+
 });

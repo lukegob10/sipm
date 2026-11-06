@@ -1,4 +1,5 @@
 export const LIVE_SYNC_CLOSE_AUTH = 4401;
+export const LIVE_SYNC_CLOSE_SESSION_CHANGED = 4409;
 export const LIVE_SYNC_CLOSE_SPACE = 4403;
 export const LIVE_SYNC_CLOSE_LIMIT = 4408;
 export const LIVE_SYNC_CLOSE_BUSY = 1013;
@@ -15,6 +16,8 @@ export function createLiveSyncController({
   refreshAgentChangeRequests = null,
   handleAuthError,
   handleSessionExpired,
+  getSessionBinding = () => "",
+  handleSessionBindingChanged = () => {},
   renderTopbarStatus,
   setSpaceFeedback,
   spaceNameForId,
@@ -23,7 +26,7 @@ export function createLiveSyncController({
   const LIVE_SYNC_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 15000];
   const LIVE_SYNC_HEARTBEAT_MS = 60000;
   const LIVE_SYNC_REJECTION_CODES = new Set([
-    LIVE_SYNC_CLOSE_AUTH, LIVE_SYNC_CLOSE_SPACE, LIVE_SYNC_CLOSE_LIMIT, LIVE_SYNC_CLOSE_BUSY,
+    LIVE_SYNC_CLOSE_AUTH, LIVE_SYNC_CLOSE_SPACE, LIVE_SYNC_CLOSE_LIMIT, LIVE_SYNC_CLOSE_BUSY, LIVE_SYNC_CLOSE_SESSION_CHANGED,
   ]);
   let liveSyncSocket = null;
   let liveSyncRetryTimer = null;
@@ -140,8 +143,9 @@ export function createLiveSyncController({
     }
   }
 
-  function liveUrl() {
+  function liveUrl(binding) {
     const url = new URL(buildWsUrl("/ws"));
+    if (binding) url.searchParams.set("session_binding", binding);
     if (state.activeSpace?.space_id) {
       url.searchParams.set("space_id", state.activeSpace.space_id);
     }
@@ -179,13 +183,25 @@ export function createLiveSyncController({
     }
     liveSyncAuthRecoveryUsed = true;
     setLiveSyncPhase("reconnecting");
-    const isCurrent = captureLiveSyncContext();
+    const isLiveSyncCurrent = captureLiveSyncContext();
+    const spaceId = state.activeSpace?.space_id;
+    const isCurrent = () => isLiveSyncCurrent() && spaceId === state.activeSpace?.space_id;
     const recoveryPromise = (async () => {
-      const refreshed = await refreshSessionTokens({
-        force: true,
-        silentFailure: true,
-        suppressLiveSyncRestart: true,
-      });
+      let refreshed;
+      try {
+        refreshed = await refreshSessionTokens({
+          force: true,
+          silentFailure: true,
+          suppressLiveSyncRestart: true,
+          throwOnFailure: true,
+        });
+      } catch (err) {
+        if (!isCurrent()) return false;
+        console.warn("Live sync session recovery failed", err);
+        liveSyncAuthRecoveryUsed = false;
+        scheduleLiveSyncRetry();
+        return false;
+      }
       if (!isCurrent()) return false;
       if (!refreshed) {
         handleSessionExpired();
@@ -239,7 +255,7 @@ export function createLiveSyncController({
       if (nextSpaceId !== previousSpaceId) {
         setSpaceFeedback(`Live sync moved to ${spaceNameForId(nextSpaceId) || nextSpaceId}.`, "info", 4200);
       }
-      clearDataState();
+      clearDataState({ preserveEditors: nextSpaceId === previousSpaceId });
       try {
         await reloadCurrentViewData({ force: true, silent: true, preserveCapacitySelection: false });
       } catch (err) {
@@ -259,8 +275,12 @@ export function createLiveSyncController({
     }
   }
 
-  async function handleLiveSyncClose(event) {
+  async function handleLiveSyncClose(event, binding) {
     if (!state.authed) return;
+    if (event.code === LIVE_SYNC_CLOSE_SESSION_CHANGED) {
+      handleSessionBindingChanged(binding);
+      return;
+    }
     if (document.hidden) {
       stopLiveSync({ phase: "paused", pausedForHidden: true });
       return;
@@ -319,7 +339,8 @@ export function createLiveSyncController({
     closeLiveSyncSocket(1000, "restart");
     state.liveSync.pausedForHidden = false;
     setLiveSyncPhase("reconnecting");
-    const socket = new WebSocket(liveUrl());
+    const binding = getSessionBinding();
+    const socket = new WebSocket(liveUrl(binding));
     let socketOpened = false;
     liveSyncSocket = socket;
     state.liveSync.socketSpaceId = currentSpaceId;
@@ -370,7 +391,7 @@ export function createLiveSyncController({
       clearLiveSyncHeartbeat();
       liveSyncSocket = null;
       state.liveSync.socketSpaceId = "";
-      void handleLiveSyncClose(event);
+      void handleLiveSyncClose(event, binding);
     });
   }
 

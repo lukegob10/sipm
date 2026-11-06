@@ -3,7 +3,7 @@ from sqlalchemy.exc import IntegrityError
 
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
-from backend.app.models import Project
+from backend.app.models import Project, Space, SpaceMembership, User
 from backend.app.routes import projects as projects_module
 from backend.app.services import audit_log as audit_log_module
 from backend.app.services.spaces import SpaceContext
@@ -176,7 +176,13 @@ def test_project_conflict_detector_handles_oracle_wrapped_unique_error():
 
 
 @pytest.mark.anyio
-async def test_create_project_allows_same_name_in_different_spaces(client):
+async def test_create_project_allows_same_name_in_different_spaces(client, db_sessionmaker, test_user):
+    with db_sessionmaker() as session:
+        session.add(User(user_id=test_user.user_id, soeid=test_user.soeid, email="test@example.com", display_name=test_user.display_name, password_hash="unused", role="user", is_active=True))
+        for space_id in ("space-a", "space-b"):
+            session.add(Space(space_id=space_id, name=space_id, slug=space_id))
+            session.add(SpaceMembership(space_id=space_id, user_id=test_user.user_id, role="space_admin", status="active"))
+        session.commit()
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -333,7 +339,12 @@ async def test_delete_project_soft_deletes(client):
 
 
 @pytest.mark.anyio
-async def test_member_can_delete_project(client):
+async def test_member_can_delete_project(client, db_sessionmaker, test_user):
+    with db_sessionmaker() as session:
+        session.add(User(user_id=test_user.user_id, soeid=test_user.soeid, email="test@example.com", display_name=test_user.display_name, password_hash="unused", role="user", is_active=True))
+        session.add(Space(space_id="space-delete-project", name="Delete Project Space", slug="space-delete-project"))
+        session.add(SpaceMembership(space_id="space-delete-project", user_id=test_user.user_id, role="member", status="active"))
+        session.commit()
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(

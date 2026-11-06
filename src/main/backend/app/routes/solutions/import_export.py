@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import csv
+import logging
 import math
 from datetime import datetime, timezone
 from io import StringIO
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,8 @@ from ...models import Project, Solution, User
 from ...phase_catalog import get_canonical_phase
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
-from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
+from ...services.work_items import lock_work_space
+from ...utils import ORACLE_NUMBER_MAGNITUDE_LIMIT, normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv
 from ...utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus
 from ...services.mutations import commit_session
 from ..projects.common import _default_program, _resolve_project_sponsor
@@ -35,6 +37,7 @@ from .common import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/solutions/import")
@@ -79,8 +82,24 @@ def import_solutions(
         approver = normalize_str(row.get("approver")) or None
         approver_user_soeid = normalize_str(row.get("approver_user_soeid")) or None
         key_stakeholder = normalize_str(row.get("key_stakeholder"))
+        oversized_person_field = next(
+            (field for field in ("owner", "owner_user_soeid", "assignee", "assignee_user_soeid",
+                                 "approver", "approver_user_soeid", "key_stakeholder")
+             if len(normalize_str(row.get(field))) > 255),
+            None,
+        )
+        if oversized_person_field:
+            errors.append(f"Row {idx}: {oversized_person_field} must be 255 characters or fewer")
+            continue
         if not project_name or not solution_name:
             errors.append(f"Row {idx}: project_name and solution_name are required")
+            continue
+        oversized_field = next(
+            (name for name, value in (("project_name", project_name), ("solution_name", solution_name), ("version", version_raw)) if len(value) > 255),
+            None,
+        )
+        if oversized_field:
+            errors.append(f"Row {idx}: {oversized_field} must be 255 characters or fewer")
             continue
         key = (project_name.lower(), solution_name.lower(), version_raw.lower())
         if key in seen:
@@ -103,6 +122,8 @@ def import_solutions(
             )
             if rag_confidence is not None and not math.isfinite(rag_confidence):
                 raise ValueError("rag_confidence must be finite")
+            if rag_confidence is not None and abs(rag_confidence) >= ORACLE_NUMBER_MAGNITUDE_LIMIT:
+                raise ValueError("rag_confidence is outside the supported numeric range")
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
@@ -157,51 +178,80 @@ def import_solutions(
                 .first()
             )
             if existing:
+                if current_phase:
+                    try:
+                        _validate_current_phase(session, existing.solution_id, current_phase)
+                    except HTTPException as exc:
+                        errors.append(f"Row {idx}: {exc}")
+                        continue
                 updated += 1
             else:
                 created += 1
             continue
+        try:
+            lock_work_space(session, space_ctx, current_user)
+        except HTTPException:
+            if not (created or updated):
+                raise
+            session.rollback()
+            errors.append(f"Row {idx}: import stopped because access to the space changed")
+            break
+        if project is not None:
+            project = session.get(Project, project.project_id, populate_existing=True)
+            if (project is None or project.deleted_at is not None
+                    or project.space_id != space_ctx.space_id
+                    or project.project_name.lower() != project_name.lower()):
+                session.rollback()
+                errors.append(f"Row {idx}: project changed during import")
+                continue
         project_created_this_row = False
-        if not project:
-            program = _default_program(session, space_ctx)
-            project_sponsor, project_sponsor_user_soeid = _resolve_project_sponsor(
-                owner_input,
-                owner_user_soeid,
-                current_user,
-            )
-            project = Project(
-                space_id=space_ctx.space_id,
-                program_id=program.program_id,
-                project_name=project_name,
-                status=ProjectStatus.not_started,
-                description=None,
-                sponsor=project_sponsor,
-                sponsor_user_soeid=project_sponsor_user_soeid,
-                owner=project_sponsor,
-                owner_user_soeid=project_sponsor_user_soeid,
-            )
-            session.add(project)
-            session.flush()
-            project_created_this_row = True
-            safe_log_changes(
-                session,
-                entity_type="project",
-                entity_id=project.project_id,
-                user_id=current_user.user_id,
-                action="create",
-                space_id=space_ctx.space_id,
-                changes={
-                    "project_name": (None, project.project_name),
-                    "status": (None, project.status),
-                    "description": (None, project.description),
-                    "success_criteria": (None, project.success_criteria),
-                    "sponsor": (None, project.sponsor),
-                    "sponsor_user_soeid": (None, project.sponsor_user_soeid),
-                    "owner": (None, project.owner),
-                    "owner_user_soeid": (None, project.owner_user_soeid),
-                },
-                request_id=None,
-            )
+        try:
+            if not project:
+                program = _default_program(session, space_ctx)
+                project_sponsor, project_sponsor_user_soeid = _resolve_project_sponsor(
+                    owner_input,
+                    owner_user_soeid,
+                    current_user,
+                )
+                project = Project(
+                    space_id=space_ctx.space_id,
+                    program_id=program.program_id,
+                    project_name=project_name,
+                    status=ProjectStatus.not_started,
+                    description=None,
+                    sponsor=project_sponsor,
+                    sponsor_user_soeid=project_sponsor_user_soeid,
+                    owner=project_sponsor,
+                    owner_user_soeid=project_sponsor_user_soeid,
+                )
+                session.add(project)
+                session.flush()
+                project_created_this_row = True
+                safe_log_changes(
+                    session,
+                    entity_type="project",
+                    entity_id=project.project_id,
+                    user_id=current_user.user_id,
+                    action="create",
+                    space_id=space_ctx.space_id,
+                    changes={
+                        "project_name": (None, project.project_name),
+                        "status": (None, project.status),
+                        "description": (None, project.description),
+                        "success_criteria": (None, project.success_criteria),
+                        "sponsor": (None, project.sponsor),
+                        "sponsor_user_soeid": (None, project.sponsor_user_soeid),
+                        "owner": (None, project.owner),
+                        "owner_user_soeid": (None, project.owner_user_soeid),
+                    },
+                    request_id=None,
+                )
+
+        except Exception as exc:
+            session.rollback()
+            logger.warning("Project import failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: project could not be created")
+            continue
 
         existing = (
             _solution_query(session, space_ctx)
@@ -334,8 +384,8 @@ def import_solutions(
                 )
                 if before["github_repo_url"] != existing.github_repo_url:
                     invalidate_tasks = True
-                updated += 1
                 commit_session(session)
+                updated += 1
             else:
                 resolved_owner, resolved_owner_user_soeid = _resolve_solution_owner(
                     owner_input,
@@ -448,9 +498,17 @@ def import_solutions(
             if project_created_this_row:
                 projects_by_name[project_name.lower()] = project
                 projects_created += 1
+        except HTTPException as exc:
+            session.rollback()
+            if exc.status_code >= 500:
+                logger.warning("Solution import failed (%s)", type(exc).__name__)
+                errors.append(f"Row {idx}: solution could not be saved")
+            else:
+                errors.append(f"Row {idx}: {exc}")
         except Exception as exc:
             session.rollback()
-            errors.append(f"Row {idx}: {exc}")
+            logger.warning("Solution import failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: solution could not be saved")
     if not dry_run:
         _publish_solution_import(
             space_ctx.space_id,
@@ -472,15 +530,11 @@ def export_solutions(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
 ):
-    solutions = _solution_query(session, space_ctx).all()
-    project_map = {
-        p.project_id: p.project_name
-        for p in (
-            session.query(Project)
-            .filter(Project.deleted_at.is_(None))
-            .filter(Project.space_id == space_ctx.space_id)
-        )
-    }
+    solutions = (
+        _solution_query(session, space_ctx)
+        .with_entities(Solution, Project.project_name)
+        .all()
+    )
     buffer = StringIO()
     fieldnames = [
         "project_name",
@@ -513,10 +567,10 @@ def export_solutions(
     ]
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
-    for solution in solutions:
+    for solution, project_name in solutions:
         writer.writerow(
             {
-                "project_name": project_map.get(solution.project_id, ""),
+                "project_name": project_name,
                 "solution_name": solution.solution_name,
                 "version": solution.version,
                 "status": solution.status.value if hasattr(solution.status, "value") else solution.status,

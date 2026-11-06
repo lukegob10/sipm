@@ -23,6 +23,18 @@ TEAMS_CURSOR_SCOPE = "agent_teams_v1"
 TEAM_MEMBERS_CURSOR_SCOPE = "agent_team_members_v1"
 
 
+def _cursor_name_and_id(position: dict, id_field: str) -> tuple[str, str]:
+    name = position.get("name")
+    entity_id = position.get(id_field)
+    if not isinstance(name, str) or not isinstance(entity_id, str) or not entity_id.strip():
+        raise security_http_exception(
+            status_code=400,
+            code="INVALID_CURSOR",
+            message="Cursor is invalid for this request",
+        )
+    return name, entity_id
+
+
 def list_agent_people(
     session: Session,
     space_ctx: SpaceContext,
@@ -55,7 +67,10 @@ def list_agent_people(
     if normalized_soeid:
         query = query.filter(func.lower(User.soeid) == normalized_soeid)
     if normalized_role:
-        query = query.filter(func.lower(SpaceMembership.role) == normalized_role)
+        normalized_role_column = func.lower(
+            func.replace(func.replace(func.trim(SpaceMembership.role), "-", "_"), " ", "_")
+        )
+        query = query.filter(normalized_role_column == normalized_role.replace("-", "_").replace(" ", "_"))
     if normalized_q:
         pattern = f"%{normalized_q}%"
         query = query.filter(
@@ -68,13 +83,7 @@ def list_agent_people(
         position = decode_position_cursor(
             cursor, scope=PEOPLE_CURSOR_SCOPE, filters=filters
         )
-        name, user_id = str(position.get("name", "")), str(position.get("user_id", ""))
-        if not name or not user_id:
-            raise security_http_exception(
-                status_code=400,
-                code="INVALID_CURSOR",
-                message="Cursor is invalid for this request",
-            )
+        name, user_id = _cursor_name_and_id(position, "user_id")
         query = query.filter(
             or_(
                 User.display_name > name,
@@ -138,29 +147,25 @@ def list_agent_teams(
         position = decode_position_cursor(
             cursor, scope=TEAMS_CURSOR_SCOPE, filters=filters
         )
-        name, team_id = str(position.get("name", "")), str(position.get("team_id", ""))
-        if not name or not team_id:
-            raise security_http_exception(
-                status_code=400,
-                code="INVALID_CURSOR",
-                message="Cursor is invalid for this request",
-            )
+        name, team_id = _cursor_name_and_id(position, "team_id")
         query = query.filter(
             or_(Team.name > name, and_(Team.name == name, Team.team_id > team_id))
         )
     rows = query.order_by(Team.name.asc(), Team.team_id.asc()).limit(limit + 1).all()
     has_more = len(rows) > limit
     rows = rows[:limit]
-    counts = dict(
-        session.query(TeamMember.team_id, func.count(TeamMember.team_member_id))
-        .filter(
-            TeamMember.space_id == space_ctx.space_id,
-            TeamMember.deleted_at.is_(None),
-            TeamMember.team_id.in_([row.team_id for row in rows] or ["-"]),
+    counts = {}
+    if rows:
+        counts = dict(
+            session.query(TeamMember.team_id, func.count(TeamMember.team_member_id))
+            .filter(
+                TeamMember.space_id == space_ctx.space_id,
+                TeamMember.deleted_at.is_(None),
+                TeamMember.team_id.in_([row.team_id for row in rows]),
+            )
+            .group_by(TeamMember.team_id)
+            .all()
         )
-        .group_by(TeamMember.team_id)
-        .all()
-    )
     next_cursor = (
         encode_position_cursor(
             scope=TEAMS_CURSOR_SCOPE,
@@ -217,16 +222,7 @@ def list_agent_team_members(
         position = decode_position_cursor(
             cursor, scope=TEAM_MEMBERS_CURSOR_SCOPE, filters=filters
         )
-        name, member_id = (
-            str(position.get("name", "")),
-            str(position.get("team_member_id", "")),
-        )
-        if not name or not member_id:
-            raise security_http_exception(
-                status_code=400,
-                code="INVALID_CURSOR",
-                message="Cursor is invalid for this request",
-            )
+        name, member_id = _cursor_name_and_id(position, "team_member_id")
         query = query.filter(
             or_(
                 TeamMember.member_name > name,

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Iterable, Optional
 from uuid import uuid4
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from fastapi import status
@@ -58,6 +58,11 @@ def normalize_global_role(value: str | None) -> str:
 
 def is_global_admin_role(value: str | None) -> bool:
     return normalize_global_role(value) == "global_admin"
+
+
+def _personal_space_visible_to(user_id: str):
+    kind = func.coalesce(func.lower(func.trim(Space.space_kind)), SPACE_KIND_COLLABORATION)
+    return or_(kind != SPACE_KIND_PERSONAL, Space.owner_user_id == user_id)
 
 
 def _available_default_space_name(session: Session, *, occupied_names: set[str] | None = None) -> str:
@@ -161,6 +166,8 @@ def ensure_space_membership(
     space_id: str,
     role: str = "member",
     status: str = "active",
+    *,
+    commit: bool = True,
 ) -> SpaceMembership:
     role = _normalize_space_role(role)
     membership = (
@@ -183,8 +190,9 @@ def ensure_space_membership(
         if changed:
             membership.updated_at = datetime.now(timezone.utc)
             session.add(membership)
-            session.commit()
-            session.refresh(membership)
+            if commit:
+                session.commit()
+                session.refresh(membership)
         return membership
 
     now = datetime.now(timezone.utc)
@@ -198,8 +206,9 @@ def ensure_space_membership(
         updated_at=now,
     )
     session.add(membership)
-    session.commit()
-    session.refresh(membership)
+    if commit:
+        session.commit()
+        session.refresh(membership)
     return membership
 
 
@@ -222,6 +231,7 @@ def list_user_spaces(session: Session, user: User) -> Iterable[Space]:
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(Space.deleted_at.is_(None))
         .filter(Space.is_active)
+        .filter(_personal_space_visible_to(user.user_id))
         .order_by(Space.name.asc())
         .all()
     )
@@ -268,6 +278,7 @@ def _active_space_memberships(session: Session, user: User):
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(Space.deleted_at.is_(None))
         .filter(Space.is_active)
+        .filter(_personal_space_visible_to(user.user_id))
         .order_by(Space.name.asc())
         .all()
     )

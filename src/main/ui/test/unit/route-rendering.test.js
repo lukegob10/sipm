@@ -905,6 +905,7 @@ describe("simple route rendering", () => {
     }));
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ "content-type": "application/pdf" }),
       blob: vi.fn().mockResolvedValue(new Blob(["pdf"], { type: "application/pdf" })),
     });
     const createObjectUrl = vi.fn().mockReturnValue("blob:program-dashboard-report");
@@ -967,6 +968,7 @@ describe("simple route rendering", () => {
     }));
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
+      headers: new Headers({ "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
       blob: vi.fn().mockResolvedValue(new Blob(["xlsx"], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       })),
@@ -1051,6 +1053,35 @@ describe("simple route rendering", () => {
       source: "program_dashboard",
     });
     expect(JSON.parse(localStorage.getItem("sipm-program-dashboard-v1:space-1"))?.collapsedProjectIds).toEqual(["project-1"]);
+  });
+
+  it.each(["success", "failure"])("discards a delayed program report %s after a space change", async (outcome) => {
+    document.body.innerHTML = '<section id="view-program-dashboard"><div id="program-dashboard-root"></div></section>';
+    let finish;
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve; })));
+    const createObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL: vi.fn() });
+    const setStatus = vi.fn();
+    const trackWorkflow = vi.fn();
+    const state = { activeSpace: { space_id: "space-1" }, programs: [{ program_id: "program-1", program_name: "Program" }], projects: [{ project_id: "project-1", program_id: "program-1", project_name: "Project" }], solutions: [] };
+    renderProgramDashboardView(createProgramDashboardState(), {
+      apiBase: "/project-manager/api",
+      els: { programDashboardRoot: document.getElementById("program-dashboard-root") },
+      state,
+      formatStatus: (value) => value,
+      solutionProgress: () => 0,
+      setStatus,
+      trackWorkflow,
+    });
+    document.querySelector('[data-program-dashboard-action="download-pdf"]').click();
+    state.activeSpace = { space_id: "space-2" };
+    finish(outcome === "success"
+      ? { ok: true, headers: new Headers({ "content-type": "application/pdf" }), blob: async () => new Blob(["private"]) }
+      : { ok: false, status: 500, text: async () => "Old context error" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(trackWorkflow).not.toHaveBeenCalled();
   });
 
   it("restores persisted program choices for the active space", () => {

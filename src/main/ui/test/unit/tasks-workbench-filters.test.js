@@ -118,7 +118,7 @@ describe("task workbench filtering", () => {
     [{ project_id: "project-1" }, ["assigned", "unassigned"]],
     [{ solution_id: "solution-1" }, ["assigned", "unassigned"]],
     [{ status: "in_progress" }, ["assigned"]],
-    [{ priority_max: "2" }, ["assigned"]],
+    [{ priority_max: "2" }, ["name-only", "assigned"]],
     [{ assignee: "TU12345", assignee_name: "Test User" }, ["name-only", "assigned"]],
     [{ assignee: "__unassigned__" }, ["unassigned"]],
     [{ project_id: "project-1", status: "in_progress", search: "platform", priority_max: "2" }, ["assigned"]],
@@ -130,6 +130,17 @@ describe("task workbench filtering", () => {
     ]);
     ctx.state.tasksWorkbench.filters = filters;
     expect(visibleIds(ctx)).toEqual(expected);
+  });
+
+  it("includes priority zero and excludes missing priorities when filtering", () => {
+    const ctx = createContext([
+      task("zero", { priority: 0 }),
+      task("higher", { priority: 3 }),
+      task("missing", { priority: null }),
+      task("blank", { priority: "" }),
+    ]);
+    ctx.state.tasksWorkbench.filters.priority_max = "2";
+    expect(visibleIds(ctx)).toEqual(["zero"]);
   });
 
   it.each([

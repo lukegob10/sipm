@@ -1,3 +1,4 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
 import { VALID_TASKS_WORKBENCH_PRESETS } from "./filters.js";
 
 function tasksWorkbenchStorageKey(ctx) {
@@ -17,12 +18,23 @@ export function loadTasksWorkbenchSavedViews(ctx) {
   const { state } = ctx;
   const wb = state.tasksWorkbench;
   wb.savedViews = [];
-  wb.selectedSavedViewId = "";
-  if (!state.authed) return;
+  wb.savedViewsLoadFailed = false;
+  if (!state.authed) {
+    wb.selectedSavedViewId = "";
+    return;
+  }
   let recovered = false;
   let parsed = [];
+  let raw;
   try {
-    const raw = localStorage.getItem(tasksWorkbenchStorageKey(ctx)) || "[]";
+    raw = localStorage.getItem(tasksWorkbenchStorageKey(ctx)) || "[]";
+  } catch (err) {
+    console.warn("Unable to load task workbench saved views", err);
+    wb.savedViewsLoadFailed = true;
+    setTasksWorkbenchSavedStatus(ctx, "Could not load saved views from browser storage. Reload before making changes.");
+    return;
+  }
+  try {
     const candidate = JSON.parse(raw);
     if (Array.isArray(candidate)) {
       parsed = candidate;
@@ -61,14 +73,16 @@ export function loadTasksWorkbenchSavedViews(ctx) {
 
 export function persistTasksWorkbenchSavedViews(ctx) {
   const { state } = ctx;
-  if (!state.authed) return;
+  if (!state.authed) return false;
   try {
     localStorage.setItem(
       tasksWorkbenchStorageKey(ctx),
       JSON.stringify(state.tasksWorkbench.savedViews || [])
     );
+    return true;
   } catch (err) {
     console.warn("Unable to persist task workbench saved views", err);
+    return false;
   }
 }
 
@@ -79,13 +93,13 @@ export function updateTasksWorkbenchSavedViewsUI(ctx) {
   const options = (wb.savedViews || [])
     .slice()
     .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
-    .map((row) => `<option value="${row.view_id}">${escapeHtml(row.name)}</option>`)
+    .map((row) => `<option value="${escapeHtml(row.view_id)}">${escapeHtml(row.name)}</option>`)
     .join("");
   els.tasksWorkbenchSavedSelect.innerHTML = `<option value="">Select</option>${options}`;
   let selectionChanged = false;
   if (wb.selectedSavedViewId && wb.savedViews.find((row) => row.view_id === wb.selectedSavedViewId)) {
     els.tasksWorkbenchSavedSelect.value = wb.selectedSavedViewId;
-  } else if (wb.selectedSavedViewId) {
+  } else if (wb.selectedSavedViewId && !wb.savedViewsLoadFailed) {
     wb.selectedSavedViewId = "";
     els.tasksWorkbenchSavedSelect.value = "";
     selectionChanged = true;
@@ -125,7 +139,7 @@ function captureTasksWorkbenchCurrentView(ctx, name) {
 }
 
 export function applyTasksWorkbenchSavedView(ctx, savedView) {
-  const { state, renderTasksWorkbench, normalizeTasksWorkbenchUiState } = ctx;
+  const { state, renderTasksWorkbench, normalizeTasksWorkbenchUiState, persistTasksWorkbenchUiState } = ctx;
   if (!savedView) return;
   const wb = state.tasksWorkbench;
   wb.selectedSavedViewId = savedView.view_id || wb.selectedSavedViewId || "";
@@ -141,7 +155,8 @@ export function applyTasksWorkbenchSavedView(ctx, savedView) {
   };
   wb.selected.clear();
   wb.activeTaskId = "";
-  normalizeTasksWorkbenchUiState({ persist: true });
+  normalizeTasksWorkbenchUiState();
+  persistTasksWorkbenchUiState();
   renderTasksWorkbench();
 }
 
@@ -164,7 +179,6 @@ export function bindTasksWorkbenchSavedViewControls(ctx) {
         els.tasksWorkbenchSavedName.value = saved.name || "";
       }
       setTasksWorkbenchSavedStatus(ctx, `Applied "${saved.name}"`);
-      persistTasksWorkbenchUiState();
       applyTasksWorkbenchSavedView(ctx, saved);
     });
     els.tasksWorkbenchSavedSelect._bound = true;
@@ -172,6 +186,10 @@ export function bindTasksWorkbenchSavedViewControls(ctx) {
 
   if (els.tasksWorkbenchSavedSave && !els.tasksWorkbenchSavedSave._bound) {
     els.tasksWorkbenchSavedSave.addEventListener("click", () => {
+      if (wb.savedViewsLoadFailed) {
+        setTasksWorkbenchSavedStatus(ctx, "Could not load saved views from browser storage. Reload before making changes.");
+        return;
+      }
       const rawName = (els.tasksWorkbenchSavedName?.value || "").trim();
       if (!rawName) {
         setTasksWorkbenchSavedStatus(ctx, "Enter a view name before saving.");
@@ -195,16 +213,21 @@ export function bindTasksWorkbenchSavedViewControls(ctx) {
         wb.savedViews.push(captured);
         wb.selectedSavedViewId = captured.view_id;
       }
-      persistTasksWorkbenchSavedViews(ctx);
+      const persisted = persistTasksWorkbenchSavedViews(ctx);
       persistTasksWorkbenchUiState();
       updateTasksWorkbenchSavedViewsUI(ctx);
-      setTasksWorkbenchSavedStatus(ctx, `Saved "${rawName}"`);
+      setTasksWorkbenchSavedStatus(ctx, persisted ? `Saved "${rawName}"`
+        : "Could not save this view to browser storage. Your changes may be lost on reload.");
     });
     els.tasksWorkbenchSavedSave._bound = true;
   }
 
   if (els.tasksWorkbenchSavedDelete && !els.tasksWorkbenchSavedDelete._bound) {
     els.tasksWorkbenchSavedDelete.addEventListener("click", async () => {
+      if (wb.savedViewsLoadFailed) {
+        setTasksWorkbenchSavedStatus(ctx, "Could not load saved views from browser storage. Reload before making changes.");
+        return;
+      }
       const selectedId = wb.selectedSavedViewId || els.tasksWorkbenchSavedSelect?.value || "";
       if (!selectedId) {
         setTasksWorkbenchSavedStatus(ctx, "Select a saved view to delete.");
@@ -212,18 +235,25 @@ export function bindTasksWorkbenchSavedViewControls(ctx) {
       }
       const saved = wb.savedViews.find((row) => row.view_id === selectedId);
       if (!saved) return;
+      const context = captureEntityMutationContext(state);
+      const authed = state.authed;
+      const savedSnapshot = JSON.stringify(saved);
       const confirmed = await showConfirmModal({
         title: "Delete Saved View?",
         message: `Delete saved view "${saved.name}"?`,
         confirmLabel: "Delete Saved View",
       });
-      if (!confirmed) return;
+      if (!confirmed || state.authed !== authed || state.tasksWorkbench !== wb
+          || !isEntityMutationContextCurrent(state, context)
+          || (wb.selectedSavedViewId || els.tasksWorkbenchSavedSelect?.value || "") !== selectedId
+          || JSON.stringify(wb.savedViews.find((row) => row.view_id === selectedId)) !== savedSnapshot) return;
       wb.savedViews = wb.savedViews.filter((row) => row.view_id !== selectedId);
       wb.selectedSavedViewId = "";
-      persistTasksWorkbenchSavedViews(ctx);
+      const persisted = persistTasksWorkbenchSavedViews(ctx);
       persistTasksWorkbenchUiState();
       updateTasksWorkbenchSavedViewsUI(ctx);
-      setTasksWorkbenchSavedStatus(ctx, `Deleted "${saved.name}"`);
+      setTasksWorkbenchSavedStatus(ctx, persisted ? `Deleted "${saved.name}"`
+        : "Could not save this deletion to browser storage. The view may return on reload.");
     });
     els.tasksWorkbenchSavedDelete._bound = true;
   }

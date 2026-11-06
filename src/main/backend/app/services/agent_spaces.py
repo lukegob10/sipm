@@ -10,7 +10,7 @@ from ..services.agent_pagination import (
     decode_position_cursor,
     encode_position_cursor,
 )
-from ..services.spaces import is_global_admin_role, normalize_space_kind
+from ..services.spaces import _personal_space_visible_to, is_global_admin_role, normalize_space_kind
 from ..utils import normalize_str
 from fastapi import status
 
@@ -42,6 +42,7 @@ def _base_space_query(session: Session, user: User):
         .filter(SpaceMembership.deleted_at.is_(None))
         .filter(Space.deleted_at.is_(None))
         .filter(Space.is_active)
+        .filter(_personal_space_visible_to(user.user_id))
     )
 
 
@@ -91,9 +92,9 @@ def list_agent_spaces(
             scope=SPACE_CURSOR_SCOPE,
             filters=cursor_filters,
         )
-        cursor_name = str(position.get("name", ""))
-        cursor_id = str(position.get("space_id", ""))
-        if not cursor_name or not cursor_id:
+        cursor_name = position.get("name")
+        cursor_id = position.get("space_id")
+        if not isinstance(cursor_name, str) or not isinstance(cursor_id, str) or not cursor_id.strip():
             raise security_http_exception(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 code="INVALID_CURSOR",

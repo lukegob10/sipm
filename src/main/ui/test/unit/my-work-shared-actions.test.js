@@ -170,6 +170,79 @@ describe("My Work shared actions", () => {
     expect(ctx.setView).not.toHaveBeenCalled();
   });
 
+  it("ignores a shared action response after the session changes", async () => {
+    const ctx = context();
+    ctx.state.user = { user_id: "old" };
+    const selectedRecord = record();
+    let finish;
+    ctx.api.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const onTaskUpdated = vi.fn();
+    const onNotice = vi.fn();
+    renderAndBind(ctx, selectedRecord, { onTaskUpdated, onNotice });
+    ctx.els.myWorkRoot.querySelector('[data-my-work-action="start"]').click();
+    ctx.state.user = { user_id: "new" };
+    ctx.state.myWork.sharedActions = null;
+    onNotice.mockClear();
+    finish({ ...selectedRecord.task, status: "in_progress" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onTaskUpdated).not.toHaveBeenCalled();
+    expect(onNotice).not.toHaveBeenCalled();
+    expect(ctx.state.myWork.sharedActions).toBeNull();
+  });
+
+  it("updates the current queue record without losing its reminder signal", async () => {
+    const ctx = context();
+    const oldRecord = record();
+    const currentRecord = { ...record(), reminder_due: true, needs_attention: true };
+    ctx.state.myWork.records = [oldRecord];
+    let finish;
+    ctx.api.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderAndBind(ctx, oldRecord);
+    ctx.els.myWorkRoot.querySelector('[data-my-work-action="start"]').click();
+    ctx.state.myWork.records = [currentRecord];
+    finish({ ...oldRecord.task, status: "in_progress", blocked: false, is_overdue: false });
+    await vi.waitFor(() => expect(currentRecord.task.status).toBe("in_progress"));
+    expect(currentRecord.needs_attention).toBe(true);
+  });
+
+  it("rejects a malformed task response without replacing the task", async () => {
+    const ctx = context();
+    const selectedRecord = record();
+    ctx.api.mockResolvedValue({ status: "in_progress" });
+    renderAndBind(ctx, selectedRecord);
+    ctx.els.myWorkRoot.querySelector('[data-my-work-action="start"]').click();
+    await vi.waitFor(() => expect(renderSharedActionNotice(ctx)).toContain("invalid response"));
+    expect(selectedRecord.task.status).toBe("to_do");
+    expect(ctx.state.myWork.sharedActions.pendingTaskId).toBe("");
+  });
+
+  it("does not run an action from a task whose selection changed", () => {
+    const ctx = context();
+    const selectedRecord = record();
+    ctx.state.myWork.selectedTaskId = "task-1";
+    renderAndBind(ctx, selectedRecord);
+    ctx.state.myWork.selectedTaskId = "task-2";
+    ctx.els.myWorkRoot.querySelector('[data-my-work-action="start"]').click();
+    expect(ctx.api).not.toHaveBeenCalled();
+  });
+
+  it("does not navigate using a task from an earlier session", () => {
+    const ctx = context();
+    ctx.state.user = { user_id: "old" };
+    const openTaskInWorkbench = vi.fn();
+    renderAndBind(ctx, record(), { openTaskInWorkbench });
+    ctx.state.user = { user_id: "new" };
+    ctx.els.myWorkRoot.querySelector('[data-my-work-open-tasks]').click();
+    expect(openTaskInWorkbench).not.toHaveBeenCalled();
+  });
+
+  it("disables actions on other tasks while a shared update is pending", () => {
+    const ctx = context();
+    ctx.state.myWork.sharedActions = { pendingTaskId: "task-1", blockComposerTaskId: "", blockDraft: "", notice: null };
+    ctx.els.myWorkRoot.innerHTML = renderSharedActions(ctx, record({ task_id: "task-2" }));
+    expect(ctx.els.myWorkRoot.querySelector('[data-my-work-action="start"]').disabled).toBe(true);
+  });
+
   it("surfaces API errors and leaves the task unchanged", async () => {
     const ctx = context();
     const selectedRecord = record();

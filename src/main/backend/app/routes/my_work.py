@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
+from sqlalchemy import and_, false, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..deps import current_space as current_space_dep
@@ -18,9 +19,17 @@ from ..schemas import (
     UserTaskStateUpdate,
 )
 from ..services.spaces import SpaceContext
+from ..services.github_repo_urls import normalize_github_repo_url
 from ..services.work_items import task_payload
 
 router = APIRouter()
+
+
+def _in_batches(column, values):
+    ids = list(values)
+    if not ids:
+        return false()
+    return or_(*(column.in_(ids[index:index + 500]) for index in range(0, len(ids), 500)))
 
 
 def _preference_payload(preference: UserPreference | None) -> UserPreferenceRead:
@@ -71,8 +80,18 @@ def _private_state_payload(task_id: str, private_state: UserTaskState | None) ->
 def _eligible_task_query(session: Session, space_ctx: SpaceContext, user: User):
     return (
         session.query(Task)
+        .join(Solution, Solution.solution_id == Task.solution_id)
+        .join(Project, Project.project_id == Solution.project_id)
+        .join(Program, Program.program_id == Project.program_id)
         .filter(Task.space_id == space_ctx.space_id)
         .filter(Task.deleted_at.is_(None))
+        .filter(Task.project_id == Solution.project_id)
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
+        .filter(Program.deleted_at.is_(None))
         .filter(_assigned_to_user(user))
     )
 
@@ -93,14 +112,30 @@ def update_my_preferences(
     current_user: User = Depends(require_interactive_user),
 ) -> UserPreferenceRead:
     preference = session.get(UserPreference, current_user.user_id)
-    if preference is None:
+    created = preference is None
+    if created:
         preference = UserPreference(user_id=current_user.user_id)
-    if payload.developer_mode_enabled is not None:
-        preference.developer_mode_enabled = bool(payload.developer_mode_enabled)
-    if payload.theme is not None:
-        preference.theme = payload.theme
-    session.add(preference)
-    session.commit()
+
+    def apply_changes(target: UserPreference) -> None:
+        if payload.developer_mode_enabled is not None:
+            target.developer_mode_enabled = bool(payload.developer_mode_enabled)
+        if payload.theme is not None:
+            target.theme = payload.theme
+        session.add(target)
+
+    apply_changes(preference)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if not created:
+            raise
+        winner = session.get(UserPreference, current_user.user_id)
+        if winner is None:
+            raise
+        preference = winner
+        apply_changes(preference)
+        session.commit()
     session.refresh(preference)
     return _preference_payload(preference)
 
@@ -111,55 +146,34 @@ def list_my_work(
     space_ctx: SpaceContext = Depends(current_space_dep),
     current_user: User = Depends(require_interactive_user),
 ) -> list[MyWorkItemRead]:
-    rows = _eligible_task_query(session, space_ctx, current_user).all()
+    rows = (
+        _eligible_task_query(session, space_ctx, current_user)
+        .outerjoin(
+            UserTaskState,
+            and_(
+                UserTaskState.task_id == Task.task_id,
+                UserTaskState.user_id == current_user.user_id,
+                UserTaskState.space_id == space_ctx.space_id,
+            ),
+        )
+        .with_entities(
+            Task,
+            UserTaskState,
+            Solution.github_repo_url,
+            Solution.solution_name,
+            Project.program_id,
+            Project.project_name,
+            Program.program_name,
+        )
+        .all()
+    )
     if not rows:
         return []
-
-    task_ids = [task.task_id for task in rows]
-    state_rows = (
-        session.query(UserTaskState)
-        .filter(UserTaskState.user_id == current_user.user_id)
-        .filter(UserTaskState.space_id == space_ctx.space_id)
-        .filter(UserTaskState.task_id.in_(task_ids))
-        .all()
-    )
-    state_by_task_id = {row.task_id: row for row in state_rows}
-
-    solution_ids = {task.solution_id for task in rows}
-    project_ids = {task.project_id for task in rows}
-    solutions = (
-        session.query(Solution)
-        .filter(Solution.space_id == space_ctx.space_id)
-        .filter(Solution.solution_id.in_(solution_ids))
-        .all()
-    )
-    projects = (
-        session.query(Project)
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.project_id.in_(project_ids))
-        .all()
-    )
-    project_by_id = {row.project_id: row for row in projects}
-    solution_by_id = {row.solution_id: row for row in solutions}
-    program_ids = {project.program_id for project in projects}
-    programs = (
-        session.query(Program)
-        .filter(Program.space_id == space_ctx.space_id)
-        .filter(Program.program_id.in_(program_ids))
-        .all()
-        if program_ids
-        else []
-    )
-    program_by_id = {row.program_id: row for row in programs}
     now = datetime.now(timezone.utc)
 
     result: list[MyWorkItemRead] = []
-    for task in rows:
-        solution = solution_by_id[task.solution_id]
-        project = project_by_id[task.project_id]
-        program = program_by_id.get(project.program_id)
-        private_state = state_by_task_id.get(task.task_id)
-        payload = task_payload(task, solution_repo_url=solution.github_repo_url)
+    for task, private_state, solution_repo_url, solution_name, program_id, project_name, program_name in rows:
+        payload = task_payload(task, solution_repo_url=solution_repo_url)
         private_reminder_at = _utc_aware(private_state.reminder_at) if private_state else None
         reminder_due = bool(private_reminder_at and private_reminder_at <= now)
         status_value = getattr(task.status, "value", str(task.status)).lower()
@@ -170,10 +184,10 @@ def list_my_work(
         result.append(
             MyWorkItemRead(
                 task=payload,
-                program_id=project.program_id,
-                program_name=program.program_name if program else None,
-                project_name=project.project_name,
-                solution_name=solution.solution_name,
+                program_id=program_id,
+                program_name=program_name,
+                project_name=project_name,
+                solution_name=solution_name,
                 private_bucket=(private_state.bucket or "later") if private_state else "later",
                 private_sort_rank=private_state.sort_rank if private_state else 0,
                 private_reminder_at=private_reminder_at,
@@ -202,51 +216,48 @@ def list_repository_inventory(
     space_ctx: SpaceContext = Depends(current_space_dep),
     _current_user: User = Depends(require_interactive_user),
 ) -> list[RepositoryInventoryItemRead]:
-    solutions = (
-        session.query(Solution)
+    rows = (
+        session.query(Solution, Project.project_name, Program.program_name)
+        .select_from(Solution)
         .join(Project, Project.project_id == Solution.project_id)
+        .join(Program, Program.program_id == Project.program_id)
         .filter(Solution.space_id == space_ctx.space_id)
         .filter(Solution.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
         .filter(Project.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
+        .filter(Program.deleted_at.is_(None))
         .all()
     )
-    if not solutions:
+    if not rows:
         return []
 
-    solution_by_id = {row.solution_id: row for row in solutions}
-    project_ids = {row.project_id for row in solutions}
-    projects = (
-        session.query(Project)
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Project.project_id.in_(project_ids))
-        .all()
-    )
-    project_by_id = {row.project_id: row for row in projects}
-    program_ids = {row.program_id for row in projects if row.program_id}
-    programs = (
-        session.query(Program)
-        .filter(Program.space_id == space_ctx.space_id)
-        .filter(Program.program_id.in_(program_ids))
-        .all()
-        if program_ids
-        else []
-    )
-    program_by_id = {row.program_id: row for row in programs}
+    solution_by_id = {
+        solution.solution_id: (solution, project_name, program_name)
+        for solution, project_name, program_name in rows
+    }
     tasks = (
         session.query(Task)
+        .join(Solution, Solution.solution_id == Task.solution_id)
         .filter(Task.space_id == space_ctx.space_id)
         .filter(Task.deleted_at.is_(None))
-        .filter(Task.solution_id.in_(solution_by_id))
+        .filter(Task.project_id == Solution.project_id)
+        .filter(_in_batches(Task.solution_id, solution_by_id))
         .all()
     )
 
     inventory: dict[str, dict] = {}
 
     def ensure_repo(url: str) -> dict:
-        if url not in inventory:
-            inventory[url] = {
+        try:
+            canonical = normalize_github_repo_url(url, validate_length=False)
+        except ValueError:
+            canonical = None
+        # Only group canonical GitHub URLs. Preserve distinct legacy values
+        # that do not follow the URL contract.
+        key = f"github:{url.lower()}" if canonical == url else f"legacy:{url}"
+        if key not in inventory:
+            inventory[key] = {
                 "github_repo_url": url,
                 "repository_name": _repository_name(url),
                 "program_names": set(),
@@ -258,19 +269,20 @@ def list_repository_inventory(
                 "task_override_ids": set(),
                 "last_updated_at": None,
             }
-        return inventory[url]
+        entry = inventory[key]
+        if url < entry["github_repo_url"]:
+            entry["github_repo_url"] = url
+            entry["repository_name"] = _repository_name(url)
+        return entry
 
     def add_context(entry: dict, solution: Solution) -> None:
-        project = project_by_id.get(solution.project_id)
-        program = program_by_id.get(project.program_id) if project else None
+        _, project_name, program_name = solution_by_id[solution.solution_id]
         entry["solution_ids"].add(solution.solution_id)
         entry["solution_names"].add(solution.solution_name)
-        if project:
-            entry["project_names"].add(project.project_name)
-        if program:
-            entry["program_names"].add(program.program_name)
+        entry["project_names"].add(project_name)
+        entry["program_names"].add(program_name)
 
-    for solution in solutions:
+    for solution, _, _ in rows:
         if not solution.github_repo_url:
             continue
         entry = ensure_repo(solution.github_repo_url)
@@ -282,9 +294,7 @@ def list_repository_inventory(
         )
 
     for task in tasks:
-        solution = solution_by_id.get(task.solution_id)
-        if solution is None:
-            continue
+        solution, _, _ = solution_by_id[task.solution_id]
         effective_url = task.github_repo_url or solution.github_repo_url
         if not effective_url:
             continue
@@ -338,22 +348,42 @@ def update_my_work_state(
     fields = payload.model_fields_set
     if not fields:
         return _private_state_payload(task_id, private_state)
-    if private_state is None:
+    created = private_state is None
+    if created:
         private_state = UserTaskState(
             user_id=current_user.user_id,
             space_id=space_ctx.space_id,
             task_id=task_id,
         )
-    if "bucket" in fields:
-        private_state.bucket = payload.bucket
-    if "sort_rank" in fields:
-        private_state.sort_rank = payload.sort_rank
-    if "reminder_at" in fields:
-        private_state.reminder_at = _utc_naive(payload.reminder_at)
-    if "private_note" in fields:
-        private_state.private_note = payload.private_note
-    session.add(private_state)
-    session.commit()
+
+    def apply_changes(state: UserTaskState) -> None:
+        for field in fields:
+            value = getattr(payload, field)
+            setattr(state, field, _utc_naive(value) if field == "reminder_at" else value)
+        session.add(state)
+
+    apply_changes(private_state)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        if not created:
+            raise
+        winner = (
+            session.query(UserTaskState)
+            .filter(UserTaskState.user_id == current_user.user_id)
+            .filter(UserTaskState.space_id == space_ctx.space_id)
+            .filter(UserTaskState.task_id == task_id)
+            .first()
+        )
+        if winner is None:
+            raise
+        task = _eligible_task_query(session, space_ctx, current_user).filter(Task.task_id == task_id).first()
+        if task is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task is not eligible for My Work")
+        private_state = winner
+        apply_changes(private_state)
+        session.commit()
     session.refresh(private_state)
     return _private_state_payload(task_id, private_state)
 

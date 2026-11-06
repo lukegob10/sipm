@@ -32,7 +32,7 @@ from ..security import security_http_exception
 from ..services.audit_log import log_changes
 from ..services.api_tokens import api_token_is_active, create_api_token
 from ..services.password_reset import issue_temp_password
-from ..services.spaces import SpaceContext
+from ..services.spaces import SPACE_KIND_PERSONAL, SpaceContext, normalize_space_kind
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
 from ..services.user_admin_guards import (
     count_active_global_admins as _count_active_global_admins,
@@ -40,9 +40,10 @@ from ..services.user_admin_guards import (
     ensure_user_can_be_deactivated,
     is_global_admin_user as _is_global_admin,
     lock_global_admin_users,
+    lock_space_admin_spaces,
     normalized_global_role_expr as _normalized_global_role_expr,
 )
-from ..utils import read_csv
+from ..utils import MAX_DB_INTEGER, read_csv
 
 router = APIRouter()
 _USERS_LIST_TTL_SECONDS = 20
@@ -211,6 +212,17 @@ def _ensure_active_membership_for_user(session: Session, user_id: str, space_id:
         session.add(membership)
 
 
+def _capacity_hours_from_fte(value: float) -> int:
+    fte = float(value)
+    hours = fte * _HOURS_PER_FTE_CAPACITY
+    if not math.isfinite(fte) or not math.isfinite(hours):
+        raise ValueError("Capacity must be finite")
+    rounded_hours = max(int(round(hours)), 0)
+    if rounded_hours > MAX_DB_INTEGER:
+        raise ValueError("Capacity is too large")
+    return rounded_hours
+
+
 def _set_user_capacity_fields(
     user: User,
     *,
@@ -218,12 +230,17 @@ def _set_user_capacity_fields(
     capacity_hours: Optional[int] = None,
 ) -> None:
     if capacity_fte_month is not None:
-        fte = max(float(capacity_fte_month), 0.0)
-        user.capacity_fte_month = round(fte, 3)
-        user.capacity_hours = max(int(round(fte * _HOURS_PER_FTE_CAPACITY)), 0)
+        try:
+            hours = _capacity_hours_from_fte(capacity_fte_month)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+        user.capacity_fte_month = round(max(float(capacity_fte_month), 0.0), 3)
+        user.capacity_hours = hours
         return
     if capacity_hours is not None:
         hours = max(int(capacity_hours), 0)
+        if hours > MAX_DB_INTEGER:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Capacity is too large")
         user.capacity_hours = hours
         user.capacity_fte_month = round(float(hours) / _HOURS_PER_FTE_CAPACITY, 3)
 
@@ -346,6 +363,7 @@ def request_user_password_reset(
     user_id: str,
     payload: Optional[PasswordResetIssueRequest] = Body(default=None),
     session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
     admin_user: User = Depends(require_global_admin),
 ) -> PasswordResetIssueResponse:
     user = _user_or_404(session, user_id)
@@ -368,6 +386,7 @@ def request_user_password_reset_by_soeid(
     soeid: str,
     payload: Optional[PasswordResetIssueRequest] = Body(default=None),
     session: Session = Depends(get_db),
+    _interactive_admin: User = Depends(require_interactive_user),
     admin_user: User = Depends(require_global_admin),
 ) -> PasswordResetIssueResponse:
     user = _user_by_soeid_or_404(session, soeid)
@@ -514,9 +533,10 @@ def update_user(
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     session.add(user)
+    changed_user_id = user.user_id
     session.commit()
+    _invalidate_user_caches_for_user_memberships(session, changed_user_id)
     session.refresh(user)
-    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -550,9 +570,10 @@ def update_user_by_soeid(
             ensure_actor_can_modify_user(actor=current_user, target=user)
         user.is_active = bool(payload.is_active)
     session.add(user)
+    changed_user_id = user.user_id
     session.commit()
+    _invalidate_user_caches_for_user_memberships(session, changed_user_id)
     session.refresh(user)
-    _invalidate_user_caches_for_user_memberships(session, user.user_id)
     return user
 
 
@@ -568,6 +589,24 @@ def import_users(
     rows, errors = read_csv(csv_bytes)
     if errors:
         return {"count": 0, "created": 0, "updated": 0, "errors": errors, "total_rows": 0, "dry_run": dry_run}
+    space_kind = space_ctx.space_kind
+    space_owner_id = space_ctx.owner_user_id
+    if not dry_run:
+        # Match the global-admin-before-space order used by deactivation.
+        lock_global_admin_users(session)
+        locked_spaces = lock_space_admin_spaces(session, [space_ctx.space_id])
+        locked_space = next((space for space in locked_spaces if space.space_id == space_ctx.space_id), None)
+        if not locked_space or locked_space.deleted_at is not None or not locked_space.is_active:
+            raise security_http_exception(
+                status_code=status.HTTP_403_FORBIDDEN, code="FORBIDDEN_SPACE", message="Space is not accessible",
+            )
+        space_kind = locked_space.space_kind
+        space_owner_id = locked_space.owner_user_id
+        current_user = session.get(User, current_user.user_id, populate_existing=True)
+        if current_user is None:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active user required")
+        _refresh_active_admin_actor(session, current_user)
+        _ensure_actor_has_current_space_admin_role(session, current_user, space_ctx.space_id)
     created = 0
     updated = 0
     affected_user_ids: set[str] = set()
@@ -583,6 +622,14 @@ def import_users(
         capacity_raw = (row.get("capacity_hours") or "").strip()
         if not soeid or not display_name:
             errors.append(f"Row {idx}: soeid and display_name are required")
+            continue
+        oversized_field = next(
+            (field for field, value in (("soeid", soeid), ("display_name", display_name), ("team_tag", team_tag))
+             if len(value) > 255),
+            None,
+        )
+        if oversized_field:
+            errors.append(f"Row {idx}: {oversized_field} must be 255 characters or fewer")
             continue
         if soeid in seen_soeids:
             errors.append(f"Row {idx}: duplicate soeid '{soeid}' in CSV (strict-first policy)")
@@ -607,7 +654,23 @@ def import_users(
             except ValueError:
                 errors.append(f"Row {idx}: invalid capacity_hours '{capacity_raw}'")
                 continue
+        try:
+            capacity_hours_value = _capacity_hours_from_fte(capacity_fte)
+        except ValueError:
+            column = "capacity_fte_month" if capacity_fte_raw else "capacity_hours"
+            raw_value = capacity_fte_raw or capacity_raw
+            errors.append(f"Row {idx}: invalid {column} '{raw_value}'")
+            continue
         user = session.query(User).filter(User.soeid == soeid).first()
+        if normalize_space_kind(space_kind) == SPACE_KIND_PERSONAL and (
+            not user or user.user_id != space_owner_id
+        ):
+            errors.append(f"Row {idx}: personal spaces cannot add members")
+            continue
+        email = f"{soeid}@{os.getenv('DOMAIN_NAME', 'citi.com')}"
+        if user is None and len(email) > 255:
+            errors.append(f"Row {idx}: email must be 255 characters or fewer")
+            continue
         if user:
             try:
                 ensure_actor_can_modify_user(actor=current_user, target=user)
@@ -627,16 +690,15 @@ def import_users(
             if dry_run:
                 created += 1
                 continue
-            domain = os.getenv("DOMAIN_NAME", "citi.com")
             user = User(
                 soeid=soeid,
-                email=f"{soeid}@{domain}",
+                email=email,
                 display_name=display_name,
                 password_hash=hash_bootstrap_password(),
                 role="user",
                 is_active=True,
                 team_tag=team_tag or None,
-                capacity_hours=max(int(round(capacity_fte * _HOURS_PER_FTE_CAPACITY)), 0),
+                capacity_hours=capacity_hours_value,
                 capacity_fte_month=round(capacity_fte, 3),
             )
             session.add(user)

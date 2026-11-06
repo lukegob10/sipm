@@ -64,7 +64,19 @@ For HTTPS UAT/prod, keep:
 - `SIPM_ALLOW_SELF_REGISTER=false`
 - `SIPM_SECURE_COOKIES=true`
 - `SIPM_COOKIE_SAMESITE=lax` or `strict`
-- `SIPM_SECRET_KEY` set to a long random value
+- `SIPM_SECRET_KEY` set to a random value of at least 32 UTF-8 bytes
+
+Non-dev startup rejects `SIPM_COOKIE_SAMESITE=none` because cookie-authenticated
+requests do not have cross-site request forgery protection. Rotating the signing
+secret invalidates existing signed sessions and tokens; users must sign in again.
+
+For browser session isolation, reverse proxies must pass the `X-SIPM-Session`
+request and response header and retain the WebSocket query string. The value is
+a session fingerprint, not an authentication credential, but may appear in
+WebSocket access logs. The header is optional for compatibility with older
+clients and API-token integrations. Updated browser tabs use Web Locks when
+available to order cookie-changing requests; older tabs and browsers without
+Web Locks do not provide that ordering guarantee.
 
 The compose file always runs Redis and injects:
 

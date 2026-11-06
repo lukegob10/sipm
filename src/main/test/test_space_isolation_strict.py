@@ -1,7 +1,7 @@
 import pytest
 
 from backend.app import deps as deps_module
-from backend.app.models import Program, Project, Solution, Space, Task
+from backend.app.models import Program, Project, Solution, Space, SpaceMembership, Task, User
 from backend.app.services.spaces import SpaceContext
 from backend.app.utils.enums import ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 from backend.main import app as fastapi_app
@@ -32,7 +32,8 @@ def _ensure_space(db_sessionmaker, space_id: str, slug: str):
 
 
 @pytest.mark.anyio
-async def test_projects_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
+async def test_projects_list_excludes_legacy_null_space_rows(client, db_sessionmaker, seed_space_memberships):
+    seed_space_memberships("strict-space-projects")
     space_id = "strict-space-projects"
     _ensure_space(db_sessionmaker, space_id, "strict-space-projects")
     with db_sessionmaker() as session:
@@ -74,7 +75,8 @@ async def test_projects_list_excludes_legacy_null_space_rows(client, db_sessionm
 
 
 @pytest.mark.anyio
-async def test_solutions_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
+async def test_solutions_list_excludes_legacy_null_space_rows(client, db_sessionmaker, seed_space_memberships):
+    seed_space_memberships("strict-space-solutions")
     space_id = "strict-space-solutions"
     _ensure_space(db_sessionmaker, space_id, "strict-space-solutions")
     with db_sessionmaker() as session:
@@ -135,9 +137,14 @@ async def test_solutions_list_excludes_legacy_null_space_rows(client, db_session
 
 
 @pytest.mark.anyio
-async def test_tasks_list_excludes_legacy_null_space_rows(client, db_sessionmaker):
+async def test_tasks_list_excludes_legacy_null_space_rows(client, db_sessionmaker, test_user):
     space_id = "strict-space-tasks"
     _ensure_space(db_sessionmaker, space_id, "strict-space-tasks")
+    with db_sessionmaker() as session:
+        session.add(User(user_id=test_user.user_id, soeid=test_user.soeid, email="test-user@fixture.invalid",
+                         display_name=test_user.display_name, password_hash="unused", role="global_admin", is_active=True))
+        session.add(SpaceMembership(space_id=space_id, user_id=test_user.user_id, role="space_admin", status="active"))
+        session.commit()
 
     original = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:

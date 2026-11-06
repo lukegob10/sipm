@@ -58,14 +58,15 @@ export function tasksWorkbenchRows(ctx) {
     if (filters.project_id && row.project_id !== filters.project_id) return false;
     if (filters.solution_id && row.solution_id !== filters.solution_id) return false;
     if (filters.status && row.status !== filters.status) return false;
-    if (filters.priority_max && Number(row.priority || 999) > Number(filters.priority_max)) return false;
+    if (filters.priority_max && Number(row.priority === "" ? 999 : (row.priority ?? 999)) > Number(filters.priority_max)) return false;
     if (filters.assignee) {
       if (filters.assignee === "__unassigned__") {
         if (String(row.assignee || "").trim() || row.assignee_user_soeid) return false;
       } else {
         const assigneeId = normalize(row.assignee_user_soeid);
         const assigneeName = normalize(row.assignee);
-        if (assigneeId !== normalize(filters.assignee) && assigneeName !== normalize(filters.assignee_name)) return false;
+        const filterName = normalize(filters.assignee_name);
+        if (assigneeId ? assigneeId !== normalize(filters.assignee) : (!filterName || assigneeName !== filterName)) return false;
       }
     }
 
@@ -89,7 +90,7 @@ export function tasksWorkbenchRows(ctx) {
       case "my": {
         const assigneeId = normalize(row.assignee_user_soeid);
         const assigneeName = normalize(row.assignee);
-        const matchesSelf = (userSoeid && assigneeId === userSoeid) || (userName && assigneeName === userName);
+        const matchesSelf = assigneeId ? (userSoeid && assigneeId === userSoeid) : (userName && assigneeName === userName);
         if (!matchesSelf) return false;
         break;
       }

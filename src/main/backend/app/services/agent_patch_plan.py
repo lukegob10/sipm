@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -38,6 +39,7 @@ from ..services.work_items import (
     default_program as _default_program,
     ensure_program_exists as _ensure_program_exists,
     ensure_solution as _ensure_solution,
+    lock_work_space,
     project_change_set as _project_change_set,
     project_create_changes as _project_create_changes,
     project_query as _project_query,
@@ -52,8 +54,10 @@ from ..services.work_items import (
     task_solution_query as _task_solution_query,
     validate_current_phase as _validate_current_phase,
 )
-from ..utils import normalize_str, parse_priority
+from ..utils import normalize_str, parse_priority, read_text_value
 from ..utils.enums import SolutionStatus, TaskStatus
+
+logger = logging.getLogger(__name__)
 
 VALID_OPS = {"archive", "create", "update"}
 VALID_ENTITIES = {"program", "project", "solution", "task"}
@@ -135,6 +139,8 @@ def _now() -> datetime:
 
 
 def _comparable(value: Any) -> Any:
+    if isinstance(value, bytes) or callable(getattr(value, "read", None)):
+        return read_text_value(value)
     return value.value if hasattr(value, "value") else value
 
 
@@ -226,6 +232,16 @@ def _validate_operation_shape(
     return None
 
 
+def _with_visible_program(query, session: Session, space_ctx: SpaceContext):
+    # Use a subquery so FOR UPDATE locks the existing target rows, without
+    # adding the program table to the lock set or changing lock ordering.
+    visible_programs = session.query(Program.program_id).filter(
+        Program.space_id == space_ctx.space_id,
+        Program.deleted_at.is_(None),
+    )
+    return query.filter(Project.program_id.in_(visible_programs))
+
+
 def _active_entity(
     session: Session,
     space_ctx: SpaceContext,
@@ -247,6 +263,10 @@ def _active_entity(
         )
     else:
         query = _task_query(session, space_ctx).filter(Task.task_id == operation.id)
+    if operation.entity != "program":
+        query = _with_visible_program(query, session, space_ctx)
+    if operation.entity == "task":
+        query = query.filter(Task.project_id == Project.project_id)
     if for_apply:
         query = query.with_for_update().populate_existing()
     # Oracle does not allow row limiting together with FOR UPDATE.
@@ -419,6 +439,8 @@ def _validate_project(
                 return _invalid(
                     operation, "PROJECT_NAME_REQUIRED", "project_name is required"
                 )
+            if len(project_name) > 255:
+                return _invalid(operation, "PROJECT_NAME_TOO_LONG", "project_name must be 255 characters or fewer")
             conflict = _active_project_name_conflict_query(
                 session,
                 project_name=project_name,
@@ -433,9 +455,9 @@ def _validate_project(
             return _result(operation, valid=True)
 
         payload = ProjectUpdate(**operation.fields)
-        project_query = (
-            _project_query(session, space_ctx)
-            .filter(Project.project_id == operation.id)
+        project_query = _with_visible_program(
+            _project_query(session, space_ctx).filter(Project.project_id == operation.id),
+            session, space_ctx,
         )
         if for_apply:
             project_query = project_query.with_for_update().populate_existing()
@@ -451,12 +473,17 @@ def _validate_project(
         update_data = payload.model_dump(exclude_unset=True)
         if "program_id" in update_data:
             _ensure_program_exists(session, update_data["program_id"], space_ctx)
+        for field in ("function", "area"):
+            if field in update_data:
+                update_data[field] = normalize_str(update_data[field]) or None
         if "project_name" in update_data:
             project_name = normalize_str(update_data["project_name"])
             if not project_name:
                 return _invalid(
                     operation, "PROJECT_NAME_REQUIRED", "project_name is required"
                 )
+            if len(project_name) > 255:
+                return _invalid(operation, "PROJECT_NAME_TOO_LONG", "project_name must be 255 characters or fewer")
             conflict = (
                 _project_query(session, space_ctx)
                 .filter(Project.project_name == project_name)
@@ -475,6 +502,10 @@ def _validate_project(
         return _result(operation, valid=True, entity_id=project.project_id)
     except ValidationError as exc:
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return _invalid(operation, "PROGRAM_NOT_FOUND", "Program not found")
+        raise
 
 
 def _validate_solution(
@@ -487,11 +518,10 @@ def _validate_solution(
     try:
         if operation.op == "create":
             payload = SolutionCreate(**operation.fields)
-            project = None if operation.project_ref else (
-                _project_query(session, space_ctx)
-                .filter(Project.project_id == operation.project_id)
-                .first()
-            )
+            project = None if operation.project_ref else _with_visible_program(
+                _project_query(session, space_ctx).filter(Project.project_id == operation.project_id),
+                session, space_ctx,
+            ).first()
             if not project and not operation.project_ref:
                 return _invalid(operation, "PROJECT_NOT_FOUND", "Project not found")
             solution_name = normalize_str(payload.solution_name)
@@ -499,7 +529,11 @@ def _validate_solution(
                 return _invalid(
                     operation, "SOLUTION_NAME_REQUIRED", "solution_name is required"
                 )
+            if len(solution_name) > 255:
+                return _invalid(operation, "SOLUTION_NAME_TOO_LONG", "solution_name must be 255 characters or fewer")
             version = normalize_str(payload.version) or "0.1.0"
+            if len(version) > 255:
+                return _invalid(operation, "VERSION_TOO_LONG", "version must be 255 characters or fewer")
             conflict = None if operation.project_ref else (
                 _solution_query(session, space_ctx)
                 .filter(Solution.project_id == project.project_id)
@@ -526,9 +560,9 @@ def _validate_solution(
             return _result(operation, valid=True)
 
         payload = SolutionUpdate(**operation.fields)
-        solution_query = (
-            _solution_query(session, space_ctx)
-            .filter(Solution.solution_id == operation.id)
+        solution_query = _with_visible_program(
+            _solution_query(session, space_ctx).filter(Solution.solution_id == operation.id),
+            session, space_ctx,
         )
         if for_apply:
             solution_query = solution_query.with_for_update().populate_existing()
@@ -542,6 +576,18 @@ def _validate_solution(
                 "Solution has changed since if_updated_at",
             )
         update_data = payload.model_dump(exclude_unset=True)
+        next_project_id = solution.project_id
+        if "project_id" in update_data:
+            next_project_id = normalize_str(update_data["project_id"])
+            if not next_project_id:
+                return _invalid(operation, "PROJECT_ID_REQUIRED", "project_id is required")
+            destination_query = _with_visible_program(
+                _project_query(session, space_ctx).filter(Project.project_id == next_project_id),
+                session, space_ctx,
+            )
+            if destination_query.one_or_none() is None:
+                return _invalid(operation, "PROJECT_NOT_FOUND", "Project not found")
+            update_data["project_id"] = next_project_id
         if "github_repo_url" in update_data:
             normalize_solution_repo_url(update_data["github_repo_url"])
         if "current_phase" in update_data:
@@ -551,18 +597,28 @@ def _validate_solution(
                 )
             except HTTPException as exc:
                 return _invalid(operation, "CURRENT_PHASE_INVALID", str(exc.detail))
-        next_name = normalize_str(update_data.get("solution_name")) or solution.solution_name
-        next_version = normalize_str(update_data.get("version")) or solution.version
+        next_name = (
+            normalize_str(update_data["solution_name"])
+            if "solution_name" in update_data else solution.solution_name
+        )
+        next_version = (
+            normalize_str(update_data["version"])
+            if "version" in update_data else solution.version
+        )
         if "solution_name" in update_data and not next_name:
             return _invalid(
                 operation, "SOLUTION_NAME_REQUIRED", "solution_name is required"
             )
         if "version" in update_data and not next_version:
             return _invalid(operation, "VERSION_REQUIRED", "version is required")
-        if "solution_name" in update_data or "version" in update_data:
+        if "solution_name" in update_data and len(next_name) > 255:
+            return _invalid(operation, "SOLUTION_NAME_TOO_LONG", "solution_name must be 255 characters or fewer")
+        if "version" in update_data and len(next_version) > 255:
+            return _invalid(operation, "VERSION_TOO_LONG", "version must be 255 characters or fewer")
+        if any(field in update_data for field in ("project_id", "solution_name", "version")):
             conflict = (
                 _solution_query(session, space_ctx)
-                .filter(Solution.project_id == solution.project_id)
+                .filter(Solution.project_id == next_project_id)
                 .filter(Solution.solution_name == next_name)
                 .filter(Solution.version == next_version)
                 .filter(Solution.solution_id != solution.solution_id)
@@ -580,13 +636,22 @@ def _validate_solution(
             update_data["version"] = next_version
         if "github_repo_url" in update_data:
             update_data["github_repo_url"] = normalize_solution_repo_url(update_data["github_repo_url"])
+        if "priority" in update_data:
+            update_data["priority"] = parse_priority(update_data["priority"], default=3)
+        if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
+            update_data["capacity_hours"] = 0
+        for field in ("escalation", "current_phase", "rag_reason"):
+            if field in update_data:
+                update_data[field] = normalize_str(update_data[field]) or None
+        if "rag_status" in update_data and update_data["rag_status"] is None:
+            del update_data["rag_status"]
         if not _has_material_change(solution, update_data):
             return _invalid(operation, "NO_CHANGES", "Update would not change the solution")
         return _result(operation, valid=True, entity_id=solution.solution_id)
-    except ValueError as exc:
-        return _invalid(operation, "VALIDATION_ERROR", str(exc))
     except ValidationError as exc:
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
+    except ValueError as exc:
+        return _invalid(operation, "VALIDATION_ERROR", str(exc))
 
 
 def _validate_task(
@@ -599,11 +664,13 @@ def _validate_task(
     try:
         if operation.op == "create":
             payload = TaskCreate(**operation.fields)
-            solution = None if operation.solution_ref else (
-                _task_solution_query(session, space_ctx)
-                .filter(Solution.solution_id == operation.solution_id)
-                .first()
+            solution_query = _with_visible_program(
+                _task_solution_query(session, space_ctx).filter(Solution.solution_id == operation.solution_id),
+                session, space_ctx,
             )
+            if for_apply:
+                solution_query = solution_query.populate_existing()
+            solution = None if operation.solution_ref else solution_query.first()
             if not solution and not operation.solution_ref:
                 return _invalid(operation, "SOLUTION_NOT_FOUND", "Solution not found")
             name = normalize_str(payload.task_name)
@@ -613,6 +680,8 @@ def _validate_task(
                     "TASK_NAME_REQUIRED",
                     "task_name is required",
                 )
+            if len(name) > 255:
+                return _invalid(operation, "TASK_NAME_TOO_LONG", "task_name must be 255 characters or fewer")
             conflict = None if operation.solution_ref else (
                 _task_query(session, space_ctx)
                 .filter(Task.solution_id == solution.solution_id)
@@ -630,9 +699,11 @@ def _validate_task(
             return _result(operation, valid=True)
 
         payload = TaskUpdate(**operation.fields)
-        task_query = (
-            _task_query(session, space_ctx)
-            .filter(Task.task_id == operation.id)
+        task_query = _with_visible_program(
+            _task_query(session, space_ctx).filter(
+                Task.task_id == operation.id, Task.project_id == Project.project_id,
+            ),
+            session, space_ctx,
         )
         if for_apply:
             task_query = task_query.with_for_update().populate_existing()
@@ -658,6 +729,8 @@ def _validate_task(
                     "TASK_NAME_REQUIRED",
                     "task_name is required",
                 )
+            if len(name) > 255:
+                return _invalid(operation, "TASK_NAME_TOO_LONG", "task_name must be 255 characters or fewer")
             conflict = (
                 _task_query(session, space_ctx)
                 .filter(Task.solution_id == task.solution_id)
@@ -674,17 +747,50 @@ def _validate_task(
             update_data["task_name"] = name
         if "github_repo_url" in update_data:
             update_data["github_repo_url"] = normalize_task_repo_url(update_data["github_repo_url"])
-        clears_blocker = update_data.get("blocked") is False and task.blocker_note is not None
-        if not clears_blocker and not _has_material_change(task, update_data):
+        if "capacity_hours" in update_data and update_data["capacity_hours"] is None:
+            update_data["capacity_hours"] = 0
+        if "blocked" in update_data and update_data["blocked"] is None:
+            update_data["blocked"] = False
+        if update_data.get("blocked") is False:
+            update_data["blocker_note"] = None
+        if not _has_material_change(task, update_data):
             return _invalid(operation, "NO_CHANGES", "Update would not change the task")
         return _result(operation, valid=True, entity_id=task.task_id)
-    except ValueError as exc:
-        return _invalid(operation, "VALIDATION_ERROR", str(exc))
     except ValidationError as exc:
         return _invalid(operation, "VALIDATION_ERROR", _model_error(exc))
+    except ValueError as exc:
+        return _invalid(operation, "VALIDATION_ERROR", str(exc))
+
+
+def _create_identity(operation: AgentPatchOperation) -> tuple[str, ...]:
+    """Return the database uniqueness key for a valid create operation."""
+    name = normalize_str(operation.fields.get(f"{operation.entity}_name"))
+    if operation.entity in {"program", "project"}:
+        return operation.entity, name
+    if operation.entity == "solution":
+        parent = ("ref", normalize_str(operation.project_ref)) if operation.project_ref else ("id", operation.project_id)
+        version = normalize_str(operation.fields.get("version")) or "0.1.0"
+        return operation.entity, *parent, name, version
+    parent = ("ref", normalize_str(operation.solution_ref)) if operation.solution_ref else ("id", operation.solution_id)
+    return operation.entity, *parent, name
 
 
 def validate_patch_plan(
+    session: Session,
+    space_ctx: SpaceContext,
+    payload: AgentPatchRequest,
+    *,
+    for_apply: bool = False,
+    actor: User | None = None,
+) -> AgentPatchResponse:
+    if for_apply and payload.dry_run is False:
+        if actor is None:
+            raise ValueError("An actor is required for apply validation")
+        lock_work_space(session, space_ctx, actor)
+    return _validate_patch_plan_locked(session, space_ctx, payload, for_apply=for_apply)
+
+
+def _validate_patch_plan_locked(
     session: Session,
     space_ctx: SpaceContext,
     payload: AgentPatchRequest,
@@ -694,6 +800,7 @@ def validate_patch_plan(
     results: list[AgentPatchOperationResult] = []
     seen_ids: set[str] = set()
     prior_refs: dict[str, str] = {}
+    created_names: set[tuple[str, ...]] = set()
     if for_apply:
         if payload.dry_run is not False:
             synthetic = payload.operations[0]
@@ -719,6 +826,7 @@ def validate_patch_plan(
                 )
             )
 
+    lock_entities = for_apply and payload.dry_run is False
     for operation in payload.operations:
         if operation.client_operation_id in seen_ids:
             results.append(
@@ -741,24 +849,36 @@ def validate_patch_plan(
         result: AgentPatchOperationResult
         if operation.op == "archive":
             result = _validate_archive(
-                session, space_ctx, operation, for_apply=for_apply
+                session, space_ctx, operation, for_apply=lock_entities
             )
         elif operation.entity == "program":
             result = _validate_program(
-                session, space_ctx, operation, for_apply=for_apply
+                session, space_ctx, operation, for_apply=lock_entities
             )
         elif operation.entity == "project":
             result = _validate_project(
-                session, space_ctx, operation, for_apply=for_apply
+                session, space_ctx, operation, for_apply=lock_entities
             )
         elif operation.entity == "solution":
             result = _validate_solution(
-                session, space_ctx, operation, for_apply=for_apply
+                session, space_ctx, operation, for_apply=lock_entities
             )
         elif operation.entity == "task":
             result = _validate_task(
-                session, space_ctx, operation, for_apply=for_apply
+                session, space_ctx, operation, for_apply=lock_entities
             )
+        if result.valid and operation.op == "create":
+            identity = _create_identity(operation)
+            if identity in created_names:
+                code, message = {
+                    "program": ("PROGRAM_NAME_CONFLICT", "Program name already exists"),
+                    "project": ("PROJECT_NAME_CONFLICT", "Project name already exists"),
+                    "solution": ("SOLUTION_CONFLICT", "Solution name and version already exist for this project"),
+                    "task": ("TASK_CONFLICT", "Task name already exists in this solution"),
+                }[operation.entity]
+                result = _invalid(operation, code, message)
+            else:
+                created_names.add(identity)
         results.append(result)
         if result.valid and operation.ref:
             prior_refs[normalize_str(operation.ref)] = operation.entity
@@ -1015,6 +1135,8 @@ def _apply_solution(
         for k in list(update_data.keys())
         if k in {"rag_status", "rag_reason"}
     }
+    if "project_id" in update_data:
+        update_data["project_id"] = normalize_str(update_data["project_id"])
     if "solution_name" in update_data:
         update_data["solution_name"] = normalize_str(update_data["solution_name"])
     if "version" in update_data:
@@ -1050,6 +1172,14 @@ def _apply_solution(
     if "rag_reason" in rag_updates:
         solution.rag_reason = normalize_str(rag_updates["rag_reason"]) or None
     session.add(solution)
+    if "project_id" in update_data and before.get("project_id") != solution.project_id:
+        session.query(Task).filter(
+            Task.solution_id == solution.solution_id,
+            Task.space_id == space_ctx.space_id,
+        ).update(
+            {Task.project_id: solution.project_id, Task.updated_at: solution.updated_at},
+            synchronize_session=False,
+        )
     log_changes(
         session,
         entity_type="solution",
@@ -1234,7 +1364,7 @@ def _release_operation_deleted_names(
     parent_id = None
     version = None
     if operation.entity == "solution":
-        parent_id = operation.project_id if row is None else (
+        parent_id = operation.project_id if row is None else normalize_str(
             operation.fields.get("project_id", row.project_id)
         )
         version = normalize_str(operation.fields.get("version")) or (
@@ -1284,7 +1414,20 @@ def apply_patch_plan(
     *,
     commit: bool = True,
 ) -> AgentPatchResponse:
-    validation = validate_patch_plan(session, space_ctx, payload, for_apply=True)
+    if payload.dry_run is False:
+        lock_work_space(session, space_ctx, current_user)
+    return _apply_patch_plan_locked(session, space_ctx, current_user, payload, commit=commit)
+
+
+def _apply_patch_plan_locked(
+    session: Session,
+    space_ctx: SpaceContext,
+    current_user: User,
+    payload: AgentPatchRequest,
+    *,
+    commit: bool = True,
+) -> AgentPatchResponse:
+    validation = _validate_patch_plan_locked(session, space_ctx, payload, for_apply=True)
     if not validation.valid:
         return validation
 
@@ -1340,6 +1483,11 @@ def apply_patch_plan(
     except Exception as exc:
         if commit:
             session.rollback()
+        if isinstance(exc, IntegrityError):
+            message = "Patch application failed due to a data conflict"
+        else:
+            logger.error("Patch application failed (%s)", type(exc).__name__)
+            message = "Patch application failed due to an unexpected error"
         return AgentPatchResponse(
             valid=False,
             applied=False,
@@ -1349,9 +1497,7 @@ def apply_patch_plan(
                 _invalid(
                     failed_operation,
                     "APPLY_FAILED",
-                    "Patch application failed due to a data conflict"
-                    if isinstance(exc, IntegrityError)
-                    else str(exc),
+                    message,
                 )
             ],
         )

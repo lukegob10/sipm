@@ -38,7 +38,7 @@ const ROUTE_ENTRIES = [
     section: "Insight",
     label: "Dashboard",
     title: "Dashboard",
-    data: ["programs", "projects", "solutions", "users"],
+    data: ["programs", "projects", "solutions", "tasks", "users"],
     prefetch: "pm-dashboard",
   }],
   ["program-dashboard", {
@@ -59,7 +59,7 @@ const ROUTE_ENTRIES = [
     section: "Insight",
     label: "Calendar",
     title: "Calendar",
-    data: ["programs", "projects", "solutions"],
+    data: ["programs", "projects", "solutions", "tasks"],
     prefetch: "team-capacity",
   }],
   ["gantt", {

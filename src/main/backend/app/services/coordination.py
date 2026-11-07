@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import sys
 import threading
@@ -67,7 +68,7 @@ def _redis_timeout_seconds() -> float:
         value = float(raw)
     except ValueError as exc:
         raise RuntimeError("SIPM_REDIS_TIMEOUT_SECONDS must be a positive number.") from exc
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         raise RuntimeError("SIPM_REDIS_TIMEOUT_SECONDS must be a positive number.")
     return value
 
@@ -307,13 +308,15 @@ class RedisCoordinationBackend(CoordinationBackend):
         first_attempt_done: asyncio.Event,
     ) -> None:
         delay = _LISTENER_RECONNECT_INITIAL_DELAY_SECONDS
+        catch_up_needed = False
         current_task = asyncio.current_task()
         try:
             while True:
                 pubsub = None
                 received_message = False
+                subscription_confirmed = False
                 try:
-                    pubsub = self._aredis.pubsub(ignore_subscribe_messages=True)
+                    pubsub = self._aredis.pubsub(ignore_subscribe_messages=False)
                     with self._lock:
                         if self._listener_task is not current_task:
                             return
@@ -331,7 +334,17 @@ class RedisCoordinationBackend(CoordinationBackend):
                     first_attempt_done.set()
 
                     async for message in pubsub.listen():
-                        if not isinstance(message, dict) or message.get("type") != "message":
+                        if not isinstance(message, dict):
+                            continue
+                        if message.get("type") == "subscribe" and message.get("channel") == _REFRESH_CHANNEL:
+                            if catch_up_needed or subscription_confirmed:
+                                # Pub/Sub does not replay messages missed during a disconnect.
+                                await handler("all", None)
+                                await handler("agent_change_requests", None)
+                                catch_up_needed = False
+                            subscription_confirmed = True
+                            continue
+                        if message.get("type") != "message":
                             continue
                         received_message = True
                         try:
@@ -342,6 +355,9 @@ class RedisCoordinationBackend(CoordinationBackend):
                                 message.get("data"),
                             )
                             continue
+                        if not isinstance(payload, dict):
+                            logger.warning("Ignoring non-object realtime coordination payload.")
+                            continue
                         entity = str(payload.get("entity") or "all")
                         space_id = str(payload.get("space_id") or "").strip() or None
                         await handler(entity, space_id)
@@ -349,6 +365,7 @@ class RedisCoordinationBackend(CoordinationBackend):
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    catch_up_needed = True
                     detail = self._record_listener_failure(pubsub, exc)
                     first_attempt_done.set()
                     logger.warning(

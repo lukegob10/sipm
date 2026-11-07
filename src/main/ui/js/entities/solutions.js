@@ -1,4 +1,4 @@
-import { captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
+import { beginSolutionMutation, createContextualFormSaveGate, createEditorModalFocus, captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
 import { createFormDraftGuard } from "../utils/form-draft.js";
 
 export function buildSolutionPayload(data, { hoursFromFteInput }) {
@@ -40,8 +40,6 @@ export function createSolutionEntityController({
   api,
   hoursFromFteInput,
   fteFromHoursForInput,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -56,6 +54,7 @@ export function createSolutionEntityController({
   renderSolutionActivity,
   setTaskFormVisibility,
   setTaskActionButtonLabel,
+  confirmTaskDraftDiscard = () => true,
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
   updateCurrentPhaseOptions,
@@ -66,7 +65,10 @@ export function createSolutionEntityController({
   trackWorkflow = null,
 }) {
   let solutionFormRevision = 0;
-  let solutionSaveInFlight = false;
+  const modalFocus = createEditorModalFocus(state, els.solutionModal, els.solutionModalClose);
+  let solutionPayloadBaseline = null;
+  let solutionDocumentEditorRevision = 0;
+  const saveGate = createContextualFormSaveGate({ state, form: els.solutionForm, submit: els.solutionSubmitBtn });
   const solutionDraft = createFormDraftGuard({
     form: els.solutionForm,
     indicator: els.solutionModal?.querySelector('[data-form-dirty-indicator="solution"]'),
@@ -83,10 +85,10 @@ export function createSolutionEntityController({
     reasonField.setAttribute("aria-hidden", showReason ? "false" : "true");
   }
 
-  function fillSolutionForm(solution = null) {
+  function fillSolutionForm(solution = null, { preserveNotice = false } = {}) {
     if (!els.solutionForm) return;
     els.solutionForm.reset();
-    clearDeliverableFormNotice(els.solutionFormStatus);
+    if (!preserveNotice) clearDeliverableFormNotice(els.solutionFormStatus);
     els.solutionForm.querySelector('[name="solution_id"]').value = solution?.solution_id || "";
     els.solutionForm.querySelector('[name="project_id"]').value = solution?.project_id || "";
     els.solutionForm.querySelector('[name="solution_name"]').value = solution?.solution_name || "";
@@ -121,6 +123,8 @@ export function createSolutionEntityController({
     }
     updateRagReasonVisibility();
     solutionDraft.capture();
+    solutionPayloadBaseline = solution?.solution_id
+      ? buildSolutionPayload(new FormData(els.solutionForm), { hoursFromFteInput }) : null;
   }
 
   function setSolutionActionButtonLabel(isEditing) {
@@ -141,10 +145,40 @@ export function createSolutionEntityController({
       : "Save the solution before adding tasks.";
   }
 
-  function openSolutionModal(solution = null, tab = "details") {
+  function openSolutionModal(solution = null, tab = "details", options = {}) {
+    if (!els.solutionForm || !els.solutionModal) return false;
+    if (options.preserveNotice) {
+      openSolutionModalNow(solution, tab, options);
+      return true;
+    }
+    const revision = solutionFormRevision;
+    const context = captureEntityMutationContext(state);
+    const snapshot = JSON.stringify([...new FormData(els.solutionForm).entries()]);
+    const current = () => revision === solutionFormRevision && isEntityMutationContextCurrent(state, context)
+      && snapshot === JSON.stringify([...new FormData(els.solutionForm).entries()]);
+    const open = () => { if (!current()) return false; openSolutionModalNow(solution, tab, options); return true; };
+    const afterTask = (ok) => {
+      if (!ok || !current()) return false;
+      if (els.solutionModal?.classList.contains("hidden") || !solutionDraft.isDirty()) return open();
+      const taskSnapshot = els.taskForm ? JSON.stringify([...new FormData(els.taskForm).entries()]) : "";
+      return solutionDraft.confirmDiscard().then((confirmed) => {
+        if (!confirmed || (els.taskForm && taskSnapshot !== JSON.stringify([...new FormData(els.taskForm).entries()]))) return false;
+        return open();
+      });
+    };
+    const allowed = confirmTaskDraftDiscard();
+    return allowed instanceof Promise ? allowed.then(afterTask) : afterTask(allowed);
+  }
+
+  function openSolutionModalNow(solution = null, tab = "details", options = {}) {
     if (!els.solutionModal) return;
+    const opening = modalFocus.open();
     solutionFormRevision += 1;
-    fillSolutionForm(solution);
+    if (!options.preserveNotice) {
+      solutionDocumentEditorRevision += 1;
+      if (els.solutionDocumentsStatus) clearDeliverableFormNotice(els.solutionDocumentsStatus);
+    }
+    fillSolutionForm(solution, options);
     setSolutionActionButtonLabel(!!solution?.solution_id);
     setTaskCreateAvailability(solution?.solution_id || "");
     if (els.taskForm) {
@@ -156,6 +190,7 @@ export function createSolutionEntityController({
       els.taskViewToggle.textContent = state.taskView === "table" ? "Swimlane View" : "Table View";
     }
     setSolutionTab(tab);
+    if (opening) modalFocus.focus();
     if (solution?.solution_id) {
       renderSolutionTasks(solution.solution_id);
       renderSolutionDocuments(solution.solution_id);
@@ -167,9 +202,11 @@ export function createSolutionEntityController({
     }
   }
 
-  function finishClosingSolutionModal() {
+  function finishClosingSolutionModal(restoreFocus = true) {
     if (!els.solutionModal) return;
     solutionFormRevision += 1;
+    solutionDocumentEditorRevision += 1;
+    if (els.solutionDocumentsStatus) clearDeliverableFormNotice(els.solutionDocumentsStatus);
     fillSolutionForm(null);
     setSolutionActionButtonLabel(false);
     setTaskCreateAvailability("");
@@ -179,16 +216,34 @@ export function createSolutionEntityController({
       setTaskFormVisibility(false);
       setTaskActionButtonLabel(false);
     }
+    modalFocus.close(restoreFocus);
     return true;
   }
 
   function closeSolutionModal(options = {}) {
     if (!els.solutionModal) return false;
+    const revision = solutionFormRevision;
+    const context = captureEntityMutationContext(state);
+    const snapshot = els.solutionForm ? JSON.stringify([...new FormData(els.solutionForm).entries()]) : "";
+    const afterTask = (ok) => {
+      if (!ok || revision !== solutionFormRevision || !isEntityMutationContextCurrent(state, context)
+          || (els.solutionForm && snapshot !== JSON.stringify([...new FormData(els.solutionForm).entries()]))) return false;
+      return closeSolutionAfterTask(options);
+    };
+    const allowed = options.discardChanges ? true : confirmTaskDraftDiscard();
+    return allowed instanceof Promise ? allowed.then(afterTask) : afterTask(allowed);
+  }
+
+  function closeSolutionAfterTask(options) {
     if (options.discardChanges || !solutionDraft.isDirty()) {
-      return finishClosingSolutionModal();
+      return finishClosingSolutionModal(!options.discardChanges);
     }
+    const revision = solutionFormRevision;
+    const context = captureEntityMutationContext(state);
+    const draft = JSON.stringify([...new FormData(els.solutionForm).entries()]);
     return solutionDraft.confirmDiscard().then((confirmed) => {
-      if (!confirmed) return false;
+      if (!confirmed || revision !== solutionFormRevision || !isEntityMutationContextCurrent(state, context)
+          || draft !== JSON.stringify([...new FormData(els.solutionForm).entries()])) return false;
       return finishClosingSolutionModal();
     });
   }
@@ -201,7 +256,7 @@ export function createSolutionEntityController({
     els.solutionForm.querySelector('[name="rag_status"]')?.addEventListener("change", updateRagReasonVisibility);
 
     const saveHandler = async () => {
-      if (solutionSaveInFlight) return;
+      if (saveGate.isPending()) return;
       const data = new FormData(els.solutionForm);
       const id = (data.get("solution_id") || "").toString().trim();
       const isEditing = !!id;
@@ -214,24 +269,43 @@ export function createSolutionEntityController({
         );
         return;
       }
-      const payload = buildSolutionPayload(data, { hoursFromFteInput });
+      const submittedPayload = buildSolutionPayload(data, { hoursFromFteInput });
+      let payload = submittedPayload;
+      if (isEditing && solutionPayloadBaseline) {
+        payload = Object.fromEntries(Object.entries(submittedPayload)
+          .filter(([field, value]) => !Object.is(value, solutionPayloadBaseline[field])));
+        for (const fields of [
+          ["rag_status", "rag_reason"],
+          ["owner", "owner_user_soeid"],
+          ["assignee", "assignee_user_soeid"],
+          ["approver", "approver_user_soeid"],
+        ]) {
+          if (fields.some((field) => Object.hasOwn(payload, field))) {
+            fields.forEach((field) => { payload[field] = submittedPayload[field]; });
+          }
+        }
+      }
       const formRevision = solutionFormRevision;
       const formSnapshot = JSON.stringify([...data.entries()]);
-      const submitWasDisabled = !!els.solutionSubmitBtn?.disabled;
+
       const requestContext = captureEntityMutationContext(state);
       const isSameEditor = () => formRevision === solutionFormRevision;
       const isCurrentSubmission = () => isSameEditor()
         && JSON.stringify([...new FormData(els.solutionForm).entries()]) === formSnapshot;
-      solutionSaveInFlight = true;
-      if (els.solutionSubmitBtn) els.solutionSubmitBtn.disabled = true;
-      els.solutionForm.setAttribute("aria-busy", "true");
+      const saveRequest = saveGate.begin();
+      if (!saveRequest) return;
+      const release = isEditing ? beginSolutionMutation(state, id) : () => {};
+      if (!release) {
+        saveGate.end(saveRequest);
+        setDeliverableFormNotice(els.solutionFormStatus, "This solution is being updated. Try again when it finishes.", "error");
+        return;
+      }
       try {
         if (isEditing) {
           setDeliverableFormNotice(els.solutionFormStatus, "Saving solution...");
         } else {
           setDeliverableFormNotice(els.solutionFormStatus, "Creating solution...");
         }
-        markIgnoreRefresh("solutions");
         const saved = isEditing
           ? await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api(`/projects/${projectId}/solutions`, { method: "POST", body: JSON.stringify(payload) });
@@ -241,9 +315,13 @@ export function createSolutionEntityController({
         populateSelects();
         if (shouldUpdateForm) {
           fillSolutionForm(saved);
-        } else if (isSameEditor() && !isEditing && saved?.solution_id) {
-          els.solutionForm.querySelector('[name="solution_id"]').value = saved.solution_id;
-          solutionDraft.sync();
+        } else if (isSameEditor()) {
+          // Later edits are relative to the values just submitted.
+          solutionPayloadBaseline = submittedPayload;
+          if (!isEditing && saved?.solution_id) {
+            els.solutionForm.querySelector('[name="solution_id"]').value = saved.solution_id;
+          }
+          solutionDraft.rebase(formSnapshot, { solution_id: saved?.solution_id || id });
         }
         if (isSameEditor()) {
           if (els.taskForm && !els.taskForm.classList.contains("hidden")) {
@@ -267,14 +345,13 @@ export function createSolutionEntityController({
         if (isSameEditor()) {
           setDeliverableFormNotice(
             els.solutionFormStatus,
-            successMessage,
+            shouldUpdateForm ? successMessage : `${isEditing ? "Saved" : "Created"} solution; you have unsaved edits.`,
             "success",
-            3200
+            shouldUpdateForm ? 3200 : 0
           );
         }
       } catch (err) {
         if (!isEntityMutationContextCurrent(state, requestContext)) return;
-        ignoreNextRefresh.delete("solutions");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("solutions", isEditing ? "update" : "create", "failure", { source: "solution_form" });
         }
@@ -286,9 +363,8 @@ export function createSolutionEntityController({
           );
         }
       } finally {
-        solutionSaveInFlight = false;
-        els.solutionForm.removeAttribute("aria-busy");
-        if (els.solutionSubmitBtn) els.solutionSubmitBtn.disabled = submitWasDisabled;
+        saveGate.end(saveRequest);
+        release();
       }
     };
 
@@ -310,9 +386,13 @@ export function createSolutionEntityController({
           confirmLabel: "Delete Solution",
         });
         if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
+        const release = beginSolutionMutation(state, id);
+        if (!release) {
+          setDeliverableFormNotice(els.solutionFormStatus, "This solution is being updated. Try again when it finishes.", "error");
+          return;
+        }
         try {
           setDeliverableFormNotice(els.solutionFormStatus, "Deleting solution...");
-          markIgnoreRefresh("solutions");
           await api(`/solutions/${id}`, { method: "DELETE" });
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.solutions, id, "solution_id");
@@ -329,7 +409,6 @@ export function createSolutionEntityController({
           }
         } catch (err) {
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
-          ignoreNextRefresh.delete("solutions");
           if (typeof trackWorkflow === "function") {
             trackWorkflow("solutions", "delete", "failure", { source: "solution_form" });
           }
@@ -340,12 +419,16 @@ export function createSolutionEntityController({
               "error"
             );
           }
+        } finally {
+          release();
         }
       });
     }
   }
 
   return {
+    resetSaveForContext: saveGate.reset,
+    getSolutionDocumentEditorRevision: () => solutionDocumentEditorRevision,
     bindSolutionForm,
     closeSolutionModal,
     openSolutionModal,

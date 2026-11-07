@@ -310,15 +310,16 @@ def seed_demo() -> None:
 
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="sipm-developer-mode-demo-") as temp_dir:
-        engine = configure_sqlite_runtime(Path(temp_dir))
-        seed_demo()
-        port = int(os.getenv("SIPM_DEVELOPER_MODE_DEMO_PORT", "8011"))
-        print(f"Developer Mode demo: http://127.0.0.1:{port}/project-manager/")
-        print(f"Sign in with SOEID '{DEMO_SOEID}' and password '{DEMO_PASSWORD}'.")
         try:
+            configure_sqlite_runtime(Path(temp_dir))
+            seed_demo()
+            port = int(os.getenv("SIPM_DEVELOPER_MODE_DEMO_PORT", "8011"))
+            print(f"Developer Mode demo: http://127.0.0.1:{port}/project-manager/")
+            print(f"Sign in with SOEID '{DEMO_SOEID}' and password '{DEMO_PASSWORD}'.")
             uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
         finally:
-            engine.dispose()
+            if db_module.engine is not None:
+                db_module.engine.dispose()
             db_module.engine = None
             db_module.SessionLocal = None
 

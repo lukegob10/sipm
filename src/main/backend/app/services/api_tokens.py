@@ -49,14 +49,19 @@ def authenticate_api_token(session: Session, token: str | None) -> User:
             code="API_TOKEN_INVALID",
             message="Invalid API token",
         )
-    token_row = session.query(ApiToken).filter(ApiToken.token_hash == hash_api_token(raw)).first()
-    if not token_row or not api_token_is_active(token_row):
+    token_and_user = (
+        session.query(ApiToken, User)
+        .outerjoin(User, User.user_id == ApiToken.user_id)
+        .filter(ApiToken.token_hash == hash_api_token(raw))
+        .first()
+    )
+    if not token_and_user or not api_token_is_active(token_and_user[0]):
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
             code="API_TOKEN_INVALID",
             message="Invalid API token",
         )
-    user = session.query(User).filter(User.user_id == token_row.user_id).first()
+    token_row, user = token_and_user
     if not user or not user.is_active:
         raise security_http_exception(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -88,6 +93,6 @@ def create_api_token(
         expires_at=expires_at,
     )
     session.add(token)
-    session.commit()
-    session.refresh(token)
+    # Assign the token ID without committing separately from the audit record.
+    session.flush()
     return token, raw_token

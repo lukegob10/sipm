@@ -128,6 +128,21 @@ describe("PM dashboard interactions", () => {
     );
   });
 
+  it.each(["success", "failure"])("discards a delayed %s report outcome after a space change", async (outcome) => {
+    let finish;
+    const createObjectURL = vi.fn();
+    Object.defineProperty(window.URL, "createObjectURL", { configurable: true, value: createObjectURL });
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve; })));
+    click('[data-pm-dashboard-action="download-report"]');
+    state.ctx.state.activeSpace = { space_id: "space-2" };
+    finish(outcome === "success"
+      ? { ok: true, headers: new Headers({ "content-type": "application/pdf" }), blob: async () => new Blob(["private"]) }
+      : { ok: false, status: 500, text: async () => "Old context error" });
+    await flushPromises();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(state.ctx.setStatus).not.toHaveBeenCalled();
+  });
+
   it("keeps only one focused section active when switching focus tabs", () => {
     document.body.innerHTML = `
       <section id="view-pm-dashboard">

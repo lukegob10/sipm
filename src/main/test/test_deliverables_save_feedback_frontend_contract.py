@@ -112,14 +112,16 @@ def test_escape_returns_from_task_editor_before_closing_solution_modal():
     assert task_escape_index < close_solution_index
 
 
-def test_tasks_tab_returns_from_task_editor_to_task_list():
+def test_solution_tab_change_protects_open_task_editor():
     app_text = APP_JS.read_text(encoding="utf-8")
-
-    assert 'btn.dataset.tab === "tasks" && els.taskForm && !els.taskForm.classList.contains("hidden")' in app_text
-    task_tab_index = app_text.index('if (btn.dataset.tab === "tasks"')
-    hide_form_index = app_text.index("hideTaskForm();", task_tab_index)
-    set_tab_index = app_text.index("setSolutionTab(btn.dataset.tab);", task_tab_index)
-    assert task_tab_index < hide_form_index < set_tab_index
+    tab_handler = app_text[app_text.index("function bindSolutionTabs()"):app_text.index("function showTaskForm(")]
+    assert 'if (els.taskForm && !els.taskForm.classList.contains("hidden"))' in tab_handler
+    assert "const result = hideTaskForm();" in tab_handler
+    assert "if (result instanceof Promise)" in tab_handler
+    assert "allowed && isEntityMutationContextCurrent(state, context)" in tab_handler
+    assert '(els.solutionForm?.querySelector(\'[name="solution_id"]\')?.value || "") === solutionId' in tab_handler
+    assert "if (!result) return;" in tab_handler
+    assert tab_handler.index("const result = hideTaskForm();") < tab_handler.index("setSolutionTab(btn.dataset.tab);")
 
 
 def test_new_solution_requires_saved_parent_before_tasks_can_be_added():

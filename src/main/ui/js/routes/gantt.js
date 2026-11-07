@@ -5,8 +5,11 @@ import {
   todayDayNumber,
 } from "../utils/date-only.js";
 import { renderRouteState } from "../ui/route-state.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../utils/form-state.js";
 
 const LONG_RANGE_DAY_WIDTH = 3.5;
+const MAX_TRACK_WIDTH = 262144;
+const MAX_MONTH_TICKS = 240;
 const DEFAULT_LEFT_RAIL_WIDTH = 620;
 const MOBILE_LEFT_RAIL_WIDTH = 560;
 const MIN_TRACK_WIDTH = 520;
@@ -186,6 +189,7 @@ function healthResult(health, healthLabel, healthReason = "") {
 export function resolveGanttHealth(row = {}, { todayDay = todayDayNumber(), dueSoonDays = GANTT_DUE_SOON_DAYS } = {}) {
   const status = normalizeGanttStatus(row.status);
   const range = row.scheduleRange || row.range || null;
+  const dueDay = Object.hasOwn(row, "dueDay") ? row.dueDay : range?.endDay;
   const currentDay = Number.isFinite(Number(todayDay)) ? Number(todayDay) : todayDayNumber();
   const warningDays = Number.isFinite(Number(dueSoonDays)) ? Number(dueSoonDays) : GANTT_DUE_SOON_DAYS;
 
@@ -195,7 +199,7 @@ export function resolveGanttHealth(row = {}, { todayDay = todayDayNumber(), dueS
   if (status === "abandoned") {
     return healthResult("abandoned", "Abandoned", "Closed abandoned");
   }
-  if (isGanttRangeOverdue(range, currentDay)) {
+  if (Number.isFinite(dueDay) && dueDay < currentDay) {
     return healthResult("red", "Overdue", "Past due date");
   }
   if ((row.type === "program" || row.type === "project" || row.type === "solution") && row.hasOverdueChild) {
@@ -207,7 +211,12 @@ export function resolveGanttHealth(row = {}, { todayDay = todayDayNumber(), dueS
   if (isNotStartedGanttStatus(status)) {
     if (range) {
       const daysToStart = range.startDay - currentDay;
-      const daysToDue = range.endDay - currentDay;
+      const daysToDue = Number.isFinite(dueDay) ? dueDay - currentDay : Infinity;
+      if (!Number.isFinite(dueDay) && daysToStart <= warningDays) {
+        return daysToStart < 0
+          ? healthResult("yellow", "Start passed", "Planned start date has passed")
+          : healthResult("yellow", "Starting soon", "Planned start date is approaching");
+      }
       if (daysToStart <= warningDays || daysToDue <= warningDays) {
         return healthResult("yellow", "Due soon", "Not started and approaching schedule");
       }
@@ -244,8 +253,8 @@ function buildGanttHealthContext({ solutions = [], tasks = [], todayDay = todayD
   });
 
   (solutions || []).forEach((solution) => {
-    const range = normalizeRange(solution?.planned_start_date, solution?.due_date);
-    if (!isGanttItemOverdue(solution?.status, range, todayDay)) return;
+    const due = parseDateParts(solution?.due_date);
+    if (!due || !isGanttItemOverdue(solution?.status, { endDay: due.dayNumber }, todayDay)) return;
     markOverdue(overdueChildrenByProject, solution?.project_id);
   });
 
@@ -275,7 +284,7 @@ export function resolveGanttTimelineScale(windowRange, chartWidth = 0, leftRailW
     };
   }
 
-  const trackWidth = Math.max(totalDays * LONG_RANGE_DAY_WIDTH, availableTrackWidth, MIN_TRACK_WIDTH);
+  const trackWidth = Math.max(Math.min(totalDays * LONG_RANGE_DAY_WIDTH, MAX_TRACK_WIDTH), availableTrackWidth, MIN_TRACK_WIDTH);
   return {
     dayWidth: trackWidth / totalDays,
     trackWidth,
@@ -299,6 +308,8 @@ function buildTaskNode(task, windowRange, todayDay) {
     priority: task.priority ?? "",
     range,
     scheduleRange: range,
+    dueDay: range.endDay,
+    aggregateDueDay: range.endDay,
     milestone: true,
     collapsible: false,
     childCount: 0,
@@ -313,6 +324,11 @@ function buildSolutionNode(solution, childNodes, windowRange, healthContext, tod
   if (!ownOverlaps && !childNodes.length) return null;
   const range = mergeRanges([ownOverlaps ? ownRange : null, ...childNodes.map((child) => child.range)]);
   const scheduleRange = ownRange || range;
+  const dueDay = parseDateParts(solution?.due_date)?.dayNumber ?? null;
+  const childDueDay = latestChildDueDay(childNodes);
+  const aggregateDueDay = Number.isFinite(dueDay)
+    ? (Number.isFinite(childDueDay) ? Math.max(dueDay, childDueDay) : dueDay)
+    : childDueDay;
   return withGanttHealth({
     type: "solution",
     id: solution.solution_id,
@@ -324,6 +340,8 @@ function buildSolutionNode(solution, childNodes, windowRange, healthContext, tod
     priority: solution.priority ?? "",
     range,
     scheduleRange,
+    dueDay,
+    aggregateDueDay,
     milestone: range?.milestone && !childNodes.length,
     collapsible: childNodes.length > 0,
     childCount: childNodes.length,
@@ -332,9 +350,16 @@ function buildSolutionNode(solution, childNodes, windowRange, healthContext, tod
   }, todayDay);
 }
 
+function latestChildDueDay(children) {
+  return children.reduce((latest, child) => Number.isFinite(child.aggregateDueDay)
+    ? (latest === null ? child.aggregateDueDay : Math.max(latest, child.aggregateDueDay))
+    : latest, null);
+}
+
 function buildProjectNode(project, childNodes, healthContext, todayDay) {
   if (!childNodes.length) return null;
   const range = mergeRanges(childNodes.map((child) => child.range));
+  const aggregateDueDay = latestChildDueDay(childNodes);
   return withGanttHealth({
     type: "project",
     id: project.project_id,
@@ -345,6 +370,8 @@ function buildProjectNode(project, childNodes, healthContext, todayDay) {
     priority: project.priority ?? "",
     range,
     scheduleRange: range,
+    dueDay: aggregateDueDay,
+    aggregateDueDay,
     milestone: range?.milestone,
     collapsible: childNodes.length > 0,
     childCount: childNodes.length,
@@ -356,6 +383,7 @@ function buildProjectNode(project, childNodes, healthContext, todayDay) {
 function buildProgramNode(program, childNodes, todayDay) {
   if (!childNodes.length) return null;
   const range = mergeRanges(childNodes.map((child) => child.range));
+  const aggregateDueDay = latestChildDueDay(childNodes);
   return withGanttHealth({
     type: "program",
     id: program.program_id,
@@ -366,6 +394,8 @@ function buildProgramNode(program, childNodes, todayDay) {
     priority: "",
     range,
     scheduleRange: range,
+    dueDay: aggregateDueDay,
+    aggregateDueDay,
     milestone: range?.milestone,
     collapsible: childNodes.length > 0,
     childCount: childNodes.length,
@@ -531,14 +561,20 @@ function renderBar(row, windowRange, scale) {
   const dayWidth = scale.dayWidth;
   const clippedStart = Math.max(row.range.startDay, windowRange.startDay);
   const clippedEnd = Math.min(row.range.endDay, windowRange.endDay);
-  const left = (clippedStart - windowRange.startDay) * dayWidth;
-  const width = Math.max((clippedEnd - clippedStart + 1) * dayWidth, MILESTONE_SIZE);
+  const width = Math.min(Math.max((clippedEnd - clippedStart + 1) * dayWidth, MILESTONE_SIZE), scale.trackWidth);
+  const rawLeft = (clippedStart - windowRange.startDay) * dayWidth;
+  const left = Math.min(rawLeft, Math.max(0, scale.trackWidth - width));
   const dateText = labelRange(row.range);
   const healthText = row.healthLabel ? ` (${row.healthLabel})` : "";
   const healthClass = row.health ? ` gantt-health-${esc(row.health)}` : "";
   const attrs = `data-gantt-action="open-item" data-gantt-type="${esc(row.type)}" data-gantt-id="${esc(row.id)}"`;
   if (row.milestone) {
-    const milestoneLeft = left + Math.max((width - MILESTONE_SIZE) / 2, 0);
+    // The 11px CSS square is rotated 45 degrees, so its visual bounds extend
+    // beyond its unrotated box. Keep the full diamond within the track.
+    const markerSize = 11;
+    const overhang = (markerSize * Math.SQRT2 - markerSize) / 2;
+    const center = rawLeft + (clippedEnd - clippedStart + 1) * dayWidth / 2;
+    const milestoneLeft = Math.min(Math.max(center - markerSize / 2, overhang), scale.trackWidth - markerSize - overhang);
     return `<button type="button" class="gantt-milestone gantt-milestone-${esc(row.type)}${healthClass}" style="left: ${px(milestoneLeft)}px;" ${attrs} title="${esc(row.label)}: ${esc(dateText)}${esc(healthText)}" aria-label="Open ${esc(row.label)}${esc(healthText)}"></button>`;
   }
   const barLabel = width >= 72 ? `<span>${esc(dateText)}</span>` : "";
@@ -547,24 +583,41 @@ function renderBar(row, windowRange, scale) {
   </button>`;
 }
 
+function monthOrdinal(dayNumber) {
+  const date = dayToDate(dayNumber);
+  return date.getUTCFullYear() * 12 + date.getUTCMonth();
+}
+
+function monthStartDay(ordinal) {
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(Math.floor(ordinal / 12), ordinal % 12, 1);
+  return Math.floor(date.getTime() / (24 * 60 * 60 * 1000));
+}
+
 function renderMonthTicks(windowRange, scale) {
-  const dayWidth = scale.dayWidth;
+  const firstMonth = monthOrdinal(windowRange.startDay);
+  const lastMonth = monthOrdinal(windowRange.endDay);
+  const interval = [1, 3, 6, 12, 60, 120, 600, 1200]
+    .find((size) => Math.ceil((lastMonth + 1) / size) - Math.floor(firstMonth / size) <= MAX_MONTH_TICKS) || 1200;
   const ticks = [];
-  let currentStart = windowRange.startDay;
-  for (let day = windowRange.startDay; day <= windowRange.endDay; day += 1) {
-    const d = dayToDate(day);
-    if (day > windowRange.startDay && d.getUTCDate() === 1) {
-      const tickEnd = day - 1;
-      const left = (currentStart - windowRange.startDay) * dayWidth;
-      const width = (tickEnd - currentStart + 1) * dayWidth;
-      ticks.push(`<div class="gantt-month-tick" style="left: ${px(left)}px; width: ${px(width)}px;">${esc(formatMonthLabel(currentStart))}</div>`);
-      currentStart = day;
+  let startDay = windowRange.startDay;
+  let boundary = (Math.floor(firstMonth / interval) + 1) * interval;
+  while (startDay <= windowRange.endDay) {
+    const endDay = Math.min(windowRange.endDay, monthStartDay(boundary) - 1);
+    const left = (startDay - windowRange.startDay) * scale.dayWidth;
+    const width = (endDay - startDay + 1) * scale.dayWidth;
+    let label = formatMonthLabel(startDay);
+    if (interval >= 12) {
+      const firstYear = dayToDate(startDay).getUTCFullYear();
+      const lastYear = dayToDate(endDay).getUTCFullYear();
+      label = firstYear === lastYear ? String(firstYear) : `${firstYear}–${lastYear}`;
+    } else if (interval > 1) {
+      label = `${label} – ${formatMonthLabel(endDay)}`;
     }
-    if (day === windowRange.endDay) {
-      const left = (currentStart - windowRange.startDay) * dayWidth;
-      const width = (day - currentStart + 1) * dayWidth;
-      ticks.push(`<div class="gantt-month-tick" style="left: ${px(left)}px; width: ${px(width)}px;">${esc(formatMonthLabel(currentStart))}</div>`);
-    }
+    ticks.push(`<div class="gantt-month-tick" style="left: ${px(left)}px; width: ${px(width)}px;">${esc(label)}</div>`);
+    startDay = endDay + 1;
+    boundary += interval;
   }
   return ticks.join("");
 }
@@ -601,9 +654,48 @@ function countRowsByType(rows) {
   );
 }
 
+function captureGanttViewport(chart, state) {
+  const previous = chart._ganttRenderContext;
+  const currentContext = captureEntityMutationContext(state);
+  const current = { context: currentContext, authed: state.authed, view: state.currentView,
+    from: state.ganttWindow?.from || "", to: state.ganttWindow?.to || "" };
+  chart._ganttRenderContext = current;
+  if (!previous || previous.authed !== current.authed || previous.view !== current.view
+      || previous.from !== current.from || previous.to !== current.to
+      || !isEntityMutationContextCurrent(state, previous.context)) return null;
+  const scroll = chart.querySelector(".gantt-scroll");
+  if (!scroll) return null;
+  const focused = chart.contains(document.activeElement) ? document.activeElement : null;
+  const kind = ["gantt-toggle", "gantt-item-link", "gantt-bar", "gantt-milestone"]
+    .find((className) => focused?.classList.contains(className));
+  return {
+    left: scroll.scrollLeft, top: scroll.scrollTop,
+    focus: kind ? { kind, action: focused.getAttribute("data-gantt-action"),
+      key: focused.getAttribute("data-gantt-key"), type: focused.getAttribute("data-gantt-type"),
+      id: focused.getAttribute("data-gantt-id") } : null,
+  };
+}
+
+function restoreGanttViewport(chart, viewport) {
+  if (!viewport) return;
+  const scroll = chart.querySelector(".gantt-scroll");
+  if (!scroll) return;
+  scroll.scrollLeft = viewport.left;
+  scroll.scrollTop = viewport.top;
+  if (!viewport.focus) return;
+  const target = [...chart.querySelectorAll("[data-gantt-action]")].find((element) =>
+    element.classList.contains(viewport.focus.kind)
+    && element.getAttribute("data-gantt-action") === viewport.focus.action
+    && element.getAttribute("data-gantt-key") === viewport.focus.key
+    && element.getAttribute("data-gantt-type") === viewport.focus.type
+    && element.getAttribute("data-gantt-id") === viewport.focus.id);
+  target?.focus({ preventScroll: true });
+}
+
 export function renderGantt(ctx) {
   const { state, els, formatStatus = (value) => value } = ctx;
   if (!els.ganttChart) return;
+  const viewport = captureGanttViewport(els.ganttChart, state);
   if (els.ganttFrom) els.ganttFrom.value = state.ganttWindow?.from || "";
   if (els.ganttTo) els.ganttTo.value = state.ganttWindow?.to || "";
 
@@ -660,7 +752,7 @@ export function renderGantt(ctx) {
         <span><strong>${counts.task}</strong> Tasks</span>
       </div>
     </div>
-    <div class="gantt-scroll" style="--gantt-left-width: ${px(scale.leftRailWidth)}px; --gantt-track-width: ${px(trackWidth)}px; --gantt-day-width: ${px(scale.dayWidth)}px; --gantt-week-width: ${px(scale.dayWidth * 7)}px;">
+    <div class="gantt-scroll${scale.dayWidth * 7 < 4 ? " gantt-no-week-grid" : ""}" style="--gantt-left-width: ${px(scale.leftRailWidth)}px; --gantt-track-width: ${px(trackWidth)}px; --gantt-day-width: ${px(scale.dayWidth)}px; --gantt-week-width: ${px(scale.dayWidth * 7)}px;">
       <div class="gantt-row gantt-header-row">
         <div class="gantt-label-cell gantt-header-label">
           <div class="gantt-left-header">
@@ -681,6 +773,7 @@ export function renderGantt(ctx) {
       ${rowHtml}
     </div>
   `;
+  restoreGanttViewport(els.ganttChart, viewport);
 }
 
 export function render(ctx) {

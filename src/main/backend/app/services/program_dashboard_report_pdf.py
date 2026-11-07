@@ -89,7 +89,7 @@ def _phase_summary(solutions: list[dict[str, object]], phase_by_id: dict[str, di
         return "-"
     active_solutions = [row for row in solutions if not _status_is_closed(row.get("status"))]
     if not active_solutions:
-        return "Complete"
+        return "Complete" if all(_status_label(row.get("status")) == "Complete" for row in solutions) else "Closed"
     labels = []
     for solution in active_solutions:
         label = _phase_name(solution.get("current_phase"), phase_by_id)
@@ -101,6 +101,15 @@ def _phase_summary(solutions: list[dict[str, object]], phase_by_id: dict[str, di
     if len(labels) == 1:
         return labels[0]
     return f"{len(labels)} phases"
+
+
+def _project_phase_summary(
+    solutions: list[dict[str, object]], project: dict[str, object], phase_by_id: dict[str, dict[str, object]]
+) -> str:
+    if solutions:
+        return _phase_summary(solutions, phase_by_id)
+    status = _status_label(project.get("status"))
+    return "Complete" if status == "Complete" else "Closed" if status == "Abandoned" else "-"
 
 
 def _draw_card(
@@ -440,9 +449,7 @@ def build_program_dashboard_report_pdf(
                 start="-",
                 end="-",
                 status=_status_label(project.get("status")),
-                phase=_phase_summary(project_solutions, phase_by_id) if project_solutions else (
-                    "Complete" if _status_is_closed(project.get("status")) else "-"
-                ),
+                phase=_project_phase_summary(project_solutions, project, phase_by_id),
                 escalation="",
                 progress=project_progress(project_solutions, project),
                 fill=(249, 251, 255),

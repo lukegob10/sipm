@@ -47,6 +47,55 @@ def _seed_assigned_task(session, *, suffix: str = "private", space_id: str = "te
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("parent_kind", ["projects", "solutions"])
+async def test_deleted_parent_removes_task_from_my_work_with_saved_private_state(
+    client, db_sessionmaker, parent_kind
+):
+    with db_sessionmaker() as session:
+        task_id = _seed_assigned_task(session)
+        task = session.get(Task, task_id)
+        parent_id = task.project_id if parent_kind == "projects" else task.solution_id
+
+    headers = {"X-Space-Id": "test-space"}
+    state_url = f"/project-manager/api/my-work/tasks/{task_id}/state"
+    saved = await client.patch(
+        state_url,
+        headers=headers,
+        json={"bucket": "today", "sort_rank": 100, "private_note": "Saved planning note"},
+    )
+    assert saved.status_code == 200, saved.text
+
+    before = await client.get("/project-manager/api/my-work", headers=headers)
+    assert before.status_code == 200, before.text
+    assert [record["task"]["task_id"] for record in before.json()] == [task_id]
+
+    deleted = await client.delete(
+        f"/project-manager/api/{parent_kind}/{parent_id}", headers=headers
+    )
+    assert deleted.status_code == 204, deleted.text
+
+    # Parent deletion leaves the assigned task and its private state in storage.
+    with db_sessionmaker() as session:
+        task = session.get(Task, task_id)
+        assert task.deleted_at is None
+        assert task.assignee_user_soeid == "tu12345"
+
+    for path in ("/project-manager/api/tasks", "/project-manager/api/my-work"):
+        listing = await client.get(path, headers=headers)
+        assert listing.status_code == 200, listing.text
+        assert listing.json() == []
+
+    updated = await client.patch(state_url, headers=headers, json={"sort_rank": 999})
+    assert updated.status_code == 404, updated.text
+    assert updated.json()["detail"] == "Task is not eligible for My Work"
+
+    with db_sessionmaker() as session:
+        private_state = session.query(UserTaskState).one()
+        assert private_state.sort_rank == 100
+        assert private_state.private_note == "Saved planning note"
+
+
+@pytest.mark.anyio
 async def test_my_work_private_state_patch_is_partial_and_normalizes_utc(client, db_sessionmaker):
     with db_sessionmaker() as session:
         task_id = _seed_assigned_task(session)

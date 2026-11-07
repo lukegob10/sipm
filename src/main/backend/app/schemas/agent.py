@@ -3,7 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from ..utils import read_text_value
+
+
+class _AgentTextRead(BaseModel):
+    @field_validator("description", "old_value", "new_value", mode="before", check_fields=False)
+    @classmethod
+    def _coerce_text_value(cls, value):
+        return read_text_value(value)
 
 
 class AgentManifestRead(BaseModel):
@@ -111,7 +120,7 @@ class AgentTeamMemberListRead(BaseModel):
     has_more: bool = False
 
 
-class AgentProgramNode(BaseModel):
+class AgentProgramNode(_AgentTextRead):
     program_id: str
     program_name: str
     description: str | None = None
@@ -119,7 +128,7 @@ class AgentProgramNode(BaseModel):
     updated_at: datetime
 
 
-class AgentProgramRead(BaseModel):
+class AgentProgramRead(_AgentTextRead):
     model_config = ConfigDict(from_attributes=True)
 
     program_id: str
@@ -262,7 +271,7 @@ class AgentWorkItemListRead(BaseModel):
     has_more: bool = False
 
 
-class AgentAuditRecordRead(BaseModel):
+class AgentAuditRecordRead(_AgentTextRead):
     model_config = ConfigDict(from_attributes=True)
 
     change_id: str
@@ -421,6 +430,7 @@ class AgentPatchRequest(BaseModel):
 class AgentChangeRequestUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    if_request_fingerprint: str = Field(min_length=64, max_length=64)
     if_request_updated_at: datetime
     reason: str = Field(min_length=1)
     operations: list[AgentPatchOperation] = Field(min_length=1, max_length=25)
@@ -448,11 +458,13 @@ class AgentPatchResponse(BaseModel):
 
 
 class AgentChangeRequestReview(BaseModel):
+    if_request_fingerprint: str = Field(min_length=64, max_length=64)
     review_note: str | None = None
 
 
 class AgentDelegatedChangeRequestReview(BaseModel):
     confirm_change_request_id: str = Field(min_length=1)
+    if_request_fingerprint: str = Field(min_length=64, max_length=64)
     if_request_updated_at: datetime
     review_note: str | None = None
 
@@ -464,11 +476,13 @@ class AgentDelegatedTokenRead(BaseModel):
 
 
 class AgentChangeRequestOperationReview(BaseModel):
+    if_request_fingerprint: str = Field(min_length=64, max_length=64)
     client_operation_ids: list[str] = Field(min_length=1, max_length=25)
     review_note: str | None = None
 
 
 class AgentChangeRequestBulkReview(BaseModel):
+    if_request_fingerprints: dict[str, str] = Field(min_length=1, max_length=50)
     change_request_ids: list[str] = Field(min_length=1, max_length=50)
     review_note: str | None = None
 
@@ -484,6 +498,7 @@ class AgentChangeRequestDiffItem(BaseModel):
 
 
 class AgentChangeRequestRead(BaseModel):
+    content_fingerprint: str
     change_request_id: str
     space_id: str
     proposed_by_user_id: str

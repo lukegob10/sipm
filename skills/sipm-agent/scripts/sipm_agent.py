@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -21,8 +22,46 @@ def env(name: str, default: str | None = None) -> str | None:
     return value if value not in (None, "") else default
 
 
+def finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise argparse.ArgumentTypeError("value must be finite")
+    return number
+
+
+def json_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise argparse.ArgumentTypeError(f"invalid JSON: {exc.msg}") from exc
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError("value must be a JSON object")
+    return parsed
+
+
 def json_out(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
+
+
+def _origin(url: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        scheme = parsed.scheme.lower()
+        if scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        port = parsed.port
+        return (scheme, parsed.hostname, port if port is not None else (443 if scheme == "https" else 80))
+    except ValueError:
+        return None
+
+
+class SameOriginRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        original_origin = _origin(req.full_url)
+        if original_origin is None or original_origin != _origin(newurl):
+            fp.close()
+            raise SystemExit("Refusing redirect to a different origin.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class SipmClient:
@@ -37,7 +76,7 @@ class SipmClient:
         self.base_url = base_url.rstrip("/")
         self.token = token
         self.default_space_id = default_space_id
-        handlers: list[urllib.request.BaseHandler] = []
+        handlers: list[urllib.request.BaseHandler] = [SameOriginRedirectHandler()]
         if proxy:
             handlers.append(
                 urllib.request.ProxyHandler({"http": proxy, "https": proxy})
@@ -80,7 +119,8 @@ class SipmClient:
                 raw = response.read().decode("utf-8")
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", errors="replace")
+            with exc:
+                raw = exc.read().decode("utf-8", errors="replace")
             try:
                 error = json.loads(raw)
             except json.JSONDecodeError:
@@ -95,6 +135,8 @@ class SipmClient:
         query: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         params = dict(query or {})
+        initial_cursor = params.get("cursor")
+        seen_cursors = {initial_cursor} if isinstance(initial_cursor, str) and initial_cursor else set()
         records: list[dict[str, Any]] = []
         template: dict[str, Any] = {}
         while True:
@@ -102,8 +144,13 @@ class SipmClient:
             template = dict(page)
             records.extend(page.get("records", []))
             cursor = page.get("next_cursor")
-            if not page.get("has_more") or not cursor:
+            if not page.get("has_more"):
                 break
+            if not isinstance(cursor, str) or not cursor:
+                raise SystemExit("Server returned an invalid pagination cursor.")
+            if cursor in seen_cursors:
+                raise SystemExit("Server repeated a pagination cursor.")
+            seen_cursors.add(cursor)
             params["cursor"] = cursor
         template["records"] = records
         template["next_cursor"] = None
@@ -175,7 +222,10 @@ class SipmClient:
 
 
 def load_json(path: str) -> dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        return json_object(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, argparse.ArgumentTypeError) as exc:
+        raise SystemExit(f"Cannot read JSON object from {path}: {exc}") from exc
 
 
 def _markdown_value(value: Any, *, fallback: str = "Not provided") -> str:
@@ -325,8 +375,13 @@ def client_from_args(args: argparse.Namespace, *, human: bool = False) -> SipmCl
     )
 
 
-def space_for(client: SipmClient, args: argparse.Namespace) -> str:
-    return client.resolve_space_id(getattr(args, "space", None))
+def space_for(client: SipmClient, args: argparse.Namespace, *, human: bool = False) -> str:
+    space = getattr(args, "space", None)
+    if human and space:
+        if not (args.token or env("SIPM_AGENT_TOKEN") or env("SIPM_TOKEN")):
+            raise SystemExit("Resolving --space for delegated review requires SIPM_AGENT_TOKEN; use --space-id or SIPM_SPACE_ID for an exact ID instead.")
+        return client_from_args(args).resolve_space_id(space)
+    return client.resolve_space_id(space)
 
 
 def add_space(parser: argparse.ArgumentParser) -> None:
@@ -468,7 +523,7 @@ def main() -> int:
         required=True,
     )
     update.add_argument("--id", required=True)
-    update.add_argument("--fields-json", required=True, help="JSON object of fields")
+    update.add_argument("--fields-json", type=json_object, required=True, help="JSON object of fields")
     update.add_argument("--reason", required=True)
     update.add_argument("--idempotency-key")
     update.add_argument("--validate-only", action="store_true")
@@ -492,6 +547,7 @@ def main() -> int:
     )
     add_space(requests)
     requests.add_argument("--status", default="pending")
+    requests.add_argument("--idempotency-key")
     requests.add_argument("--limit", type=int, default=100)
     requests.add_argument("--cursor")
     requests.add_argument("--all", action="store_true")
@@ -515,8 +571,8 @@ def main() -> int:
     )
     add_space(poll)
     poll.add_argument("--request-id", required=True)
-    poll.add_argument("--interval", type=float, default=2.0)
-    poll.add_argument("--timeout", type=float, default=120.0)
+    poll.add_argument("--interval", type=finite_float, default=2.0)
+    poll.add_argument("--timeout", type=finite_float, default=120.0)
 
     audit = sub.add_parser(
         "audit-feed", help="Traverse scoped audit events for verification"
@@ -543,9 +599,11 @@ def main() -> int:
         add_space(command)
         command.add_argument("--request-id", required=True)
         command.add_argument("--observed-updated-at", required=True)
+        command.add_argument("--observed-fingerprint", required=True)
         command.add_argument("--review-note")
 
     args = parser.parse_args()
+    patch = load_json(args.patch_file) if hasattr(args, "patch_file") else None
     human_command = args.command in {
         "review-request",
         "delegated-approve",
@@ -568,7 +626,7 @@ def main() -> int:
         json_out(client.request("GET", "/agent/reference-data"))
         return 0
 
-    space_id = space_for(client, args)
+    space_id = space_for(client, args, human=human_command)
     if args.command == "search-work":
         query = {
             "entity_type": args.entity_type,
@@ -678,7 +736,7 @@ def main() -> int:
         )
         json_out(
             client.request(
-                "POST", path, space_id=space_id, body=load_json(args.patch_file)
+                "POST", path, space_id=space_id, body=patch
             )
         )
         return 0
@@ -690,16 +748,25 @@ def main() -> int:
             "entity": args.entity_type,
             "id": args.id,
             "if_updated_at": detail_value["updated_at"],
-            "fields": json.loads(args.fields_json)
+            "fields": args.fields_json
             if args.command == "propose-update"
             else {},
         }
+        idempotency_key = args.idempotency_key or str(uuid4())
         patch = {
             "dry_run": False,
             "reason": args.reason,
-            "idempotency_key": args.idempotency_key or str(uuid4()),
+            "idempotency_key": idempotency_key,
             "operations": [operation],
         }
+        if not args.validate_only and not args.idempotency_key:
+            print(f"Idempotency key: {idempotency_key}", file=sys.stderr, flush=True)
+            print(
+                "If submission outcome is unclear, use list-change-requests --status all "
+                f"--idempotency-key {idempotency_key} in the same space.",
+                file=sys.stderr,
+                flush=True,
+            )
         path = (
             "/agent/patches/validate"
             if args.validate_only
@@ -708,7 +775,8 @@ def main() -> int:
         json_out(client.request("POST", path, space_id=space_id, body=patch))
         return 0
     if args.command == "list-change-requests":
-        query = {"status": args.status, "limit": args.limit, "cursor": args.cursor}
+        query = {"status": args.status, "limit": args.limit, "cursor": args.cursor,
+                 "idempotency_key": args.idempotency_key}
         json_out(
             client.all_pages("/agent/change-requests", space_id=space_id, query=query)
             if args.all
@@ -728,7 +796,6 @@ def main() -> int:
         current = client.request(
             "GET", f"/agent/change-requests/{args.request_id}", space_id=space_id
         )
-        patch = load_json(args.patch_file)
         json_out(
             client.request(
                 "PUT",
@@ -736,6 +803,7 @@ def main() -> int:
                 space_id=space_id,
                 body={
                     "if_request_updated_at": current["updated_at"],
+                    "if_request_fingerprint": current["content_fingerprint"],
                     "reason": patch.get("reason"),
                     "operations": patch.get("operations"),
                 },
@@ -758,10 +826,14 @@ def main() -> int:
             value = client.request(
                 "GET", f"/agent/change-requests/{args.request_id}", space_id=space_id
             )
-            if value.get("status") not in {"pending"} or time.monotonic() >= deadline:
+            remaining = deadline - time.monotonic()
+            if value.get("status") != "pending" or remaining <= 0:
                 json_out(value)
                 return 0 if value.get("status") != "pending" else 1
-            time.sleep(max(0.2, min(args.interval, 30.0)))
+            time.sleep(min(max(0.2, min(args.interval, 30.0)), remaining))
+            if time.monotonic() >= deadline:
+                json_out(value)
+                return 1
     if args.command == "audit-feed":
         query = {
             "entity_type": args.entity_type,
@@ -793,6 +865,7 @@ def main() -> int:
         body = {
             "confirm_change_request_id": args.request_id,
             "if_request_updated_at": args.observed_updated_at,
+            "if_request_fingerprint": args.observed_fingerprint,
             "review_note": args.review_note,
         }
         json_out(

@@ -1,4 +1,5 @@
 import { APP_CONTEXT_PATH, buildAppUrl } from "./paths.js";
+import { invalidateRepositoryInventory } from "../utils/repository-inventory-state.js";
 import {
   VIEW_DATA_REQUIREMENTS,
   VIEW_PREFETCH_TARGET,
@@ -217,6 +218,7 @@ export function createRouterController({
       });
     }
     state.currentView = nextView;
+    if (nextView === "repositories" && previousView !== nextView) invalidateRepositoryInventory(state);
     if (nextView === "tasks-workbench" && previousView !== nextView && state.tasksWorkbench) {
       state.tasksWorkbench.drawerOpen = false;
       state.tasksWorkbench.drawerReturnTaskId = "";

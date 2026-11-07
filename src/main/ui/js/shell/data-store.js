@@ -1,13 +1,6 @@
-import { createFormDraftGuard } from "../utils/form-draft.js";
-
-export function bindTaskRefreshDraft(form) {
-  const draft = createFormDraftGuard({ form });
-  draft.bind();
-  // Entity fills and successful saves reset first, then populate synchronously.
-  // Capture after both native reset and the entity's field assignments finish.
-  form?.addEventListener("reset", () => queueMicrotask(() => draft.capture()));
-  return draft;
-}
+import { invalidateMyWorkRecords } from "../utils/my-work-state.js";
+import { invalidateRepositoryInventory as invalidateInventoryState } from "../utils/repository-inventory-state.js";
+import { clearTeamCapacityFields } from "../utils/form-state.js";
 
 export function restoreEditorSelections({
   state,
@@ -18,23 +11,26 @@ export function restoreEditorSelections({
 }, projectId, solutionId, taskId) {
   const taskOpen = !!els.taskForm && !els.taskForm.classList.contains("hidden")
     && !els.solutionModal?.classList.contains("hidden");
-  const taskDirty = taskOpen && els.taskForm.hasAttribute("data-dirty");
-  if (projectId && !els.projectForm?.hasAttribute("data-dirty") && !els.projectModal?.classList.contains("hidden")) {
+  const taskDirty = taskOpen && (els.taskForm.hasAttribute("data-dirty") || els.taskForm.getAttribute("aria-busy") === "true");
+  if (projectId && !els.projectForm?.hasAttribute("data-dirty")
+      && els.projectForm?.getAttribute("aria-busy") !== "true" && !els.projectModal?.classList.contains("hidden")) {
     const project = state.projects.find((row) => row.project_id === projectId);
-    if (project) openProjectForm(project);
+    if (project) openProjectForm(project, { preserveNotice: true });
   }
-  // Reopening the parent resets its fields and closes the nested task editor.
-  if (solutionId && !els.solutionForm?.hasAttribute("data-dirty") && !taskDirty
-      && !els.solutionModal?.classList.contains("hidden")) {
+  // Reopening the parent closes the nested task editor. An existing clean task
+  // can be restored below, but a new task has no ID to restore.
+  if (solutionId && !els.solutionForm?.hasAttribute("data-dirty")
+      && els.solutionForm?.getAttribute("aria-busy") !== "true" && !taskDirty
+      && !(taskOpen && !taskId) && !els.solutionModal?.classList.contains("hidden")) {
     const solution = state.solutions.find((row) => row.solution_id === solutionId);
     if (solution) {
       const activeTab = els.solutionModal?.querySelector(".modal-tabs .tab.active")?.dataset?.tab || "details";
-      openSolutionModal(solution, activeTab);
+      openSolutionModal(solution, activeTab, { preserveNotice: true });
     }
   }
   if (taskId && taskOpen && !taskDirty) {
     const task = state.tasks.find((row) => row.task_id === taskId);
-    if (task) fillTaskForm(task);
+    if (task) fillTaskForm(task, { preserveNotice: true });
   }
 }
 
@@ -59,11 +55,11 @@ export function createDataStoreController({
   const activeRequestControllers = new Set();
   const entityReads = new Map();
   const entityVersions = new Map();
+  const entityReadVersions = new Map();
   const activePrefetchReads = new Set();
   let loadOperation = null;
   let refreshOperation = null;
   const pendingRefreshEntities = new Set();
-  const ignoreNextRefresh = new Set();
   let viewPrefetchTimer = null;
   let prefetchGeneration = 0;
   let selectsNeedSync = false;
@@ -125,17 +121,17 @@ export function createDataStoreController({
     activeRequestControllers.clear();
     entityReads.clear();
     entityVersions.clear();
+    entityReadVersions.clear();
     activePrefetchReads.clear();
     selectsNeedSync = false;
     loadOperation = null;
     refreshOperation = null;
     pendingRefreshEntities.clear();
-    ignoreNextRefresh.clear();
     state.loading = false;
     state.pendingRefresh = false;
   }
 
-  function clearDataState() {
+  function clearDataState({ preserveEditors = false } = {}) {
     invalidateDataContext();
     const nextTeamCapacityRequestId = (Number(state.teamCapacity?.requestId) || 0) + 1;
     state.phases = [];
@@ -145,9 +141,17 @@ export function createDataStoreController({
     state.tasks = [];
     state.teams = [];
     state.users = [];
-    state.ganttCollapsed = new Set();
+    state.solutionDocuments = {};
+    if (!preserveEditors) state.ganttCollapsed = new Set();
     state.loadedEntities = new Set();
-    if (state.myWork) {
+    if (state.myWork && preserveEditors) {
+      // Invalidate in-flight reads while keeping the current editor and its DOM
+      // until My Work can refresh the same-space records in the background.
+      state.myWork.loadRequestId = (Number(state.myWork.loadRequestId) || 0) + 1;
+      state.myWork.loading = false;
+      state.myWork.needsRefresh = true;
+    } else if (state.myWork) {
+      state.myWork.needsRefresh = false;
       state.myWork.records = null;
       state.myWork.loading = false;
       state.myWork.error = "";
@@ -155,8 +159,12 @@ export function createDataStoreController({
       state.myWork.search = "";
       state.myWork.repository = "";
       state.myWork.editingTaskId = "";
+      state.myWork.taskEditSession = null;
+      state.myWork.sharedTaskSaveRequest = null;
       state.myWork.draggingTaskId = "";
       state.myWork.savingPrivateTaskId = "";
+      state.myWork.privateSaveRequest = null;
+      state.myWork.privateLaneRequest = null;
       state.myWork.detailTab = "task";
       state.myWork.privateNotice = null;
       state.myWork.sharedActions = null;
@@ -168,6 +176,15 @@ export function createDataStoreController({
       state.repositoryInventory.search = "";
     }
     state.capacitySelectedSoeid = "";
+    if (!preserveEditors) {
+      clearTeamCapacityFields(els.capacityUserForm);
+      if (els.capacityUserFormStatus) {
+        els.capacityUserFormStatus.textContent = "";
+        els.capacityUserFormStatus.classList.remove("notice-success", "notice-error");
+      }
+      if (els.capacityTeamFilter) els.capacityTeamFilter.value = "";
+      if (els.capacityNameFilter) els.capacityNameFilter.value = "";
+    }
     state.teamCapacity = createTeamCapacityState(nextTeamCapacityRequestId);
     if (state.tasksWorkbench) {
       state.tasksWorkbench.selected = new Set();
@@ -179,14 +196,6 @@ export function createDataStoreController({
       state.tasksWorkbench.drawerReturnScrollY = null;
       state.tasksWorkbench.suppressAutoScrollOnce = false;
     }
-  }
-
-  function markIgnoreRefresh(entity) {
-    if (entity) ignoreNextRefresh.add(entity);
-  }
-
-  function clearIgnoredRefresh(entity) {
-    if (entity) ignoreNextRefresh.delete(entity);
   }
 
   async function fetchEntityData(entity, options = {}) {
@@ -201,6 +210,7 @@ export function createDataStoreController({
   }
 
   function applyEntityData(entity, data) {
+    entityReadVersions.set(entity, (entityReadVersions.get(entity) || 0) + 1);
     if (entity === "phases") {
       state.phases = Array.isArray(data) ? data : [];
     } else if (entity === "programs") {
@@ -211,6 +221,7 @@ export function createDataStoreController({
       state.solutions = Array.isArray(data) ? data : [];
     } else if (entity === "tasks") {
       state.tasks = Array.isArray(data) ? data : [];
+      invalidateMyWorkRecords(state);
     } else if (entity === "teams") {
       state.teams = Array.isArray(data) ? data : [];
     } else if (entity === "users") {
@@ -248,6 +259,7 @@ export function createDataStoreController({
           try {
             const data = await fetchEntityData(entity, request.controller ? { signal: request.controller.signal } : {});
             if (isDataContextCurrent(context) && version === (entityVersions.get(entity) || 0)) {
+              if (!Array.isArray(data)) throw new Error(`Invalid ${entity} response`);
               applyEntityData(entity, data);
             }
           } finally {
@@ -283,6 +295,21 @@ export function createDataStoreController({
       });
     }
     return results;
+  }
+
+  async function ensureEntityData(entities) {
+    if (!state.authed) return false;
+    const context = captureDataContext();
+    const requested = [...new Set(entities.filter(isKnownEntity))];
+    const results = await readEntities(requested, context);
+    if (!isDataContextCurrent(context) || !state.authed) return false;
+    const failure = results.find((result) => result.status !== "fulfilled");
+    if (failure) {
+      if (failure.reason?.status === 401) handleAuthError(failure.reason);
+      throw failure.reason || new Error("Data load was interrupted");
+    }
+    if (selectsNeedSync) syncSelects();
+    return true;
   }
 
   function scheduleViewPrefetch(view) {
@@ -368,16 +395,23 @@ export function createDataStoreController({
     return uiSyncError;
   }
 
+  function invalidateRepositoryInventory() {
+    if (!invalidateInventoryState(state)) return;
+    if (state.authed && state.currentView === "repositories") {
+      try {
+        renderActiveView();
+      } catch (err) {
+        console.error("Repository inventory refresh failed", err);
+      }
+    }
+  }
+
   async function refreshFromServer(entity = "all") {
     const ent = (entity || "all").toString();
     if (!state.authed) return;
 
-    if (ignoreNextRefresh.has(ent)) {
-      ignoreNextRefresh.delete(ent);
-      return;
-    }
-
     const entities = isKnownEntity(ent) ? [ent] : dataEntities;
+    if (entities.some((key) => ["programs", "projects", "solutions", "tasks"].includes(key))) invalidateRepositoryInventory();
     entities.forEach((key) => {
       invalidateEntity(key);
       pendingRefreshEntities.add(key);
@@ -394,14 +428,10 @@ export function createDataStoreController({
       if (!isDataContextCurrent(context) || refreshOperation !== operation) return;
       const errors = [];
       let changed = false;
-      results.forEach((result, idx) => {
+      results.forEach((result) => {
         if (result.status !== "fulfilled") {
           errors.push(result.reason);
           return;
-        }
-        const entityKey = effectiveEntities[idx];
-        if (entityKey === "tasks" && state.myWork) {
-          state.myWork.records = null;
         }
         changed = true;
       });
@@ -458,6 +488,8 @@ export function createDataStoreController({
       setAuthVisible(true);
       return;
     }
+    if (force && view === "my-work") invalidateMyWorkRecords(state);
+    if (force && view === "repositories") invalidateRepositoryInventory();
     const targetEntities = requestedEntities && requestedEntities.length
       ? [...new Set(requestedEntities)]
       : entitiesForView(view);
@@ -490,6 +522,23 @@ export function createDataStoreController({
         },
         () => {},
       );
+      // Calendar can render its solution data while a slower task read is pending.
+      // Finish the regular load as usual when tasks arrive so task dates appear.
+      if (view === "calendar" && targetEntities.includes("tasks") && !state.loadedEntities.has("tasks")) {
+        const otherEntities = targetEntities.filter((entity) => entity !== "tasks");
+        void Promise.all([Promise.all(otherEntities.map((entity) => readEntity(entity, context))), routeReady])
+          .then(([results]) => {
+            if (!isActiveLoad() || state.loadedEntities.has("tasks")) return;
+            const authFailure = results.find((result) => result.reason?.status === 401);
+            if (authFailure) {
+              handleAuthError(authFailure.reason);
+              return;
+            }
+            const failures = results.flatMap((result, index) => result.status === "rejected" ? [otherEntities[index]] : []);
+            if (results.some((result) => result.status === "fulfilled")) syncUiAfterDataLoad();
+            if (failures.length) setStatus(`Partial load failed: ${failures.join(", ")}`, "warn");
+          }).catch(() => {});
+      }
       const entityResults = await readEntities(targetEntities, context, routeReady);
       if (!isDataContextCurrent(context)) return;
       targetEntities.forEach((entity, idx) => {
@@ -599,12 +648,16 @@ export function createDataStoreController({
 
   return {
     clearDataState,
-    markIgnoreRefresh,
-    clearIgnoredRefresh,
     fetchEntityData,
     applyEntityData,
     scheduleViewPrefetch,
+    ensureEntityData,
+    entityReadSnapshot: (entity) => ({
+      version: `${entityVersions.get(entity) || 0}:${entityReadVersions.get(entity) || 0}`,
+      pending: entityReads.has(entity),
+    }),
     refreshFromServer,
+    invalidateRepositoryInventory,
     loadData,
     reloadCurrentViewData,
   };

@@ -100,8 +100,9 @@ def test_dashboard_scoped_prefs_fall_back_to_legacy_global_storage_once():
     assert "const persistLoadedPrefs = (prefs) => {" in text
     assert "const legacyRaw = localStorage.getItem(DASHBOARD_PREFS_LEGACY_KEY);" in text
     assert "const legacyParsed = normalizePrefs(JSON.parse(legacyRaw));" in text
+    assert "if (persistLoadedPrefs(legacyParsed)) {" in text
     assert "localStorage.removeItem(DASHBOARD_PREFS_LEGACY_KEY);" in text
-    assert "return persistLoadedPrefs(legacyParsed);" in text
+    assert "return legacyParsed;" in text
 
 
 def test_dashboard_default_prefs_are_seeded_into_scoped_storage():
@@ -110,7 +111,8 @@ def test_dashboard_default_prefs_are_seeded_into_scoped_storage():
     assert "if (!raw) {" in text
     assert "if (!legacyRaw) {" in text
     assert "const defaultPrefs = normalizePrefs(DEFAULT_PREFS);" in text
-    assert "return persistLoadedPrefs(defaultPrefs);" in text
+    assert "persistLoadedPrefs(defaultPrefs);" in text
+    assert "return defaultPrefs;" in text
 
 
 def test_dashboard_invalid_scoped_prefs_are_rewritten_after_normalization():
@@ -119,7 +121,7 @@ def test_dashboard_invalid_scoped_prefs_are_rewritten_after_normalization():
     assert "const parsed = JSON.parse(raw);" in text
     assert "const normalized = normalizePrefs(parsed);" in text
     assert "if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {" in text
-    assert "localStorage.setItem(scopedKey, JSON.stringify(normalized));" in text
+    assert "persistLoadedPrefs(normalized);" in text
 
 
 def test_dashboard_malformed_scoped_prefs_fall_back_to_rewritten_defaults():
@@ -143,17 +145,12 @@ def test_dashboard_config_last_section_is_persisted_per_space():
     assert 'updatePrefs(dashboardState, { last_config_section: sectionId });' in interactions_text
 
 
-def test_dashboard_stale_solution_selections_are_auto_cleared():
+def test_dashboard_filtered_options_do_not_prune_saved_selections():
     prefs_text = DASHBOARD_PREFS.read_text(encoding="utf-8")
     render_text = DASHBOARD_RENDER.read_text(encoding="utf-8")
 
-    assert "function normalizeSectionSolutionSelections(" in prefs_text
-    assert "const validSolutionIds = new Set(" in prefs_text
-    assert 'const filteredIds = solutionIds.filter((solutionId) => validSolutionIds.has(String(solutionId || "").trim()));' in prefs_text
-    assert "const normalizedIds = filteredIds.length ? filteredIds : null;" in prefs_text
-    assert "dashboardState.prefs = normalizePrefs({" in prefs_text
-    assert "savePrefs(dashboardState);" in prefs_text
-    assert "normalizeSectionSolutionSelections(dashboardState, dashboardState.sectionOptions);" in render_text
+    assert "function applySectionSolutionFilter(" in prefs_text
+    assert "normalizeSectionSolutionSelections" not in render_text
 
 
 def test_dashboard_drilldown_links_use_text_first_styling():

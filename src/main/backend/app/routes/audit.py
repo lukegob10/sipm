@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..deps import (
@@ -20,7 +20,13 @@ router = APIRouter(dependencies=[Depends(require_user)])
 def _utc_naive(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    try:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    except OverflowError:
+        raise HTTPException(
+            status_code=422,
+            detail="Audit datetime filter is outside the supported UTC range",
+        ) from None
 
 
 @router.get("/audit", response_model=List[ChangeLogRead])

@@ -1,20 +1,23 @@
+import { captureEntityMutationContext, isSameMutationSession } from "../../utils/form-state.js";
+
+export const AGENT_BULK_REVIEW_LIMIT = 50;
+
 const contextsByState = new WeakMap();
 
+function sameContextIdentity(left, right) {
+  if (!left || !right || !isSameMutationSession(left, right) || left.spaceId !== right.spaceId) return false;
+  return left.spaceGeneration !== undefined && right.spaceGeneration !== undefined
+    ? left.spaceGeneration === right.spaceGeneration
+    : left.spaceRef === right.spaceRef;
+}
+
 export function captureAgentChangeRequestContext(state, activeSpaceId) {
-  const user = state.user || null;
-  const space = state.activeSpace || null;
   const identity = {
-    userId: String(user?.user_id || user?.soeid || user?.email || ""),
+    ...captureEntityMutationContext(state),
     spaceId: String(activeSpaceId() || state.activeSpace?.space_id || ""),
-    userRef: user,
-    spaceRef: space,
   };
   const previous = contextsByState.get(state);
-  const generation = previous
-    && previous.userId === identity.userId
-    && previous.spaceId === identity.spaceId
-    && previous.userRef === identity.userRef
-    && previous.spaceRef === identity.spaceRef
+  const generation = sameContextIdentity(previous, identity)
     ? previous.generation
     : (previous?.generation || 0) + 1;
   const context = { ...identity, generation };
@@ -23,13 +26,7 @@ export function captureAgentChangeRequestContext(state, activeSpaceId) {
 }
 
 export function sameAgentChangeRequestContext(left, right) {
-  return !!left
-    && !!right
-    && left.userId === right.userId
-    && left.spaceId === right.spaceId
-    && left.userRef === right.userRef
-    && left.spaceRef === right.spaceRef
-    && left.generation === right.generation;
+  return sameContextIdentity(left, right) && left.generation === right.generation;
 }
 
 export function clearAgentChangeRequestData(state) {
@@ -37,6 +34,7 @@ export function clearAgentChangeRequestData(state) {
   state.agentChangeRequestPendingCount = 0;
   state.agentChangeRequestFailedCount = 0;
   state.agentChangeRequestsLoaded = false;
+  state.agentChangeRequestsError = "";
   state.agentChangeRequestsContext = null;
   state.agentChangeRequestSelectedIds = new Set();
   state.agentChangeRequestSelectedOperationIds = {};

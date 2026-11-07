@@ -28,6 +28,8 @@ export function renderTeamCapacity(ctx) {
     selectedSoeid,
   } = ctx;
   if (!els.capacityUserList) return;
+  const focused = els.capacityUserList.contains(document.activeElement) ? document.activeElement : null;
+  const focusedSoeid = focused?.matches("[data-capacity-select]") ? focused.getAttribute("data-capacity-select") : "";
   const loading = !!teamCapacityState?.loading;
   const loadError = teamCapacityState?.error || "";
   const refreshedAt = refreshLabel(teamCapacityState?.lastLoadedAt);
@@ -51,6 +53,7 @@ export function renderTeamCapacity(ctx) {
     .sort((a, b) => (a.display_name || a.soeid || "").localeCompare(b.display_name || b.soeid || ""));
   const hasActiveFilters = !!(teamFilter || nameFilter);
   const totalUsersLoaded = Array.isArray(state.users) ? state.users.length : 0;
+  const dataPending = totalUsersLoaded === 0 && (loading || !!loadError);
 
   const summary = users.reduce(
     (acc, u) => {
@@ -88,13 +91,15 @@ export function renderTeamCapacity(ctx) {
           </tr>`;
         })
         .join("")
-    : `<tr><td colspan="3" class="muted">No team rows available for current filters.</td></tr>`;
+    : `<tr><td colspan="3" class="muted">${dataPending ? (loading ? "Loading team summary..." : "Team summary unavailable.") : "No team rows available for current filters."}</td></tr>`;
 
   let rosterBody = "";
   if (!users.length) {
     const emptyMessage = loading
       ? "Loading roster..."
-      : (hasActiveFilters && totalUsersLoaded > 0
+      : loadError && totalUsersLoaded === 0
+        ? "Roster unavailable. Try reloading."
+        : (hasActiveFilters && totalUsersLoaded > 0
         ? "No users match current filters. Clear Team Tag/Search filters."
         : "No users found in the active space.");
     rosterBody = `<tr><td colspan="4" class="muted">${emptyMessage}</td></tr>`;
@@ -105,7 +110,7 @@ export function renderTeamCapacity(ctx) {
         const cap = userCapacityFteMonth(u);
         const selectedClass = selectedSoeid && normalize(selectedSoeid) === soeid ? "active-row" : "";
         return `<tr data-soeid="${esc(u.soeid || "")}" class="${selectedClass}">
-          <td>${esc(u.display_name || u.soeid || "—")}</td>
+          <td><button type="button" class="capacity-roster-select" data-capacity-select="${esc(u.soeid || "")}" aria-label="Select ${esc(u.display_name || u.soeid || "member")} (${esc(u.soeid || "unknown ID")})" aria-pressed="${selectedClass ? "true" : "false"}">${esc(u.display_name || u.soeid || "—")}</button></td>
           <td>${esc(u.soeid || "—")}</td>
           <td>${esc(u.team_tag || "—")}</td>
           <td>${formatFte(cap)}</td>
@@ -123,7 +128,7 @@ export function renderTeamCapacity(ctx) {
     loadedSpaceId && activeSpaceId && loadedSpaceId !== activeSpaceId
       ? `<span class="pill warn">Loaded for ${esc(loadedSpaceName || loadedSpaceId)}</span>`
       : "";
-  const errorNote = loadError ? `<span class="pill danger">${esc(loadError)}</span>` : "";
+  const errorNote = loadError ? `<span class="pill danger">${esc(loadError)}${totalUsersLoaded ? " (showing previously loaded roster)" : ""}</span>` : "";
   const statusBits = [activeSpaceNote, loadedSpaceMismatch, refreshNote, loadingNote, errorNote].filter(Boolean).join(" ");
   els.capacityUserList.innerHTML = `
     <div class="panel-toolbar compact">
@@ -133,15 +138,15 @@ export function renderTeamCapacity(ctx) {
       <div class="toolbar-group">${statusBits}</div>
     </div>
     <div class="capacity-kpis">
-      <div class="kpi-card"><div class="kpi-label">Members</div><div class="kpi-value">${summary.members}</div></div>
-      <div class="kpi-card"><div class="kpi-label">Loaded</div><div class="kpi-value">${totalUsersLoaded}</div></div>
-      <div class="kpi-card"><div class="kpi-label">Capacity</div><div class="kpi-value">${formatFte(summary.capacity)}</div><div class="kpi-label">FTE-mo</div></div>
+      <div class="kpi-card"><div class="kpi-label">Members</div><div class="kpi-value">${dataPending ? "—" : summary.members}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Loaded</div><div class="kpi-value">${dataPending ? "—" : totalUsersLoaded}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Capacity</div><div class="kpi-value">${dataPending ? "—" : formatFte(summary.capacity)}</div><div class="kpi-label">FTE-mo</div></div>
     </div>
     <div class="panel-toolbar compact">
       <div class="toolbar-group">
         <h3>Team Summary</h3>
       </div>
-      <div class="toolbar-group"><span class="muted">${teamRows.length} teams</span></div>
+      <div class="toolbar-group"><span class="muted">${dataPending ? "—" : teamRows.length} teams</span></div>
     </div>
     <div class="table">
       <table>
@@ -159,7 +164,7 @@ export function renderTeamCapacity(ctx) {
       <div class="toolbar-group">
         <h3>Roster</h3>
       </div>
-      <div class="toolbar-group"><span class="muted">${users.length} visible</span></div>
+      <div class="toolbar-group"><span class="muted">${dataPending ? "—" : users.length} visible</span></div>
     </div>
     <div class="table">
       <table>
@@ -175,6 +180,10 @@ export function renderTeamCapacity(ctx) {
       </table>
     </div>
   `;
+  if (focusedSoeid) {
+    [...els.capacityUserList.querySelectorAll("[data-capacity-select]")]
+      .find((button) => button.getAttribute("data-capacity-select") === focusedSoeid)?.focus({ preventScroll: true });
+  }
 }
 
 export function render(ctx) {

@@ -49,13 +49,17 @@ describe("activity session controller", () => {
     expect(onIdleLogout).toHaveBeenCalledTimes(1);
   });
 
-  it("restarts the full deadline and dismisses the warning on genuine activity", async () => {
+  it("keeps the warning actionable until the user chooses to stay signed in", async () => {
     const { controller, onWarning, onWarningDismissed, onIdleLogout } = createHarness();
     controller.start("user-1");
     await vi.advanceTimersByTimeAsync(29 * 60 * 1000);
     expect(onWarning).toHaveBeenCalled();
 
+    onWarningDismissed.mockClear();
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab" }));
+    window.dispatchEvent(new MouseEvent("mousemove"));
+    expect(onWarningDismissed).not.toHaveBeenCalled();
+    controller.noteUserActivity();
     expect(onWarningDismissed).toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(29 * 60 * 1000);
     expect(onIdleLogout).not.toHaveBeenCalled();
@@ -142,5 +146,45 @@ describe("activity session controller", () => {
       controller?.stop();
       storageAccess.mockRestore();
     }
+  });
+});
+
+describe("session-scoped cross-tab messages", () => {
+  it("ignores logout from a different session of the same account", () => {
+    const { controller, onRemoteLogout } = createHarness();
+    controller.start("user-1", "session-b");
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "sipm-auth-logout-v1",
+      newValue: JSON.stringify({ version: 1, user_id: "user-1", session_binding: "session-a", at: Date.now() }),
+    }));
+    expect(onRemoteLogout).not.toHaveBeenCalled();
+    controller.stop();
+  });
+
+  it("ignores logout for another user, accepts same-session logout, and publishes the binding", () => {
+    const { controller, onRemoteLogout } = createHarness();
+    controller.start("user-1", "session-a");
+    controller.broadcastLogout();
+    expect(JSON.parse(localStorage.getItem("sipm-auth-logout-v1"))).toMatchObject({
+      user_id: "user-1", session_binding: "session-a",
+    });
+    const message = { version: 1, user_id: "user-2", session_binding: "session-a", at: Date.now() };
+    window.dispatchEvent(new StorageEvent("storage", { key: "sipm-auth-logout-v1", newValue: JSON.stringify(message) }));
+    expect(onRemoteLogout).not.toHaveBeenCalled();
+    message.user_id = "user-1";
+    window.dispatchEvent(new StorageEvent("storage", { key: "sipm-auth-logout-v1", newValue: JSON.stringify(message) }));
+    expect(onRemoteLogout).toHaveBeenCalledTimes(1);
+    controller.stop();
+  });
+
+  it("does not let a legacy unbound logout clear a bound session", () => {
+    const { controller, onRemoteLogout } = createHarness();
+    controller.start("user-1", "session-a");
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: "sipm-auth-logout-v1",
+      newValue: JSON.stringify({ version: 1, user_id: "user-1", at: Date.now() }),
+    }));
+    expect(onRemoteLogout).not.toHaveBeenCalled();
+    controller.stop();
   });
 });

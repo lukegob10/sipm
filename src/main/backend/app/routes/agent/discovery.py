@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import hashlib
+import json
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
@@ -39,7 +41,7 @@ from ...utils.enums import (
 )
 
 router = APIRouter()
-REFERENCE_VERSION = "1.2"
+REFERENCE_VERSION = "1.3"
 
 
 @router.post(
@@ -83,12 +85,14 @@ def get_audit_feed(
     cursor: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     session: Session = Depends(get_db),
+    current_user: User = Depends(require_agent_api_token),
     space_ctx: SpaceContext = Depends(current_agent_space),
     _authz: SpaceContext = Depends(require_agent_space_role("member")),
 ) -> AgentAuditFeedRead:
     return list_agent_audit_feed(
         session,
         space_ctx,
+        requester_user_id=current_user.user_id,
         since=since,
         until=until,
         entity_type=entity_type,
@@ -115,13 +119,12 @@ def get_reference_data(
     session: Session = Depends(get_db),
     _user=Depends(require_agent_api_token),
 ) -> AgentReferenceDataRead:
-    response.headers["ETag"] = f'"agent-reference-{REFERENCE_VERSION}"'
     statuses = {
         "project": _values(ProjectStatus),
         "solution": _values(SolutionStatus),
         "task": _values(TaskStatus),
     }
-    return AgentReferenceDataRead(
+    reference = AgentReferenceDataRead(
         version=REFERENCE_VERSION,
         entity_types=sorted(VALID_ENTITIES),
         operations=sorted(VALID_OPS),
@@ -206,6 +209,12 @@ def get_reference_data(
             "team_members": ["cursor", "limit"],
         },
     )
+    # The phase catalog is stored in the database, so the contract version
+    # alone cannot validate a cached representation.
+    serialized = json.dumps(reference.model_dump(mode="json"), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    response.headers["ETag"] = f'W/"agent-reference-{REFERENCE_VERSION}-{digest}"'
+    return reference
 
 
 @router.get(
@@ -231,10 +240,28 @@ def get_agent_openapi(
     }
     schemes = document.setdefault("components", {}).setdefault("securitySchemes", {})
     schemes["AgentBearer"] = {"type": "http", "scheme": "bearer"}
+    schemes["HumanDelegatedBearer"] = {
+        "type": "http", "scheme": "bearer",
+        "description": "Short-lived human delegated-review token",
+    }
     schemes["HumanSessionCookie"] = {
         "type": "apiKey",
         "in": "cookie",
         "name": "access_token",
+    }
+    cookie_only = {
+        "agent_create_delegated_session",
+        "agent_approve_change_request",
+        "agent_reject_change_request",
+        "agent_approve_selected_change_request_operations",
+        "agent_approve_selected_change_requests",
+        "agent_reject_selected_change_requests",
+    }
+    cookie_or_agent = {"agent_list_change_requests", "agent_get_change_request"}
+    delegated_only = {
+        "agent_get_delegated_change_request_review",
+        "agent_delegated_approve_change_request",
+        "agent_delegated_reject_change_request",
     }
     for path, methods in document["paths"].items():
         for method, operation in methods.items():
@@ -244,9 +271,16 @@ def get_agent_openapi(
             operation["x-approval-gated"] = (
                 "change-requests" in path and method.lower() == "post"
             )
-            operation.setdefault("security", [{"AgentBearer": []}])
-            if path.endswith("/delegated-session"):
+            operation_id = operation.get("operationId")
+            if operation_id in cookie_only:
                 operation["security"] = [{"HumanSessionCookie": []}]
+            elif operation_id in cookie_or_agent:
+                operation["security"] = [{"AgentBearer": []}, {"HumanSessionCookie": []}]
+            elif operation_id in delegated_only:
+                operation["security"] = [{"HumanDelegatedBearer": []}]
+            else:
+                operation["security"] = [{"AgentBearer": []}]
+            if operation_id == "agent_create_delegated_session":
                 continue
             if (
                 path.endswith("/manifest")
@@ -256,14 +290,24 @@ def get_agent_openapi(
             ):
                 continue
             parameters = operation.setdefault("parameters", [])
+            cookie_capable = operation_id in cookie_only | cookie_or_agent
+            if operation_id in cookie_or_agent:
+                scope_description = (
+                    "Required for bearer authentication; optional for interactive sessions "
+                    "with an active-space cookie"
+                )
+            elif cookie_capable:
+                scope_description = "Optional for interactive sessions with an active-space cookie"
+            else:
+                scope_description = "Explicit accessible space scope"
             if not any(item.get("name") == "X-Space-Id" for item in parameters):
                 parameters.append(
                     {
                         "name": "X-Space-Id",
                         "in": "header",
-                        "required": True,
+                        "required": not cookie_capable,
                         "schema": {"type": "string"},
-                        "description": "Explicit accessible space scope",
+                        "description": scope_description,
                     }
                 )
     return document

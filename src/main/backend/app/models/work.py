@@ -240,7 +240,8 @@ class Task(TimestampMixin, SoftDeleteMixin, Base):
     due_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     assignee_user_soeid: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    assignee: Mapped[str] = mapped_column(String, nullable=False, default="")
+    # Oracle stores empty strings as NULL; the task UI supports unassigned work.
+    assignee: Mapped[Optional[str]] = mapped_column(String, nullable=True, default="")
     github_repo_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     estimate_hours: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)

@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 
-from backend.app.models import AgentChangeRequest, Project, Space, User
+from backend.app.models import AgentChangeRequest, Project, Space, SpaceMembership, User
 from backend.app.schemas.agent import AgentPatchRequest
 from backend.app.services.agent_change_requests import (
     approve_change_request,
@@ -225,6 +225,7 @@ def test_change_request_approval_rolls_back_patch_if_final_commit_fails(
             is_active=True,
         )
         session.add(reviewer)
+        session.add(SpaceMembership(space_id=space_id, user_id=reviewer.user_id, role="member", status="active"))
         session.commit()
 
     def fail_when_request_is_approved(session, _flush_context, _instances):
@@ -247,6 +248,7 @@ def test_change_request_approval_rolls_back_patch_if_final_commit_fails(
                         session.get(User, "atomic-reviewer"),
                         request.change_request_id,
                         ["create-project"],
+                        if_request_fingerprint=request.content_fingerprint,
                     )
                 else:
                     approve_change_request(
@@ -254,6 +256,7 @@ def test_change_request_approval_rolls_back_patch_if_final_commit_fails(
                         _space_context(space_id),
                         session.get(User, "atomic-reviewer"),
                         request.change_request_id,
+                        if_request_fingerprint=request.content_fingerprint,
                     )
         finally:
             event.remove(session, "before_flush", fail_when_request_is_approved)
@@ -288,6 +291,7 @@ def test_change_request_publishes_applied_mutations_after_outer_commit(
             is_active=True,
         )
         session.add(reviewer)
+        session.add(SpaceMembership(space_id=space_id, user_id=reviewer.user_id, role="member", status="active"))
         session.commit()
 
     publications: list[str] = []
@@ -320,6 +324,7 @@ def test_change_request_publishes_applied_mutations_after_outer_commit(
             _space_context(space_id),
             session.get(User, "publish-reviewer"),
             request.change_request_id,
+            if_request_fingerprint=request.content_fingerprint,
         )
 
     assert result.status == "approved"
@@ -355,6 +360,7 @@ def test_apply_flush_integrity_error_commits_failed_request_without_patch(
             is_active=True,
         )
         session.add(reviewer)
+        session.add(SpaceMembership(space_id=space_id, user_id=reviewer.user_id, role="member", status="active"))
         session.commit()
 
     def fail_project_insert(session, _flush_context, _instances):
@@ -372,6 +378,7 @@ def test_apply_flush_integrity_error_commits_failed_request_without_patch(
                 _space_context(space_id),
                 session.get(User, "flush-reviewer"),
                 request.change_request_id,
+                if_request_fingerprint=request.content_fingerprint,
             )
         finally:
             event.remove(session, "before_flush", fail_project_insert)
@@ -407,6 +414,7 @@ def test_bulk_review_rejects_duplicate_ids_before_transition(db_sessionmaker):
             is_active=True,
         )
         session.add(reviewer)
+        session.add(SpaceMembership(space_id=space_id, user_id=reviewer.user_id, role="member", status="active"))
         session.commit()
 
     with db_sessionmaker() as session:
@@ -421,6 +429,7 @@ def test_bulk_review_rejects_duplicate_ids_before_transition(db_sessionmaker):
                     _space_context(space_id),
                     reviewer,
                     [request.change_request_id, request.change_request_id],
+                    if_request_fingerprints={request.change_request_id: request.content_fingerprint},
                 )
             assert exc_info.value.status_code == 400
 

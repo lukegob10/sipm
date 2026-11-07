@@ -393,9 +393,43 @@ async def test_tasks_import_rolls_back_auto_created_rows_when_phase_enablement_f
     assert payload["solutions_created"] == 0
     assert payload["total_rows"] == 1
     assert len(payload["errors"]) == 1
-    assert "phase seed failed" in payload["errors"][0]
+    assert "solution could not be created" in payload["errors"][0]
 
     with db_sessionmaker() as session:
         assert session.query(Project).filter(Project.project_name == "Atomic Task Project").count() == 0
         assert session.query(Solution).filter(Solution.solution_name == "Atomic Task Solution").count() == 0
         assert session.query(Task).filter(Task.task_name == "Atomic Task").count() == 0
+
+
+@pytest.mark.anyio
+async def test_task_export_uses_solution_project_for_legacy_mismatch(client, db_sessionmaker):
+    first = (await client.post("/project-manager/api/projects/", json={"project_name": "Actual Project"})).json()
+    second = (await client.post("/project-manager/api/projects/", json={"project_name": "Wrong Project"})).json()
+    solution = (await client.post(
+        f"/project-manager/api/projects/{first['project_id']}/solutions",
+        json={"solution_name": "Actual Solution", "version": "0.1.0"},
+    )).json()
+    task = (await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+        json={"task_name": "Existing Task"},
+    )).json()
+    with db_sessionmaker() as session:
+        session.get(Task, task["task_id"]).project_id = second["project_id"]
+        session.commit()
+
+    exported = await client.get("/project-manager/api/tasks/export")
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(StringIO(exported.text)))
+    assert len(rows) == 1
+    assert rows[0]["project_name"] == "Actual Project"
+    imported = await client.post(
+        "/project-manager/api/tasks/import", content=exported.content,
+        headers={"Content-Type": "text/csv"},
+    )
+    assert imported.status_code == 200, imported.text
+    assert imported.json()["created"] == 0
+    assert imported.json()["updated"] == 1
+    assert imported.json()["errors"] == []
+    with db_sessionmaker() as session:
+        assert session.query(Solution).count() == 1
+        assert session.query(Task).count() == 1

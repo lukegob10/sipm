@@ -1,4 +1,5 @@
 import os
+from contextlib import ExitStack
 from threading import Lock
 
 from sqlalchemy import create_engine, text
@@ -139,16 +140,12 @@ def warm_db_pool(connection_count: int = 1) -> None:
     if connection_count < 1:
         raise RuntimeError("connection_count must be >= 1.")
     _ensure_session_local()
-    connections = []
-    try:
+    with ExitStack() as connections:
         for _ in range(connection_count):
             connection = engine.connect()
-            connections.append(connection)
+            connections.callback(connection.close)
             connection.execute(DB_HEALTHCHECK_SQL)
             connection.commit()
-    finally:
-        while connections:
-            connections.pop().close()
 
 
 def get_session():

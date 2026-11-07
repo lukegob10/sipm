@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 
 import pytest
 
@@ -213,7 +213,6 @@ async def test_my_work_uses_only_normalized_task_soeid_for_eligibility(client, d
             project_name="Project",
             status=ProjectStatus.active,
             sponsor="Another User",
-            deleted_at=datetime.now(timezone.utc),
         )
         solution = Solution(
             solution_id="solution-1",
@@ -225,7 +224,6 @@ async def test_my_work_uses_only_normalized_task_soeid_for_eligibility(client, d
             owner="Another User",
             assignee="Another User",
             assignee_user_soeid="au12345",
-            deleted_at=datetime.now(timezone.utc),
         )
         linked = Task(
             task_id="task-linked",

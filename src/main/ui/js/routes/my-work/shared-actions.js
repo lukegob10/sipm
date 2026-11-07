@@ -1,3 +1,5 @@
+import { beginTaskMutations, captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+
 const CLOSED_STATUSES = new Set(["complete", "abandoned"]);
 const STARTABLE_STATUSES = new Set(["to_do", "on_hold"]);
 
@@ -54,7 +56,7 @@ function setNotice(actionState, notice, onNotice) {
 
 function defaultApplyUpdatedTask(record, updatedTask) {
   record.task = updatedTask;
-  record.needs_attention = Boolean(updatedTask?.blocked || updatedTask?.is_overdue);
+  record.needs_attention = !isClosed(updatedTask) && Boolean(record.reminder_due || updatedTask?.blocked || updatedTask?.is_overdue);
 }
 
 function refreshView(refresh) {
@@ -73,7 +75,7 @@ export function renderSharedActions(ctx, record) {
 
   const actionState = sharedActionState(ctx);
   const taskId = String(task.task_id);
-  const pending = actionState.pendingTaskId === taskId;
+  const pending = !!actionState.pendingTaskId || !!ctx?.state?.myWork?.sharedTaskSaveRequest;
   const closed = isClosed(task);
   const blocked = Boolean(task.blocked);
   const status = String(task.status || "").toLowerCase();
@@ -99,7 +101,7 @@ export function renderSharedActions(ctx, record) {
     ? `<form class="my-work-block-composer" data-my-work-block-form="${escapeHtml(ctx, taskId)}">
         <label>
           <span>What is blocking this task?</span>
-          <textarea name="blocker_note" rows="3" required placeholder="Describe what is needed to resume work">${escapeHtml(ctx, actionState.blockDraft || "")}</textarea>
+          <textarea name="blocker_note" rows="3" required placeholder="Describe what is needed to resume work"${pending ? " disabled" : ""}>${escapeHtml(ctx, actionState.blockDraft || "")}</textarea>
         </label>
         <p class="form-notice" data-my-work-block-feedback role="status" aria-live="polite"></p>
         <div class="my-work-block-composer-actions">
@@ -149,13 +151,37 @@ export function bindSharedActions(ctx, {
   if (!root || !taskId) return;
 
   const actionState = sharedActionState(ctx);
+  const work = ctx.state.myWork;
+  const context = captureEntityMutationContext(ctx.state);
+  const authed = ctx.state.authed;
+  const isCurrent = () => ctx.state.myWork === work && work.sharedActions === actionState
+    && isEntityMutationContextCurrent(ctx.state, context) && ctx.state.authed === authed;
+  const isSelected = () => isCurrent() && (!work.selectedTaskId || String(work.selectedTaskId) === taskId);
   const applyUpdatedTask = typeof onTaskUpdated === "function"
     ? onTaskUpdated
-    : (updatedTask) => defaultApplyUpdatedTask(record, updatedTask);
+    : (updatedTask) => {
+      const currentRecord = Array.isArray(work.records)
+        ? work.records.find((item) => String(item?.task?.task_id || "") === taskId)
+        : record;
+      if (currentRecord) defaultApplyUpdatedTask(currentRecord, updatedTask);
+    };
 
   const runMutation = async (action, payload, successMessage) => {
-    if (actionState.pendingTaskId) return;
+    if (!isCurrent() || actionState.pendingTaskId || work.sharedTaskSaveRequest
+        || (work.selectedTaskId && String(work.selectedTaskId) !== taskId)) return;
+    const release = beginTaskMutations(ctx.state, [taskId]);
+    if (!release) {
+      setNotice(actionState, { tone: "error", message: "This task is already being updated. Try again when it finishes.", taskId, action }, onNotice);
+      refreshView(refresh);
+      return;
+    }
     actionState.pendingTaskId = taskId;
+    if (work.loading) {
+      // Refresh after the write instead of applying a pre-write snapshot.
+      work.loadRequestId = (Number(work.loadRequestId) || 0) + 1;
+      work.loading = false;
+      work.needsRefresh = true;
+    }
     setNotice(actionState, {
       tone: "info",
       message: "Updating shared task...",
@@ -163,12 +189,16 @@ export function bindSharedActions(ctx, {
       action,
     }, onNotice);
     refreshView(refresh);
+    if (!isCurrent()) { release(); return; }
     try {
       const updatedTask = await ctx.api(`/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
+      if (!isCurrent()) return;
+      if (!updatedTask || String(updatedTask.task_id || "") !== taskId) throw new Error("Task update returned an invalid response.");
       await applyUpdatedTask(updatedTask, { action, previousTask: task, record });
+      if (!isCurrent()) return;
       actionState.pendingTaskId = "";
       if (action === "block") {
         actionState.blockComposerTaskId = "";
@@ -182,6 +212,7 @@ export function bindSharedActions(ctx, {
       }, onNotice);
       refreshView(refresh);
     } catch (error) {
+      if (!isCurrent()) return;
       actionState.pendingTaskId = "";
       setNotice(actionState, {
         tone: "error",
@@ -190,11 +221,14 @@ export function bindSharedActions(ctx, {
         action,
       }, onNotice);
       refreshView(refresh);
+    } finally {
+      release();
     }
   };
 
   root.querySelectorAll("[data-my-work-action]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (!isSelected() || actionState.pendingTaskId || work.sharedTaskSaveRequest) return;
       const action = button.dataset.myWorkAction;
       if (action === "show-block") {
         actionState.blockComposerTaskId = taskId;
@@ -213,6 +247,7 @@ export function bindSharedActions(ctx, {
     .find((form) => form.dataset.myWorkBlockForm === taskId);
   const blockInput = blockForm?.querySelector('[name="blocker_note"]');
   blockInput?.addEventListener("input", () => {
+    if (!isSelected()) return;
     actionState.blockDraft = blockInput.value;
     blockInput.setCustomValidity("");
     blockInput.removeAttribute("aria-invalid");
@@ -221,6 +256,7 @@ export function bindSharedActions(ctx, {
   });
   blockForm?.addEventListener("submit", (event) => {
     event.preventDefault();
+    if (!isSelected()) return;
     const blockerNote = String(blockInput?.value || "").trim();
     if (!blockerNote) {
       const message = "Add blocker context before blocking this task.";
@@ -236,6 +272,7 @@ export function bindSharedActions(ctx, {
     void runMutation("block", { blocked: true, blocker_note: blockerNote }, "Task blocked.");
   });
   root.querySelector("[data-my-work-block-cancel]")?.addEventListener("click", () => {
+    if (!isSelected()) return;
     actionState.blockComposerTaskId = "";
     actionState.blockDraft = "";
     refreshView(refresh);
@@ -244,6 +281,7 @@ export function bindSharedActions(ctx, {
   root.querySelectorAll("[data-my-work-open-tasks]").forEach((button) => {
     if (button.dataset.myWorkOpenTasks !== taskId) return;
     button.addEventListener("click", () => {
+      if (!isSelected()) return;
       const open = openTaskInWorkbench || ctx.openTaskInWorkbench;
       if (typeof open === "function") {
         open(task);

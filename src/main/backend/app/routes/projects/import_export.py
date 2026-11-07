@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import datetime, timezone
 from io import StringIO
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from ...deps import get_db, require_non_agent_write, require_space_role
 from ...models import Program, Project, User
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_status, normalize_str, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus
 from .common import (
@@ -29,6 +31,7 @@ from .common import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 _PROJECT_IMPORT_UPDATE_FIELDS = (
     "program_id",
     "function",
@@ -109,10 +112,20 @@ def import_projects(
         name = normalize_str(row.get("project_name"))
         project_function = normalize_str(row.get("function")) or None
         area = normalize_str(row.get("area")) or None
+        oversized_field = next(
+            (field for field, value in (("function", project_function), ("area", area)) if value and len(value) > 255),
+            None,
+        )
+        if oversized_field:
+            errors.append(f"Row {idx}: {oversized_field} must be 255 characters or fewer")
+            continue
         sponsor_input = normalize_str(row.get("sponsor"))
         owner_input = normalize_str(row.get("owner"))
         if not name:
             errors.append(f"Row {idx}: project_name is required")
+            continue
+        if len(name) > 255:
+            errors.append(f"Row {idx}: project_name must be 255 characters or fewer")
             continue
         key = name.lower()
         if key in seen:
@@ -137,6 +150,24 @@ def import_projects(
             continue
         sponsor_user_soeid = normalize_str(row.get("sponsor_user_soeid")) or None
         owner_user_soeid = normalize_str(row.get("owner_user_soeid")) or None
+        oversized_person_field = next(
+            (field for field, value in (("sponsor", sponsor_input), ("sponsor_user_soeid", sponsor_user_soeid),
+                                        ("owner", owner_input), ("owner_user_soeid", owner_user_soeid))
+             if value and len(value) > 255),
+            None,
+        )
+        if oversized_person_field:
+            errors.append(f"Row {idx}: {oversized_person_field} must be 255 characters or fewer")
+            continue
+        if not dry_run:
+            try:
+                lock_work_space(session, space_ctx, current_user)
+            except HTTPException:
+                if not (created or updated):
+                    raise
+                session.rollback()
+                errors.append(f"Row {idx}: import stopped because access to the space changed")
+                break
         try:
             program = _resolve_import_program(
                 session,
@@ -144,11 +175,21 @@ def import_projects(
                 program_id=row.get("program_id"),
                 program_name=row.get("program_name"),
             )
-        except Exception as exc:
-            errors.append(f"Row {idx}: {exc}")
+        except (ValueError, HTTPException) as exc:
+            session.rollback()
+            if isinstance(exc, HTTPException) and exc.status_code >= 500:
+                logger.warning("Program resolution failed (%s)", type(exc).__name__)
+                errors.append(f"Row {idx}: program could not be resolved")
+            else:
+                errors.append(f"Row {idx}: {exc}")
             continue
-        existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
+        except Exception as exc:
+            session.rollback()
+            logger.warning("Program resolution failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: program could not be resolved")
+            continue
         try:
+            existing = _project_query(session, space_ctx).filter(Project.project_name == name).first()
             if existing:
                 if dry_run:
                     updated += 1
@@ -198,7 +239,6 @@ def import_projects(
                     changes=_project_change_set(existing, before, _PROJECT_IMPORT_UPDATE_FIELDS),
                     request_id=None,
                 )
-                updated += 1
             else:
                 if dry_run:
                     _resolve_project_sponsor(
@@ -265,11 +305,15 @@ def import_projects(
                     changes=_project_create_changes(project),
                     request_id=None,
                 )
-                created += 1
             session.commit()
+            if existing:
+                updated += 1
+            else:
+                created += 1
         except Exception as exc:
             session.rollback()
-            errors.append(f"Row {idx}: {exc}")
+            logger.warning("Project import failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: project could not be saved")
     if not dry_run:
         _publish_project_mutation(space_ctx.space_id)
     return {"created": created, "updated": updated, "errors": errors, "total_rows": len(rows), "dry_run": dry_run}
@@ -284,6 +328,7 @@ def export_projects(
         _project_query(session, space_ctx)
         .join(Program, Program.program_id == Project.program_id)
         .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
         .with_entities(Project, Program)
         .all()
     )
@@ -305,7 +350,7 @@ def export_projects(
                 "sponsor_user_soeid": project.sponsor_user_soeid or "",
                 "owner": project.owner or "",
                 "owner_user_soeid": project.owner_user_soeid or "",
-                "strategic_objective": project.strategic_objective or "",
+                "strategic_objective": read_text_value(project.strategic_objective) or "",
                 "priority": project.priority,
             }
         )

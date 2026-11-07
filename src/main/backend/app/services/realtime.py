@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import threading
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Set
 
@@ -53,6 +54,8 @@ class ConnectionMeta:
     user_id: str
     space_id: str
     last_seen: datetime
+    authorize: Callable[[], Awaitable[tuple[int, str] | None]] | None = None
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 connections: Set[WebSocket] = set()
@@ -101,8 +104,10 @@ async def _close_connection(ws: WebSocket, *, code: int, reason: str) -> None:
 
 
 async def _prune_idle_connections() -> None:
-    for ws in _stale_idle_connections():
-        await _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="idle-timeout")
+    await asyncio.gather(*(
+        _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="idle-timeout")
+        for ws in _stale_idle_connections()
+    ))
 
 
 async def _broadcast_local_refresh(entity: str = "all", space_id: str | None = None) -> None:
@@ -119,16 +124,34 @@ async def _broadcast_local_refresh(entity: str = "all", space_id: str | None = N
         ]
 
     async def send_one(ws: WebSocket) -> None:
-        try:
-            await asyncio.wait_for(
-                ws.send_json({"type": "refresh", "entity": entity}),
-                timeout=_SEND_TIMEOUT_SECONDS,
-            )
-            _touch(ws)
-        except Exception:
-            # A timed-out send leaves the browser believing it is still live.
-            # Close with a reconnectable established-socket code before removal.
-            await _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="refresh-send-failed")
+        with _CONNECTION_LOCK:
+            meta = _connection_meta.get(ws)
+        if meta is None:
+            return
+        async with meta.send_lock:
+            with _CONNECTION_LOCK:
+                if _connection_meta.get(ws) is not meta:
+                    return
+            if meta.authorize is not None:
+                try:
+                    rejection = await meta.authorize()
+                except Exception:
+                    await _close_connection(ws, code=WS_CLOSE_SERVER_BUSY, reason="server-error")
+                    return
+                if rejection is not None:
+                    await _close_connection(ws, code=rejection[0], reason=rejection[1])
+                    return
+            with _CONNECTION_LOCK:
+                if _connection_meta.get(ws) is not meta:
+                    return
+            try:
+                await asyncio.wait_for(
+                    ws.send_json({"type": "refresh", "entity": entity}),
+                    timeout=_SEND_TIMEOUT_SECONDS,
+                )
+                _touch(ws)
+            except Exception:
+                await _close_connection(ws, code=WS_CLOSE_IDLE_TIMEOUT, reason="refresh-send-failed")
 
     await asyncio.gather(*(send_one(ws) for ws in recipients))
 
@@ -154,6 +177,7 @@ async def register(
     *,
     user_id: str | None = None,
     space_id: str | None = None,
+    authorize: Callable[[], Awaitable[tuple[int, str] | None]] | None = None,
 ) -> None:
     global _pending_connections
     user_id = (user_id or DEFAULT_USER_ID).strip() or DEFAULT_USER_ID
@@ -182,7 +206,7 @@ async def register(
         else:
             _pending_user_connections.pop(user_id, None)
         connections.add(ws)
-        _connection_meta[ws] = ConnectionMeta(user_id=user_id, space_id=space_id, last_seen=_utc_now())
+        _connection_meta[ws] = ConnectionMeta(user_id=user_id, space_id=space_id, last_seen=_utc_now(), authorize=authorize)
         _user_connections.setdefault(user_id, set()).add(ws)
 
 

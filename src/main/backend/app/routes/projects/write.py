@@ -10,10 +10,11 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db, require_non_agent_write, require_space_role
-from ...models import Project, User
+from ...models import Program, Project, User
 from ...schemas import ProjectCreate, ProjectRead, ProjectUpdate
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_str
 from .common import (
     _active_project_name_conflict_query,
@@ -43,6 +44,8 @@ def _required_project_name(value: object) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="project_name is required",
         )
+    if len(project_name) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="project_name must be 255 characters or fewer")
     return project_name
 
 
@@ -56,11 +59,13 @@ def create_project(
     _write_gate: User = Depends(require_non_agent_write),
 ):
     project_name = _required_project_name(payload.project_name)
+    lock_work_space(session, space_ctx, current_user)
     program = (
         _ensure_program_exists(session, payload.program_id, space_ctx)
         if payload.program_id
         else _default_program(session, space_ctx)
     )
+    program_name = program.program_name
     existing = _active_project_name_conflict_query(
         session,
         project_name=project_name,
@@ -115,6 +120,7 @@ def create_project(
         strategic_objective=payload.strategic_objective,
         priority=payload.priority if payload.priority is not None else 3,
     )
+    committed = False
     try:
         if deleted_conflicts:
             session.flush()
@@ -130,6 +136,7 @@ def create_project(
             changes=_project_create_changes(project),
         )
         session.commit()
+        committed = True
         session.refresh(project)
     except IntegrityError as exc:
         session.rollback()
@@ -156,8 +163,10 @@ def create_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create project.",
         ) from exc
-    _publish_project_mutation(space_ctx.space_id)
-    return _project_payload(project, program_name=program.program_name)
+    finally:
+        if committed:
+            _publish_project_mutation(space_ctx.space_id)
+    return _project_payload(project, program_name=program_name)
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
@@ -171,9 +180,9 @@ def update_project(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
-    project = _get_project_or_404(session, project_id, space_ctx)
-
     update_data = payload.model_dump(exclude_unset=True)
+    lock_work_space(session, space_ctx, current_user)
+    project = _get_project_or_404(session, project_id, space_ctx)
     if "project_name" in update_data:
         update_data["project_name"] = _required_project_name(update_data["project_name"])
     for field in ("function", "area"):
@@ -220,11 +229,23 @@ def update_project(
             session.add(deleted)
         if deleted_conflicts:
             session.flush()
+    if program is None:
+        program_name_row = (
+            session.query(Program.program_name)
+            .filter(Program.program_id == project.program_id)
+            .filter(Program.space_id == space_ctx.space_id)
+            .filter(Program.deleted_at.is_(None))
+            .first()
+        )
+        program_name = program_name_row[0] if program_name_row else None
+    else:
+        program_name = program.program_name
     before = {field: getattr(project, field) for field in update_data.keys()}
     for field, value in update_data.items():
         setattr(project, field, value)
     project.updated_at = datetime.now(timezone.utc)
 
+    committed = False
     try:
         session.add(project)
         if update_data:
@@ -238,6 +259,7 @@ def update_project(
                 changes=_project_change_set(project, before, update_data.keys()),
             )
         session.commit()
+        committed = True
         session.refresh(project)
     except IntegrityError as exc:
         session.rollback()
@@ -264,10 +286,10 @@ def update_project(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update project.",
         ) from exc
-    _publish_project_mutation(space_ctx.space_id)
-    if program is None:
-        program = _ensure_program_exists(session, project.program_id, space_ctx)
-    return _project_payload(project, program_name=program.program_name)
+    finally:
+        if committed:
+            _publish_project_mutation(space_ctx.space_id)
+    return _project_payload(project, program_name=program_name)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -280,6 +302,7 @@ def delete_project(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     project = _get_project_or_404(session, project_id, space_ctx)
     now = datetime.now(timezone.utc)
     previous_name = project.project_name

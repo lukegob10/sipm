@@ -1,9 +1,9 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, constr, field_validator
 
-from ..utils import read_text_value
+from ..utils import MAX_DB_INTEGER, ORACLE_NUMBER_MAGNITUDE_LIMIT, read_text_value
 from ..utils.enums import ConfidenceLevel, ProjectStatus, RagStatus, SolutionStatus, TaskStatus
 from .agent import (
     AgentChangeRequestBulkReview,
@@ -106,9 +106,20 @@ class TextLikeReadModel(BaseModel):
         return read_text_value(value)
 
 
+def _validate_user_display_name(value: Optional[str]) -> Optional[str]:
+    if value is not None and (not value.strip() or len(value) > 255):
+        raise ValueError("must contain text and be 255 characters or fewer")
+    return value
+
+
 class UserBase(BaseModel):
     soeid: str
     display_name: str
+
+    @field_validator("display_name")
+    @classmethod
+    def valid_display_name(cls, value):
+        return _validate_user_display_name(value)
 
 
 class UserCreate(UserBase):
@@ -180,6 +191,18 @@ class UserUpdate(BaseModel):
     capacity_fte_month: Optional[float] = None
     is_active: Optional[bool] = None
 
+    @field_validator("display_name")
+    @classmethod
+    def valid_display_name(cls, value):
+        return _validate_user_display_name(value)
+
+    @field_validator("team_tag")
+    @classmethod
+    def valid_team_tag(cls, value):
+        if value is not None and len(value.strip()) > 255:
+            raise ValueError("must be 255 characters or fewer")
+        return value
+
 
 class UserPreferenceUpdate(BaseModel):
     developer_mode_enabled: Optional[bool] = None
@@ -207,6 +230,16 @@ class UserPreferenceRead(BaseModel):
 class ApiTokenCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     expires_at: Optional[datetime] = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def _require_supported_expiration(cls, value: Optional[datetime]) -> Optional[datetime]:
+        if value is not None and value.tzinfo is not None:
+            try:
+                value.astimezone(timezone.utc)
+            except OverflowError:
+                raise ValueError("expires_at is outside the supported UTC range") from None
+        return value
 
     @field_validator("name")
     @classmethod
@@ -397,12 +430,19 @@ class ProjectBase(BaseModel):
     status: Optional[ProjectStatus] = None
     description: Optional[str] = None
     success_criteria: Optional[str] = None
-    sponsor: Optional[str] = None
-    sponsor_user_soeid: Optional[str] = None
-    owner: Optional[str] = None
-    owner_user_soeid: Optional[str] = None
+    sponsor: Optional[str] = Field(default=None, max_length=255)
+    sponsor_user_soeid: Optional[str] = Field(default=None, max_length=255)
+    owner: Optional[str] = Field(default=None, max_length=255)
+    owner_user_soeid: Optional[str] = Field(default=None, max_length=255)
     strategic_objective: Optional[str] = None
     priority: Optional[int] = None
+
+    @field_validator("function", "area")
+    @classmethod
+    def project_metadata_fits_column(cls, value):
+        if value is not None and len(value.strip()) > 255:
+            raise ValueError("must be 255 characters or fewer")
+        return value
 
 
 class ProjectCreate(ProjectBase):
@@ -413,7 +453,12 @@ class ProjectCreate(ProjectBase):
 
 
 class ProjectUpdate(ProjectBase):
-    pass
+    @field_validator("status", "priority", "sponsor")
+    @classmethod
+    def required_fields_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class ProjectRead(TextLikeReadModel):
@@ -453,17 +498,17 @@ class SolutionBase(BaseModel):
     success_criteria: Optional[str] = None
     problem_statement: Optional[str] = None
     escalation: Optional[str] = Field(default=None, max_length=255)
-    owner: Optional[str] = None
-    owner_user_soeid: Optional[str] = None
-    assignee: Optional[str] = None
-    assignee_user_soeid: Optional[str] = None
-    approver: Optional[str] = None
-    approver_user_soeid: Optional[str] = None
-    key_stakeholder: Optional[str] = None
+    owner: Optional[str] = Field(default=None, max_length=255)
+    owner_user_soeid: Optional[str] = Field(default=None, max_length=255)
+    assignee: Optional[str] = Field(default=None, max_length=255)
+    assignee_user_soeid: Optional[str] = Field(default=None, max_length=255)
+    approver: Optional[str] = Field(default=None, max_length=255)
+    approver_user_soeid: Optional[str] = Field(default=None, max_length=255)
+    key_stakeholder: Optional[str] = Field(default=None, max_length=255)
     blockers: Optional[str] = None
     risks: Optional[str] = None
     impact_confidence: Optional[ConfidenceLevel] = None
-    rag_confidence: Optional[float] = None
+    rag_confidence: Optional[float] = Field(default=None, allow_inf_nan=False, gt=-ORACLE_NUMBER_MAGNITUDE_LIMIT, lt=ORACLE_NUMBER_MAGNITUDE_LIMIT)
     capacity_hours: Optional[int] = None
 
 
@@ -473,11 +518,18 @@ class SolutionCreate(SolutionBase):
     status: SolutionStatus = SolutionStatus.not_started
     rag_status: RagStatus = RagStatus.green
     priority: int = 3
-    owner: Optional[str] = None
+    owner: Optional[str] = Field(default=None, max_length=255)
 
 
 class SolutionUpdate(SolutionBase):
     project_id: Optional[str] = None
+
+    @field_validator("status", "owner", "assignee")
+    @classmethod
+    def required_fields_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class SolutionRead(TextLikeReadModel):
@@ -565,8 +617,8 @@ class TaskBase(BaseModel):
     status: Optional[TaskStatus] = None
     priority: Optional[int] = None
     due_date: Optional[date] = None
-    assignee: Optional[str] = None
-    assignee_user_soeid: Optional[str] = None
+    assignee: Optional[str] = Field(default=None, max_length=255)
+    assignee_user_soeid: Optional[str] = Field(default=None, max_length=255)
     estimate_hours: Optional[int] = None
     blocked: Optional[bool] = None
     blocker_note: Optional[str] = None
@@ -581,11 +633,16 @@ class TaskCreate(TaskBase):
     task_name: str
     status: TaskStatus = TaskStatus.to_do
     priority: int = 3
-    assignee: Optional[str] = None
+    assignee: Optional[str] = Field(default=None, max_length=255)
 
 
 class TaskUpdate(TaskBase):
-    pass
+    @field_validator("status", "priority")
+    @classmethod
+    def required_fields_cannot_be_null(cls, value):
+        if value is None:
+            raise ValueError("must not be null")
+        return value
 
 
 class TaskBatchUpdate(BaseModel):
@@ -594,8 +651,8 @@ class TaskBatchUpdate(BaseModel):
     priority: Optional[int] = None
     due_date: Optional[date] = None
     due_date_shift_days: Optional[int] = None
-    assignee: Optional[str] = None
-    assignee_user_soeid: Optional[str] = None
+    assignee: Optional[str] = Field(default=None, max_length=255)
+    assignee_user_soeid: Optional[str] = Field(default=None, max_length=255)
     clear_assignee: bool = False
     blocked: Optional[bool] = None
 
@@ -640,8 +697,13 @@ class UserTaskStateUpdate(BaseModel):
     @field_validator("reminder_at")
     @classmethod
     def _require_reminder_timezone(cls, value: Optional[datetime]) -> Optional[datetime]:
-        if value is not None and value.utcoffset() is None:
-            raise ValueError("reminder_at must include a timezone offset")
+        if value is not None:
+            if value.utcoffset() is None:
+                raise ValueError("reminder_at must include a timezone offset")
+            try:
+                value.astimezone(timezone.utc)
+            except OverflowError:
+                raise ValueError("reminder_at is outside the supported UTC range") from None
         return value
 
     @field_validator("private_note", mode="before")
@@ -690,20 +752,31 @@ class RepositoryInventoryItemRead(BaseModel):
     last_updated_at: Optional[datetime] = None
 
 
+def _validate_team_name(value: Optional[str]) -> Optional[str]:
+    if value is not None and (not value.strip() or len(value) > 255):
+        raise ValueError("must contain text and be 255 characters or fewer")
+    return value
+
+
 class TeamMemberBase(BaseModel):
   member_name: Optional[str] = None
-  role: Optional[str] = None
-  capacity_override: Optional[int] = None
-  capacity_unit: Optional[str] = None
+  role: Optional[str] = Field(default=None, max_length=255)
+  capacity_override: Optional[int] = Field(default=None, ge=-MAX_DB_INTEGER - 1, le=MAX_DB_INTEGER)
+  capacity_unit: Optional[str] = Field(default=None, max_length=255)
   hours_capacity: Optional[int] = None
   capacity_fte_month: Optional[float] = None
-  points_capacity: Optional[int] = None
-  percent_capacity: Optional[float] = None
+  points_capacity: Optional[int] = Field(default=None, ge=-MAX_DB_INTEGER - 1, le=MAX_DB_INTEGER)
+  percent_capacity: Optional[float] = Field(default=None, allow_inf_nan=False, gt=-ORACLE_NUMBER_MAGNITUDE_LIMIT, lt=ORACLE_NUMBER_MAGNITUDE_LIMIT)
+
+  @field_validator("member_name")
+  @classmethod
+  def validate_member_name(cls, value):
+    return _validate_team_name(value)
 
 
 class TeamMemberCreate(TeamMemberBase):
   member_name: str
-  role: str = "member"
+  role: str = Field(default="member", max_length=255)
 
 
 class TeamMemberUpdate(TeamMemberBase):
@@ -729,18 +802,23 @@ class TeamMemberRead(BaseModel):
 
 class TeamBase(BaseModel):
   name: Optional[str] = None
-  description: Optional[str] = None
-  lead: Optional[str] = None
+  description: Optional[str] = Field(default=None, max_length=255)
+  lead: Optional[str] = Field(default=None, max_length=255)
   default_capacity_per_week: Optional[int] = None
   default_capacity_fte_month: Optional[float] = None
-  capacity_unit: Optional[str] = None
+  capacity_unit: Optional[str] = Field(default=None, max_length=255)
+
+  @field_validator("name")
+  @classmethod
+  def validate_name(cls, value):
+    return _validate_team_name(value)
 
 
 class TeamCreate(TeamBase):
   name: str
   default_capacity_per_week: int = 0
   default_capacity_fte_month: float = 0.0
-  capacity_unit: str = "fte_month"
+  capacity_unit: str = Field(default="fte_month", max_length=255)
 
 
 class TeamUpdate(TeamBase):

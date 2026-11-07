@@ -1,18 +1,14 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+import { parseDateOnly } from "../../utils/date-only.js";
+
 function parseDateInputValue(value) {
   const raw = String(value || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  const [yearText, monthText, dayText] = raw.split("-");
-  const year = Number(yearText);
-  const month = Number(monthText);
-  const day = Number(dayText);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
-  const date = new Date(year, month - 1, day);
-  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
-  return date;
+  return parseDateOnly(raw);
 }
 
 function formatDateInputValue(date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return `${String(date.getFullYear()).padStart(4, "0")}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function defaultGanttWindow() {
@@ -31,7 +27,7 @@ function normalizeWindow(windowState) {
   const to = String(windowState?.to || fallback.to);
   const fromDate = parseDateInputValue(from);
   const toDate = parseDateInputValue(to);
-  if (!fromDate || !toDate || fromDate.getTime() > toDate.getTime()) {
+  if (!fromDate || !toDate || fromDate.dayNumber > toDate.dayNumber) {
     return fallback;
   }
   return { from, to };
@@ -164,8 +160,15 @@ export function createGanttRouteController({
     if (!task) return;
     const solution = (state.solutions || []).find((row) => row.solution_id === task.solution_id);
     if (!solution) return;
-    openSolutionModal(solution, "tasks");
-    fillTaskForm(task);
+    const context = captureEntityMutationContext(state);
+    const opened = openSolutionModal(solution, "tasks");
+    if (opened instanceof Promise) void opened.then((ok) => {
+      if (!ok || !isEntityMutationContextCurrent(state, context)
+          || els.solutionForm?.querySelector('[name="solution_id"]')?.value !== solution.solution_id) return;
+      const latest = state.tasks.find((item) => item.task_id === task.task_id && item.solution_id === solution.solution_id);
+      if (latest) fillTaskForm(latest);
+    });
+    else if (opened !== false) fillTaskForm(task);
   }
 
   function openGanttItem(type, id) {

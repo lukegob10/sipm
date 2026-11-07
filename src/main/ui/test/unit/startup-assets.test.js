@@ -42,20 +42,23 @@ describe("startup assets", () => {
       "routes/spaces/interactions.js", "routes/spaces/render.js",
       "routes/master/interactions.js",
       "routes/master/quickstart.js",
+      "routes/master/filters.js",
       "routes/tasks-workbench/bulk-actions.js",
       "routes/tasks-workbench/drawer.js",
       "routes/tasks-workbench/interactions.js",
     ]) {
       expect(graph.has(resolve(root, deferred)), deferred).toBe(false);
     }
-    // Baseline commit: 41 static modules, 547,782 LF-normalized bytes. Allow bounded shell growth.
-    expect(graph.size).toBeLessThanOrEqual(37);
-    expect([...graph.values()].reduce((sum, bytes) => sum + bytes, 0)).toBeLessThan(425_000);
+    // Baseline: 41 modules, 547,782 bytes. Allow bounded growth for session,
+    // document, calendar, entity-edit, and modal safeguards while retaining lazy routes.
+    expect(graph.size).toBeLessThanOrEqual(38);
+    expect([...graph.values()].reduce((sum, bytes) => sum + bytes, 0)).toBeLessThan(477_000);
   });
 
   it.each([
     ["master.js", "master/interactions.js"],
     ["master.js", "master/quickstart.js"],
+    ["master.js", "master/filters.js"],
     ["spaces.js", "spaces/interactions.js"],
     ["spaces.js", "spaces/render.js"],
     ["access.js", "spaces/interactions.js"],

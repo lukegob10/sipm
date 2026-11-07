@@ -63,7 +63,7 @@ _access_minutes = _int_env("SIPM_ACCESS_MINUTES")
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 if _access_minutes is None else _access_minutes
 DELEGATED_TOKEN_EXPIRE_MINUTES = _int_env_with_default("SIPM_DELEGATED_MINUTES", 10)
 SESSION_IDLE_MINUTES = _int_env_with_default("SIPM_SESSION_IDLE_MINUTES", 30)
-SESSION_IDLE_WARNING_SECONDS = 60
+SESSION_IDLE_WARNING_SECONDS = min(60, SESSION_IDLE_MINUTES * 30)
 SESSION_ACTIVITY_HEARTBEAT_SECONDS = 15
 _refresh_minutes = _int_env("SIPM_REFRESH_MINUTES")
 _refresh_days = _int_env("SIPM_REFRESH_DAYS")
@@ -121,6 +121,8 @@ def validate_auth_configuration() -> None:
         )
     if IS_NON_DEV and SECRET_KEY == DEFAULT_DEV_SECRET:
         raise RuntimeError("SIPM_SECRET_KEY must be set in non-dev environments.")
+    if IS_NON_DEV and (not SECRET_KEY.strip() or len(SECRET_KEY.encode("utf-8")) < 32):
+        raise RuntimeError("SIPM_SECRET_KEY must contain at least 32 bytes in non-dev environments.")
     if IS_NON_DEV and not SECURE_COOKIES:
         raise RuntimeError("SIPM_SECURE_COOKIES must be true in non-dev environments.")
     if IS_NON_DEV and ALLOW_SELF_REGISTER:
@@ -132,6 +134,10 @@ def validate_auth_configuration() -> None:
     if COOKIE_SAMESITE == "none" and not SECURE_COOKIES:
         raise RuntimeError(
             "SIPM_COOKIE_SAMESITE=none requires SIPM_SECURE_COOKIES=true."
+        )
+    if IS_NON_DEV and COOKIE_SAMESITE == "none":
+        raise RuntimeError(
+            "SIPM_COOKIE_SAMESITE must be lax or strict in non-dev environments."
         )
     try:
         bcrypt.gensalt(rounds=BCRYPT_ROUNDS)

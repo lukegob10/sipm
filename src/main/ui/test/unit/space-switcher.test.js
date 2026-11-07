@@ -103,6 +103,29 @@ describe("space switcher controller", () => {
     expect(document.activeElement).toBe(els.spaceSwitcherTrigger);
   });
 
+  it("finds spaces by their displayed names and descriptions", () => {
+    const { controller, els, state } = buildHarness();
+    state.spaces.push(
+      { space_id: "space-p", name: "USER1 Workspace", space_kind: "personal", owner_user_id: "user-1" },
+      { space_id: "lobby", name: "Lobby", space_kind: "lobby" },
+    );
+    state.spaceRecentIds = ["space-p", "lobby"];
+
+    state.spaceSwitcherQuery = "personal";
+    controller.renderSpaceSwitcher();
+    expect(els.spaceSwitcherAllList.querySelector('[data-space-switch="space-p"]')).not.toBeNull();
+    expect(els.spaceSwitcherRecentList.querySelector('[data-space-switch="space-p"]')).not.toBeNull();
+
+    state.spaceSwitcherQuery = "space access";
+    controller.renderSpaceSwitcher();
+    expect(els.spaceSwitcherAllList.querySelector('[data-space-switch="lobby"]')).not.toBeNull();
+    expect(els.spaceSwitcherRecentList.querySelector('[data-space-switch="lobby"]')).not.toBeNull();
+
+    state.spaceSwitcherQuery = "join or manage";
+    controller.renderSpaceSwitcher();
+    expect(els.spaceSwitcherAllList.querySelector('[data-space-switch="lobby"]')).not.toBeNull();
+  });
+
   it("returns focus to the trigger after a successful space switch", async () => {
     const { controller, els, state } = buildHarness(true);
     state.spaceSwitcherOpen = true;

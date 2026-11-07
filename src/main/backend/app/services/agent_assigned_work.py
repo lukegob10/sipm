@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
+from heapq import nsmallest
+from math import isfinite
 from typing import Any
 
 from fastapi import status
-from sqlalchemy import and_, func
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import Program, Project, Solution, Task
@@ -50,20 +53,24 @@ def _cursor_position(item: AgentAssignedWorkItemRead) -> dict[str, Any]:
 
 def _cursor_sort_key(position: dict[str, Any]) -> tuple[int, float, str, int, str, str]:
     try:
-        task_id = str(position["task_id"]).strip()
-        task_name = str(position["task_name"])
+        task_id = position["task_id"]
+        task_name = position["task_name"]
         due_date = str(position["due_date"])
-        if not task_id or not task_name or not due_date:
-            raise ValueError("cursor fields are empty")
+        if not isinstance(task_id, str) or not task_id.strip() or not isinstance(task_name, str) or not due_date:
+            raise ValueError("cursor fields are invalid")
+        urgency = float(position["urgency"])
+        if not isfinite(urgency):
+            raise ValueError("cursor urgency is invalid")
+        task_id = task_id.strip()
         return (
             int(position["attention"]),
-            float(position["urgency"]),
+            urgency,
             due_date,
             int(position["priority"]),
             task_name,
             task_id,
         )
-    except (KeyError, TypeError, ValueError) as exc:
+    except (KeyError, OverflowError, TypeError, ValueError) as exc:
         raise security_http_exception(
             status_code=status.HTTP_400_BAD_REQUEST,
             code="INVALID_CURSOR",
@@ -91,55 +98,70 @@ def list_agent_assigned_work(
         "space_id": space_ctx.space_id,
         "assignee_user_soeid": normalized_soeid,
     }
-    rows = (
-        session.query(Task, Solution, Project, Program)
-        .join(Solution, Solution.solution_id == Task.solution_id)
-        .join(Project, Project.project_id == Solution.project_id)
-        .outerjoin(
-            Program,
-            and_(
-                Program.program_id == Project.program_id,
-                Program.space_id == space_ctx.space_id,
-            ),
-        )
-        .filter(Task.space_id == space_ctx.space_id)
-        .filter(Task.deleted_at.is_(None))
-        .filter(Solution.space_id == space_ctx.space_id)
-        .filter(Solution.deleted_at.is_(None))
-        .filter(Project.space_id == space_ctx.space_id)
-        .filter(Project.deleted_at.is_(None))
-        .filter(Task.project_id == Project.project_id)
-        .filter(Task.status.notin_(_CLOSED_TASK_STATUSES))
-        .filter(func.lower(Task.assignee_user_soeid) == normalized_soeid)
-        .all()
-    )
-
-    records: list[AgentAssignedWorkItemRead] = []
-    for task, solution, project, program in rows:
-        task_read = AgentTaskRead.model_validate(
-            task_payload(task, solution_repo_url=solution.github_repo_url)
-        )
-        records.append(
-            AgentAssignedWorkItemRead(
-                task=task_read,
-                program_id=project.program_id,
-                program_name=program.program_name if program else None,
-                project_name=project.project_name,
-                solution_name=solution.solution_name,
-                needs_attention=bool(task_read.is_overdue or task.blocked),
-            )
-        )
-
-    records.sort(key=_sort_key)
+    position = None
+    as_of = datetime.now(timezone.utc).date()
     if cursor:
         position = decode_position_cursor(
             cursor,
             scope=ASSIGNED_WORK_CURSOR_SCOPE,
             filters=filters,
         )
-        cursor_key = _cursor_sort_key(position)
-        records = [record for record in records if _sort_key(record) > cursor_key]
+        if "as_of" in position:
+            try:
+                as_of = date.fromisoformat(position["as_of"])
+            except (TypeError, ValueError) as exc:
+                raise security_http_exception(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    code="INVALID_CURSOR",
+                    message="Cursor is invalid for this request",
+                ) from exc
+    rows = (
+        session.query(
+            Task,
+            Solution.github_repo_url,
+            Solution.solution_name,
+            Project.project_name,
+            Program.program_id,
+            Program.program_name,
+        )
+        .join(Solution, Solution.solution_id == Task.solution_id)
+        .join(Project, Project.project_id == Solution.project_id)
+        .join(Program, Program.program_id == Project.program_id)
+        .filter(Task.space_id == space_ctx.space_id)
+        .filter(Task.deleted_at.is_(None))
+        .filter(Solution.space_id == space_ctx.space_id)
+        .filter(Solution.deleted_at.is_(None))
+        .filter(Project.space_id == space_ctx.space_id)
+        .filter(Project.deleted_at.is_(None))
+        .filter(Program.space_id == space_ctx.space_id)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Task.project_id == Project.project_id)
+        .filter(Task.status.notin_(_CLOSED_TASK_STATUSES))
+        .filter(func.lower(func.trim(Task.assignee_user_soeid)) == normalized_soeid)
+        .yield_per(250)
+    )
 
+    cursor_key = _cursor_sort_key(position) if position is not None else None
+
+    def candidates():
+        for task, repo_url, solution_name, project_name, program_id, program_name in rows:
+            task_read = AgentTaskRead.model_validate(
+                task_payload(task, solution_repo_url=repo_url, actionability_date=as_of)
+            )
+            item = AgentAssignedWorkItemRead(
+                task=task_read,
+                program_id=program_id,
+                program_name=program_name,
+                project_name=project_name,
+                solution_name=solution_name,
+                needs_attention=bool(task_read.is_overdue or task.blocked),
+            )
+            if cursor_key is None or _sort_key(item) > cursor_key:
+                yield item
+
+    # Urgency is computed in Python, so all candidates must be inspected, but
+    # only a page and one look-ahead item need to be retained for sorting.
+    records = nsmallest(limit + 1, candidates(), key=_sort_key)
     has_more = len(records) > limit
     page = records[:limit]
     next_cursor = None
@@ -147,7 +169,7 @@ def list_agent_assigned_work(
         next_cursor = encode_position_cursor(
             scope=ASSIGNED_WORK_CURSOR_SCOPE,
             filters=filters,
-            position=_cursor_position(page[-1]),
+            position={**_cursor_position(page[-1]), "as_of": as_of.isoformat()},
         )
     return AgentAssignedWorkListRead(
         space_id=space_ctx.space_id,

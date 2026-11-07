@@ -64,10 +64,13 @@ def get_public_program_dashboard(space_slug: str, session: Session = Depends(get
     solutions = (
         session.query(Solution)
         .join(Project, Project.project_id == Solution.project_id)
+        .join(Program, Program.program_id == Project.program_id)
         .filter(Solution.deleted_at.is_(None))
         .filter(Solution.space_id == space.space_id)
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space.space_id)
+        .filter(Program.deleted_at.is_(None))
+        .filter(Program.space_id == space.space_id)
         .order_by(Solution.priority.asc(), Solution.created_at.asc())
         .all()
     )

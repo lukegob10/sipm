@@ -1,4 +1,5 @@
 import { renderRouteState } from "../ui/route-state.js";
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../utils/form-state.js";
 
 const kanbanState = {
   boundRoots: new WeakSet(),
@@ -6,6 +7,8 @@ const kanbanState = {
   draggedSolutionId: "",
   draggedProjectId: "",
   draggedPhaseId: "",
+  dragContext: null,
+  renderContext: null,
 };
 
 function esc(value) {
@@ -36,13 +39,25 @@ function clearKanbanDragState(root) {
   kanbanState.draggedSolutionId = "";
   kanbanState.draggedProjectId = "";
   kanbanState.draggedPhaseId = "";
+  kanbanState.dragContext = null;
   root?.querySelectorAll(".is-dragging, .is-drop-eligible, .is-drop-target").forEach((element) => {
     element.classList.remove("is-dragging", "is-drop-eligible", "is-drop-target");
   });
 }
 
+function isKanbanContextCurrent(snapshot) {
+  const state = kanbanState.ctx?.state;
+  return !!snapshot && state === snapshot.state && state.authed === snapshot.authed
+    && state.currentView === snapshot.view && isEntityMutationContextCurrent(state, snapshot.context);
+}
+
+function captureKanbanContext() {
+  const state = kanbanState.ctx?.state;
+  return state ? { state, authed: state.authed, view: state.currentView, context: captureEntityMutationContext(state) } : null;
+}
+
 function isValidPhaseDrop(column) {
-  if (!column || !kanbanState.draggedSolutionId) return false;
+  if (!column || !kanbanState.draggedSolutionId || !isKanbanContextCurrent(kanbanState.dragContext)) return false;
   return column.dataset.projectId === kanbanState.draggedProjectId
     && !!column.dataset.phaseId
     && column.dataset.phaseId !== kanbanState.draggedPhaseId;
@@ -90,6 +105,7 @@ function bindKanbanEvents() {
   if (!viewRoot || kanbanState.boundRoots.has(viewRoot)) return;
   kanbanState.boundRoots.add(viewRoot);
   viewRoot.addEventListener("click", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     const actionEl = event.target.closest("[data-kanban-action]");
     if (!actionEl) return;
     const action = actionEl.getAttribute("data-kanban-action") || "";
@@ -110,6 +126,7 @@ function bindKanbanEvents() {
     }
   });
   viewRoot.addEventListener("change", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     const phaseSelect = event.target.closest("[data-kanban-phase-select]");
     if (!phaseSelect) return;
     const restoreFocus = phaseSelect.dataset.kanbanKeyboardSelection === "true"
@@ -118,20 +135,23 @@ function bindKanbanEvents() {
     const solutionId = phaseSelect.getAttribute("data-solution-id") || "";
     const phaseId = phaseSelect.value || "";
     if (solutionId && phaseId) {
+      const context = captureKanbanContext();
       const move = kanbanState.ctx?.moveKanbanSolutionToPhase?.(solutionId, phaseId);
       if (restoreFocus && move && typeof move.then === "function") {
-        void Promise.resolve(move).finally(() => {
-          if (!viewRoot.isConnected) return;
+        const restore = () => {
+          if (!viewRoot.isConnected || !isKanbanContextCurrent(context)) return;
           const activeElement = document.activeElement;
           if (activeElement !== document.body && activeElement !== phaseSelect) return;
           const replacement = [...viewRoot.querySelectorAll("[data-kanban-phase-select]")]
             .find((select) => select.getAttribute("data-solution-id") === solutionId);
           if (replacement && !replacement.disabled) replacement.focus();
-        });
+        };
+        void Promise.resolve(move).then(restore, restore);
       }
     }
   });
   viewRoot.addEventListener("keydown", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     const phaseSelect = event.target.closest("[data-kanban-phase-select]");
     if (!phaseSelect) return;
     const selectionKeys = [" ", "Spacebar", "ArrowDown", "ArrowUp", "Home", "End", "PageDown", "PageUp", "Enter"];
@@ -140,22 +160,26 @@ function bindKanbanEvents() {
     }
   });
   viewRoot.addEventListener("focusin", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     const phaseSelect = event.target.closest("[data-kanban-phase-select]");
     if (phaseSelect) populateKanbanPhaseOptions(phaseSelect);
   });
   viewRoot.addEventListener("pointerdown", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     const phaseSelect = event.target.closest("[data-kanban-phase-select]");
     if (!phaseSelect) return;
     delete phaseSelect.dataset.kanbanKeyboardSelection;
     populateKanbanPhaseOptions(phaseSelect);
   });
   viewRoot.addEventListener("dragstart", (event) => {
+    if (!isKanbanContextCurrent(kanbanState.renderContext)) return;
     if (event.target.closest("[data-kanban-phase-select]")) return;
     const card = event.target.closest('[data-kanban-draggable="solution"]');
     if (!card || card.getAttribute("draggable") !== "true") return;
     kanbanState.draggedSolutionId = card.dataset.solutionId || "";
     kanbanState.draggedProjectId = card.dataset.projectId || "";
     kanbanState.draggedPhaseId = card.dataset.currentPhase || "";
+    kanbanState.dragContext = captureKanbanContext();
     card.classList.add("is-dragging");
     showEligiblePhaseDrops(viewRoot);
     if (event.dataTransfer) {
@@ -224,7 +248,14 @@ function renderSolutionSwimlane(items, phases, projectId, ctx) {
 export function renderKanban(ctx) {
   const { state, els, filteredSolutionsForKanban } = ctx;
   if (!els.kanbanBoard) return;
+  const active = document.activeElement;
+  const previousContext = kanbanState.renderContext;
+  const focusedPhase = previousContext?.state === state && isKanbanContextCurrent(previousContext)
+    && els.kanbanBoard.contains(active) && active.matches("[data-kanban-phase-select]")
+    ? { solutionId: active.getAttribute("data-solution-id"), keyboard: active.dataset.kanbanKeyboardSelection }
+    : null;
   kanbanState.ctx = ctx;
+  kanbanState.renderContext = captureKanbanContext();
   bindKanbanEvents();
 
   const list = filteredSolutionsForKanban();
@@ -251,6 +282,14 @@ export function renderKanban(ctx) {
     title: "The board is clear",
     message: "No solutions match the selected project and owner filters.",
   });
+  if (focusedPhase && isKanbanContextCurrent(previousContext) && isKanbanContextCurrent(kanbanState.renderContext)) {
+    const replacement = [...els.kanbanBoard.querySelectorAll("[data-kanban-phase-select]")]
+      .find((element) => element.getAttribute("data-solution-id") === focusedPhase.solutionId);
+    if (replacement && !replacement.disabled) {
+      if (focusedPhase.keyboard) replacement.dataset.kanbanKeyboardSelection = focusedPhase.keyboard;
+      replacement.focus({ preventScroll: true });
+    }
+  }
 }
 
 export function render(ctx) {

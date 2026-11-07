@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const deferredAssets = /\/js\/routes\/(?:spaces\/(?:interactions|render)|master\/(?:interactions|quickstart))\.js/;
+const deferredAssets = /\/js\/routes\/(?:spaces\/(?:interactions|render)|master\/(?:interactions|quickstart|filters))\.js/;
 
 async function registerMember(page, { personal = true } = {}) {
   const soeid = `entry${Date.now()}${Math.random().toString(16).slice(2, 6)}`.slice(0, 24);
@@ -228,6 +228,24 @@ test("Deliverables creates and binds its query control only after its renderer i
   expect(await page.evaluate(() => Object.values(localStorage).some((value) => value.includes("project:unmatched")))).toBe(true);
 });
 
+test("direct Deliverables entry restores its query and filters data after the route loads", async ({ page }) => {
+  await registerMember(page);
+  for (const name of ["Entry Alpha", "Entry Beta"]) {
+    const response = await page.request.post("/project-manager/api/programs", { data: { program_name: name } });
+    expect(response.ok()).toBeTruthy();
+  }
+  await page.goto("/project-manager/");
+  const search = page.locator("#filter-query");
+  await expect(page.locator("#master-table")).toContainText("Entry Alpha");
+  await search.fill("program:Entry Alpha");
+  await search.press("Enter");
+  await expect(page.locator("#master-table")).not.toContainText("Entry Beta");
+  await page.reload();
+  await expect(search).toHaveValue("program:Entry Alpha");
+  await expect(page.locator("#master-table")).toContainText("Entry Alpha");
+  await expect(page.locator("#master-table")).not.toContainText("Entry Beta");
+});
+
 test("Team Capacity preserves draft input while its first renderer import is pending", async ({ page }) => {
   await registerMember(page);
   let releaseModule;
@@ -332,6 +350,41 @@ test("first Create from Calendar and task drawer shortcuts work without visiting
   await expect(row).toBeFocused();
 });
 
+test("Create Task from My Work waits for existing solutions", async ({ page }) => {
+  await registerMember(page);
+  const preferences = await page.request.patch("/project-manager/api/users/me/preferences", { data: { developer_mode_enabled: true } });
+  expect(preferences.ok()).toBe(true);
+  const programResponse = await page.request.post("/project-manager/api/programs", { data: { program_name: "Create Task Program" } });
+  expect(programResponse.ok()).toBe(true);
+  const program = await programResponse.json();
+  const projectResponse = await page.request.post("/project-manager/api/projects", { data: { program_id: program.program_id, project_name: "Create Task Project" } });
+  expect(projectResponse.ok()).toBe(true);
+  const project = await projectResponse.json();
+  const solutionResponse = await page.request.post(`/project-manager/api/projects/${project.project_id}/solutions`, { data: { solution_name: "Existing Solution", version: "1.0" } });
+  expect(solutionResponse.ok()).toBe(true);
+  const solution = await solutionResponse.json();
+  let releaseSolutions;
+  const solutionsHeld = new Promise((resolve) => { releaseSolutions = resolve; });
+  await page.route("**/api/solutions", async (route) => {
+    await solutionsHeld;
+    await route.continue();
+  });
+  try {
+    const solutionsRequest = page.waitForRequest("**/api/solutions");
+    await page.goto("/project-manager/my-work");
+    await expect(page.locator("#view-my-work")).toHaveClass(/active/);
+    await page.locator("#topbar-create-toggle").click();
+    await page.locator("#topbar-create-task").click();
+    await solutionsRequest;
+    await expect(page.locator("#solution-modal")).toBeHidden();
+    releaseSolutions();
+    await expect(page.locator("#task-form")).toBeVisible();
+    await expect(page.locator('#solution-form [name="solution_id"]')).toHaveValue(solution.solution_id);
+  } finally {
+    releaseSolutions();
+  }
+});
+
 test("developer direct links load their routes with shared forms ready", async ({ page }) => {
   await registerMember(page);
   await recordBindings(page);
@@ -372,7 +425,9 @@ test("Spaces and Platform Access reuse governance forms across route entries", a
     const payload = await response.json();
     await route.fulfill({ json: { ...payload, active_space: { ...payload.active_space, is_global_admin: true } } });
   });
-  await page.route("**/api/users/global-admins?*", (route) => route.fulfill({ json: [] }));
+  let releaseAdmins;
+  const adminsHeld = new Promise((resolve) => { releaseAdmins = resolve; });
+  await page.route("**/api/users/global-admins?*", async (route) => { await adminsHeld; await route.fulfill({ json: [] }); });
   await page.goto("/project-manager/");
   await expect(page.locator("#master-table table")).toBeVisible();
   await page.locator('.nav-btn[data-view="spaces"]').click();
@@ -383,13 +438,42 @@ test("Spaces and Platform Access reuse governance forms across route entries", a
   });
   await expect(page.locator("#current-route-label")).toHaveText("Platform Access");
   await expect(page.locator('[data-space-action="open-create-space-modal"]').first()).toBeVisible();
-  await page.locator('[data-space-action="open-create-space-modal"]').first().click();
+  const createSpace = page.locator('[data-space-action="open-create-space-modal"]').first();
+  await createSpace.click();
   await expect(page.locator("#space-create-modal")).toBeVisible();
+  await expect(page.locator('#space-create-modal [name="name"]')).toBeFocused();
+  const oldCreateSpace = await createSpace.elementHandle();
+  releaseAdmins();
+  await expect.poll(() => oldCreateSpace.evaluate((el) => el.isConnected)).toBe(false);
   await page.locator("#space-create-modal-close").click();
   await expect(page.locator("#space-create-modal")).toBeHidden();
+  await expect(createSpace).toBeFocused();
   await page.goBack();
   await expect(page.locator("#current-route-label")).toHaveText("Space Governance");
   const bindings = await page.evaluate(() => window.startupBindings);
   expect(bindings["space-create-modal-form:submit"]).toBe(1);
   expect(bindings["space-member-modal-form:submit"]).toBe(1);
+});
+
+
+test("governance refresh preserves focus after closing Create Space", async ({ page }) => {
+  await registerMember(page);
+  await page.route("**/api/auth/bootstrap", async (route) => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    await route.fulfill({ json: { ...payload, active_space: { ...payload.active_space, is_global_admin: true } } });
+  });
+  let releaseAdmins;
+  const adminsHeld = new Promise((resolve) => { releaseAdmins = resolve; });
+  await page.route("**/api/users/global-admins?*", async (route) => { await adminsHeld; await route.fulfill({ json: [] }); });
+  await page.goto("/project-manager/access");
+  const createSpace = page.locator('[data-space-action="open-create-space-modal"]').first();
+  await createSpace.click();
+  await expect(page.locator('#space-create-modal [name="name"]')).toBeFocused();
+  const oldCreateSpace = await createSpace.elementHandle();
+  await page.locator("#space-create-modal-close").click();
+  await expect(createSpace).toBeFocused();
+  releaseAdmins();
+  await expect.poll(() => oldCreateSpace.evaluate((el) => el.isConnected)).toBe(false);
+  await expect(createSpace).toBeFocused();
 });

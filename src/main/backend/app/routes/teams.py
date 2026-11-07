@@ -1,21 +1,24 @@
+import math
 from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from ..deps import (
     current_space as current_space_dep,
     current_user as current_user_dep,
     get_db,
     require_space_role,
+    require_non_agent_write,
 )
 from ..models import SpaceMembership, Team, TeamMember, User
 from ..schemas import TeamCreate, TeamRead, TeamUpdate, TeamMemberCreate, TeamMemberRead, TeamMemberUpdate
 from ..services.spaces import SpaceContext
 from ..services.smart_cache import cached_call, invalidate_space, make_scope_token
+from ..utils import MAX_DB_INTEGER
 
 router = APIRouter()
 _TEAMS_LIST_TTL_SECONDS = 20
@@ -57,9 +60,14 @@ def _space_user_membership_query(session: Session, space_ctx: SpaceContext):
 def _invalidate_user_caches_for_user_memberships(session: Session, user_ids: set[str]) -> None:
     if not user_ids:
         return
+    sorted_user_ids = sorted(user_ids)
+    membership_filter = or_(*(
+        SpaceMembership.user_id.in_(sorted_user_ids[index:index + 500])
+        for index in range(0, len(sorted_user_ids), 500)
+    ))
     rows = (
         session.query(SpaceMembership.space_id)
-        .filter(SpaceMembership.user_id.in_(sorted(user_ids)))
+        .filter(membership_filter)
         .filter(SpaceMembership.deleted_at.is_(None))
         .distinct()
         .all()
@@ -110,12 +118,19 @@ def _active_member(session: Session, member_id: str, team_id: str, space_ctx: Sp
     return member
 
 
+def _checked_hours(value: int) -> int:
+    hours = max(int(value), 0)
+    if hours > MAX_DB_INTEGER:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Capacity is too large")
+    return hours
+
+
 def _fte_from_hours(hours: Optional[int]) -> float:
-    return round(max(float(hours or 0), 0.0) / _HOURS_PER_FTE_CAPACITY, 3)
+    return round(_checked_hours(hours or 0) / _HOURS_PER_FTE_CAPACITY, 3)
 
 
 def _hours_from_fte(fte_month: Optional[float]) -> int:
-    return max(int(round(max(float(fte_month or 0.0), 0.0) * _HOURS_PER_FTE_CAPACITY)), 0)
+    return _checked_hours(round(max(float(fte_month or 0.0), 0.0) * _HOURS_PER_FTE_CAPACITY))
 
 
 def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
@@ -142,12 +157,22 @@ def _is_team_name_conflict_integrity_error(exc: IntegrityError) -> bool:
     return "tb_ta_pm_teams" in text or "team" in text
 
 
+def _validate_capacity(value: Optional[float], *, convert_to_hours: bool = False) -> None:
+    if value is not None and (
+        not math.isfinite(value)
+        or (convert_to_hours and not math.isfinite(value * _HOURS_PER_FTE_CAPACITY))
+    ):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Capacity must be finite")
+
+
 def _member_capacity_fields(payload: TeamMemberCreate | TeamMemberUpdate) -> tuple[Optional[int], Optional[float]]:
+    _validate_capacity(payload.capacity_fte_month, convert_to_hours=True)
+    _validate_capacity(payload.percent_capacity)
     if payload.capacity_fte_month is not None:
         fte = round(max(float(payload.capacity_fte_month), 0.0), 3)
         return _hours_from_fte(fte), fte
     if payload.hours_capacity is not None:
-        hours = max(int(payload.hours_capacity), 0)
+        hours = _checked_hours(payload.hours_capacity)
         return hours, _fte_from_hours(hours)
     return None, None
 
@@ -155,12 +180,13 @@ def _member_capacity_fields(payload: TeamMemberCreate | TeamMemberUpdate) -> tup
 def _team_capacity_defaults(
     payload: TeamCreate | TeamUpdate,
 ) -> tuple[Optional[int], Optional[float]]:
+    _validate_capacity(payload.default_capacity_fte_month, convert_to_hours=True)
     provided_fields = getattr(payload, "model_fields_set", set())
     if "default_capacity_fte_month" in provided_fields:
         fte = round(max(float(payload.default_capacity_fte_month or 0.0), 0.0), 3)
         return _hours_from_fte(fte), fte
     if "default_capacity_per_week" in provided_fields:
-        hours = max(int(payload.default_capacity_per_week or 0), 0)
+        hours = _checked_hours(payload.default_capacity_per_week or 0)
         return hours, _fte_from_hours(hours)
     return None, None
 
@@ -178,14 +204,22 @@ def _team_with_members(session: Session, team: Team, space_ctx: SpaceContext) ->
 
 
 def _recompute_team_capacity(session: Session, team: Team, space_ctx: SpaceContext) -> None:
-    total = (
-        session.query(func.coalesce(func.sum(TeamMember.hours_capacity), 0))
-        .filter(TeamMember.team_id == team.team_id)
-        .filter(TeamMember.deleted_at.is_(None))
-        .filter(TeamMember.space_id == space_ctx.space_id)
-        .scalar()
-    )
-    team.default_capacity_per_week = int(total or 0)
+    try:
+        total = (
+            session.query(func.coalesce(func.sum(TeamMember.hours_capacity), 0))
+            .filter(TeamMember.team_id == team.team_id)
+            .filter(TeamMember.deleted_at.is_(None))
+            .filter(TeamMember.space_id == space_ctx.space_id)
+            .scalar()
+        )
+    except OperationalError as exc:
+        if session.get_bind().dialect.name == "sqlite" and "integer overflow" in str(exc.orig).lower():
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Team capacity is too large") from exc
+        raise
+    total_hours = int(total or 0)
+    if not -MAX_DB_INTEGER - 1 <= total_hours <= MAX_DB_INTEGER:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Team capacity is too large")
+    team.default_capacity_per_week = total_hours
     team.default_capacity_fte_month = _fte_from_hours(team.default_capacity_per_week)
     team.capacity_unit = "fte_month"
     team.updated_at = datetime.now(timezone.utc)
@@ -265,6 +299,7 @@ def create_team(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> TeamRead:
     existing = (
         session.query(Team)
@@ -291,8 +326,8 @@ def create_team(
             existing.default_capacity_fte_month = default_capacity_fte_month
         session.add(existing)
         session.commit()
-        session.refresh(existing)
         invalidate_space(space_ctx.space_id, ["teams"])
+        session.refresh(existing)
         return _team_with_members(session, existing, space_ctx)
 
     default_capacity_per_week, default_capacity_fte_month = _team_capacity_defaults(payload)
@@ -310,7 +345,6 @@ def create_team(
     try:
         session.add(team)
         session.commit()
-        session.refresh(team)
     except IntegrityError as exc:
         session.rollback()
         if _is_team_name_conflict_integrity_error(exc):
@@ -320,6 +354,7 @@ def create_team(
             ) from exc
         raise
     invalidate_space(space_ctx.space_id, ["teams"])
+    session.refresh(team)
     return _team_with_members(session, team, space_ctx)
 
 
@@ -356,8 +391,10 @@ def update_team(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> TeamRead:
     team = _lock_active_team(session, team_id, space_ctx)
+    _validate_capacity(payload.default_capacity_fte_month, convert_to_hours=True)
     old_name = team.name
     affected_user_ids: set[str] = set()
     for field in ["name", "description", "lead"]:
@@ -368,7 +405,7 @@ def update_team(
         team.default_capacity_fte_month = round(max(float(payload.default_capacity_fte_month), 0.0), 3)
         team.default_capacity_per_week = _hours_from_fte(team.default_capacity_fte_month)
     elif payload.default_capacity_per_week is not None:
-        team.default_capacity_per_week = max(int(payload.default_capacity_per_week), 0)
+        team.default_capacity_per_week = _checked_hours(payload.default_capacity_per_week)
         team.default_capacity_fte_month = _fte_from_hours(team.default_capacity_per_week)
     if payload.capacity_unit is not None:
         team.capacity_unit = payload.capacity_unit
@@ -382,7 +419,6 @@ def update_team(
     try:
         session.add(team)
         session.commit()
-        session.refresh(team)
     except IntegrityError as exc:
         session.rollback()
         if _is_team_name_conflict_integrity_error(exc):
@@ -393,6 +429,7 @@ def update_team(
         raise
     invalidate_space(space_ctx.space_id, ["teams"])
     _invalidate_user_caches_for_user_memberships(session, affected_user_ids)
+    session.refresh(team)
     return _team_with_members(session, team, space_ctx)
 
 
@@ -402,6 +439,7 @@ def delete_team(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> None:
     team = _lock_active_team(session, team_id, space_ctx)
     now = datetime.now(timezone.utc)
@@ -460,6 +498,7 @@ def create_team_member(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> TeamMemberRead:
     team = _lock_active_team(session, team_id, space_ctx)
     hours_capacity, capacity_fte_month = _member_capacity_fields(payload)
@@ -495,6 +534,7 @@ def update_team_member(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> TeamMemberRead:
     team = _lock_active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)
@@ -532,6 +572,7 @@ def delete_team_member(
     session: Session = Depends(get_db),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ) -> None:
     team = _lock_active_team(session, team_id, space_ctx)
     member = _active_member(session, member_id, team_id, space_ctx)

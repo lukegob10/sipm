@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { bindTaskRefreshDraft, restoreEditorSelections } from "../../js/shell/data-store.js";
+import { restoreEditorSelections } from "../../js/shell/data-store.js";
 import { createFormDraftGuard } from "../../js/utils/form-draft.js";
 
 function createHarness() {
@@ -24,7 +24,8 @@ function createHarness() {
   const solutionDraft = createFormDraftGuard({ form: els.solutionForm });
   projectDraft.bind();
   solutionDraft.bind();
-  const taskDraft = bindTaskRefreshDraft(els.taskForm);
+  const taskDraft = createFormDraftGuard({ form: els.taskForm });
+  taskDraft.bind();
   const fill = (form, row) => {
     form.reset();
     Object.entries(row).forEach(([key, value]) => { form.elements.namedItem(key).value = value; });
@@ -44,6 +45,7 @@ function createHarness() {
     }),
     fillTaskForm: vi.fn((task) => {
       fill(els.taskForm, task);
+      taskDraft.capture();
       els.taskForm.classList.remove("hidden");
     }),
   };
@@ -94,6 +96,17 @@ describe("editor refresh", () => {
     expect(context.openSolutionModal).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps a newly opened empty task editor visible during refresh", async () => {
+    const { context } = createHarness();
+    context.fillTaskForm({ task_id: "", task_name: "" });
+    await Promise.resolve();
+
+    restoreEditorSelections(context, "", "s1", "");
+
+    expect(context.els.taskForm.classList.contains("hidden")).toBe(false);
+    expect(context.openSolutionModal).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves a new task draft without an entity ID", async () => {
     const { context } = createHarness();
     context.fillTaskForm({ task_id: "", task_name: "" });
@@ -119,7 +132,7 @@ describe("editor refresh", () => {
     expect(context.els.projectForm.elements.namedItem("project_name").value).toBe("Fresh project");
     expect(context.els.solutionForm.elements.namedItem("solution_name").value).toBe("Fresh solution");
     expect(context.els.taskForm.elements.namedItem("task_name").value).toBe("Fresh task");
-    expect(context.openSolutionModal).toHaveBeenLastCalledWith(context.state.solutions[0], "tasks");
+    expect(context.openSolutionModal).toHaveBeenLastCalledWith(context.state.solutions[0], "tasks", { preserveNotice: true });
     expect(taskDraft.isDirty()).toBe(false);
   });
 
@@ -149,4 +162,16 @@ describe("editor refresh", () => {
     expect(taskDraft.isDirty()).toBe(false);
     expect(context.els.taskForm.elements.namedItem("task_id").value).toBe("t2");
   });
+});
+
+it("keeps saving editors and their parent open during a refresh", async () => {
+  const { context } = createHarness();
+  await Promise.resolve();
+  context.els.projectForm.setAttribute("aria-busy", "true");
+  context.els.taskForm.setAttribute("aria-busy", "true");
+  restoreEditorSelections(context, "p1", "s1", "t1");
+  expect(context.openProjectForm).toHaveBeenCalledTimes(1);
+  expect(context.openSolutionModal).toHaveBeenCalledTimes(1);
+  expect(context.fillTaskForm).toHaveBeenCalledTimes(1);
+  expect(context.els.taskForm.classList.contains("hidden")).toBe(false);
 });

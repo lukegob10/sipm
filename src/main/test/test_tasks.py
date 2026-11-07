@@ -1,8 +1,9 @@
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy import event
 
-from backend.app.models import Phase, Task
+from backend.app.models import Phase, Space, SpaceMembership, Task, User
 from backend.main import app as fastapi_app
 from backend.app import deps as deps_module
 from backend.app.services.smart_cache import clear_cache
@@ -525,6 +526,58 @@ async def test_update_task_status_logs_completed_at_audit_field(client, db_sessi
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_complete_and_reopen_task_with_oracle_empty_assignee(
+    client, db_sessionmaker, batch
+):
+    _, solution = await create_project_solution(client)
+    created_resp = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+        json={"task_name": "Unassigned Completion Task"},
+    )
+    assert created_resp.status_code == 201, created_resp.text
+    task_id = created_resp.json()["task_id"]
+
+    def oracle_empty_strings_are_null(session, _flush_context, _instances):
+        for row in session.new.union(session.dirty):
+            if isinstance(row, Task) and row.assignee == "":
+                row.assignee = None
+
+    # SQLite normally accepts an empty NOT NULL string. Reproduce Oracle's
+    # empty-string-to-NULL behavior on the actual HTTP write transaction.
+    event.listen(db_sessionmaker, "before_flush", oracle_empty_strings_are_null)
+    try:
+        if batch:
+            path = "/project-manager/api/tasks/actions/batch"
+            payload = {"task_ids": [task_id], "status": "complete", "clear_assignee": True}
+        else:
+            path = f"/project-manager/api/tasks/{task_id}"
+            payload = {"status": "complete", "assignee": "", "assignee_user_soeid": None}
+        completed_resp = await client.patch(path, json=payload)
+        assert completed_resp.status_code == 200, completed_resp.text
+        completed = completed_resp.json()[0] if batch else completed_resp.json()
+        assert completed["status"] == "complete"
+        assert completed["completed_at"] is not None
+        assert completed["assignee"] is None
+        assert completed["assignee_user_soeid"] is None
+
+        repeated = await client.patch(f"/project-manager/api/tasks/{task_id}", json={"status": "complete"})
+        assert repeated.status_code == 200, repeated.text
+        assert repeated.json()["completed_at"] == completed["completed_at"]
+
+        reopened = await client.patch(f"/project-manager/api/tasks/{task_id}", json={"status": "in_progress"})
+        assert reopened.status_code == 200, reopened.text
+        assert reopened.json()["completed_at"] is None
+        with db_sessionmaker() as session:
+            task = session.get(Task, task_id)
+            assert task.status.value == "in_progress"
+            assert task.assignee is None
+            assert task.assignee_user_soeid is None
+    finally:
+        event.remove(db_sessionmaker, "before_flush", oracle_empty_strings_are_null)
+
+
+@pytest.mark.anyio
 async def test_batch_update_tasks_preserves_inherited_repo_metadata(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
     project, _ = await create_project_solution(client)
@@ -571,6 +624,11 @@ async def test_batch_update_tasks_preserves_inherited_repo_metadata(client, db_s
 @pytest.mark.anyio
 async def test_member_can_view_task_activity(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space-task-activity", name="Task Activity Space", slug="space-task-activity"))
+        session.add(User(user_id="test-user", soeid="tu12345", email="test-user@fixture.invalid", display_name="Test User", password_hash="unused", role="global_admin", is_active=True))
+        session.add(SpaceMembership(space_id="space-task-activity", user_id="test-user", role="member", status="active"))
+        session.commit()
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -746,6 +804,11 @@ async def test_soft_deleted_solution_hides_task_reads_and_clears_task_cache(clie
 @pytest.mark.anyio
 async def test_member_can_delete_task(client, db_sessionmaker):
     seed_phases(db_sessionmaker)
+    with db_sessionmaker() as session:
+        session.add(Space(space_id="space-delete-task", name="Delete Task Space", slug="space-delete-task"))
+        session.add(User(user_id="test-user", soeid="tu12345", email="test-user@fixture.invalid", display_name="Test User", password_hash="unused", role="global_admin", is_active=True))
+        session.add(SpaceMembership(space_id="space-delete-task", user_id="test-user", role="member", status="active"))
+        session.commit()
     original_current_space = fastapi_app.dependency_overrides.get(deps_module.current_space)
     try:
         fastapi_app.dependency_overrides[deps_module.current_space] = lambda: SpaceContext(
@@ -775,3 +838,26 @@ async def test_member_can_delete_task(client, db_sessionmaker):
             fastapi_app.dependency_overrides.pop(deps_module.current_space, None)
         else:
             fastapi_app.dependency_overrides[deps_module.current_space] = original_current_space
+
+
+@pytest.mark.anyio
+async def test_batch_unblock_clears_blocker_notes_consistently(client, db_sessionmaker):
+    seed_phases(db_sessionmaker)
+    _, solution = await create_project_solution(client)
+    created = await client.post(
+        f"/project-manager/api/solutions/{solution['solution_id']}/tasks",
+        json={"task_name": "Blocked", "blocked": True, "blocker_note": "Waiting"},
+    )
+    assert created.status_code == 201, created.text
+    task_id = created.json()["task_id"]
+    result = await client.patch("/project-manager/api/tasks/actions/batch", json={"task_ids": [task_id], "blocked": False})
+    assert result.status_code == 200, result.text
+    assert result.json()[0]["blocked"] is False
+    assert result.json()[0]["blocker_note"] is None
+    with db_sessionmaker() as session:
+        task = session.get(Task, task_id)
+        task.blocker_note = "Legacy stale note"
+        session.commit()
+    result = await client.patch("/project-manager/api/tasks/actions/batch", json={"task_ids": [task_id], "blocked": False})
+    assert result.status_code == 200, result.text
+    assert result.json()[0]["blocker_note"] is None

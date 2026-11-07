@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import sqlite3
+import time
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from ..deps import current_space as current_space_dep
@@ -37,6 +40,21 @@ from ..services.usage_analytics import (
 
 
 router = APIRouter(prefix="/analytics")
+
+
+def _retryable_ingest_conflict(exc: DBAPIError) -> bool:
+    original = exc.orig
+    sqlite_code = getattr(original, "sqlite_errorcode", None)
+    if sqlite_code is not None:
+        return (sqlite_code in {sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY, sqlite3.SQLITE_CONSTRAINT_UNIQUE}
+                or sqlite_code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
+    details = original.args[0] if getattr(original, "args", ()) else None
+    oracle_code = getattr(details, "code", None)
+    if oracle_code is not None:
+        return oracle_code in {1, 60, 8177}
+    message = str(original).lower()
+    return ("unique constraint failed" in message or "ora-00001" in message
+            or "database is locked" in message or "database table is locked" in message)
 
 
 @router.post("/ingest", response_model=TelemetryIngestResultRead)
@@ -100,12 +118,20 @@ def ingest_usage_analytics(
             )
         )
 
-    if events_to_insert:
-        session.add_all(events_to_insert)
-    if samples_to_insert:
-        session.add_all(samples_to_insert)
-    update_usage_rollups(session, events=events_to_insert, samples=samples_to_insert)
-    session.commit()
+    # A concurrent first insert can collide on any rollup identity. Retry the
+    # entire transaction so raw records and all rollups stay in agreement.
+    for attempt in range(3):
+        try:
+            session.add_all(events_to_insert)
+            session.add_all(samples_to_insert)
+            update_usage_rollups(session, events=events_to_insert, samples=samples_to_insert)
+            session.commit()
+            break
+        except DBAPIError as exc:
+            session.rollback()
+            if attempt == 2 or not _retryable_ingest_conflict(exc):
+                raise
+            time.sleep(0.01 * (2 ** attempt))
 
     return TelemetryIngestResultRead(
         status="ok",

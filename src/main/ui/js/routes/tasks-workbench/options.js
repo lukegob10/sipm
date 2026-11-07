@@ -30,12 +30,26 @@ export function populateTasksWorkbenchOptions(ctx, { projectOptionsHtml = "" } =
       const assigneeUserInput = els.tasksWorkbenchForm.querySelector('[name="assignee_user_soeid"]');
       if (assigneeSel) {
         const prior = assigneeSel.value || "";
+        const unresolved = assigneeSel.querySelector('option[data-unresolved-assignee]')?.cloneNode(true);
+        const selected = assigneeSel.selectedOptions[0]?.cloneNode(true);
         assigneeSel.innerHTML = `<option value="">Unassigned</option>${userOptions}`;
-        if (prior && users.find((user) => user.soeid === prior)) {
-          assigneeSel.value = prior;
+        if (unresolved && !Array.from(assigneeSel.options).some((option) => option.value === unresolved.value)) {
+          assigneeSel.appendChild(unresolved);
         }
+        if (prior && !Array.from(assigneeSel.options).some((option) => option.value === prior) && selected) {
+          selected.dataset.unresolvedAssignee = "true";
+          selected.dataset.assigneeSoeid = prior;
+          selected.textContent = `${selected.textContent} (unavailable)`;
+          assigneeSel.appendChild(selected);
+        }
+        assigneeSel.value = prior;
         assigneeSel.onchange = () => {
-          if (assigneeUserInput) assigneeUserInput.value = assigneeSel.value || "";
+          if (assigneeUserInput) {
+            const selected = assigneeSel.selectedOptions[0];
+            assigneeUserInput.value = selected?.dataset.unresolvedAssignee
+              ? selected.dataset.assigneeSoeid || ""
+              : assigneeSel.value || "";
+          }
         };
       }
       if (assigneeUserInput) {

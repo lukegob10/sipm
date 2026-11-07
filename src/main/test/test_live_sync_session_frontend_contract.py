@@ -100,6 +100,9 @@ def test_auth_forms_disable_submit_buttons_while_requests_are_pending():
     assert "async function withPendingAuthAction(key, form, action)" in text
     assert 'button.setAttribute("aria-busy", "true");' in text
     assert 'button.removeAttribute("aria-busy");' in text
-    assert 'withPendingAuthAction("login", els.loginForm' in text
-    assert 'withPendingAuthAction("register", els.registerForm' in text
+    login = text[text.index('els.loginForm?.addEventListener("submit"'):text.index('els.registerForm?.addEventListener("submit"')]
+    register = text[text.index('els.registerForm?.addEventListener("submit"'):text.index('els.resetForm?.addEventListener("submit"')]
+    shared_gate = 'withPendingAuthAction("authenticate", [els.loginForm, els.registerForm]'
+    assert shared_gate in login
+    assert shared_gate in register
     assert 'withPendingAuthAction("reset-password", els.resetForm' in text

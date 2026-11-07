@@ -53,16 +53,19 @@ def test_calendar_corrupt_scoped_view_state_is_rewritten_to_defaults():
 
     assert "const { value: stored, recovered } = readStoredJsonState(activeSpaceScopedStorageKey(calendarViewStateKey), {});" in text
     assert 'project: String(stored.filters?.project || ""),' in text
-    assert 'owner: String(stored.filters?.owner || ""),' in text
+    assert 'owner: retainPending ? pending.value : String(stored.filters?.owner || ""),' in text
     assert "if (recovered) persistCalendarViewState();" in text
+    assert "isEntityMutationContextCurrent(state, pending.context)" in text
 
 
 def test_calendar_owner_filter_control_is_restored_from_persisted_state():
     text = CALENDAR_INTERACTIONS.read_text(encoding="utf-8")
 
-    assert 'owner: String(stored.filters?.owner || ""),' in text
+    assert 'owner: retainPending ? pending.value : String(stored.filters?.owner || ""),' in text
     assert "bindDebouncedInput(els.calendarFilterOwner, (value) => {" in text
     assert "state.calendarFilters.owner = value;" in text
+    assert "state.calendarFilters !== captured.filters" in text
+    assert "isEntityMutationContextCurrent(state, captured.context)" in text
 
 
 def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh():
@@ -76,15 +79,14 @@ def test_calendar_invalid_project_filter_is_auto_cleared_when_projects_refresh()
     assert "persistCalendarViewState();" in text
 
 
-def test_calendar_invalid_owner_filter_is_auto_cleared_when_it_matches_no_current_owner_or_assignee():
+def test_calendar_owner_filter_preserves_free_text_when_data_refreshes():
     text = APP_JS.read_text(encoding="utf-8")
 
-    assert "function normalizeScopedOwnerFilter(filterState, { includeSolutions = true, includeTasks = false } = {}) {" in text
-    assert 'const calendarOwnerFilterChanged = normalizeScopedOwnerFilter(state.calendarFilters, {' in text
-    assert "includeTasks: true," in text
-    assert 'filterState.owner = "";' in text
-    assert "if (calendarOwnerFilterChanged) {" in text
-    assert "persistCalendarViewState();" in text
+    assert 'els.calendarFilterOwner.value = calendarRouteController.getPendingOwner() ?? (state.calendarFilters.owner || "");' in text
+    assert "normalizeScopedOwnerFilter(state.calendarFilters" not in text
+    assert '(s.owner || "").toLowerCase().includes(ownerNorm)' in text
+    assert "assigneeName.includes(ownerNorm)" in text
+    assert "assigneeSoeid.includes(ownerNorm)" in text
 
 
 def test_calendar_route_renders_solution_and_task_sections():

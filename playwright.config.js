@@ -13,7 +13,8 @@ export default defineConfig({
   },
   use: {
     baseURL: `${smokeBaseUrl}/project-manager`,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   webServer: {
     command: `${pythonCommand} scripts/run_ui_smoke_app.py`,

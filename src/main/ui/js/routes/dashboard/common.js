@@ -223,10 +223,13 @@ export function currentUserTokens(state) {
   return tokens;
 }
 
-export function isOwnedByCurrentUser(solution, tokens) {
+export function isOwnedByCurrentUser(solution, tokens, userSoeid) {
   if (!solution || !tokens || !tokens.size) return false;
-  const candidates = [solution.owner_user_soeid, solution.owner, solution.key_stakeholder];
-  return candidates.some((value) => tokens.has(normalize(value)));
+  const ownerSoeid = normalize(solution.owner_user_soeid);
+  const ownerMatches = ownerSoeid
+    ? ownerSoeid === normalize(userSoeid)
+    : tokens.has(normalize(solution.owner));
+  return ownerMatches || tokens.has(normalize(solution.key_stakeholder));
 }
 
 export function riskScoreForSolution(row) {

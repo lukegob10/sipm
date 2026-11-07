@@ -1,7 +1,12 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../utils/form-state.js";
+
 export function createTopbarCreateController({
   state,
   els,
   escapeHtml,
+  ensureCreateData,
+  setStatus,
+  getCreateContextVersion = () => null,
   openProgramForm,
   openProjectForm,
   openSolutionModal,
@@ -9,6 +14,28 @@ export function createTopbarCreateController({
   clearDeliverableFormNotice,
   setDeliverableFormNotice,
 }) {
+  let createRequestId = 0;
+  let pickerContext = null;
+
+  async function prepareCreate(entities, open) {
+    const requestId = ++createRequestId;
+    const context = captureEntityMutationContext(state);
+    const view = state.currentView;
+    const contextVersion = getCreateContextVersion();
+    const isCurrent = () => requestId === createRequestId && state.authed && !state.spaceSwitching
+      && state.currentView === view && getCreateContextVersion() === contextVersion
+      && isEntityMutationContextCurrent(state, context);
+    try {
+      const loaded = await ensureCreateData(entities);
+      if (loaded && isCurrent()) open();
+    } catch (err) {
+      if (isCurrent()) {
+        console.warn("Create data load failed", err);
+        setStatus("Could not load data for creation. Try again.", "danger");
+      }
+    }
+  }
+
   function closeTopbarCreateMenu({ restoreFocus = true } = {}) {
     if (!els.topbarCreatePanel || !els.topbarCreateToggle) return;
     els.topbarCreatePanel.classList.add("hidden");
@@ -32,17 +59,33 @@ export function createTopbarCreateController({
     return projectName ? `${projectName} / ${solutionName}` : solutionName;
   }
 
-  function closeTaskCreatePicker() {
+  function closeTaskCreatePicker({ restoreFocus = true } = {}) {
     if (!els.taskCreatePickerModal) return;
+    const wasOpen = !els.taskCreatePickerModal.classList.contains("hidden");
     els.taskCreatePickerModal.classList.add("hidden");
     clearDeliverableFormNotice(els.taskCreatePickerStatus);
+    if (restoreFocus && wasOpen && pickerContext && state.authed
+        && isEntityMutationContextCurrent(state, pickerContext.context)
+        && state.currentView === pickerContext.view
+        && (!els.idleModal || els.idleModal.classList.contains("hidden"))
+        && (!els.confirmModal || els.confirmModal.classList.contains("hidden"))) {
+      els.topbarCreateToggle?.focus();
+    }
+    pickerContext = null;
   }
 
   function continueTaskCreateForSolution(solution) {
     if (!solution?.solution_id) return;
-    closeTaskCreatePicker();
-    openSolutionModal(solution, "tasks");
-    showTaskForm(solution);
+    closeTaskCreatePicker({ restoreFocus: false });
+    const context = captureEntityMutationContext(state);
+    const opened = openSolutionModal(solution, "tasks");
+    if (opened instanceof Promise) void opened.then((ok) => {
+      if (!ok || !isEntityMutationContextCurrent(state, context)
+          || els.solutionForm?.querySelector('[name="solution_id"]')?.value !== solution.solution_id) return;
+      const latest = state.solutions.find((row) => row.solution_id === solution.solution_id);
+      if (latest) showTaskForm(latest);
+    });
+    else if (opened !== false) showTaskForm(solution);
   }
 
   function populateTaskCreatePickerOptions(selectedSolutionId = "") {
@@ -64,10 +107,10 @@ export function createTopbarCreateController({
     if (!els.taskCreatePickerModal) return;
     populateTaskCreatePickerOptions(selectedSolutionId);
     clearDeliverableFormNotice(els.taskCreatePickerStatus);
+    pickerContext = { context: captureEntityMutationContext(state), view: state.currentView };
     els.taskCreatePickerModal.classList.remove("hidden");
-    window.setTimeout(() => {
-      els.taskCreatePickerSelect?.focus();
-    }, 0);
+    if ((!els.idleModal || els.idleModal.classList.contains("hidden"))
+        && (!els.confirmModal || els.confirmModal.classList.contains("hidden"))) els.taskCreatePickerSelect?.focus();
   }
 
   function handleTopbarTaskCreate() {
@@ -84,8 +127,16 @@ export function createTopbarCreateController({
     }
     const solutions = taskCreateCandidateSolutions();
     if (!solutions.length) {
-      openSolutionModal(null, "details");
-      setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add tasks.", "error");
+      const context = captureEntityMutationContext(state);
+      const opened = openSolutionModal(null, "details");
+      const notify = (ok) => {
+        if (ok !== false && isEntityMutationContextCurrent(state, context)
+            && !(els.solutionForm?.querySelector('[name="solution_id"]')?.value || "")) {
+          setDeliverableFormNotice(els.solutionFormStatus, "Create a solution first, then add tasks.", "error");
+        }
+      };
+      if (opened instanceof Promise) void opened.then(notify);
+      else notify(opened);
       return;
     }
     if (solutions.length === 1) {
@@ -193,7 +244,7 @@ export function createTopbarCreateController({
     if (els.topbarCreateProject && !els.topbarCreateProject._bound) {
       els.topbarCreateProject.addEventListener("click", () => {
         closeTopbarCreateMenu({ restoreFocus: false });
-        openProjectForm(null);
+        void prepareCreate(["programs", "users"], () => openProjectForm(null));
       });
       els.topbarCreateProject._bound = true;
     }
@@ -201,6 +252,7 @@ export function createTopbarCreateController({
     if (els.topbarCreateProgram && !els.topbarCreateProgram._bound) {
       els.topbarCreateProgram.addEventListener("click", () => {
         closeTopbarCreateMenu({ restoreFocus: false });
+        createRequestId += 1;
         openProgramForm(null);
       });
       els.topbarCreateProgram._bound = true;
@@ -209,13 +261,16 @@ export function createTopbarCreateController({
     if (els.topbarCreateSolution && !els.topbarCreateSolution._bound) {
       els.topbarCreateSolution.addEventListener("click", () => {
         closeTopbarCreateMenu({ restoreFocus: false });
-        openSolutionModal(null, "details");
+        void prepareCreate(["phases", "programs", "projects", "users"], () => openSolutionModal(null, "details"));
       });
       els.topbarCreateSolution._bound = true;
     }
 
     if (els.topbarCreateTask && !els.topbarCreateTask._bound) {
-      els.topbarCreateTask.addEventListener("click", handleTopbarTaskCreate);
+      els.topbarCreateTask.addEventListener("click", () => {
+        closeTopbarCreateMenu({ restoreFocus: false });
+        void prepareCreate(["phases", "programs", "projects", "solutions", "tasks", "users"], handleTopbarTaskCreate);
+      });
       els.topbarCreateTask._bound = true;
     }
   }

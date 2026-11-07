@@ -1,4 +1,7 @@
+import { beginTaskMutations } from "../../utils/form-state.js";
 import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+import { invalidateMyWorkRecords } from "../../utils/my-work-state.js";
+import { formatUtcTimestamp } from "../../utils/date-only.js";
 
 const taskWorkbenchDraftFields = [
   "task_name",
@@ -13,6 +16,8 @@ const taskWorkbenchDraftFields = [
   "assignee_user_soeid",
 ];
 const taskWorkbenchDraftBaselines = new WeakMap();
+const taskWorkbenchSaveRequests = new WeakMap();
+const taskWorkbenchActivityRequests = new WeakMap();
 
 function readTaskWorkbenchDraft(form) {
   return Object.fromEntries(taskWorkbenchDraftFields.map((name) => {
@@ -22,7 +27,27 @@ function readTaskWorkbenchDraft(form) {
 }
 
 function taskWorkbenchValues(ctx, task) {
-  const assigneeValue = ctx.resolveAssigneeSelectValue(task.assignee_user_soeid, task.assignee) || "";
+  const picker = ctx.els.tasksWorkbenchForm?.querySelector('[name="assignee"]');
+  let assigneeValue = ctx.resolveAssigneeSelectValue(task.assignee_user_soeid, task.assignee) || "";
+  const hasAssignment = !!(task.assignee_user_soeid || task.assignee);
+  const previous = picker?.querySelector('option[data-unresolved-assignee]');
+  const unresolvedKey = JSON.stringify([task.assignee_user_soeid || "", task.assignee || ""]);
+  if (!assigneeValue && previous?.dataset.assignmentKey === unresolvedKey) assigneeValue = previous.value;
+  const hasOption = assigneeValue && Array.from(picker?.options || []).some((option) => option.value === assigneeValue);
+  if (picker && hasAssignment && !hasOption) {
+    if (previous) previous.remove();
+    if (!assigneeValue) {
+      assigneeValue = "__sipm_unresolved_assignee__";
+      while (Array.from(picker.options).some((option) => option.value === assigneeValue)) assigneeValue += "_";
+    }
+    const option = document.createElement("option");
+    option.value = assigneeValue;
+    option.textContent = `${task.assignee || task.assignee_user_soeid} (unavailable)`;
+    option.dataset.unresolvedAssignee = "true";
+    option.dataset.assignmentKey = unresolvedKey;
+    option.dataset.assigneeSoeid = task.assignee_user_soeid || "";
+    picker.appendChild(option);
+  }
   return {
     task_name: task.task_name || "",
     description: task.description || "",
@@ -33,7 +58,7 @@ function taskWorkbenchValues(ctx, task) {
     blocker_note: task.blocker_note || "",
     blocked: !!task.blocked,
     assignee: assigneeValue,
-    assignee_user_soeid: assigneeValue,
+    assignee_user_soeid: task.assignee_user_soeid || (picker?.querySelector('option[data-unresolved-assignee]')?.value === assigneeValue ? "" : assigneeValue),
   };
 }
 
@@ -205,6 +230,12 @@ export async function renderTasksWorkbenchActivity(ctx, taskId) {
   if (!activityEl) return;
   const reqId = (wb.activityRequestId || 0) + 1;
   wb.activityRequestId = reqId;
+  const context = captureEntityMutationContext(state);
+  const request = {};
+  taskWorkbenchActivityRequests.set(activityEl, request);
+  const isCurrent = () => taskWorkbenchActivityRequests.get(activityEl) === request
+    && wb.activityRequestId === reqId
+    && isEntityMutationContextCurrent(state, context);
   if (!taskId) {
     activityEl.innerHTML = "<p class='muted'>Select a task to see activity.</p>";
     return;
@@ -212,7 +243,7 @@ export async function renderTasksWorkbenchActivity(ctx, taskId) {
   activityEl.innerHTML = "<p class='muted'>Loading activity…</p>";
   try {
     const rows = await api(`/tasks/${encodeURIComponent(taskId)}/activity?limit=12`);
-    if (wb.activityRequestId !== reqId) return;
+    if (!isCurrent()) return;
     if (!rows?.length) {
       activityEl.innerHTML = "<p class='muted'>No activity yet.</p>";
       return;
@@ -222,7 +253,7 @@ export async function renderTasksWorkbenchActivity(ctx, taskId) {
         const action = escapeHtml(row.action || "update");
         const field = row.field ? ` • ${escapeHtml(row.field)}` : "";
         const change = row.new_value ? ` → ${escapeHtml(String(row.new_value).slice(0, 90))}` : "";
-        const when = row.created_at ? new Date(row.created_at).toLocaleString() : "";
+        const when = formatUtcTimestamp(row.created_at);
         return `<div class="activity-item">
           <div class="activity-title">${action}${field}${change}</div>
           <div class="activity-meta">${escapeHtml(row.user_id || "system")} • ${escapeHtml(when)}</div>
@@ -230,7 +261,7 @@ export async function renderTasksWorkbenchActivity(ctx, taskId) {
       })
       .join("");
   } catch (_err) {
-    if (wb.activityRequestId !== reqId) return;
+    if (!isCurrent()) return;
     activityEl.innerHTML = "<p class='muted'>Activity unavailable for this role.</p>";
   }
 }
@@ -266,6 +297,7 @@ export function fillTasksWorkbenchForm(ctx, task) {
   const currentId = task.task_id || "";
   const taskChanged = previousId !== currentId;
   if (taskChanged) {
+    form.querySelector('option[data-unresolved-assignee]')?.remove();
     advanceTaskWorkbenchSelectionRevision(form);
     clearDeliverableFormNotice(els.tasksWorkbenchFormStatus);
   }
@@ -320,6 +352,10 @@ export function handleTasksWorkbenchTableClick(ctx, event) {
   const actionEl = event.target.closest("[data-twb-action]");
   if (actionEl) {
     const action = actionEl.getAttribute("data-twb-action") || "";
+    if (action === "open-task") {
+      const taskId = actionEl.getAttribute("data-task-id") || "";
+      if (taskId) openTasksWorkbenchDrawer(ctx, taskId);
+    }
     if (action === "open-project") {
       openTasksWorkbenchProjectDrilldown(ctx, actionEl.getAttribute("data-project-id"));
     }
@@ -371,6 +407,8 @@ export async function saveTasksWorkbenchForm(ctx) {
   const submittedDraft = readTaskWorkbenchDraft(formEl);
   const selectionRevision = taskWorkbenchSelectionRevision(formEl);
   const requestContext = captureEntityMutationContext(state);
+  const pending = taskWorkbenchSaveRequests.get(formEl);
+  if (pending && isEntityMutationContextCurrent(state, pending.context)) return;
   const isSelectedEditor = () => {
     const currentTaskId = formEl.querySelector('[name="task_id"]')?.value || "";
     const formTaskId = formEl.dataset.activeTaskId || currentTaskId;
@@ -383,6 +421,12 @@ export async function saveTasksWorkbenchForm(ctx) {
   };
   const assigneeUserId = String(data.get("assignee_user_soeid") || "").trim();
   const assigneeUser = findUserBySoeid(assigneeUserId);
+  const baseline = taskWorkbenchDraftBaselines.get(formEl);
+  // The picker may not resolve a legacy name or a user missing from the list.
+  // Its synchronized SOEID field changes only when the assignment is edited.
+  const assignmentChanged = baseline?.taskId !== taskId
+    || assigneeUserId !== String(baseline.values.assignee_user_soeid || "").trim()
+    || String(data.get("assignee") || "") !== baseline.values.assignee;
   const payload = {
     task_name: data.get("task_name") || "",
     description: data.get("description") || null,
@@ -390,11 +434,28 @@ export async function saveTasksWorkbenchForm(ctx) {
     status: data.get("status") || "to_do",
     priority: Number(data.get("priority") || 3),
     due_date: data.get("due_date") || null,
-    assignee: assigneeUser?.display_name || assigneeUserId,
-    assignee_user_soeid: assigneeUserId || null,
     blocked: !!data.get("blocked"),
     blocker_note: data.get("blocker_note") || null,
   };
+  if (assignmentChanged) {
+    payload.assignee = assigneeUser?.display_name || assigneeUserId;
+    payload.assignee_user_soeid = assigneeUserId || null;
+  }
+  // Only send fields edited against this form's baseline. A task can be
+  // updated elsewhere while the editor remains open.
+  if (baseline?.taskId === taskId) {
+    Object.keys(payload).forEach((field) => {
+      if (field === "assignee" || field === "assignee_user_soeid") return;
+      if (submittedDraft[field] === baseline.values[field]) delete payload[field];
+    });
+  }
+  const release = beginTaskMutations(state, [taskId]);
+  if (!release) {
+    setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "This task is being updated. Wait for it to finish and try again.", "error");
+    return;
+  }
+  const request = { context: requestContext };
+  taskWorkbenchSaveRequests.set(formEl, request);
   try {
     setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Saving task...");
     const updated = await api(`/tasks/${taskId}`, {
@@ -405,10 +466,15 @@ export async function saveTasksWorkbenchForm(ctx) {
     const sameEditor = isSelectedEditor();
     const unchangedDraft = sameEditor && sameTaskWorkbenchDraft(readTaskWorkbenchDraft(formEl), submittedDraft);
     upsertById(state.tasks, updated, "task_id");
+    invalidateMyWorkRecords(state);
     if (unchangedDraft) {
       const savedValues = taskWorkbenchValues(ctx, { ...payload, ...updated, task_id: updated.task_id || taskId });
       writeTaskWorkbenchDraft(formEl, savedValues);
       taskWorkbenchDraftBaselines.set(formEl, { taskId, values: savedValues });
+    } else if (sameEditor) {
+      // Compare later edits with what was submitted, including edits back to
+      // the previous baseline, when the refreshed task is rendered.
+      taskWorkbenchDraftBaselines.set(formEl, { taskId, values: submittedDraft });
     }
     ctx.persistTasksWorkbenchUiState();
     renderTasksWorkbench();
@@ -423,11 +489,16 @@ export async function saveTasksWorkbenchForm(ctx) {
         "success",
         3200
       );
+    } else if (sameEditor && isSelectedEditor()) {
+      setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "Saved task; you have unsaved edits.", "success");
     }
   } catch (err) {
     if (isEntityMutationContextCurrent(state, requestContext) && isSelectedEditor()) {
       setDeliverableFormNotice(els.tasksWorkbenchFormStatus, `Save failed: ${err.message || err}`, "error");
     }
+  } finally {
+    if (taskWorkbenchSaveRequests.get(formEl) === request) taskWorkbenchSaveRequests.delete(formEl);
+    release();
   }
 }
 
@@ -436,7 +507,6 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
     state,
     els,
     deleteTasksById,
-    ignoreNextRefresh,
     renderTasksWorkbench,
     renderSolutionTasks,
     renderDashboard,
@@ -463,14 +533,20 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
       && taskWorkbenchSelectionRevision(form) === selectionRevision
       && activeTaskMatches;
   };
-  const result = await deleteTasksById([taskId], {
-    title: "Delete Task?",
-  });
-  if (result.cancelled) return;
-  const shouldNotifyEditor = isCurrentEditor(result);
-  if (!result.deletedIds.length) {
-    ignoreNextRefresh.delete("tasks");
+  const release = beginTaskMutations(state, [taskId]);
+  if (!release) {
+    setDeliverableFormNotice(els.tasksWorkbenchFormStatus, "This task is being updated. Wait for it to finish and try again.", "error");
+    return;
   }
+  const requestContext = captureEntityMutationContext(state);
+  let result;
+  try {
+    result = await deleteTasksById([taskId], { title: "Delete Task?" });
+  } finally {
+    release();
+  }
+  if (result.cancelled || !isEntityMutationContextCurrent(state, requestContext)) return;
+  const shouldNotifyEditor = isCurrentEditor(result);
   renderTasksWorkbench();
   const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
   if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {
@@ -498,9 +574,13 @@ export async function deleteActiveTasksWorkbenchItem(ctx) {
 }
 
 export function resetTasksWorkbenchEditor(ctx) {
-  const { state, persistTasksWorkbenchUiState, renderTasksWorkbench } = ctx;
-  state.tasksWorkbench.activeTaskId = "";
-  persistTasksWorkbenchUiState();
+  const { els, clearDeliverableFormNotice, renderTasksWorkbench } = ctx;
+  const form = els.tasksWorkbenchForm;
+  if (form) {
+    taskWorkbenchDraftBaselines.delete(form);
+    advanceTaskWorkbenchSelectionRevision(form);
+  }
+  clearDeliverableFormNotice(els.tasksWorkbenchFormStatus);
   renderTasksWorkbench();
 }
 
@@ -509,13 +589,18 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
     state,
     els,
     deleteTasksById,
-    ignoreNextRefresh,
     renderTasksWorkbench,
     renderSolutionTasks,
     renderDashboard,
     setTasksWorkbenchBulkFeedback,
   } = ctx;
   if (state.currentView !== "tasks-workbench") return;
+  if (event.defaultPrevented) return;
+  if (els.confirmModal && !els.confirmModal.classList.contains("hidden")) return;
+  if (els.idleModal && !els.idleModal.classList.contains("hidden")) return;
+  // Other dialogs own keyboard input even if focus was left on the page.
+  if ([...document.querySelectorAll(".modal:not(.hidden)")]
+    .some((modal) => modal !== els.tasksWorkbenchDrawer && modal.getClientRects().length)) return;
   if (event.altKey || event.ctrlKey || event.metaKey) return;
 
   const wb = state.tasksWorkbench;
@@ -559,13 +644,21 @@ export async function handleTasksWorkbenchShortcut(ctx, event) {
     : (wb.activeTaskId ? [wb.activeTaskId] : []);
   if (!targetIds.length) return;
   event.preventDefault();
-  const result = await deleteTasksById(targetIds, {
-    title: targetIds.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
-  });
-  if (result.cancelled) return;
-  if (!result.deletedIds.length) {
-    ignoreNextRefresh.delete("tasks");
+  const release = beginTaskMutations(state, targetIds);
+  if (!release) {
+    setTasksWorkbenchBulkFeedback("A selected task is being updated. Wait for it to finish and try again.", "error");
+    return;
   }
+  const requestContext = captureEntityMutationContext(state);
+  let result;
+  try {
+    result = await deleteTasksById(targetIds, {
+      title: targetIds.length === 1 ? "Delete Task?" : "Delete Selected Tasks?",
+    });
+  } finally {
+    release();
+  }
+  if (result.cancelled || !isEntityMutationContextCurrent(state, requestContext)) return;
   renderTasksWorkbench();
   const openSolutionId = els.solutionForm?.querySelector('[name="solution_id"]')?.value || "";
   if (openSolutionId && !els.solutionModal?.classList.contains("hidden")) {

@@ -1,4 +1,5 @@
-import { captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
+import { createContextualEntityMutationGate, createContextualFormSaveGate, createEditorModalFocus, captureEntityMutationContext, isEntityMutationContextCurrent, nullableTextValue, textValue } from "../utils/form-state.js";
+import { createFormDraftGuard } from "../utils/form-draft.js";
 
 export function buildProgramPayload(data) {
   return {
@@ -11,8 +12,6 @@ export function createProgramEntityController({
   state,
   els,
   api,
-  markIgnoreRefresh,
-  ignoreNextRefresh,
   upsertById,
   removeById,
   populateSelects,
@@ -25,7 +24,11 @@ export function createProgramEntityController({
 }) {
   let resettingProgramForm = false;
   let programFormRevision = 0;
-  let programSaveInFlight = false;
+  let programPayloadBaseline = null;
+  const modalFocus = createEditorModalFocus(state, els.programModal, els.programModalClose);
+  const beginMutation = createContextualEntityMutationGate(state);
+  const saveGate = createContextualFormSaveGate({ state, form: els.programForm, submit: els.programSubmitBtn });
+  const programDraft = createFormDraftGuard({ form: els.programForm, indicator: els.programModal?.querySelector('[data-form-dirty-indicator="program"]'), entityLabel: "Program", showConfirmModal });
 
   function setProgramFormVisibility(show) {
     if (!els.programModal) return;
@@ -60,46 +63,72 @@ export function createProgramEntityController({
     if (els.deleteProgramBtn) {
       els.deleteProgramBtn.disabled = !program?.program_id;
     }
+    programPayloadBaseline = program?.program_id ? buildProgramPayload(new FormData(els.programForm)) : null;
+    programDraft.capture();
   }
 
   function openProgramForm(program = null) {
+    const opening = modalFocus.open();
     programFormRevision += 1;
     fillProgramForm(program);
     setProgramFormVisibility(true);
     setProgramActionButtonLabel(!!program?.program_id);
+    if (opening) modalFocus.focus();
   }
 
-  function closeProgramForm() {
+  function finishClosingProgramForm(restoreFocus = true) {
     programFormRevision += 1;
     fillProgramForm(null);
     setProgramFormVisibility(false);
     setProgramActionButtonLabel(false);
+    modalFocus.close(restoreFocus);
+    return true;
+  }
+
+  function closeProgramForm(options = {}) {
+    if (options.discardChanges || !programDraft.isDirty()) return finishClosingProgramForm(!options.discardChanges);
+    const revision = programFormRevision;
+    const context = captureEntityMutationContext(state);
+    const draft = JSON.stringify([...new FormData(els.programForm).entries()]);
+    return programDraft.confirmDiscard().then((confirmed) => {
+      if (!confirmed || revision !== programFormRevision || !isEntityMutationContextCurrent(state, context)
+          || draft !== JSON.stringify([...new FormData(els.programForm).entries()])) return false;
+      return finishClosingProgramForm();
+    });
   }
 
   function bindProgramForm() {
     if (!els.programForm) return;
+    programDraft.bind();
     els.programModalClose?.addEventListener("click", () => closeProgramForm());
     els.programModal?.querySelector(".modal-backdrop")?.addEventListener("click", () => closeProgramForm());
     els.programForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (programSaveInFlight) return;
+      if (saveGate.isPending()) return;
       const data = new FormData(els.programForm);
       const id = (data.get("program_id") || "").toString().trim();
       const isEditing = !!id;
-      const payload = buildProgramPayload(data);
+      const submittedPayload = buildProgramPayload(data);
+      const payload = isEditing && programPayloadBaseline
+        ? Object.fromEntries(Object.entries(submittedPayload).filter(([field, value]) => !Object.is(value, programPayloadBaseline[field])))
+        : submittedPayload;
       const formRevision = programFormRevision;
       const formSnapshot = JSON.stringify([...data.entries()]);
-      const submitWasDisabled = !!els.programSubmitBtn?.disabled;
+
       const requestContext = captureEntityMutationContext(state);
       const isSameEditor = () => formRevision === programFormRevision;
       const isCurrentSubmission = () => isSameEditor()
         && JSON.stringify([...new FormData(els.programForm).entries()]) === formSnapshot;
-      programSaveInFlight = true;
-      if (els.programSubmitBtn) els.programSubmitBtn.disabled = true;
-      els.programForm.setAttribute("aria-busy", "true");
+      const saveRequest = saveGate.begin();
+      if (!saveRequest) return;
+      const release = isEditing ? beginMutation(id) : () => {};
+      if (!release) {
+        saveGate.end(saveRequest);
+        setDeliverableFormNotice(els.programFormStatus, "This program is being updated. Try again when it finishes.", "error");
+        return;
+      }
       try {
         setDeliverableFormNotice(els.programFormStatus, isEditing ? "Saving program..." : "Creating program...");
-        markIgnoreRefresh("programs");
         const saved = isEditing
           ? await api(`/programs/${id}`, { method: "PATCH", body: JSON.stringify(payload) })
           : await api("/programs", { method: "POST", body: JSON.stringify(payload) });
@@ -114,9 +143,13 @@ export function createProgramEntityController({
         if (shouldUpdateForm) {
           fillProgramForm(saved);
           setProgramActionButtonLabel(true);
-        } else if (isSameEditor() && !isEditing && saved?.program_id) {
-          els.programForm.querySelector('[name="program_id"]').value = saved.program_id;
-          setProgramActionButtonLabel(true);
+        } else if (isSameEditor()) {
+          programPayloadBaseline = submittedPayload;
+          if (!isEditing && saved?.program_id) {
+            els.programForm.querySelector('[name="program_id"]').value = saved.program_id;
+            setProgramActionButtonLabel(true);
+          }
+          programDraft.rebase(formSnapshot, { program_id: saved?.program_id || id });
         }
         populateSelects();
         renderActiveView();
@@ -126,14 +159,13 @@ export function createProgramEntityController({
         if (isSameEditor()) {
           setDeliverableFormNotice(
             els.programFormStatus,
-            `${isEditing ? "Saved" : "Created"} program at ${timestampLabel()}.`,
+            shouldUpdateForm ? `${isEditing ? "Saved" : "Created"} program at ${timestampLabel()}.` : `${isEditing ? "Saved" : "Created"} program; you have unsaved edits.`,
             "success",
-            3200,
+            shouldUpdateForm ? 3200 : 0,
           );
         }
       } catch (err) {
         if (!isEntityMutationContextCurrent(state, requestContext)) return;
-        ignoreNextRefresh.delete("programs");
         if (typeof trackWorkflow === "function") {
           trackWorkflow("programs", isEditing ? "update" : "create", "failure", { source: "program_form" });
         }
@@ -145,9 +177,8 @@ export function createProgramEntityController({
           );
         }
       } finally {
-        programSaveInFlight = false;
-        els.programForm.removeAttribute("aria-busy");
-        if (els.programSubmitBtn) els.programSubmitBtn.disabled = submitWasDisabled;
+        saveGate.end(saveRequest);
+        release();
       }
     });
     els.programForm.addEventListener("reset", () => {
@@ -165,19 +196,23 @@ export function createProgramEntityController({
         const formRevision = programFormRevision;
         const isSameEditor = () => formRevision === programFormRevision;
         const requestContext = captureEntityMutationContext(state);
-        const confirmed = await showConfirmModal({
-          title: "Delete Program?",
-          message: `Delete program "${programName}"? Programs with active projects cannot be deleted.`,
-          confirmLabel: "Delete Program",
-        });
-        if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
+        const release = beginMutation(id);
+        if (!release) {
+          setDeliverableFormNotice(els.programFormStatus, "This program is being updated. Try again when it finishes.", "error");
+          return;
+        }
         try {
+          const confirmed = await showConfirmModal({
+            title: "Delete Program?",
+            message: `Delete program "${programName}"? Programs with active projects cannot be deleted.`,
+            confirmLabel: "Delete Program",
+          });
+          if (!confirmed || !isSameEditor() || !isEntityMutationContextCurrent(state, requestContext)) return;
           setDeliverableFormNotice(els.programFormStatus, "Deleting program...");
-          markIgnoreRefresh("programs");
           await api(`/programs/${id}`, { method: "DELETE" });
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
           removeById(state.programs, id, "program_id");
-          if (isSameEditor()) closeProgramForm();
+          if (isSameEditor()) closeProgramForm({ discardChanges: true });
           populateSelects();
           renderActiveView();
           if (typeof trackWorkflow === "function") {
@@ -185,19 +220,21 @@ export function createProgramEntityController({
           }
         } catch (err) {
           if (!isEntityMutationContextCurrent(state, requestContext)) return;
-          ignoreNextRefresh.delete("programs");
           if (typeof trackWorkflow === "function") {
             trackWorkflow("programs", "delete", "failure", { source: "program_form" });
           }
           if (isSameEditor()) {
             setDeliverableFormNotice(els.programFormStatus, `Delete failed: ${err.message}`, "error");
           }
+        } finally {
+          release();
         }
       });
     }
   }
 
   return {
+    resetSaveForContext: saveGate.reset,
     bindProgramForm,
     closeProgramForm,
     openProgramForm,

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from textwrap import wrap
 from typing import Optional
 
 
 def _pdf_escape(value: str) -> str:
-    safe = str(value or "").encode("latin-1", errors="replace").decode("latin-1")
+    # The fonts use WinAnsi; Latin-1 preserves those bytes through stream serialization.
+    safe = str(value or "").encode("cp1252", errors="replace").decode("latin-1")
     return safe.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
 
 
@@ -100,8 +102,8 @@ class _SimplePdfDoc:
         font_bold_id = 4
         object_map: dict[int, str] = {
             1: "<< /Type /Catalog /Pages 2 0 R >>",
-            font_regular_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            font_bold_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+            font_regular_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+            font_bold_id: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
         }
 
         next_id = 5
@@ -230,36 +232,15 @@ def _wrap_pdf_text(
     normalized = " ".join(str(text or "").split())
     if not normalized:
         return [""]
-    words = normalized.split(" ")
-    lines: list[str] = []
-    current = ""
-    for word in words:
-        candidate = word if not current else f"{current} {word}"
-        if _estimate_pdf_text_width(candidate, font_size) <= max_width:
-            current = candidate
-            continue
-        if current:
-            lines.append(current)
-            current = word
-        else:
-            chunk = word
-            while _estimate_pdf_text_width(chunk, font_size) > max_width and len(chunk) > 4:
-                slice_size = max(int(max_width / (font_size * 0.52)), 1)
-                lines.append(chunk[:slice_size])
-                chunk = chunk[slice_size:]
-            current = chunk
-        if max_lines and len(lines) >= max_lines:
-            break
-    if current and (not max_lines or len(lines) < max_lines):
-        lines.append(current)
+    width = max(int(max_width / (font_size * 0.52)), 1)
+    lines = wrap(normalized, width=width, break_long_words=True, break_on_hyphens=False)
     if max_lines and len(lines) > max_lines:
         lines = lines[:max_lines]
-    if max_lines and len(lines) == max_lines and words:
-        last = lines[-1]
-        if not last.endswith("...") and len(last) > 3:
-            lines[-1] = f"{last[:-3]}..."
+        if width <= 3:
+            lines[-1] = "." * width
+        else:
+            lines[-1] = lines[-1][: width - 3].rstrip() + "..."
     return lines
-
 
 def _draw_report_card(
     painter: _TopPdfPainter,

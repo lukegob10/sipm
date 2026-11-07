@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import csv
+import logging
 from datetime import datetime, timezone
 from io import StringIO
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from ...deps import get_db, require_non_agent_write, require_space_role
 from ...models import Project, Solution, Task, User
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_status, normalize_str, parse_date, parse_datetime, parse_priority, read_csv, read_text_value
 from ...utils.enums import ProjectStatus, SolutionStatus, TaskStatus
 from ...services.mutations import commit_session
@@ -32,6 +34,7 @@ from .common import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/tasks/import")
@@ -60,10 +63,16 @@ def import_tasks(
     seen = set()
     dry_project_keys = set()
     dry_solution_keys = set()
-    projects_by_name = {p.project_name.lower(): p for p in _project_query(session, space_ctx).all()}
-    solutions_by_key = {
-        (s.project_id, s.solution_name.lower(), s.version.lower()): s
-        for s in _solution_query(session, space_ctx).all()
+    # ORM objects expire after each row commit; keep scalar IDs in these snapshots.
+    project_ids_by_name = {
+        p.project_name.lower(): p.project_id
+        for p in _project_query(session, space_ctx).with_entities(Project.project_id, Project.project_name).all()
+    }
+    solution_ids_by_key = {
+        (s.project_id, s.solution_name.lower(), s.version.lower()): s.solution_id
+        for s in _solution_query(session, space_ctx).with_entities(
+            Solution.solution_id, Solution.project_id, Solution.solution_name, Solution.version
+        ).all()
     }
 
     for idx, row in enumerate(rows, start=2):
@@ -89,10 +98,29 @@ def import_tasks(
         except ValueError as exc:
             errors.append(f"Row {idx}: {exc}")
             continue
+        oversized_person_field = next(
+            (field for field, value in (("solution_owner", solution_owner_val), ("assignee", assignee_input),
+                                        ("assignee_user_soeid", assignee_user_soeid))
+             if value and len(value) > 255),
+            None,
+        )
+        if oversized_person_field:
+            errors.append(f"Row {idx}: {oversized_person_field} must be 255 characters or fewer")
+            continue
         if not project_name or not solution_name or not task_name:
             errors.append(
                 f"Row {idx}: project_name, solution_name, and task_name are required"
             )
+            continue
+        oversized_field = next(
+            (name for name, value in (("project_name", project_name), ("solution_name", solution_name), ("version", version_raw)) if len(value) > 255),
+            None,
+        )
+        if oversized_field:
+            errors.append(f"Row {idx}: {oversized_field} must be 255 characters or fewer")
+            continue
+        if len(task_name) > 255:
+            errors.append(f"Row {idx}: task_name must be 255 characters or fewer")
             continue
         key = (project_name.lower(), solution_name.lower(), version_raw.lower(), task_name.lower())
         if key in seen:
@@ -120,23 +148,23 @@ def import_tasks(
             continue
         blocked_val = blocked_raw in {"true", "1", "yes", "y"}
 
-        project = projects_by_name.get(project_name.lower())
+        project_id = project_ids_by_name.get(project_name.lower())
         if dry_run:
             project_key = project_name.lower()
-            if not project and project_key not in dry_project_keys:
+            if project_id is None and project_key not in dry_project_keys:
                 dry_project_keys.add(project_key)
                 projects_created += 1
-            solution = None
-            if project:
-                solution = solutions_by_key.get((project.project_id, solution_name.lower(), version_raw.lower()))
+            solution_id = None
+            if project_id is not None:
+                solution_id = solution_ids_by_key.get((project_id, solution_name.lower(), version_raw.lower()))
             solution_key = (project_key, solution_name.lower(), version_raw.lower())
-            if not solution and solution_key not in dry_solution_keys:
+            if solution_id is None and solution_key not in dry_solution_keys:
                 dry_solution_keys.add(solution_key)
                 solutions_created += 1
-            if project and solution:
+            if solution_id is not None:
                 existing = (
                     _task_query(session, space_ctx)
-                    .filter(Task.solution_id == solution.solution_id)
+                    .filter(Task.solution_id == solution_id)
                     .filter(Task.task_name == task_name)
                     .first()
                 )
@@ -147,49 +175,85 @@ def import_tasks(
             else:
                 created += 1
             continue
+        # Each row commits separately; take the same lock before any row writes.
+        try:
+            lock_work_space(session, space_ctx, current_user)
+        except HTTPException:
+            if not (created or updated):
+                raise
+            session.rollback()
+            errors.append(f"Row {idx}: import stopped because access to the space changed")
+            break
+        project = solution = None
+        if project_id is not None:
+            project = session.get(Project, project_id, populate_existing=True)
+            if (project is None or project.deleted_at is not None
+                    or project.space_id != space_ctx.space_id
+                    or project.project_name.lower() != project_name.lower()):
+                session.rollback()
+                errors.append(f"Row {idx}: project changed during import")
+                continue
+            solution_id = solution_ids_by_key.get((project_id, solution_name.lower(), version_raw.lower()))
+            if solution_id is not None:
+                solution = session.get(Solution, solution_id, populate_existing=True)
+                if (solution is None or solution.deleted_at is not None
+                        or solution.space_id != space_ctx.space_id
+                        or solution.project_id != project_id
+                        or solution.solution_name.lower() != solution_name.lower()
+                        or solution.version.lower() != version_raw.lower()):
+                    session.rollback()
+                    errors.append(f"Row {idx}: solution changed during import")
+                    continue
         project_created_this_row = False
-        if not project:
-            program = _default_program(session, space_ctx)
-            sponsor_val, sponsor_user_soeid = _resolve_project_sponsor(
-                solution_owner_val,
-                None,
-                current_user,
-            )
-            project = Project(
-                space_id=space_ctx.space_id,
-                program_id=program.program_id,
-                project_name=project_name,
-                status=ProjectStatus.not_started,
-                description=None,
-                sponsor=sponsor_val,
-                sponsor_user_soeid=sponsor_user_soeid,
-                owner=sponsor_val,
-                owner_user_soeid=sponsor_user_soeid,
-            )
-            session.add(project)
-            session.flush()
-            project_created_this_row = True
-            log_changes(
-                session,
-                entity_type="project",
-                entity_id=project.project_id,
-                user_id=current_user.user_id,
-                action="create",
-                space_id=space_ctx.space_id,
-                changes={
-                    "project_name": (None, project.project_name),
-                    "status": (None, project.status),
-                    "description": (None, project.description),
-                    "sponsor": (None, project.sponsor),
-                    "sponsor_user_soeid": (None, project.sponsor_user_soeid),
-                    "owner": (None, project.owner),
-                    "owner_user_soeid": (None, project.owner_user_soeid),
-                },
-                request_id=None,
-            )
+        try:
+            if not project:
+                program = _default_program(session, space_ctx)
+                sponsor_val, sponsor_user_soeid = _resolve_project_sponsor(
+                    solution_owner_val,
+                    None,
+                    current_user,
+                )
+                project = Project(
+                    space_id=space_ctx.space_id,
+                    program_id=program.program_id,
+                    project_name=project_name,
+                    status=ProjectStatus.not_started,
+                    description=None,
+                    sponsor=sponsor_val,
+                    sponsor_user_soeid=sponsor_user_soeid,
+                    owner=sponsor_val,
+                    owner_user_soeid=sponsor_user_soeid,
+                )
+                session.add(project)
+                session.flush()
+                project_created_this_row = True
+                log_changes(
+                    session,
+                    entity_type="project",
+                    entity_id=project.project_id,
+                    user_id=current_user.user_id,
+                    action="create",
+                    space_id=space_ctx.space_id,
+                    changes={
+                        "project_name": (None, project.project_name),
+                        "status": (None, project.status),
+                        "description": (None, project.description),
+                        "sponsor": (None, project.sponsor),
+                        "sponsor_user_soeid": (None, project.sponsor_user_soeid),
+                        "owner": (None, project.owner),
+                        "owner_user_soeid": (None, project.owner_user_soeid),
+                    },
+                    request_id=None,
+                )
 
-        solution_key = (project.project_id, solution_name.lower(), version_raw.lower())
-        solution = solutions_by_key.get(solution_key)
+        except Exception as exc:
+            session.rollback()
+            logger.warning("Project import failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: project could not be created")
+            continue
+
+        project_id = project.project_id
+        solution_key = (project_id, solution_name.lower(), version_raw.lower())
         solution_created_this_row = False
         if not solution:
             try:
@@ -251,9 +315,11 @@ def import_tasks(
                 solution_created_this_row = True
             except Exception as exc:
                 session.rollback()
-                errors.append(f"Row {idx}: {exc}")
+                logger.warning("Solution import failed (%s)", type(exc).__name__)
+                errors.append(f"Row {idx}: solution could not be created")
                 continue
 
+        solution_id = solution.solution_id
         try:
             existing = (
                 _task_query(session, space_ctx)
@@ -410,17 +476,15 @@ def import_tasks(
                 commit_session(session)
                 created += 1
             if project_created_this_row:
-                projects_by_name[project_name.lower()] = project
+                project_ids_by_name[project_name.lower()] = project_id
                 projects_created += 1
             if solution_created_this_row:
-                solutions_by_key[solution_key] = solution
+                solution_ids_by_key[solution_key] = solution_id
                 solutions_created += 1
-        except ValueError as exc:
-            session.rollback()
-            errors.append(f"Row {idx}: {exc}")
         except Exception as exc:
             session.rollback()
-            errors.append(f"Row {idx}: {exc}")
+            logger.warning("Task import failed (%s)", type(exc).__name__)
+            errors.append(f"Row {idx}: task could not be saved")
 
     if not dry_run:
         _publish_task_import(
@@ -447,7 +511,7 @@ def export_tasks(
     tasks = _task_query(session, space_ctx).order_by(Task.created_at.asc()).all()
     project_map = {project.project_id: project.project_name for project in _project_query(session, space_ctx)}
     solution_map = {
-        solution.solution_id: (solution.solution_name, solution.version)
+        solution.solution_id: (solution.solution_name, solution.version, solution.project_id)
         for solution in _solution_query(session, space_ctx)
     }
     buffer = StringIO()
@@ -472,10 +536,10 @@ def export_tasks(
     writer = csv.DictWriter(buffer, fieldnames=fieldnames)
     writer.writeheader()
     for task in tasks:
-        solution_name, solution_version = solution_map.get(task.solution_id, ("", ""))
+        solution_name, solution_version, solution_project_id = solution_map.get(task.solution_id, ("", "", ""))
         writer.writerow(
             {
-                "project_name": project_map.get(task.project_id, ""),
+                "project_name": project_map.get(solution_project_id, ""),
                 "solution_name": solution_name,
                 "version": solution_version,
                 "task_name": task.task_name,

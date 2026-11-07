@@ -2,7 +2,8 @@ from datetime import datetime, timezone
 from typing import Optional
 import os
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth.auth import (
@@ -44,10 +45,13 @@ from ..services.authentication_state import (
     try_record_successful_login,
 )
 from ..services.auth_sessions import (
+    SESSION_BINDING_HEADER,
     create_auth_session,
     record_activity,
     require_auth_session,
+    require_session_binding,
     revoke_auth_session,
+    session_binding,
 )
 from ..services.spaces import (
     SpaceContext,
@@ -98,6 +102,7 @@ def _issue_session(
 ) -> tuple[SpaceContext, list[Space]]:
     get_or_create_default_space(session, commit=False)
     auth_session = create_auth_session(session, user)
+    response.headers[SESSION_BINDING_HEADER] = session_binding(auth_session.session_id)
     access_token = create_token(user.user_id, user.role, "access", session_id=auth_session.session_id)
     refresh_token = create_token(user.user_id, user.role, "refresh", session_id=auth_session.session_id)
     set_auth_cookies(response, access_token, refresh_token)
@@ -143,8 +148,13 @@ def _auth_bootstrap_response(
 
 
 def _provision_self_registered_space(session: Session, user: User) -> None:
+    # Initialize the shared Home space before adding the account: the helper
+    # may commit while resolving concurrent first-time initialization.
     default_space = get_or_create_default_space(session)
-    ensure_space_membership(session, user, default_space.space_id, role="member")
+    session.add(user)
+    session.flush()
+    ensure_space_membership(session, user, default_space.space_id, role="member", commit=False)
+    session.flush()
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
@@ -163,6 +173,13 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
             code="INVALID_INPUT",
             message="SOEID is required",
         )
+    email = _email_from_soeid(soeid_norm)
+    if len(soeid_norm) > 255 or len(email) > 255:
+        raise security_http_exception(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="INVALID_INPUT",
+            message="SOEID or generated email exceeds the 255-character limit",
+        )
     existing = _get_user_by_soeid(session, soeid_norm)
     if existing:
         raise security_http_exception(
@@ -174,21 +191,32 @@ def register(payload: UserCreate, response: Response, session: Session = Depends
     now = datetime.now(timezone.utc)
     user = User(
         soeid=soeid_norm,
-        email=_email_from_soeid(soeid_norm),
+        email=email,
         display_name=payload.display_name,
         password_hash=hash_password(payload.password),
         role="user",
         is_active=True,
         password_changed_at=now,
     )
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-
-    _provision_self_registered_space(session, user)
-    _issue_session(response, session, user, requested_space_id=None)
-    session.commit()
-    return user
+    try:
+        _provision_self_registered_space(session, user)
+        session.refresh(user)
+        user_result = UserRead.model_validate(user)
+        _issue_session(response, session, user, requested_space_id=None)
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        if _get_user_by_soeid(session, soeid_norm) is not None:
+            raise security_http_exception(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                code="DUPLICATE_SOEID",
+                message="SOEID already registered",
+            ) from exc
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    return user_result
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -303,6 +331,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
             message="Not authenticated",
         )
     payload = decode_token(token, expected_type="refresh")
+    require_session_binding(request.headers.get(SESSION_BINDING_HEADER), str(payload.get("sid") or "").strip())
     user_id = payload.get("sub")
     if not user_id:
         raise security_http_exception(
@@ -334,6 +363,7 @@ def refresh(request: Request, response: Response, session: Session = Depends(get
 
     access_token = create_token(user.user_id, user.role, "access", session_id=auth_session.session_id)
     refresh_token = create_token(user.user_id, user.role, "refresh", session_id=auth_session.session_id)
+    response.headers[SESSION_BINDING_HEADER] = session_binding(auth_session.session_id)
     set_auth_cookies(response, access_token, refresh_token)
     active_ctx = resolve_active_space_context(session, user, requested_space_id=_requested_space_id(request))
     set_active_space_cookie(response, active_ctx.space_id)
@@ -365,6 +395,7 @@ def verify_temp_password_removed():
 @router.post("/reset-password")
 def reset_password(
     payload: ResetPasswordRequest,
+    request: Request,
     response: Response,
     session: Session = Depends(get_db),
 ):
@@ -381,13 +412,29 @@ def reset_password(
             message="SOEID and temporary password are required",
         )
 
-    reset_password_with_temp_password(
+    reset_user = reset_password_with_temp_password(
         session,
         soeid=payload.soeid,
         temp_password=payload.temp_password,
         new_password=payload.new_password,
     )
-    clear_auth_cookies(response)
+    # A reset page may share a browser with another signed-in account. Only
+    # clear cookies when every present auth token can be verified as this user.
+    tokens = [(request.cookies.get(name), kind) for name, kind in (
+        ("access_token", "access"), ("refresh_token", "refresh"),
+    ) if request.cookies.get(name)]
+    belongs_to_reset_user = bool(tokens)
+    for token, token_type in tokens:
+        try:
+            token_user_id = decode_token(token, expected_type=token_type).get("sub")
+        except HTTPException:
+            belongs_to_reset_user = False
+            break
+        if token_user_id != reset_user.user_id:
+            belongs_to_reset_user = False
+            break
+    if belongs_to_reset_user:
+        clear_auth_cookies(response)
     return {"status": "ok"}
 
 
@@ -427,6 +474,24 @@ def activity(
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: Request, response: Response, session: Session = Depends(get_db)):
+    expected = request.headers.get(SESSION_BINDING_HEADER)
+    if expected is not None:
+        found_session = False
+        for cookie_name, token_type in (("access_token", "access"), ("refresh_token", "refresh")):
+            token = request.cookies.get(cookie_name)
+            if not token:
+                continue
+            try:
+                payload = decode_token(token, expected_type=token_type)
+            except Exception:
+                continue
+            session_id = str(payload.get("sid") or "").strip()
+            if not session_id:
+                require_session_binding(expected, "")
+            require_session_binding(expected, session_id)
+            found_session = True
+        if not found_session:
+            require_session_binding(expected, "")
     for cookie_name, token_type in (("access_token", "access"), ("refresh_token", "refresh")):
         token = request.cookies.get(cookie_name)
         if not token:
@@ -463,6 +528,8 @@ def bootstrap(
     session: Session = Depends(get_db),
     current_user: User = Depends(require_interactive_user),
 ):
+    auth_session = request.state.auth_session
+    response.headers[SESSION_BINDING_HEADER] = session_binding(auth_session.session_id)
     ctx, spaces = resolve_auth_space_context(session, current_user, _requested_space_id(request))
     if request.cookies.get(ACTIVE_SPACE_COOKIE) != ctx.space_id:
         set_active_space_cookie(response, ctx.space_id)

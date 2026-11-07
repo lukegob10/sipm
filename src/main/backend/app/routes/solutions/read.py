@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
 from ...deps import get_db
-from ...models import Solution, User
-from ...schemas import SolutionRead
+from ...models import ChangeLog, Solution, User
+from ...schemas import ChangeLogRead, SolutionRead
 from ...services.smart_cache import cached_call, make_scope_token
 from ...services.spaces import SpaceContext
 from .common import (
@@ -194,4 +194,23 @@ def get_solution(
         ttl_seconds=_SOLUTIONS_DETAIL_TTL_SECONDS,
         scope_tokens=[scope_token],
         loader=_load,
+    )
+
+
+@router.get("/solutions/{solution_id}/activity", response_model=List[ChangeLogRead])
+def list_solution_activity(
+    solution_id: str,
+    limit: int = Query(100, ge=1, le=500),
+    session: Session = Depends(get_db),
+    space_ctx: SpaceContext = Depends(current_space_dep),
+):
+    _get_solution_or_404(session, solution_id, space_ctx)
+    return (
+        session.query(ChangeLog)
+        .filter(ChangeLog.space_id == space_ctx.space_id)
+        .filter(ChangeLog.entity_type == "solution")
+        .filter(ChangeLog.entity_id == solution_id)
+        .order_by(ChangeLog.created_at.desc())
+        .limit(limit)
+        .all()
     )

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from math import floor
 from typing import Optional
+
+from ..utils import read_text_value
 
 from .pdf_utils import (
     _SimplePdfDoc,
@@ -56,7 +59,7 @@ def _updated_date(value: object, today: date) -> date:
 
 
 def _nonempty(value: object) -> bool:
-    return bool(str(value or "").strip())
+    return bool((read_text_value(value) or "").strip())
 
 
 def _is_closed_solution(status: object) -> bool:
@@ -171,13 +174,15 @@ def build_pm_command_report_pdf(
     scoped_solutions = [
         row for row in solutions if str(row.get("project_id") or "").strip() in project_ids
     ]
-    solution_ids = {str(row.get("solution_id") or "").strip() for row in scoped_solutions}
-    solution_ids.discard("")
+    solution_projects = {
+        str(row.get("solution_id") or "").strip(): str(row.get("project_id") or "").strip()
+        for row in scoped_solutions if str(row.get("solution_id") or "").strip()
+    }
     scoped_tasks = [
         row
         for row in tasks
-        if str(row.get("project_id") or "").strip() in project_ids
-        and str(row.get("solution_id") or "").strip() in solution_ids
+        if str(row.get("project_id") or "").strip()
+        == solution_projects.get(str(row.get("solution_id") or "").strip())
     ]
     active_solutions = [row for row in scoped_solutions if not _is_closed_solution(row.get("status"))]
     active_tasks = [row for row in scoped_tasks if not _is_closed_task(row.get("status"))]
@@ -319,6 +324,7 @@ def build_pm_command_report_pdf(
             signals.append(f"Overdue deliverables {overdue_linked}")
         risk_rows.append(
             {
+                "solution_id": str(solution.get("solution_id") or ""),
                 "workstream": _text(solution.get("solution_name"), "Unnamed Workstream"),
                 "project": project_name_by_id.get(str(solution.get("project_id") or ""), "Unmapped Project"),
                 "owner": _text(solution.get("owner") or solution.get("owner_user_soeid"), "Unassigned"),
@@ -397,7 +403,7 @@ def build_pm_command_report_pdf(
         if due_days is not None and due_days < 0:
             continue
         add_watch_item(
-            f"solution:{row['project']}:{row['workstream']}",
+            f"solution:{row['solution_id']}",
             item_type="Solution",
             item=str(row["workstream"]),
             context=str(row["project"]),
@@ -455,7 +461,8 @@ def build_pm_command_report_pdf(
         + stale_total
     )
     risk_denominator = max(len(active_solutions) * 7 + len(active_tasks) * 2, 1)
-    portfolio_health = round(max(0, min(100, 100 - (risk_units / risk_denominator) * 100)))
+    # Match JavaScript Math.round for the non-negative dashboard score.
+    portfolio_health = floor(max(0, min(100, 100 - (risk_units / risk_denominator) * 100)) + 0.5)
     at_risk_workstreams = sum(1 for row in risk_rows if int(row["score"]) >= 45)
 
     actions = []
@@ -526,6 +533,10 @@ def build_pm_command_report_pdf(
                 _draw_wrapped_cell(painter, cursor_x + 7, cursor_y + 8, lines, color=color, bold=bold)
                 cursor_x += col_width
             cursor_y += row_h
+        if len(rows) > max_rows:
+            ensure_space(16)
+            painter.text(left + 7, cursor_y + 4, f"Showing {max_rows} of {len(rows)} items in {title}.", size=8, color=(96, 107, 129))
+            cursor_y += 16
         cursor_y += 12
 
     start_page()
@@ -600,7 +611,7 @@ def build_pm_command_report_pdf(
     draw_issue_rows(
         "Projects Needing Attention",
         [("Project", 230), ("Health", 56), ("Open", 70), ("Next Due", 70), ("Hotspots", content_width - 426)],
-        [row for row in project_summaries if int(row["health"]) < 100][:12],
+        [row for row in project_summaries if int(row["health"]) < 100],
         lambda row: [
             (_wrap_pdf_text(str(row["project_name"]), 214, 8.2, 2), 230, (27, 38, 66), True),
             ([str(row["health"])], 56, _health_color(int(row["health"])), True),

@@ -123,6 +123,61 @@ describe("route entrypoints", () => {
     expect(masterFilters.querySelector("[data-master-outline-action='collapse-all']")).toBeTruthy();
   });
 
+  it("preserves an unfinished deliverables search across rerenders in the same context", () => {
+    const masterFilters = document.createElement("section");
+    const ctx = { els: { masterFilters }, state: { user: {}, activeSpace: { space_id: "one" }, filters: { query: "" } } };
+    masterRoute.renderMasterFilters(ctx);
+    const input = masterFilters.querySelector("#filter-query");
+    input.value = "unfinished";
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query")).toBe(input);
+    expect(input.value).toBe("unfinished");
+    expect(ctx.state.filters.query).toBe("");
+    ctx.state.filters = { query: "" };
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("");
+    masterFilters.querySelector("#filter-query").value = "private draft";
+    ctx.state.user = {};
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("");
+    masterFilters.querySelector("#filter-query").value = "space draft";
+    ctx.state.activeSpace = { space_id: "two" };
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("");
+    ctx.state.filters.query = "saved";
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("saved");
+  });
+
+  it("preserves an unfinished search across token refresh but clears it for a new session or space lifetime", async () => {
+    const { registerMutationContextLifetime } = await import("../../js/utils/form-state.js");
+    const masterFilters = document.createElement("section");
+    document.body.append(masterFilters);
+    const state = { user: { user_id: "u1" }, activeSpace: { space_id: "s1" }, filters: { query: "" } };
+    let session = 1;
+    let space = 1;
+    registerMutationContextLifetime(state, () => ({ session, space }));
+    const ctx = { els: { masterFilters }, state };
+    masterRoute.renderMasterFilters(ctx);
+    const input = masterFilters.querySelector("#filter-query");
+    input.value = "unfinished";
+    input.focus();
+    state.user = { user_id: "u1" };
+    state.activeSpace = { space_id: "s1" };
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query")).toBe(input);
+    expect(input.value).toBe("unfinished");
+    expect(document.activeElement).toBe(input);
+    session += 1;
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("");
+    masterFilters.querySelector("#filter-query").value = "space draft";
+    space += 2;
+    masterRoute.renderMasterFilters(ctx);
+    expect(masterFilters.querySelector("#filter-query").value).toBe("");
+    masterFilters.remove();
+  });
+
   it("waits for Enter before applying deliverables search text", () => {
     const masterFilters = document.createElement("section");
     const ctx = {

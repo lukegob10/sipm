@@ -1,3 +1,4 @@
+import { captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
 import { statusPillMarkup } from "../../utils/display-tokens.js";
 
 const PREFS_KEY_PREFIX = "sipm-program-dashboard-v1";
@@ -58,10 +59,14 @@ function prefsKey(spaceId) {
 function readPrefs(spaceId) {
   try {
     const raw = localStorage.getItem(prefsKey(spaceId));
-    return raw ? JSON.parse(raw) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
   } catch {
-    return {};
+    // Invalid or unavailable saved preferences fall back to defaults.
   }
+  writePrefs(spaceId, {});
+  return {};
 }
 
 function writePrefs(spaceId, prefs) {
@@ -336,25 +341,31 @@ function bindProgramDashboardEvents(programDashboardState, rerender) {
     if (action === "download-pdf" || action === "download-excel") {
       event.preventDefault();
       const reportType = action === "download-excel" ? "Excel" : "PDF";
+      const ctx = programDashboardState.ctx;
+      const state = ctx?.state;
+      const context = !ctx?.publicMode && state ? captureEntityMutationContext(state) : null;
+      const isCurrent = () => !context || (ctx.state === state && isEntityMutationContextCurrent(state, context));
       try {
         if (action === "download-excel") {
           await downloadProgramDashboardExcel(programDashboardState);
         } else {
           await downloadProgramDashboardPdf(programDashboardState);
         }
-        if (typeof programDashboardState.ctx?.trackWorkflow === "function") {
-          programDashboardState.ctx.trackWorkflow("program_dashboard", "report_download", "success", {
+        if (!isCurrent()) return;
+        if (typeof ctx?.trackWorkflow === "function") {
+          ctx.trackWorkflow("program_dashboard", "report_download", "success", {
             source: "program_dashboard",
           });
         }
       } catch (err) {
-        if (typeof programDashboardState.ctx?.trackWorkflow === "function") {
-          programDashboardState.ctx.trackWorkflow("program_dashboard", "report_download", "failure", {
+        if (!isCurrent()) return;
+        if (typeof ctx?.trackWorkflow === "function") {
+          ctx.trackWorkflow("program_dashboard", "report_download", "failure", {
             source: "program_dashboard",
           });
         }
         console.error(`Program dashboard ${reportType} download failed`, err);
-        programDashboardState.ctx?.setStatus?.(err?.message || `${reportType} download failed`, "danger");
+        ctx?.setStatus?.(err?.message || `${reportType} download failed`, "danger");
       }
       return;
     }
@@ -399,6 +410,7 @@ async function downloadProgramDashboardReport(programDashboardState, extension) 
   const activeSpaceId = ctx?.state?.activeSpace?.space_id || "";
   const publicSlug = String(ctx.publicSlug || "").trim();
   const isPublicMode = !!ctx.publicMode;
+  const requestContext = !isPublicMode && ctx.state ? captureEntityMutationContext(ctx.state) : null;
   const headers = { "Content-Type": "application/json" };
   if (!isPublicMode && activeSpaceId) headers["X-Space-Id"] = activeSpaceId;
   const reportUrl = isPublicMode
@@ -408,7 +420,7 @@ async function downloadProgramDashboardReport(programDashboardState, extension) 
     : (extension === "xlsx"
       ? `${resolveApiBase(ctx)}/programs/dashboard/report.xlsx`
       : `${resolveApiBase(ctx)}/programs/dashboard/report.pdf`);
-  const response = await fetch(reportUrl, {
+  const response = await (isPublicMode ? fetch : (ctx.fetchImpl || fetch))(reportUrl, {
     method: "POST",
     headers,
     credentials: isPublicMode ? "omit" : "include",
@@ -432,7 +444,15 @@ async function downloadProgramDashboardReport(programDashboardState, extension) 
     }
     throw new Error(message);
   }
+  const contentType = String(response.headers?.get?.("content-type") || "").split(";")[0].trim().toLowerCase();
+  const expectedType = extension === "xlsx"
+    ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    : "application/pdf";
+  if (contentType !== expectedType) {
+    throw new Error(`Download failed: server did not return ${extension === "xlsx" ? "an Excel report" : "a PDF"}.`);
+  }
   const blob = await response.blob();
+  if (requestContext && !isEntityMutationContextCurrent(ctx.state, requestContext)) return;
   const today = new Date().toISOString().slice(0, 10);
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
@@ -720,7 +740,8 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   });
 
   const spaceId = String(state.activeSpace?.space_id || "no-space");
-  loadStateForSpace(programDashboardState, spaceId);
+  const prefsScope = ctx.publicMode ? `public:${encodeURIComponent(String(ctx.publicSlug || ""))}:${spaceId}` : spaceId;
+  loadStateForSpace(programDashboardState, prefsScope);
 
   const programs = Array.isArray(state.programs) ? state.programs : [];
   if (!programs.length) {
@@ -788,7 +809,7 @@ export function renderProgramDashboardView(programDashboardState, ctx) {
   const titleText = multipleProgramsSelected
     ? "Program Dashboard"
     : `${programParts.team ? `${programParts.team} - ` : ""}${programParts.subArea || selectedProgram.program_name}`;
-  const subtitleText = "Platform data pipeline and source onboarding projects";
+  const subtitleText = "Projects and solutions";
 
   root.innerHTML = `
     <div class="program-dashboard-stage">

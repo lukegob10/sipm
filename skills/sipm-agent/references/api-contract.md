@@ -10,13 +10,17 @@ All paths are below `<SIPM_BASE_URL>/api`. Agent API calls use a user's API toke
 - `GET /agent/assigned-work?assignee_user_soeid=<soeid>` — active shared Tasks assigned by exact SOE ID, with hierarchy, actionability, and effective GitHub-repository context. Results exclude completed/abandoned work and all private My Work ordering state.
 - `GET /agent/{programs|projects|solutions|tasks}/{id}` — complete direct detail with concurrency timestamps.
 - `GET /agent/work-graph` — project-boundary cursor pagination, `task_id`, and `summary|full` projection. Filters select matching parent graphs; returned parents include their full child set for the chosen projection.
-- `GET /agent/audit-feed` — scoped incremental verification.
+- `GET /agent/audit-feed` — scoped incremental verification. Change-request history is limited to requests owned by the token user; ordinary work-item history remains space-scoped.
 - `GET /agent/reference-data` — authoritative create/update/archive fields, enums, phases, filters, and limits.
 - `GET /agent/openapi.json` — Agent-only OpenAPI paths.
 - `GET /agent/people` — paginated assignable users with space role and capacity.
 - `GET /agent/teams` and `/teams/{id}/members` — paginated team membership, role, and capacity.
 
 All cursors are opaque and filter-bound. Do not edit or reuse one with changed filters.
+
+Audit-feed cursors are also bound to the token owner. If a cursor issued before the ownership check is rejected, restart the audit traversal without a cursor.
+
+Assigned-work pagination holds the UTC date fixed for actionability and ordering across pages. A cursor issued before this behavior was added uses the UTC date of its first continuation; if midnight passed since it was issued, its original ordering cannot be recovered. Restart pagination to get current actionability.
 
 ## Patch Envelope
 
@@ -35,11 +39,11 @@ Retrieve live field allowlists from `/agent/reference-data`. Do not infer update
 
 Update requires `id`, `if_updated_at`, and at least one material field. No-op updates are rejected. Archive requires `id` and `if_updated_at`, accepts no fields, and is soft-delete only.
 
-Names are unique within these scopes: program/project names within a space, solution name plus version within a project, and task names within a solution. Completed and abandoned work still occupies its name until archived.
+Program, project, solution, and task names and solution versions are limited to 255 characters after trimming. Names are unique within these scopes: program/project names within a space, solution name plus version within a project, and task names within a solution. Completed and abandoned work still occupies its name until archived.
 
 Archive retains the record and its ID, adds a deletion marker to its stored name, and records the original name in the audit log. A later create can reuse the original name with a new ID; it does not restore the archived record or attach its descendants to the replacement. Older archived records that still hold a name are renamed transactionally when an approved create or rename needs that unique key. Validation and pending submission do not modify archived records or reserve names.
 
-Search archives using `lifecycle=archived`, preferably by entity ID; renamed archives no longer match the original `exact_name`. Use a new idempotency key for a fresh replacement intent. Replaying an old key returns the original request, including its terminal status.
+Search archives using `lifecycle=archived`, preferably by entity ID; renamed archives no longer match the original `exact_name`. Use a new idempotency key for a fresh replacement intent. To recover an existing request, list all statuses filtered by its idempotency key.
 
 ## Atomic Hierarchy Creation
 
@@ -66,21 +70,24 @@ Application is transactional. Results map `ref` and `client_operation_id` to per
 - `POST /agent/patches/validate` validates without persistence.
 - `POST /agent/change-requests` stores a pending proposal and diff; it does not mutate work data.
 - `GET /agent/change-requests` and `/{id}` list/get only the API token owner's own requests.
-- `PUT /agent/change-requests/{id}` replaces an owned pending proposal in place. It requires `if_request_updated_at`, `reason`, and the complete `operations` list; the request ID and original idempotency key remain stable.
+- `PUT /agent/change-requests/{id}` replaces an owned pending proposal in place. It requires `if_request_updated_at`, `if_request_fingerprint`, `reason`, and the complete `operations` list; the request ID and original idempotency key remain stable.
 - `POST /agent/change-requests/{id}/cancel` idempotently cancels an owned pending request.
 
-Submitting the same idempotency key with the same original payload returns the existing request. A different payload under the key conflicts; use the in-place update endpoint for a pending correction.
-Pending replacement is concurrency-safe: a stale `if_request_updated_at` conflicts, replacement revalidates and rebuilds the diff, and terminal requests cannot be changed.
+Reason and idempotency key are limited to 255 characters after trimming. Submitting the same idempotency key with the same currently stored reason and operations returns the existing request, including terminal status. A different payload under the key conflicts. Replacement or partial approval changes the stored payload, so replaying the original submission can conflict even though the key already exists. Recover it with `GET /agent/change-requests?status=all&idempotency_key=<key>` or the helper's `list-change-requests --status all --idempotency-key KEY`; inspect the result before taking further action. Use the in-place update endpoint for a pending correction.
+Pending replacement is concurrency-safe: a stale timestamp or content fingerprint conflicts, replacement revalidates and rebuilds the diff, and terminal requests cannot be changed.
+If the underlying work changed after review, retrieve its current values and update the proposal before requesting another review. Replacing an otherwise identical proposal refreshes its diff when the underlying values have changed.
 
 ## Review
 
 API tokens never approve or reject. Browser-cookie review remains supported. Delegated review is separate:
 
+Interactive single and selected-operation review requests require `if_request_fingerprint` from the reviewed proposal. Bulk review requests require `if_request_fingerprints`, a mapping from every selected request ID to its reviewed `content_fingerprint`. Older clients that omit these fields must be updated before reviewing proposals.
+
 - `GET /agent/change-requests/{id}/delegated-review`
 - `POST /agent/change-requests/{id}/delegated-approve`
 - `POST /agent/change-requests/{id}/delegated-reject`
 
-The POST body must contain `confirm_change_request_id` equal to the path ID and `if_request_updated_at` copied from the reviewed response. The human session must still be active and have space access. Changed, terminal, replayed, or mismatched requests fail.
+The POST body must contain `confirm_change_request_id` equal to the path ID and both `if_request_updated_at` and `if_request_fingerprint` copied from the reviewed response (`updated_at` and `content_fingerprint`, respectively). The human session must still be active and have space access. Changed, terminal, replayed, or mismatched requests fail.
 
 ## Errors
 

@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session
 from .auth.auth import decode_token
 from .db.db import get_session
 from .models import AuthSession, User
+from .paths import API_PREFIX
 from .security import security_http_exception
 from .services.audit_log import log_changes
 from .services.api_tokens import authenticate_api_token
-from .services.auth_sessions import require_auth_session
+from .services.auth_sessions import SESSION_BINDING_HEADER, require_auth_session, require_session_binding
 from .services.spaces import (
     SpaceContext,
     is_global_admin_role,
@@ -29,13 +30,13 @@ from .services.spaces import (
 
 _MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _LOBBY_WORK_WRITE_PATH_PREFIXES = (
-    "/project-manager/api/agent/change-requests",
-    "/project-manager/api/phases",
-    "/project-manager/api/programs",
-    "/project-manager/api/projects",
-    "/project-manager/api/solutions",
-    "/project-manager/api/tasks",
-    "/project-manager/api/teams",
+    f"{API_PREFIX.lower()}/agent/change-requests",
+    f"{API_PREFIX.lower()}/phases",
+    f"{API_PREFIX.lower()}/programs",
+    f"{API_PREFIX.lower()}/projects",
+    f"{API_PREFIX.lower()}/solutions",
+    f"{API_PREFIX.lower()}/tasks",
+    f"{API_PREFIX.lower()}/teams",
 )
 
 
@@ -72,6 +73,7 @@ def authenticate_access_token_context(
     token: str | None,
     *,
     expected_type: str = "access",
+    expected_session_binding: str | None = None,
 ) -> tuple[User, AuthSession, dict]:
     if not token:
         raise security_http_exception(
@@ -80,6 +82,7 @@ def authenticate_access_token_context(
             message="Not authenticated",
         )
     payload = decode_token(token, expected_type=expected_type)
+    require_session_binding(expected_session_binding, str(payload.get("sid") or "").strip())
     user_id = payload.get("sub")
     if not user_id:
         raise security_http_exception(
@@ -131,23 +134,25 @@ def ensure_token_not_revoked(user: User, token_issued_at: int | None) -> None:
 
 
 def _bearer_credential(request: Request) -> str | None:
-    auth_header = str(request.headers.get("Authorization", "")).strip()
-    scheme, _, credential = auth_header.partition(" ")
-    if scheme.lower() == "bearer" and credential.strip():
-        return credential.strip()
+    parts = str(request.headers.get("Authorization", "")).split(maxsplit=1)
+    if parts and parts[0].lower() == "bearer":
+        # Empty Bearer credentials still select token authentication.
+        return parts[1].strip() if len(parts) == 2 else ""
     return None
 
 
 def require_user(request: Request, session: Session = Depends(get_db)) -> User:
     bearer_token = _bearer_credential(request)
-    if bearer_token:
+    if bearer_token is not None:
         user = authenticate_api_token(session, bearer_token)
         request.state.auth_method = "api_token"
         request.state.user = user
         return user
     token = request.cookies.get("access_token")
     if token:
-        user, auth_session, _payload = authenticate_access_token_context(session, token)
+        user, auth_session, _payload = authenticate_access_token_context(
+            session, token, expected_session_binding=request.headers.get(SESSION_BINDING_HEADER)
+        )
         request.state.auth_method = "cookie"
         request.state.auth_session = auth_session
         request.state.user = user
@@ -523,7 +528,7 @@ def require_agent_or_user_space_role(min_role: str):
     return _dep
 
 
-def require_delegated_human_space_role(min_role: str):
+def require_delegated_human_space_role(min_role: str, *, block_lobby_work_write: bool = False):
     min_norm = _normalize_space_role(min_role)
     threshold = _SPACE_ROLE_ORDER.get(min_norm)
     if threshold is None:
@@ -534,6 +539,8 @@ def require_delegated_human_space_role(min_role: str):
         session: Session = Depends(get_db),
         ctx: SpaceContext = Depends(current_delegated_human_space),
     ) -> SpaceContext:
+        if block_lobby_work_write and _is_lobby_work_write(request, ctx):
+            _raise_lobby_work_write_forbidden(request, session, ctx)
         if ctx.is_global_admin:
             return ctx
         current_rank = _SPACE_ROLE_ORDER.get(_normalize_space_role(ctx.space_role), 0)

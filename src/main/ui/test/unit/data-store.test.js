@@ -84,6 +84,122 @@ function deferred() {
 }
 
 
+describe("on-demand entity loading", () => {
+  it("invalidates inventory for relevant server refreshes and preserves unrelated caches", async () => {
+    const inventory = { records: [{ repository_name: "old" }], loading: false, error: "", search: "query" };
+    const { controller, state } = createHarness(() => Promise.resolve([]), { state: { repositoryInventory: inventory } });
+    await controller.refreshFromServer("users");
+    expect(inventory.records).toEqual([{ repository_name: "old" }]);
+    await controller.refreshFromServer("tasks");
+    expect(inventory.records).toBeNull();
+    expect(inventory.search).toBe("query");
+    expect(state.repositoryInventory).toBe(inventory);
+  });
+
+  it("invalidates inventory on a forced repository refresh", async () => {
+    const inventory = { records: [{ repository_name: "old" }], loading: false, error: "", search: "" };
+    const { controller } = createHarness(() => Promise.resolve([]), {
+      state: { currentView: "repositories", repositoryInventory: inventory },
+      entitiesForView: () => [],
+    });
+    await controller.loadData({ force: true });
+    expect(inventory.records).toBeNull();
+  });
+
+  it("clears the capacity editor and notice when data context is cleared", () => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = '<form><input name="soeid" value="old"><input name="display_name" value="Old"><input name="team_tag" value="Old Team"><input name="capacity_fte_month" value="0.5"></form><p class="notice-error">Old error</p>';
+    const form = wrapper.querySelector("form");
+    const status = wrapper.querySelector("p");
+    const teamFilter = document.createElement("input");
+    const nameFilter = document.createElement("input");
+    teamFilter.value = "old team";
+    nameFilter.value = "old person";
+    const { controller } = createHarness(() => Promise.resolve([]), {
+      els: { capacityUserForm: form, capacityUserFormStatus: status, capacityTeamFilter: teamFilter, capacityNameFilter: nameFilter },
+    });
+    controller.clearDataState();
+    expect(form.querySelector('[name="soeid"]').value).toBe("");
+    expect(form.querySelector('[name="display_name"]').value).toBe("");
+    expect(form.querySelector('[name="team_tag"]').value).toBe("");
+    expect(form.querySelector('[name="capacity_fte_month"]').value).toBe("1.00");
+    expect(status.textContent).toBe("");
+    expect(status.classList.contains("notice-error")).toBe(false);
+    expect(teamFilter.value).toBe("");
+    expect(nameFilter.value).toBe("");
+  });
+
+  it("keeps a capacity draft during a same-context recovery", () => {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = '<form><input name="display_name" value="Draft"><input name="team_tag" value="Draft Team"></form>';
+    const form = wrapper.querySelector("form");
+    const { controller } = createHarness(() => Promise.resolve([]), { els: { capacityUserForm: form } });
+    controller.clearDataState({ preserveEditors: true });
+    expect(form.querySelector('[name="display_name"]').value).toBe("Draft");
+    expect(form.querySelector('[name="team_tag"]').value).toBe("Draft Team");
+  });
+
+  it("preserves Roadmap collapsed rows during same-space recovery but clears them on context reset", () => {
+    const collapsed = new Set(["program:one", "project:two"]);
+    const { controller, state } = createHarness(() => Promise.resolve([]), { state: { ganttCollapsed: collapsed } });
+    controller.clearDataState({ preserveEditors: true });
+    expect(state.ganttCollapsed).toEqual(new Set(["program:one", "project:two"]));
+    controller.clearDataState();
+    expect(state.ganttCollapsed).toEqual(new Set());
+  });
+
+  it("clears cached solution documents when data context is invalidated", () => {
+    const documents = { "solution-1": [{ document_id: "private" }] };
+    const { controller, state } = createHarness(() => Promise.resolve([]), { state: { solutionDocuments: documents } });
+    controller.clearDataState();
+    expect(state.solutionDocuments).toEqual({});
+    expect(state.solutionDocuments).not.toBe(documents);
+  });
+
+  it("shares foreground reads without replacing the route load", async () => {
+    const pending = deferred();
+    const { controller, state, api, populateSelects } = createHarness(() => pending.promise);
+    const foreground = controller.loadData({ entities: ["solutions"] });
+    const createData = controller.ensureEntityData(["solutions"]);
+    pending.resolve([{ solution_id: "s1" }]);
+    await expect(createData).resolves.toBe(true);
+    await foreground;
+    expect(api).toHaveBeenCalledTimes(1);
+    expect(state.solutions).toEqual([{ solution_id: "s1" }]);
+    expect(populateSelects).toHaveBeenCalled();
+    expect(state.loading).toBe(false);
+  });
+
+  it("surfaces load failures instead of treating an empty collection as loaded", async () => {
+    const { controller, state } = createHarness(() => Promise.reject(new Error("unavailable")));
+    await expect(controller.ensureEntityData(["solutions"])).rejects.toThrow("unavailable");
+    expect(state.loadedEntities.has("solutions")).toBe(false);
+  });
+
+  it("rejects malformed collection responses and retries without erasing existing data", async () => {
+    const { controller, state, api } = createHarness(() => Promise.resolve({ error: "unexpected response" }), {
+      state: { solutions: [{ solution_id: "retained" }] },
+    });
+    await expect(controller.ensureEntityData(["solutions"])).rejects.toThrow("Invalid solutions response");
+    expect(state.loadedEntities.has("solutions")).toBe(false);
+    expect(state.solutions).toEqual([{ solution_id: "retained" }]);
+    api.mockResolvedValueOnce([{ solution_id: "fresh" }]);
+    await expect(controller.ensureEntityData(["solutions"])).resolves.toBe(true);
+    expect(state.solutions).toEqual([{ solution_id: "fresh" }]);
+  });
+
+  it("discards an on-demand read after the data context changes", async () => {
+    const pending = deferred();
+    const { controller, state } = createHarness(() => pending.promise);
+    const loading = controller.ensureEntityData(["solutions"]);
+    controller.clearDataState();
+    state.activeSpace = { space_id: "space-b" };
+    pending.resolve([{ solution_id: "old" }]);
+    await expect(loading).resolves.toBe(false);
+    expect(state.solutions).toEqual([]);
+  });
+});
+
 describe("data store controller", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -664,7 +780,7 @@ describe("data store controller", () => {
     expect(setStatus.mock.calls.filter(([message]) => message === "Online")).toHaveLength(1);
   });
 
-  it("invalidates My Work when authoritative task data refreshes", async () => {
+  it.each(["refresh", "force"])("invalidates My Work when authoritative task data arrives through %s", async (mode) => {
     const { controller, state } = createHarness((path) => {
       if (path === "/tasks") return Promise.resolve([{ task_id: "task-1", status: "in_progress" }]);
       return Promise.resolve([]);
@@ -672,13 +788,36 @@ describe("data store controller", () => {
     state.myWork = {
       records: [{ task: { task_id: "task-1", status: "to_do" } }],
       selectedTaskId: "task-1",
+      loading: true,
+      loadRequestId: 7,
     };
 
-    await controller.refreshFromServer("tasks");
+    if (mode === "refresh") await controller.refreshFromServer("tasks");
+    else await controller.loadData({ entities: ["tasks"], force: true });
 
     expect(state.tasks).toEqual([{ task_id: "task-1", status: "in_progress" }]);
     expect(state.myWork.records).toBeNull();
     expect(state.myWork.selectedTaskId).toBe("task-1");
+    expect(state.myWork.loading).toBe(false);
+    expect(state.myWork.loadRequestId).toBeGreaterThan(7);
+  });
+
+  it("refreshes the personal queue on a forced My Work reload without fetching the task collection", async () => {
+    const { controller, state, api, renderActiveView } = createHarness(() => Promise.resolve([]), {
+      state: {
+        currentView: "my-work",
+        myWork: { records: [{ task: { task_id: "deleted-task" } }], loading: true, loadRequestId: 7 },
+      },
+      entitiesForView: () => ["users"],
+    });
+
+    await controller.reloadCurrentViewData({ force: true });
+
+    expect(api.mock.calls.map(([path]) => path)).toEqual(["/users"]);
+    expect(state.myWork.records).toBeNull();
+    expect(state.myWork.loading).toBe(false);
+    expect(state.myWork.loadRequestId).toBeGreaterThan(7);
+    expect(renderActiveView).toHaveBeenCalled();
   });
 
   it("coalesces refreshes within the current data context", async () => {
@@ -874,4 +1013,51 @@ describe("data store controller", () => {
     expect(onViewDataLoaded).not.toHaveBeenCalled();
     expect(setStatus).not.toHaveBeenCalled();
   });
+});
+
+it('renders Calendar solutions while the task dependency is pending, then renders the tasks', async () => {
+  const held = deferred();
+  const task = { task_id: 't', solution_id: 's', due_date: '2026-10-29' };
+  const {controller, state, populateSelects, renderActiveView} = createHarness((path) => {
+    if (path === '/tasks') return held.promise;
+    if (path === '/solutions') return Promise.resolve([{solution_id:'s'}]);
+    if (path === '/projects') return Promise.resolve([{project_id:'p'}]);
+    return Promise.resolve([]);
+  }, { state: {currentView:'calendar'}, entitiesForView: () => ['programs','projects','solutions','tasks'] });
+  const loading = controller.loadData();
+  await vi.waitFor(() => expect(populateSelects).toHaveBeenCalled());
+  expect(state.solutions).toHaveLength(1);
+  expect(state.loadedEntities.has('tasks')).toBe(false);
+  expect(renderActiveView).toHaveBeenCalled();
+  held.resolve([task]); await loading;
+  expect(state.tasks).toEqual([task]);
+  expect(state.loadedEntities.has('tasks')).toBe(true);
+  expect(renderActiveView).toHaveBeenCalledTimes(3);
+});
+
+it('reports Calendar partial failures while task data is pending', async () => {
+  const held = deferred();
+  const {controller, setStatus} = createHarness((path) => {
+    if (path === '/tasks') return held.promise;
+    if (path === '/projects') return Promise.reject(new Error('unavailable'));
+    return Promise.resolve([]);
+  }, { state: {currentView:'calendar'}, entitiesForView: () => ['projects','solutions','tasks'] });
+  const loading = controller.loadData();
+  await vi.waitFor(() => expect(setStatus).toHaveBeenCalledWith('Partial load failed: projects', 'warn'));
+  held.resolve([]); await loading;
+});
+
+it('does not render an old Calendar partial load after leaving the route', async () => {
+  const heldProjects = deferred(), heldTasks = deferred();
+  const {controller, state, populateSelects} = createHarness((path) => {
+    if (path === '/tasks') return heldTasks.promise;
+    if (path === '/projects') return heldProjects.promise;
+    return Promise.resolve([]);
+  }, { state: {currentView:'calendar'}, entitiesForView: () => ['projects','solutions','tasks'] });
+  const loading = controller.loadData();
+  await Promise.resolve(); state.currentView = 'master';
+  heldProjects.resolve([]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(populateSelects).not.toHaveBeenCalled();
+  heldTasks.resolve([]); await loading;
 });

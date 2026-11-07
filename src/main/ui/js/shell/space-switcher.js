@@ -103,16 +103,17 @@ export function createSpaceSwitcherController({
     };
     const query = normalize(state.spaceSwitcherQuery);
     const activeId = active?.space_id || "";
-    const visibleSpaces = (state.spaces || []).filter((space) => {
-      if (!query) return true;
-      return [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query));
-    });
+    const matchesQuery = (space) => !query || [
+      space.name, space.space_name, space.slug, space.space_id,
+      displaySpaceName(space), displaySpaceMeta(space),
+    ].some((value) => normalize(value).includes(query));
+    const visibleSpaces = (state.spaces || []).filter(matchesQuery);
     const recentSpaceIds = state.spaceRecentIds.filter((spaceId) => spaceId && spaceId !== activeId);
     const recentSpaces = recentSpaceIds
       .map((spaceId) => (state.spaces || []).find((space) => space.space_id === spaceId))
       .filter(Boolean)
       .filter((space, index, list) => list.findIndex((item) => item.space_id === space.space_id) === index)
-      .filter((space) => !query || [space.name, space.slug, space.space_id].some((value) => normalize(value).includes(query)));
+      .filter(matchesQuery);
     renderList(els.spaceSwitcherCurrentList, active ? [{
       space_id: active.space_id,
       name: active.space_name || active.space_id,

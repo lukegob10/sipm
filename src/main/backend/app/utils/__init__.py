@@ -9,6 +9,9 @@ from typing import Any, Optional, Sequence, Tuple, Type, TypeVar
 from .enums import ProjectStatus, SolutionStatus, TaskStatus
 
 EnumType = TypeVar("EnumType", ProjectStatus, SolutionStatus, TaskStatus)
+MAX_DB_INTEGER = (1 << 63) - 1
+# Oracle FLOAT is a NUMBER subtype with magnitude strictly below 1e126.
+ORACLE_NUMBER_MAGNITUDE_LIMIT = 1e126
 
 
 def get_default_user_id() -> str:
@@ -38,10 +41,7 @@ def read_text_value(value: Any) -> Optional[str]:
 
     reader = getattr(value, "read", None)
     if callable(reader):
-        try:
-            loaded = reader()
-        except Exception:
-            return str(value)
+        loaded = reader()
         if loaded is None:
             return None
         if isinstance(loaded, bytes):
@@ -115,7 +115,10 @@ def parse_datetime(raw: Optional[str]) -> Optional[datetime]:
     except ValueError:
         raise ValueError(f"invalid datetime '{raw}', expected ISO 8601")
     if parsed.tzinfo is not None:
-        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        try:
+            return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        except OverflowError:
+            raise ValueError(f"invalid datetime '{raw}', expected ISO 8601") from None
     return parsed
 
 
@@ -126,9 +129,14 @@ def read_csv(file_bytes: bytes) -> Tuple[list, list]:
     except UnicodeDecodeError:
         return [], ["Could not decode file as UTF-8"]
     try:
-        reader = csv.DictReader(StringIO(text), strict=True)
+        reader = csv.DictReader(StringIO(text, newline=""), strict=True)
         if reader.fieldnames is None:
             return [], ["Missing CSV header row"]
+        seen_headers = set()
+        for header in reader.fieldnames:
+            if header in seen_headers:
+                return [], [f"Duplicate CSV header: {header}"]
+            seen_headers.add(header)
         return [row for row in reader], []
     except csv.Error as exc:
         return [], [f"Invalid CSV: {exc}"]
@@ -140,14 +148,20 @@ def enable_all_phases(session, solution_id: str) -> None:
     from ..phase_catalog import canonical_phase_query
 
     phases = canonical_phase_query(session).order_by(Phase.sequence.asc()).all()
+    if not phases:
+        return
+    existing_by_phase = {
+        row.phase_id: row
+        for row in session.query(SolutionPhase)
+        .filter(
+            SolutionPhase.solution_id == solution_id,
+            SolutionPhase.phase_id.in_([phase.phase_id for phase in phases]),
+        )
+        .all()
+    }
     now_phases = []
     for ph in phases:
-        existing = (
-            session.query(SolutionPhase)
-            .filter(SolutionPhase.solution_id == solution_id)
-            .filter(SolutionPhase.phase_id == ph.phase_id)
-            .first()
-        )
+        existing = existing_by_phase.get(ph.phase_id)
         if existing:
             existing.is_enabled = True
             existing.sequence_override = None

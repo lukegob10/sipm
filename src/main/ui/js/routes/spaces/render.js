@@ -1,4 +1,5 @@
 import {
+  AGENT_BULK_REVIEW_LIMIT,
   captureAgentChangeRequestContext,
   clearAgentChangeRequestData,
   sameAgentChangeRequestContext,
@@ -165,14 +166,16 @@ export function createSpaceGovernanceRenderer({
 
   function renderAccessRequestReviewPanel() {
     if (!userIsGlobalAdmin() && !canManageSpaceMembership(activeSpaceId())) return "";
-    if (!state.reviewableAccessRequestsLoaded) {
+    if (!state.reviewableAccessRequestsLoaded && !state.reviewableAccessRequestsError) {
       refreshReviewableAccessRequests().catch((err) => {
         console.warn("Failed to load access requests", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load access requests.", "error", 7000);
       });
     }
     const rows = state.reviewableAccessRequests || [];
-    const body = state.reviewableAccessRequestsLoaded
+    const body = state.reviewableAccessRequestsError
+      ? `<tr><td colspan="4">Could not load access requests. <button type="button" class="secondary" data-space-action="retry-reviewable-access-requests">Retry</button></td></tr>`
+      : state.reviewableAccessRequestsLoaded
       ? (rows.length ? rows.map((row) => `
         <tr>
           <td>
@@ -288,7 +291,7 @@ export function createSpaceGovernanceRenderer({
             </td>
             <td><span class="pill muted">${esc(space.space_kind || "collaboration")}</span></td>
             <td>
-              <button type="button" class="primary" data-space-action="request-space-access" data-space-id="${escapeAttr(space.space_id)}"${disabledReasonAttr(!!pending || submitting, pending ? "Access request already pending." : "Request in progress.")}>${pending ? "Pending" : (submitting ? "Requesting..." : "Request Access")}</button>
+              <button type="button" class="primary" data-space-action="request-space-access" data-space-id="${escapeAttr(space.space_id)}"${disabledReasonAttr(!!pending || !!state.accessRequestSubmittingSpaceId, pending ? "Access request already pending." : "Request in progress.")}>${pending ? "Pending" : (submitting ? "Requesting..." : "Request Access")}</button>
             </td>
           </tr>`;
         }).join("")}<tr data-lobby-request-empty${requestSearch && !requestableVisibleCount ? "" : " hidden"}><td colspan='3' class='muted'>No matching collaboration spaces.</td></tr>`
@@ -377,14 +380,15 @@ export function createSpaceGovernanceRenderer({
       return "<p class='muted'>Select a space to manage memberships and scoped administration.</p>";
     }
     const canManageCurrentSpace = canManageSpaceMembership(currentSpaceId) || userIsGlobalAdmin();
-    if (canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId]) {
+    const membersError = !!state.spaceMembersErrorBySpace?.[currentSpaceId];
+    if (canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId] && !membersError) {
       refreshSpaceMembers(currentSpaceId).catch((err) => {
         console.warn("Failed to load active space memberships", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load space memberships.", "error", 7000);
       });
     }
-    const loading = canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId];
-    const summary = loading ? { total: 0, active: 0, admins: 0, inactive: 0 } : membershipSummaryForSpace(currentSpaceId);
+    const loading = canManageCurrentSpace && !state.spaceMembersLoadedBySpace[currentSpaceId] && !membersError;
+    const summary = loading || membersError ? null : membershipSummaryForSpace(currentSpaceId);
     const isPersonalSpace = active.space_kind === "personal";
     return `
       <div class="space-section-stack">
@@ -401,10 +405,10 @@ export function createSpaceGovernanceRenderer({
           </div>
         </div>
         ${canManageCurrentSpace ? `<div class="space-summary-grid">
-          <div class="panel soft space-summary-card"><span class="muted">Members</span><strong>${loading ? "..." : summary.total}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Active</span><strong>${loading ? "..." : summary.active}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Active Admins</span><strong>${loading ? "..." : summary.admins}</strong></div>
-          <div class="panel soft space-summary-card"><span class="muted">Inactive</span><strong>${loading ? "..." : summary.inactive}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Members</span><strong>${summary?.total ?? "..."}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Active</span><strong>${summary?.active ?? "..."}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Active Admins</span><strong>${summary?.admins ?? "..."}</strong></div>
+          <div class="panel soft space-summary-card"><span class="muted">Inactive</span><strong>${summary?.inactive ?? "..."}</strong></div>
         </div>` : ""}
         <div class="panel soft space-membership-card">
           <div class="panel-header">
@@ -414,7 +418,8 @@ export function createSpaceGovernanceRenderer({
             </div>
           </div>
           ${canManageCurrentSpace
-            ? (loading ? "<p class='muted'>Loading memberships...</p>" : renderMembershipTable(currentSpaceId))
+            ? (membersError ? `<p role="status">Could not load memberships. <button type="button" class="secondary" data-space-action="retry-space-members" data-space-id="${escapeAttr(currentSpaceId)}">Retry</button></p>`
+              : loading ? "<p class='muted'>Loading memberships...</p>" : renderMembershipTable(currentSpaceId))
             : "<p class='muted'>You can work in this space, but membership management is limited to space admins.</p>"}
         </div>
         ${canManageCurrentSpace && !isPersonalSpace ? renderAccessRequestReviewPanel() : ""}
@@ -445,13 +450,14 @@ export function createSpaceGovernanceRenderer({
     const previewMode = isCurrent
       ? "Current workspace"
       : (canManage ? "Ready to manage" : (canSwitchToManage ? "Switch to manage" : "Read-only preview"));
-    if (!state.spaceMembersLoadedBySpace[selectedSpace.space_id] && (canManage || userIsGlobalAdmin()) && !state.spaceSwitching) {
+    const membersError = !!state.spaceMembersErrorBySpace?.[selectedSpace.space_id];
+    if (!state.spaceMembersLoadedBySpace[selectedSpace.space_id] && !membersError && (canManage || userIsGlobalAdmin()) && !state.spaceSwitching) {
       refreshSpaceMembers(selectedSpace.space_id).catch((err) => {
         console.warn("Failed to load directory space memberships", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load selected space details.", "error", 7000);
       });
     }
-    const summary = state.spaceMembersLoadedBySpace[selectedSpace.space_id]
+    const summary = !membersError && state.spaceMembersLoadedBySpace[selectedSpace.space_id]
       ? membershipSummaryForSpace(selectedSpace.space_id)
       : null;
     return `
@@ -492,6 +498,7 @@ export function createSpaceGovernanceRenderer({
               <strong>${publicDashboardEnabled ? "Exposed" : "Off"}</strong>
             </div>
           </div>
+          ${membersError ? `<p role="status">Could not load memberships. <button type="button" class="secondary" data-space-action="retry-space-members" data-space-id="${escapeAttr(selectedSpace.space_id)}">Retry</button></p>` : ""}
           ${(canManage || userIsGlobalAdmin()) ? `
             <div class="space-inline-callout">
               <div>
@@ -898,8 +905,9 @@ export function createSpaceGovernanceRenderer({
       clearAgentChangeRequestData(state);
     }
     const hasActiveContext = !!requestContext.userId && !!requestContext.spaceId;
-    const isLoading = hasActiveContext && !state.agentChangeRequestsLoaded;
-    refreshAgentChangeRequests({ force: false }).catch((err) => {
+    const loadError = !!state.agentChangeRequestsError;
+    const isLoading = hasActiveContext && !state.agentChangeRequestsLoaded && !loadError;
+    if (!loadError) refreshAgentChangeRequests({ force: false }).catch((err) => {
       console.warn("Failed to load agent approvals", err);
       setSpaceGovernanceNotice(err?.message || "Failed to load agent approvals.", "error", 7000);
     });
@@ -910,7 +918,7 @@ export function createSpaceGovernanceRenderer({
       : rows[0]?.change_request_id || "";
     state.agentChangeRequestActiveId = activeId;
     const activeProposal = rows.find((row) => row.change_request_id === activeId) || null;
-    const allSelected = rows.length > 0 && rows.every((row) => selected.has(row.change_request_id));
+    const allSelected = rows.length > 0 && selected.size >= Math.min(rows.length, AGENT_BULK_REVIEW_LIMIT);
     const queueItems = rows.map((row) => renderAgentQueueItem(row, activeId, selected)).join("");
     return `
       <div class="space-section-stack agent-approval-section">
@@ -919,19 +927,21 @@ export function createSpaceGovernanceRenderer({
             <p class="space-card-kicker">Controlled automation</p>
             <div class="agent-approval-title-row">
               <h3>Agent approvals</h3>
-              <span class="agent-pending-count">${esc(state.agentChangeRequestPendingCount || 0)}</span>
+              <span class="agent-pending-count">${loadError || isLoading ? "—" : esc(state.agentChangeRequestPendingCount || 0)}</span>
             </div>
             <p class="muted">Review what the agent wants to change, keep the safe edits, and apply them with confidence.</p>
           </div>
           <div class="agent-approval-heading-actions">
             <div class="agent-approval-health" aria-label="Approval queue status">
-              <span><strong>${esc(state.agentChangeRequestPendingCount || 0)}</strong> pending</span>
-              ${state.agentChangeRequestFailedCount ? `<span class="is-danger"><strong>${esc(state.agentChangeRequestFailedCount)}</strong> failed</span>` : ""}
+              <span><strong>${loadError || isLoading ? "—" : esc(state.agentChangeRequestPendingCount || 0)}</strong> pending</span>
+              ${!loadError && state.agentChangeRequestFailedCount ? `<span class="is-danger"><strong>${esc(state.agentChangeRequestFailedCount)}</strong> failed</span>` : ""}
             </div>
-            <button type="button" class="secondary" data-space-action="refresh-agent-change-requests" aria-label="Refresh approval queue">Refresh</button>
+            <button type="button" class="secondary" data-space-action="refresh-agent-change-requests" aria-label="${loadError ? "Retry loading" : "Refresh"} approval queue">${loadError ? "Retry" : "Refresh"}</button>
           </div>
         </div>
-        ${isLoading && !rows.length ? `
+        ${loadError ? `
+          <div class="agent-approval-loading" role="status">Could not load the approval queue. Retry to see current proposals.</div>
+        ` : isLoading && !rows.length ? `
           <div class="agent-approval-loading" role="status">
             <span class="agent-loading-dot"></span>
             <span>Loading approval queue…</span>
@@ -944,7 +954,7 @@ export function createSpaceGovernanceRenderer({
                   <p class="space-card-kicker">Review queue</p>
                   <strong>${esc(rows.length)} proposal${rows.length === 1 ? "" : "s"}</strong>
                 </div>
-                ${rows.length ? `<button type="button" class="secondary" data-space-action="toggle-agent-change-request-selection">${allSelected ? "Clear all" : "Select all"}</button>` : ""}
+                ${rows.length ? `<button type="button" class="secondary" data-space-action="toggle-agent-change-request-selection">${allSelected ? "Clear all" : rows.length > AGENT_BULK_REVIEW_LIMIT ? `Select first ${AGENT_BULK_REVIEW_LIMIT}` : "Select all"}</button>` : ""}
               </div>
               <div class="agent-queue-list">
                 ${queueItems || `
@@ -1108,7 +1118,7 @@ export function createSpaceGovernanceRenderer({
         </div>
       `;
     }
-    if (!state.globalAdminsLoaded) {
+    if (!state.globalAdminsLoaded && !state.globalAdminsError) {
       refreshGlobalAdmins().catch((err) => {
         console.warn("Failed to load global admins", err);
         setSpaceGovernanceNotice(err?.message || "Failed to load platform access.", "error", 7000);
@@ -1129,7 +1139,9 @@ export function createSpaceGovernanceRenderer({
           </td>
         </tr>`;
       }).join("")
-      : "<tr><td colspan='4' class='muted'>Loading global admins...</td></tr>";
+      : state.globalAdminsError
+        ? `<tr><td colspan="4">Could not load global admins. <button type="button" class="secondary" data-space-action="retry-global-admins">Retry</button></td></tr>`
+        : "<tr><td colspan='4' class='muted'>Loading global admins...</td></tr>";
     const tools = [
       {
         id: "administrators",
@@ -1288,8 +1300,44 @@ export function createSpaceGovernanceRenderer({
     `;
   }
 
+  let renderedContext = null;
+  let renderedView = "";
   function renderGovernanceHub(preferredSection = "") {
     if (!els.spaceGovernanceShell) return;
+    const currentContext = captureAgentChangeRequestContext(state, activeSpaceId);
+    const focusedAction = document.activeElement;
+    const preserveLauncher = renderedView === state.currentView
+      && sameAgentChangeRequestContext(renderedContext, currentContext)
+      && els.spaceGovernanceShell.contains(focusedAction)
+      && focusedAction.matches('button[data-space-action="open-create-space-modal"], button[data-space-action="open-member-modal"], button[data-space-action="open-directory-space"]')
+      ? [focusedAction.dataset.spaceAction, focusedAction.dataset.spaceId || "", focusedAction.className] : null;
+    function restoreLauncher() {
+      if (!preserveLauncher) return;
+      const top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+      if (top) return;
+      const target = [...els.spaceGovernanceShell.querySelectorAll("button[data-space-action]")]
+        .find((button) => button.dataset.spaceAction === preserveLauncher[0]
+          && (button.dataset.spaceId || "") === preserveLauncher[1] && button.className === preserveLauncher[2]);
+      target?.focus({ preventScroll: true });
+    }
+    const oldForm = els.spaceGovernanceShell.querySelector("#user-api-token-form");
+    const canKeepDraft = oldForm && renderedView === state.currentView
+      && sameAgentChangeRequestContext(renderedContext, currentContext);
+    const tokenDraft = canKeepDraft ? [...oldForm.querySelectorAll("input[name]")].map((input) => ({
+      name: input.name, value: input.value, focused: input === document.activeElement,
+      start: input.selectionStart, end: input.selectionEnd,
+    })) : [];
+    renderedContext = currentContext;
+    renderedView = state.currentView;
+    const oldTokenModal = els.spaceGovernanceShell.querySelector(".api-token-modal");
+    const focused = document.activeElement;
+    const tokenFocus = oldTokenModal?.contains(focused) ? {
+      token: state.issuedApiToken?.token,
+      action: focused.getAttribute("data-space-action"),
+      input: focused.matches("input"),
+      start: focused.selectionStart,
+      end: focused.selectionEnd,
+    } : null;
     if (state.activeSpace?.space_kind === "lobby") {
       els.spaceGovernanceShell.innerHTML = `
         <div class="space-governance-header">
@@ -1303,6 +1351,7 @@ export function createSpaceGovernanceRenderer({
         <div class="space-governance-body">${renderLobbySection()}</div>
       `;
       closeSpaceDirectoryModal();
+      restoreLauncher();
       return;
     }
     const activeSection = resolveGovernanceSection(
@@ -1401,11 +1450,33 @@ export function createSpaceGovernanceRenderer({
       </div>
       ${renderIssuedApiToken()}
     `;
+    const newForm = els.spaceGovernanceShell.querySelector("#user-api-token-form");
+    for (const draft of tokenDraft) {
+      const input = [...(newForm?.querySelectorAll("input[name]") || [])].find((element) => element.name === draft.name);
+      if (!input) continue;
+      input.value = draft.value;
+      const top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+      if (draft.focused && !top && ["spaces", "access"].includes(state.currentView)) {
+        input.focus();
+        if (draft.start != null && draft.end != null) input.setSelectionRange(draft.start, draft.end);
+      }
+    }
+    if (tokenFocus?.token && tokenFocus.token === state.issuedApiToken?.token && ["spaces", "access"].includes(state.currentView)) {
+      const modal = els.spaceGovernanceShell.querySelector(".api-token-modal");
+      const top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2)?.closest(".modal");
+      const target = tokenFocus.input ? modal?.querySelector("input")
+        : [...(modal?.querySelectorAll("[data-space-action]") || [])].find((el) => el.getAttribute("data-space-action") === tokenFocus.action);
+      if (target && (!top || top === modal)) {
+        target.focus();
+        if (tokenFocus.input && tokenFocus.start != null && tokenFocus.end != null) target.setSelectionRange(tokenFocus.start, tokenFocus.end);
+      }
+    }
     if (activeSection !== "space-directory") {
       closeSpaceDirectoryModal();
     } else {
       renderSpaceDirectoryModal();
     }
+    restoreLauncher();
   }
 
   return {

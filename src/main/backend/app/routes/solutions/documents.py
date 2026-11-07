@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
-from io import BytesIO
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from sqlalchemy.orm import Session, load_only
+from starlette.concurrency import run_in_threadpool
 
 from ...deps import current_space as current_space_dep
 from ...deps import current_user as current_user_dep
@@ -15,6 +16,7 @@ from ...models import SolutionDocument, User
 from ...schemas import SolutionDocumentRead
 from ...services.audit_log import safe_log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_str
 from ...services.mutations import commit_session
 from .common import _get_solution_or_404, _publish_solution_mutation
@@ -32,6 +34,31 @@ _DOCUMENT_METADATA_FIELDS = (
     SolutionDocument.created_at,
     SolutionDocument.updated_at,
 )
+
+
+async def _run_session_work(func, *args):
+    # Request cancellation must not close the Session while its worker still uses it.
+    worker = asyncio.create_task(run_in_threadpool(func, *args))
+    cancelled = False
+    while True:
+        try:
+            result = await asyncio.shield(worker)
+            break
+        except asyncio.CancelledError:
+            cancelled = True
+            if worker.done():
+                try:
+                    worker.result()
+                except BaseException:
+                    pass
+                break
+        except BaseException:
+            if cancelled:
+                raise asyncio.CancelledError from None
+            raise
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
 
 
 def _document_payload(document: SolutionDocument) -> dict:
@@ -52,7 +79,7 @@ def _binary_value(value: object) -> bytes:
 
 
 def _content_disposition(filename: str) -> str:
-    fallback = "".join(ch if ch.isascii() and ch not in {'"', "\\", "\r", "\n"} else "_" for ch in filename).strip()
+    fallback = "".join(ch if " " <= ch <= "~" and ch not in {'"', "\\"} else "_" for ch in filename).strip()
     fallback = fallback or "document"
     encoded = quote(filename, safe="")
     return f"attachment; filename=\"{fallback}\"; filename*=UTF-8''{encoded}"
@@ -115,7 +142,7 @@ async def upload_solution_document(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
-    _get_solution_or_404(session, solution_id, space_ctx)
+    await _run_session_work(_get_solution_or_404, session, solution_id, space_ctx)
     filename = normalize_str(file.filename) or "document"
     # Read at most one byte beyond the limit so oversized uploads cannot be
     # fully materialized in application memory before they are rejected.
@@ -126,38 +153,44 @@ async def upload_solution_document(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail="Document exceeds the 25 MB limit",
         )
-    now = datetime.now(timezone.utc)
-    document = SolutionDocument(
-        space_id=space_ctx.space_id,
-        solution_id=solution_id,
-        filename=filename,
-        content_type=normalize_str(file.content_type) or "application/octet-stream",
-        size_bytes=size_bytes,
-        content=content,
-        uploaded_by_user_id=current_user.user_id,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(document)
-    session.flush()
-    safe_log_changes(
-        session,
-        entity_type="solution_document",
-        entity_id=document.document_id,
-        user_id=current_user.user_id,
-        action="create",
-        space_id=space_ctx.space_id,
-        changes={
-            "solution_id": (None, document.solution_id),
-            "filename": (None, document.filename),
-            "content_type": (None, document.content_type),
-            "size_bytes": (None, document.size_bytes),
-        },
-    )
-    commit_session(session)
-    session.refresh(document)
-    _publish_solution_mutation(space_ctx.space_id)
-    return _document_payload(document)
+
+    def store_document():
+        lock_work_space(session, space_ctx, current_user)
+        _get_solution_or_404(session, solution_id, space_ctx)
+        now = datetime.now(timezone.utc)
+        document = SolutionDocument(
+            space_id=space_ctx.space_id,
+            solution_id=solution_id,
+            filename=filename,
+            content_type=normalize_str(file.content_type) or "application/octet-stream",
+            size_bytes=size_bytes,
+            content=content,
+            uploaded_by_user_id=current_user.user_id,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(document)
+        session.flush()
+        safe_log_changes(
+            session,
+            entity_type="solution_document",
+            entity_id=document.document_id,
+            user_id=current_user.user_id,
+            action="create",
+            space_id=space_ctx.space_id,
+            changes={
+                "solution_id": (None, document.solution_id),
+                "filename": (None, document.filename),
+                "content_type": (None, document.content_type),
+                "size_bytes": (None, document.size_bytes),
+            },
+        )
+        response = _document_payload(document)
+        commit_session(session)
+        _publish_solution_mutation(space_ctx.space_id)
+        return response
+
+    return await _run_session_work(store_document)
 
 
 @router.get("/solutions/{solution_id}/documents/{document_id}/download")
@@ -174,8 +207,8 @@ def download_solution_document(
         space_ctx=space_ctx,
     )
     headers = {"Content-Disposition": _content_disposition(document.filename)}
-    return StreamingResponse(
-        BytesIO(_binary_value(document.content)),
+    return Response(
+        _binary_value(document.content),
         media_type=document.content_type or "application/octet-stream",
         headers=headers,
     )
@@ -191,6 +224,7 @@ def delete_solution_document(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     document = _get_document_or_404(
         session,
         solution_id=solution_id,

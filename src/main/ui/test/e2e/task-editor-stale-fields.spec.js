@@ -1,0 +1,47 @@
+import { expect, test } from "@playwright/test";
+
+test("editing a task name preserves a newer status from another surface", async ({ page }) => {
+  const soeid = `delta${Date.now()}`.slice(0, 20);
+  expect((await page.request.post("/project-manager/api/auth/register", { data: { soeid, display_name: "Task Delta", password: "Password123" } })).ok()).toBeTruthy();
+  const personal = await page.request.post("/project-manager/api/spaces/personal", { data: {} });
+  expect(personal.ok()).toBeTruthy();
+  expect((await page.request.post("/project-manager/api/auth/active-space", { data: { space_id: (await personal.json()).space_id } })).ok()).toBeTruthy();
+  const program = await page.request.post("/project-manager/api/programs", { data: { program_name: "Task Delta Program" } });
+  expect(program.ok()).toBeTruthy();
+  const project = await page.request.post("/project-manager/api/projects", { data: { program_id: (await program.json()).program_id, project_name: "Task Delta Project" } });
+  expect(project.ok()).toBeTruthy();
+  const solution = await page.request.post(`/project-manager/api/projects/${(await project.json()).project_id}/solutions`, { data: { solution_name: "Task Delta Solution", version: "1.0" } });
+  expect(solution.ok()).toBeTruthy();
+  const solutionId = (await solution.json()).solution_id;
+  const task = await page.request.post(`/project-manager/api/solutions/${solutionId}/tasks`, { data: { task_name: "Original task", status: "to_do" } });
+  expect(task.ok()).toBeTruthy();
+  const taskId = (await task.json()).task_id;
+  await page.goto("/project-manager/");
+  await page.locator(`[data-action="edit"][data-type="solution"][data-id="${solutionId}"]`).first().click();
+  await page.locator('#solution-modal [data-tab="tasks"]').click();
+  await page.locator(`.edit-task-btn[data-id="${taskId}"]`).click();
+  const form = page.locator("#task-form");
+  const name = form.locator('[name="task_name"]');
+  await expect(form).toBeVisible();
+  await expect(form.locator('[name="task_id"]')).toHaveValue(taskId);
+  await expect(name).toHaveValue("Original task");
+  await expect(form.locator('[name="status"]')).toHaveValue("to_do");
+  // Clean editors follow live updates; start a draft before changing the server.
+  await name.click();
+  await name.fill("Renamed task");
+  await expect(name).toHaveValue("Renamed task");
+  await expect(form).toHaveAttribute("data-dirty", "");
+  const changed = await page.request.patch(`/project-manager/api/tasks/${taskId}`, { data: { status: "complete" } });
+  expect(changed.ok()).toBeTruthy();
+  expect((await changed.json()).status).toBe("complete");
+  await expect(form.locator('[name="status"]')).toHaveValue("to_do");
+  await expect(name).toHaveValue("Renamed task");
+  const save = page.waitForResponse((response) => response.url().endsWith(`/api/tasks/${taskId}`) && response.request().method() === "PATCH");
+  await page.locator("#task-submit-btn").click();
+  const result = await save;
+  expect(result.ok()).toBeTruthy();
+  expect(result.request().postDataJSON()).toEqual({ task_name: "Renamed task" });
+  const persisted = await page.request.get(`/project-manager/api/tasks/${taskId}`);
+  expect(persisted.ok()).toBeTruthy();
+  expect(await persisted.json()).toMatchObject({ task_name: "Renamed task", status: "complete" });
+});

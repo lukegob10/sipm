@@ -17,7 +17,7 @@ export function updateTasksWorkbenchSolutionOptions(ctx, projectId) {
   const prior = els.tasksWorkbenchSolution.value || "";
   const filteredSolutions = projectId
     ? state.solutions.filter((solution) => solution.project_id === projectId)
-    : state.solutions;
+    : [...state.solutions];
   const opts = filteredSolutions
     .sort((a, b) => (a.solution_name || "").localeCompare(b.solution_name || ""))
     .map((solution) => `<option value="${escDisplay(solution.solution_id)}">${escDisplay(solution.solution_name)}</option>`)
@@ -145,6 +145,13 @@ export function bindTasksWorkbenchControls(ctx) {
         if (!taskId) return;
         if (rowCheck.checked) wb.selected.add(taskId);
         else wb.selected.delete(taskId);
+        const selectAll = els.tasksWorkbenchTable.querySelector("#scwb-select-all");
+        if (selectAll) {
+          const visibleIds = wb.visibleIds || [];
+          const selectedVisibleCount = visibleIds.filter((id) => wb.selected.has(id)).length;
+          selectAll.checked = visibleIds.length > 0 && selectedVisibleCount === visibleIds.length;
+          selectAll.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleIds.length;
+        }
         clearTasksWorkbenchBulkFeedback();
         updateTasksWorkbenchSelectionCount();
         return;

@@ -15,6 +15,8 @@ function buildHarness(overrides = {}) {
     apiBase: "/api",
     isEnabled: overrides.isEnabled || (() => true),
     fetchImpl,
+    canUseBeacon: overrides.canUseBeacon,
+    getQueueContext: overrides.getQueueContext,
     navigatorRef: { sendBeacon },
     documentRef: document,
     performanceRef: overrides.performanceRef || {
@@ -74,6 +76,43 @@ describe("telemetry controller", () => {
 
     expect(sendBeacon).toHaveBeenCalledTimes(1);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses keepalive fetch for bound sessions and drops batches from a prior context", async () => {
+    let context = "old";
+    let finish;
+    const fetchImpl = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+      .mockResolvedValue({ ok: true });
+    const { controller, sendBeacon } = buildHarness({ fetchImpl, canUseBeacon: () => false, getQueueContext: () => context });
+    controller.trackWorkflow("projects", "create");
+    const first = controller.flush({ useBeacon: true });
+    expect(sendBeacon).not.toHaveBeenCalled();
+    expect(fetchImpl.mock.calls[0][1].keepalive).toBe(true);
+    context = "new";
+    controller.trackWorkflow("projects", "update");
+    finish({ ok: false, status: 503 });
+    await first;
+    await controller.flush();
+    expect(JSON.parse(fetchImpl.mock.calls[1][1].body).events.map((event) => event.action_key)).toEqual(["update"]);
+  });
+
+  it("does not complete a transition from a previous session or space", async () => {
+    let context = "session-a:space-a";
+    const { controller, fetchImpl } = buildHarness({ getQueueContext: () => context });
+    controller.beginRouteTransition("planning", "private-view", { expectsData: true });
+    controller.noteViewRendered("planning", 12);
+    context = "session-b:space-b";
+    controller.noteRouteDataLoaded("planning", 30);
+    await controller.flush();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    controller.beginRouteTransition("planning", "current-view", { expectsData: true });
+    controller.noteViewRendered("planning", 5);
+    controller.noteRouteDataLoaded("planning", 8);
+    await controller.flush();
+    const payload = JSON.parse(fetchImpl.mock.calls[0][1].body);
+    expect(payload.events).toHaveLength(1);
+    expect(payload.events[0].details.previous_view).toBe("current-view");
+    expect(payload.performance_samples).toHaveLength(1);
   });
 
   it("retains queued telemetry when fetch ingest returns an HTTP failure", async () => {
@@ -149,6 +188,67 @@ describe("telemetry controller", () => {
     expect(batches.flatMap((batch) => batch.events).filter((event) => event.action_key === "update"))
       .toHaveLength(105);
     expect(batches.flatMap((batch) => batch.performance_samples)).toHaveLength(1);
+  });
+
+  it("bounds a persistent failure backlog while keeping the newest events", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: false, status: 503 }).mockResolvedValue({ ok: true });
+    const { controller } = buildHarness({ fetchImpl });
+    for (let index = 0; index < 1005; index += 1) {
+      controller.trackWorkflow("projects", "update", "success", { index });
+    }
+    await expect(controller.flush()).resolves.toBe(false);
+    controller.trackWorkflow("projects", "update", "success", { index: 1005 });
+    await expect(controller.flush()).resolves.toBe(true);
+    const retried = JSON.parse(fetchImpl.mock.calls[1][1].body).events;
+    expect(retried).toHaveLength(100);
+    expect(retried[0].details.index).toBe(6);
+    expect(retried[99].details.index).toBe(105);
+  });
+
+  it("drops the oldest restored events when newer events fill the backlog", async () => {
+    let finish;
+    const fetchImpl = vi.fn().mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }))
+      .mockResolvedValue({ ok: true });
+    const { controller } = buildHarness({ fetchImpl });
+    controller.trackWorkflow("projects", "old");
+    const pending = controller.flush();
+    for (let index = 0; index < 1000; index += 1) {
+      controller.trackWorkflow("projects", "new", "success", { index });
+    }
+    finish({ ok: false, status: 503 });
+    await expect(pending).resolves.toBe(false);
+    await controller.flush();
+    const events = JSON.parse(fetchImpl.mock.calls[1][1].body).events;
+    expect(events[0]).toMatchObject({ action_key: "new", details: { index: 0 } });
+    expect(events).toHaveLength(100);
+  });
+
+  it("bounds hung requests, times them out, and permits the new context to flush", async () => {
+    vi.useFakeTimers();
+    try {
+      let context = "old";
+      const fetchImpl = vi.fn().mockImplementation(() => new Promise(() => {}));
+      const { controller } = buildHarness({ fetchImpl, canUseBeacon: () => false, getQueueContext: () => context });
+      controller.trackWorkflow("projects", "first");
+      const first = controller.flush();
+      controller.trackWorkflow("projects", "second");
+      const second = controller.flush({ useBeacon: true });
+      controller.trackWorkflow("projects", "third");
+      await expect(controller.flush()).resolves.toBe(false);
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      context = "new";
+      controller.trackWorkflow("projects", "new");
+      const third = controller.flush();
+      expect(fetchImpl).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await expect(Promise.all([first, second, third])).resolves.toEqual([false, false, false]);
+      expect(fetchImpl.mock.calls.every(([, options]) => options.signal.aborted)).toBe(true);
+      fetchImpl.mockResolvedValue({ ok: true });
+      await expect(controller.flush()).resolves.toBe(true);
+      expect(JSON.parse(fetchImpl.mock.calls[3][1].body).events.map((event) => event.action_key)).toEqual(["new"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("records timeout and server-side API failures only", async () => {

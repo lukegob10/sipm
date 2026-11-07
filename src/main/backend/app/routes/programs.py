@@ -26,6 +26,7 @@ from ..services.program_dashboard_report_xlsx import build_program_dashboard_rep
 from ..services.smart_cache import cached_call, make_scope_token
 from ..services.spaces import SpaceContext
 from ..services.work_item_names import deleted_work_item_name, release_deleted_work_item_names
+from ..services.work_items import lock_work_space
 from ..utils import normalize_str
 
 router = APIRouter(prefix="/programs")
@@ -279,6 +280,7 @@ def create_program(
     _write_gate: User = Depends(require_non_agent_write),
 ) -> dict:
     program_name = _required_program_name(payload.program_name)
+    lock_work_space(session, space_ctx, current_user)
     if _program_query(session, space_ctx).filter(Program.program_name == program_name).first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Program name already exists")
     now = datetime.now(timezone.utc)
@@ -289,6 +291,7 @@ def create_program(
         created_at=now,
         updated_at=now,
     )
+    committed = False
     try:
         release_deleted_work_item_names(
             session, space_ctx, current_user, entity="program", name=program_name
@@ -308,13 +311,16 @@ def create_program(
             },
         )
         session.commit()
+        committed = True
         session.refresh(program)
     except IntegrityError as exc:
         session.rollback()
         if _is_program_name_conflict_integrity_error(exc):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Program name already exists") from exc
         raise
-    _publish_program_mutation(space_ctx.space_id)
+    finally:
+        if committed:
+            _publish_program_mutation(space_ctx.space_id)
     return _program_payload(program)
 
 
@@ -328,6 +334,7 @@ def update_program(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ) -> dict:
+    lock_work_space(session, space_ctx, current_user)
     program = _get_program_or_404(session, program_id, space_ctx)
     update_data = payload.model_dump(exclude_unset=True)
     if "program_name" in update_data:
@@ -352,6 +359,7 @@ def update_program(
     for field, value in update_data.items():
         setattr(program, field, value)
     program.updated_at = datetime.now(timezone.utc)
+    committed = False
     try:
         session.add(program)
         if update_data:
@@ -365,13 +373,16 @@ def update_program(
                 changes={field: (before.get(field), getattr(program, field)) for field in update_data},
             )
         session.commit()
+        committed = True
         session.refresh(program)
     except IntegrityError as exc:
         session.rollback()
         if _is_program_name_conflict_integrity_error(exc):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Program name already exists") from exc
         raise
-    _publish_program_mutation(space_ctx.space_id, include_projects="program_name" in update_data)
+    finally:
+        if committed:
+            _publish_program_mutation(space_ctx.space_id, include_projects="program_name" in update_data)
     return _program_payload(program)
 
 
@@ -384,6 +395,7 @@ def delete_program(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ) -> None:
+    lock_work_space(session, space_ctx, current_user)
     program = _get_program_or_404(session, program_id, space_ctx)
     active_project_count = (
         session.query(Project)

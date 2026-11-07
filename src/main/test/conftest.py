@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 
 import httpx
@@ -25,7 +26,7 @@ from backend.app.services.smart_cache import clear_cache
 from backend.app.services.spaces import SpaceContext
 from backend.app.services import coordination
 from backend.main import app as fastapi_app
-from backend.app.models import Base
+from backend.app.models import Base, Space, SpaceMembership, User
 
 
 @pytest.fixture
@@ -68,15 +69,55 @@ def test_user():
 
 
 @pytest.fixture
+def seed_space_memberships(db_sessionmaker, test_user):
+    def seed(*space_ids):
+        with db_sessionmaker() as session:
+            if session.get(User, test_user.user_id) is None:
+                session.add(User(
+                    user_id=test_user.user_id, soeid=test_user.soeid, email="test-user@fixture.invalid",
+                    display_name=test_user.display_name, password_hash="unused", role="user", is_active=True,
+                ))
+            for space_id in space_ids:
+                if session.get(Space, space_id) is None:
+                    session.add(Space(space_id=space_id, name=space_id, slug=space_id))
+                existing = session.query(SpaceMembership).filter_by(space_id=space_id, user_id=test_user.user_id).first()
+                if existing is None:
+                    session.add(SpaceMembership(space_id=space_id, user_id=test_user.user_id, role="space_admin", status="active"))
+            session.commit()
+    return seed
+
+
+@pytest.fixture
 def override_dependencies(db_sessionmaker, test_user):
     clear_cache()
+    default_space_lock = Lock()
+    default_space_ready = False
 
     def get_test_db():
         with db_sessionmaker() as session:
             yield session
 
     def get_test_current_space(request: Request):
+        nonlocal default_space_ready
         space_id = request.headers.get("X-Space-Id") or "test-space"
+        if space_id == "test-space" and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            with default_space_lock:
+                if not default_space_ready:
+                    with db_sessionmaker() as session:
+                        if session.get(Space, space_id) is None:
+                            session.add(Space(space_id=space_id, name="Test Space", slug=space_id))
+                        if session.get(User, test_user.user_id) is None:
+                            session.add(User(
+                                user_id=test_user.user_id,
+                                soeid=test_user.soeid,
+                                email="test-user@fixture.invalid",
+                                display_name=test_user.display_name,
+                                password_hash="unused",
+                                role="global_admin",
+                                is_active=True,
+                            ))
+                        session.commit()
+                    default_space_ready = True
         return SpaceContext(
             space_id=space_id,
             space_name="Test Space",

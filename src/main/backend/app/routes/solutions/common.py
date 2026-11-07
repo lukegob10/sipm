@@ -127,7 +127,7 @@ def _resolve_solution_assignee(
 
 def _ensure_project_exists(session: Session, project_id: str, space_ctx: SpaceContext) -> None:
     exists = (
-        session.query(Project)
+        session.query(Project.project_id)
         .filter(Project.project_id == project_id)
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
@@ -152,6 +152,7 @@ def _get_solution_or_404(session: Session, solution_id: str, space_ctx: SpaceCon
     solution = (
         _solution_query(session, space_ctx)
         .filter(Solution.solution_id == solution_id)
+        .populate_existing()
         .first()
     )
     if not solution:

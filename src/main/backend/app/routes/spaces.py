@@ -29,11 +29,12 @@ from ..services.spaces import (
     SpaceContext,
     build_space_slug,
     ensure_space_membership,
+    is_global_admin_role,
     list_user_spaces,
     normalize_space_kind,
 )
 from ..services.smart_cache import invalidate_space
-from ..services.user_admin_guards import lock_space_admin_spaces
+from ..services.user_admin_guards import lock_global_admin_users, lock_space_admin_spaces
 
 router = APIRouter()
 
@@ -91,7 +92,7 @@ def _membership_or_404(session: Session, membership_id: str) -> SpaceMembership:
 def _count_active_space_admins(session: Session, space_id: str, exclude_membership_id: str | None = None) -> int:
     normalized_role = func.lower(
         func.replace(
-            func.replace(func.coalesce(SpaceMembership.role, ""), "-", "_"),
+            func.replace(func.trim(func.coalesce(SpaceMembership.role, "")), "-", "_"),
             " ",
             "_",
         )
@@ -153,6 +154,34 @@ def _ensure_space_admin_access(ctx, target_space_id: str) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required")
 
 
+def _lock_global_admin_context(session: Session, ctx: SpaceContext) -> None:
+    if ctx.is_global_admin:
+        lock_global_admin_users(session)
+
+
+def _ensure_current_space_admin(
+    session: Session, actor: User, ctx: SpaceContext, space_id: str,
+) -> None:
+    # Scalar reads avoid the stale User object loaded before the lock wait.
+    current = session.query(User.role, User.is_active).filter(User.user_id == actor.user_id).first()
+    if not current or not current.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Active user required")
+    if ctx.is_global_admin and is_global_admin_role(current.role):
+        return
+    if ctx.space_id != space_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot manage another space")
+    role = (
+        session.query(SpaceMembership.role)
+        .filter(SpaceMembership.space_id == space_id)
+        .filter(SpaceMembership.user_id == actor.user_id)
+        .filter(SpaceMembership.status == "active")
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .scalar()
+    )
+    if _normalize_space_role(role) != "space_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required")
+
+
 def _validate_space_role(raw_role: str | None) -> str:
     role = _normalize_space_role(raw_role)
     if role not in {"member", "space_admin"}:
@@ -171,7 +200,16 @@ def _validate_space_name(raw_name: str | None) -> str:
     name = str(raw_name or "").strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space name is required")
+    if len(name) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space name must be 255 characters or fewer")
     return name
+
+
+def _validate_space_slug(raw_slug: str) -> str:
+    slug = build_space_slug(raw_slug)
+    if len(slug) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space slug must be 255 characters or fewer")
+    return slug
 
 
 def _space_kind_label(space: Space) -> str:
@@ -200,6 +238,36 @@ def _ensure_request_reviewer(ctx: SpaceContext, request_row: SpaceAccessRequest)
         return
     if ctx.space_id != request_row.space_id or _normalize_space_role(ctx.space_role) != "space_admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Space admin required")
+
+
+def _decide_pending_request(
+    session: Session,
+    row: SpaceAccessRequest,
+    *,
+    decision: str,
+    actor_user_id: str,
+    decision_note: str | None = None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    values = {
+        SpaceAccessRequest.status: decision,
+        SpaceAccessRequest.decided_by_user_id: actor_user_id,
+        SpaceAccessRequest.decided_at: now,
+        SpaceAccessRequest.updated_at: now,
+    }
+    if decision != "canceled":
+        values[SpaceAccessRequest.decision_note] = decision_note
+    updated = (
+        session.query(SpaceAccessRequest)
+        .filter(SpaceAccessRequest.request_id == row.request_id)
+        .filter(SpaceAccessRequest.status == "pending")
+        .update(values, synchronize_session=False)
+    )
+    if updated != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only pending requests can be {decision}",
+        )
 
 
 def _space_conflict_detail(exc: IntegrityError) -> str | None:
@@ -242,11 +310,12 @@ def _serialize_memberships(session: Session, rows: list[SpaceMembership]) -> lis
         return []
     user_ids = sorted({row.user_id for row in rows if row.user_id})
     users_by_id: dict[str, User] = {}
-    if user_ids:
-        users_by_id = {
+    for offset in range(0, len(user_ids), 500):
+        batch = user_ids[offset:offset + 500]
+        users_by_id.update({
             user.user_id: user
-            for user in session.query(User).filter(User.user_id.in_(user_ids)).all()
-        }
+            for user in session.query(User).filter(User.user_id.in_(batch)).all()
+        })
     output: list[SpaceMembershipRead] = []
     for row in rows:
         user = users_by_id.get(row.user_id)
@@ -370,22 +439,20 @@ def list_requestable_spaces(
     current_user: User = Depends(require_user),
     _ctx: SpaceContext = Depends(current_space),
 ) -> list[SpaceRead]:
-    active_membership_space_ids = {
-        row.space_id
-        for row in (
-            session.query(SpaceMembership.space_id)
-            .filter(SpaceMembership.user_id == current_user.user_id)
-            .filter(SpaceMembership.status == "active")
-            .filter(SpaceMembership.deleted_at.is_(None))
-            .all()
-        )
-    }
+    active_membership = (
+        session.query(SpaceMembership.membership_id)
+        .filter(SpaceMembership.space_id == Space.space_id)
+        .filter(SpaceMembership.user_id == current_user.user_id)
+        .filter(SpaceMembership.status == "active")
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .exists()
+    )
     return (
         session.query(Space)
         .filter(Space.deleted_at.is_(None))
         .filter(Space.is_active)
         .filter(Space.space_kind == SPACE_KIND_COLLABORATION)
-        .filter(~Space.space_id.in_(active_membership_space_ids) if active_membership_space_ids else True)
+        .filter(~active_membership)
         .order_by(Space.name.asc())
         .all()
     )
@@ -415,21 +482,19 @@ def create_personal_space(
     while (
         session.query(Space)
         .filter(Space.name == name)
-        .filter(Space.deleted_at.is_(None))
         .first()
     ):
-        name = f"{base_name} {name_suffix}"
+        name = _validate_space_name(f"{base_name} {name_suffix}")
         name_suffix += 1
     slug_seed = f"{current_user.soeid or current_user.user_id}-personal"
-    slug = build_space_slug(slug_seed)
+    slug = _validate_space_slug(slug_seed)
     suffix = 2
     while (
         session.query(Space)
         .filter(Space.slug == slug)
-        .filter(Space.deleted_at.is_(None))
         .first()
     ):
-        slug = build_space_slug(f"{slug_seed}-{suffix}")
+        slug = _validate_space_slug(f"{slug_seed}-{suffix}")
         suffix += 1
 
     now = datetime.now(timezone.utc)
@@ -445,6 +510,8 @@ def create_personal_space(
     )
     try:
         session.add(space)
+        session.flush()
+        ensure_space_membership(session, current_user, space.space_id, role="space_admin", commit=False)
         session.commit()
         session.refresh(space)
     except IntegrityError as exc:
@@ -455,8 +522,10 @@ def create_personal_space(
             else (_space_conflict_detail(exc) or "User already has a personal space")
         )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail) from exc
+    except Exception:
+        session.rollback()
+        raise
 
-    ensure_space_membership(session, current_user, space.space_id, role="space_admin")
     return space
 
 
@@ -509,6 +578,8 @@ def request_space_access(
     current_user: User = Depends(require_user),
     _ctx: SpaceContext = Depends(current_space),
 ) -> SpaceAccessRequestRead:
+    # Serialize membership and pending-request checks with competing requests.
+    lock_space_admin_spaces(session, [space_id])
     target_space = _space_or_404(session, space_id)
     _validate_collaboration_space(target_space)
     requested_role = _validate_space_role(payload.requested_role)
@@ -565,11 +636,7 @@ def cancel_space_access_request(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Access request not found")
     if row.status != "pending":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pending requests can be canceled")
-    row.status = "canceled"
-    row.decided_by_user_id = current_user.user_id
-    row.decided_at = datetime.now(timezone.utc)
-    row.updated_at = row.decided_at
-    session.add(row)
+    _decide_pending_request(session, row, decision="canceled", actor_user_id=current_user.user_id)
     session.commit()
     session.refresh(row)
     return _serialize_access_request(session, row)
@@ -594,13 +661,34 @@ def approve_space_access_request(
     requester = session.query(User).filter(User.user_id == row.requester_user_id).first()
     if not requester or not requester.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Requester is not active")
-    ensure_space_membership(session, requester, row.space_id, role=_normalize_space_role(row.requested_role))
-    row.status = "approved"
-    row.decided_by_user_id = current_user.user_id
-    row.decided_at = datetime.now(timezone.utc)
-    row.decision_note = payload.decision_note if payload else None
-    row.updated_at = row.decided_at
-    session.add(row)
+    # User deactivation takes the global-admin lock even when the requester has
+    # no membership in this space. Recheck under that lock before granting one.
+    lock_global_admin_users(session)
+    session.refresh(requester, attribute_names=["is_active"])
+    if not requester.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Requester is not active")
+    _decide_pending_request(
+        session, row, decision="approved", actor_user_id=current_user.user_id,
+        decision_note=payload.decision_note if payload else None,
+    )
+    # Keep the global-admin, request, then space lock order used by decisions.
+    lock_space_admin_spaces(session, [row.space_id])
+    _ensure_current_space_admin(session, current_user, ctx, row.space_id)
+    target_space = _space_or_404(session, row.space_id)
+    _validate_collaboration_space(target_space)
+    active_membership = (
+        session.query(SpaceMembership)
+        .filter(SpaceMembership.space_id == row.space_id)
+        .filter(SpaceMembership.user_id == requester.user_id)
+        .filter(SpaceMembership.deleted_at.is_(None))
+        .filter(SpaceMembership.status == "active")
+        .first()
+    )
+    if not active_membership:
+        ensure_space_membership(
+            session, requester, row.space_id,
+            role=_normalize_space_role(row.requested_role), commit=False,
+        )
     session.commit()
     session.refresh(row)
     _invalidate_space_membership_views(row.space_id)
@@ -621,12 +709,13 @@ def reject_space_access_request(
     _ensure_request_reviewer(ctx, row)
     if row.status != "pending":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pending requests can be rejected")
-    row.status = "rejected"
-    row.decided_by_user_id = current_user.user_id
-    row.decided_at = datetime.now(timezone.utc)
-    row.decision_note = payload.decision_note if payload else None
-    row.updated_at = row.decided_at
-    session.add(row)
+    _lock_global_admin_context(session, ctx)
+    _decide_pending_request(
+        session, row, decision="rejected", actor_user_id=current_user.user_id,
+        decision_note=payload.decision_note if payload else None,
+    )
+    lock_space_admin_spaces(session, [row.space_id])
+    _ensure_current_space_admin(session, current_user, ctx, row.space_id)
     session.commit()
     session.refresh(row)
     return _serialize_access_request(session, row)
@@ -640,7 +729,7 @@ def create_space(
 ) -> SpaceRead:
     now = datetime.now(timezone.utc)
     name = _validate_space_name(payload.name)
-    slug = build_space_slug(payload.slug or name)
+    slug = _validate_space_slug(payload.slug or name)
     existing = session.query(Space).filter(Space.slug == slug).filter(Space.deleted_at.is_(None)).first()
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Space slug already exists")
@@ -680,6 +769,14 @@ def update_space(
     if wants_admin_only_change and not ctx.is_global_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
     _ensure_space_admin_access(ctx, space_id)
+    _lock_global_admin_context(session, ctx)
+    lock_space_admin_spaces(session, [space_id])
+    space = _space_or_404(session, space_id)
+    _ensure_current_space_admin(session, _current_user, ctx, space_id)
+    if wants_admin_only_change:
+        current_role = session.query(User.role).filter(User.user_id == _current_user.user_id).scalar()
+        if not is_global_admin_role(current_role):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Global admin required")
     if payload.name is not None:
         space.name = _validate_space_name(payload.name)
     if payload.is_active is not None:
@@ -733,9 +830,12 @@ def create_space_member(
     payload: SpaceMembershipCreate,
     session: Session = Depends(get_db),
     ctx=Depends(current_space),
+    current_user: User = Depends(require_user),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
+    _lock_global_admin_context(session, ctx)
     space = _space_or_404_for_membership_mutation(session, space_id)
+    _ensure_current_space_admin(session, current_user, ctx, space_id)
     user = session.query(User).filter(User.user_id == payload.user_id).first()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -759,9 +859,12 @@ def create_space_member_by_soeid(
     payload: SpaceMembershipCreateBySoeid,
     session: Session = Depends(get_db),
     ctx=Depends(current_space),
+    current_user: User = Depends(require_user),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
+    _lock_global_admin_context(session, ctx)
     space = _space_or_404_for_membership_mutation(session, space_id)
+    _ensure_current_space_admin(session, current_user, ctx, space_id)
     soeid_norm = (payload.soeid or "").strip().lower()
     if not soeid_norm:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SOEID is required")
@@ -789,9 +892,12 @@ def update_space_member(
     payload: SpaceMembershipUpdate,
     session: Session = Depends(get_db),
     ctx=Depends(current_space),
+    current_user: User = Depends(require_user),
 ) -> SpaceMembershipRead:
     _ensure_space_admin_access(ctx, space_id)
+    _lock_global_admin_context(session, ctx)
     _space_or_404_for_membership_mutation(session, space_id)
+    _ensure_current_space_admin(session, current_user, ctx, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")
@@ -821,9 +927,12 @@ def delete_space_member(
     membership_id: str,
     session: Session = Depends(get_db),
     ctx=Depends(current_space),
+    current_user: User = Depends(require_user),
 ):
     _ensure_space_admin_access(ctx, space_id)
+    _lock_global_admin_context(session, ctx)
     _space_or_404_for_membership_mutation(session, space_id)
+    _ensure_current_space_admin(session, current_user, ctx, space_id)
     row = _membership_or_404(session, membership_id)
     if row.space_id != space_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Membership does not belong to space")

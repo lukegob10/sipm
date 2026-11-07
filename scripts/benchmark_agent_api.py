@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import ExitStack
 import json
 import os
 import sys
@@ -21,10 +22,17 @@ MAIN_DIR = REPO_ROOT / "src" / "main"
 if str(MAIN_DIR) not in sys.path:
     sys.path.insert(0, str(MAIN_DIR))
 
-os.environ.setdefault("ENV", "test")
-os.environ.setdefault("SIPM_COORDINATION_BACKEND", "memory")
-os.environ.setdefault("SIPM_DISABLE_STARTUP", "true")
-os.environ.setdefault("SIPM_DISABLE_THREADPOOL", "true")
+# This local harness must ignore deployment settings inherited from its caller.
+os.environ.update(
+    {
+        "ENV": "test",
+        "SIPM_COORDINATION_BACKEND": "memory",
+        "SIPM_DISABLE_STARTUP": "true",
+        "SIPM_DISABLE_THREADPOOL": "true",
+        "SIPM_KEEPALIVE_TASK": "false",
+        "SIPM_ENV_OVERRIDE": "false",
+    }
+)
 
 from backend.app import deps as deps_module  # noqa: E402
 from backend.app.models import (  # noqa: E402
@@ -234,12 +242,13 @@ async def _measure_case(
 
 
 async def _run(args: argparse.Namespace) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="sipm-agent-benchmark-") as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="sipm-agent-benchmark-") as temp_dir, ExitStack() as cleanup:
         db_path = Path(temp_dir) / "benchmark.db"
         engine = create_engine(
             f"sqlite+pysqlite:///{db_path}",
             connect_args={"check_same_thread": False},
         )
+        cleanup.callback(engine.dispose)
         session_factory = sessionmaker(
             autocommit=False,
             autoflush=False,
@@ -263,6 +272,8 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             with session_factory() as session:
                 yield session
 
+        had_db_override = deps_module.get_db in app.dependency_overrides
+        previous_db_override = app.dependency_overrides.get(deps_module.get_db)
         app.dependency_overrides[deps_module.get_db] = _benchmark_db
         headers = {
             "Authorization": f"Bearer {raw_token}",
@@ -341,8 +352,10 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                         for case in cases
                     ]
         finally:
-            app.dependency_overrides.clear()
-            engine.dispose()
+            if had_db_override:
+                app.dependency_overrides[deps_module.get_db] = previous_db_override
+            else:
+                app.dependency_overrides.pop(deps_module.get_db, None)
 
     return {
         "dataset": {

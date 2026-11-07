@@ -4,10 +4,12 @@ import { renderTasksWorkbench } from "../../js/routes/tasks-workbench.js";
 import {
   deleteActiveTasksWorkbenchItem,
   fillTasksWorkbenchForm,
+  renderTasksWorkbenchActivity,
   saveTasksWorkbenchForm,
 } from "../../js/routes/tasks-workbench/drawer.js";
 import { updateTasksWorkbenchSolutionOptions } from "../../js/routes/tasks-workbench/interactions.js";
 import { populateTasksWorkbenchOptions } from "../../js/routes/tasks-workbench/options.js";
+import { registerMutationContextLifetime } from "../../js/utils/form-state.js";
 
 function taskRecord(taskId = "task-1", overrides = {}) {
   return {
@@ -35,7 +37,7 @@ function createWorkbenchEditor() {
       <input name="task_name" />
       <textarea name="description"></textarea>
       <textarea name="acceptance_criteria"></textarea>
-      <select name="status"><option value="to_do">To do</option><option value="active">Active</option></select>
+      <select name="status"><option value="to_do">To do</option><option value="active">Active</option><option value="complete">Complete</option></select>
       <input name="priority" />
       <input name="due_date" />
       <textarea name="blocker_note"></textarea>
@@ -52,6 +54,7 @@ function createWorkbenchEditor() {
   const ctx = {
     state: {
       tasks: [taskRecord()],
+      myWork: { records: [{ task: taskRecord() }], loading: true, loadRequestId: 7 },
       tasksWorkbench: { activeTaskId: "task-1", selected: new Set() },
       projects: [{ project_id: "project-1", project_name: "Project" }],
       solutions: [{ solution_id: "solution-1", solution_name: "Solution" }],
@@ -90,7 +93,6 @@ function createWorkbenchEditor() {
     }),
     renderSolutionTasks: vi.fn(),
     renderDashboard: vi.fn(),
-    ignoreNextRefresh: new Set(),
     deleteTasksById: vi.fn(),
   };
   return { ctx, form };
@@ -110,7 +112,190 @@ function formValue(form, name) {
   return form.querySelector(`[name="${name}"]`);
 }
 
+describe("workbench changed-field saves", () => {
+  it("does not overwrite an unrelated status changed outside the editor", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    const original = taskRecord();
+    fillTasksWorkbenchForm(ctx, original);
+    let server = { ...original, status: "complete" };
+    formValue(form, "task_name").value = "Renamed";
+    ctx.api.mockImplementation(async (_path, options) => {
+      server = { ...server, ...JSON.parse(options.body) };
+      return server;
+    });
+    await saveTasksWorkbenchForm(ctx);
+    expect(JSON.parse(ctx.api.mock.calls[0][1].body)).toEqual({ task_name: "Renamed" });
+    expect(server.status).toBe("complete");
+  });
+
+  it("submits explicit clears and couples assignment and blocked state correctly", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    const original = taskRecord("task-1", { blocked: true, blocker_note: "Waiting" });
+    fillTasksWorkbenchForm(ctx, original);
+    formValue(form, "description").value = "";
+    formValue(form, "blocked").checked = false;
+    formValue(form, "blocker_note").value = "";
+    formValue(form, "assignee").value = "";
+    formValue(form, "assignee_user_soeid").value = "";
+    ctx.api.mockResolvedValue({ ...original, description: null, blocked: false, blocker_note: null, assignee: "", assignee_user_soeid: null });
+    await saveTasksWorkbenchForm(ctx);
+    expect(JSON.parse(ctx.api.mock.calls[0][1].body)).toEqual({ description: null, blocked: false, blocker_note: null, assignee: "", assignee_user_soeid: null });
+  });
+});
+
 describe("tasks workbench route", () => {
+  it.each([
+    [{ assignee: "Former User", assignee_user_soeid: null }, "Former User"],
+    [{ assignee: "Former User", assignee_user_soeid: "former-id" }, "Former User"],
+  ])("shows an unresolved assignment and permits clearing it: %o", async (assignment, label) => {
+    const { ctx, form } = createWorkbenchEditor();
+    ctx.state.users = [];
+    ctx.normalizeTasksWorkbenchUiState = vi.fn();
+    ctx.resolveAssigneeSelectValue = (id) => id || "";
+    populateTasksWorkbenchOptions(ctx);
+    const task = taskRecord("task-1", assignment);
+    fillTasksWorkbenchForm(ctx, task);
+    const picker = formValue(form, "assignee");
+    expect(picker.selectedOptions[0].textContent).toContain(label);
+    picker.value = "";
+    picker.dispatchEvent(new Event("change"));
+    ctx.api.mockResolvedValueOnce({ ...task, assignee: null, assignee_user_soeid: null });
+    await saveTasksWorkbenchForm(ctx);
+    const payload = JSON.parse(ctx.api.mock.calls[0][1].body);
+    expect(payload).toMatchObject({ assignee: "", assignee_user_soeid: null });
+  });
+
+  it("preserves an unavailable assignment across option refresh and rerender", () => {
+    const { ctx, form } = createWorkbenchEditor();
+    ctx.state.users = [];
+    ctx.normalizeTasksWorkbenchUiState = vi.fn();
+    ctx.resolveAssigneeSelectValue = (id) => id || "";
+    populateTasksWorkbenchOptions(ctx);
+    const task = taskRecord("task-1", { assignee: "Former User", assignee_user_soeid: "former-id" });
+    fillTasksWorkbenchForm(ctx, task);
+    populateTasksWorkbenchOptions(ctx);
+    fillTasksWorkbenchForm(ctx, task);
+    expect(formValue(form, "assignee").selectedOptions[0].textContent).toContain("Former User");
+    expect(formValue(form, "assignee_user_soeid").value).toBe("former-id");
+  });
+
+  it("preserves a dirty unassignment across option refresh and rerender", () => {
+    const { ctx, form } = createWorkbenchEditor();
+    ctx.state.users = [];
+    ctx.normalizeTasksWorkbenchUiState = vi.fn();
+    ctx.resolveAssigneeSelectValue = (id) => id || "";
+    populateTasksWorkbenchOptions(ctx);
+    const task = taskRecord("task-1", { assignee: "Former User", assignee_user_soeid: "former-id" });
+    fillTasksWorkbenchForm(ctx, task);
+    const picker = formValue(form, "assignee");
+    picker.value = "";
+    picker.dispatchEvent(new Event("change"));
+    populateTasksWorkbenchOptions(ctx);
+    fillTasksWorkbenchForm(ctx, task);
+    expect(picker.value).toBe("");
+    expect(formValue(form, "assignee_user_soeid").value).toBe("");
+  });
+
+  it("reports a saved task when newer edits remain", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    const task = taskRecord();
+    fillTasksWorkbenchForm(ctx, task);
+    const response = deferred();
+    ctx.api.mockReturnValueOnce(response.promise);
+    const saving = saveTasksWorkbenchForm(ctx);
+    formValue(form, "task_name").value = "Newer draft";
+    response.resolve(task);
+    await saving;
+    expect(ctx.setDeliverableFormNotice).toHaveBeenLastCalledWith(
+      ctx.els.tasksWorkbenchFormStatus, expect.stringMatching(/saved.*unsaved/i), "success"
+    );
+  });
+  it("ignores activity from an old context after the request counter is reset", async () => {
+    const { ctx } = createWorkbenchEditor();
+    const old = deferred();
+    const current = deferred();
+    ctx.state.user = { user_id: "u" };
+    ctx.state.activeSpace = { space_id: "old" };
+    ctx.els.tasksWorkbenchActivity = document.createElement("div");
+    ctx.api.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const first = renderTasksWorkbenchActivity(ctx, "old-task");
+    ctx.state.tasksWorkbench.activityRequestId = 0;
+    ctx.state.activeSpace = { space_id: "new" };
+    const second = renderTasksWorkbenchActivity(ctx, "new-task");
+    current.resolve([{ action: "current" }]);
+    await second;
+    old.resolve([{ action: "old secret" }]);
+    await first;
+    expect(ctx.els.tasksWorkbenchActivity.textContent).toContain("current");
+    expect(ctx.els.tasksWorkbenchActivity.textContent).not.toContain("old secret");
+  });
+
+  it("prevents duplicate pending saves without dropping subsequent draft edits", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    const task = taskRecord();
+    fillTasksWorkbenchForm(ctx, task);
+    const response = deferred();
+    ctx.api.mockReturnValueOnce(response.promise);
+    const first = saveTasksWorkbenchForm(ctx);
+    formValue(form, "task_name").value = "Newer draft";
+    await saveTasksWorkbenchForm(ctx);
+    expect(ctx.api).toHaveBeenCalledTimes(1);
+    response.resolve(task);
+    await first;
+    expect(formValue(form, "task_name").value).toBe("Newer draft");
+  });
+
+  it("keeps a pending save gated through a same-session refresh and permits retry after failure", async () => {
+    const { ctx } = createWorkbenchEditor();
+    ctx.state.user = { user_id: "u" };
+    ctx.state.activeSpace = { space_id: "s" };
+    registerMutationContextLifetime(ctx.state, () => ({ session: 1, space: 1 }));
+    fillTasksWorkbenchForm(ctx, taskRecord());
+    const response = deferred();
+    ctx.api.mockReturnValueOnce(response.promise).mockResolvedValueOnce(taskRecord());
+    const saving = saveTasksWorkbenchForm(ctx);
+    ctx.state.user = { user_id: "u" };
+    ctx.state.activeSpace = { space_id: "s" };
+    await saveTasksWorkbenchForm(ctx);
+    expect(ctx.api).toHaveBeenCalledTimes(1);
+    response.reject(new Error("network"));
+    await saving;
+    await saveTasksWorkbenchForm(ctx);
+    expect(ctx.api).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves an edit back to the original value made while saving", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    const task = taskRecord();
+    fillTasksWorkbenchForm(ctx, task);
+    formValue(form, "task_name").value = "Submitted";
+    const response = deferred();
+    ctx.api.mockReturnValueOnce(response.promise);
+    const saving = saveTasksWorkbenchForm(ctx);
+    formValue(form, "task_name").value = task.task_name;
+    response.resolve({ ...task, task_name: "Submitted" });
+    await saving;
+    expect(formValue(form, "task_name").value).toBe(task.task_name);
+  });
+
+  it("allows a new context to save while an old save is pending and keeps its gate", async () => {
+    const { ctx } = createWorkbenchEditor();
+    ctx.state.user = { user_id: "u" };
+    ctx.state.activeSpace = { space_id: "old" };
+    fillTasksWorkbenchForm(ctx, taskRecord());
+    const old = deferred();
+    const current = deferred();
+    ctx.api.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
+    const first = saveTasksWorkbenchForm(ctx);
+    ctx.state.activeSpace = { space_id: "new" };
+    const second = saveTasksWorkbenchForm(ctx);
+    old.resolve(taskRecord());
+    await first;
+    await saveTasksWorkbenchForm(ctx);
+    expect(ctx.api).toHaveBeenCalledTimes(2);
+    current.resolve(taskRecord());
+    await second;
+  });
   it.each([
     [{ acceptance_criteria: "Current criteria", done_criteria: "Legacy criteria" }, "Current criteria"],
     [{ acceptance_criteria: null, done_criteria: "Legacy criteria" }, "Legacy criteria"],
@@ -252,6 +437,46 @@ describe("tasks workbench route", () => {
     expect(payload.assignee_user_soeid).toBe("tu12345");
   });
 
+  it.each([
+    { assignee: "Legacy Engineer", assignee_user_soeid: null },
+    { assignee: "Missing Engineer", assignee_user_soeid: "missing123" },
+    { assignee: null, assignee_user_soeid: null },
+  ])("completes a task without overwriting its unchanged assignment: %j", async (assignment) => {
+    const { ctx, form } = createWorkbenchEditor();
+    const task = taskRecord("task-1", assignment);
+    ctx.state.tasks = [task];
+    fillTasksWorkbenchForm(ctx, task);
+    formValue(form, "status").value = "complete";
+    ctx.api.mockResolvedValueOnce({ ...task, status: "complete" });
+
+    await saveTasksWorkbenchForm(ctx);
+
+    const payload = JSON.parse(ctx.api.mock.calls[0][1].body);
+    expect(payload.status).toBe("complete");
+    expect(payload).not.toHaveProperty("assignee");
+    expect(payload).not.toHaveProperty("assignee_user_soeid");
+    expect(ctx.state.tasks[0]).toMatchObject(assignment);
+    expect(ctx.state.myWork.records).toBeNull();
+    expect(ctx.state.myWork.loading).toBe(false);
+    expect(ctx.state.myWork.loadRequestId).toBeGreaterThan(7);
+  });
+
+  it("sends an intentional assignment clear while completing a task", async () => {
+    const { ctx, form } = createWorkbenchEditor();
+    fillTasksWorkbenchForm(ctx, ctx.state.tasks[0]);
+    formValue(form, "assignee").value = "";
+    formValue(form, "assignee_user_soeid").value = "";
+    formValue(form, "status").value = "complete";
+    ctx.api.mockResolvedValueOnce(taskRecord("task-1", {
+      status: "complete", assignee: null, assignee_user_soeid: null,
+    }));
+
+    await saveTasksWorkbenchForm(ctx);
+
+    const payload = JSON.parse(ctx.api.mock.calls[0][1].body);
+    expect(payload).toMatchObject({ status: "complete", assignee: "", assignee_user_soeid: null });
+  });
+
   it("keeps the selected task and its draft when a slower save completes after switching", async () => {
     const { ctx, form } = createWorkbenchEditor();
     const taskA = taskRecord("task-a");
@@ -364,6 +589,8 @@ describe("tasks workbench route", () => {
 
     expect(ctx.upsertById).not.toHaveBeenCalled();
     expect(ctx.renderTasksWorkbench).not.toHaveBeenCalled();
+    expect(ctx.state.myWork.records).not.toBeNull();
+    expect(ctx.state.myWork.loadRequestId).toBe(7);
     expect(formValue(form, "task_name").value).toBe("Title task-a");
     expect(ctx.setDeliverableFormNotice).toHaveBeenCalledTimes(1);
   });

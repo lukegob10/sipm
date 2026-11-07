@@ -29,14 +29,37 @@ export function createSessionController({
   stopLiveSync,
 }) {
   let sessionRefreshPromise = null;
+  let isPendingRefreshCurrent = () => false;
   let lastSessionRefreshAt = 0;
   let authBootstrapGeneration = 0;
   let sessionGeneration = 0;
   let sessionContextRefreshGeneration = 0;
+  let terminalRefreshCounter = 0;
+  let sessionBinding = "";
+  const authResponseBindings = new WeakMap();
   const pendingAuthActions = new Set();
 
   function currentUserId() {
     return String(state.user?.user_id || state.user?.soeid || state.user?.email || "");
+  }
+
+  function getSessionBinding() {
+    return sessionBinding;
+  }
+
+  function handleSessionBindingChanged(expectedBinding) {
+    if (!expectedBinding || !state.authed || sessionBinding !== expectedBinding) return false;
+    clearLocalSession();
+    setAuthVisible(true);
+    setStatus("Sign in required", "warn");
+    showAuthNotice("Your session changed in another tab. Sign in again to continue.");
+    return true;
+  }
+
+  function handleSessionBindingMismatch(response, expectedBinding) {
+    if (response?.status !== 409 || response.headers?.get?.("X-Error-Code") !== "SESSION_CONTEXT_CHANGED") return false;
+    handleSessionBindingChanged(expectedBinding);
+    return true;
   }
 
   function authErrorMessage(err, fallback = "Session expired. Please sign in again.") {
@@ -145,7 +168,8 @@ export function createSessionController({
   async function withPendingAuthAction(key, form, action) {
     if (pendingAuthActions.has(key)) return null;
     pendingAuthActions.add(key);
-    const buttons = Array.from(form?.querySelectorAll?.('button[type="submit"]') || []);
+    const forms = Array.isArray(form) ? form : [form];
+    const buttons = forms.flatMap((item) => Array.from(item?.querySelectorAll?.('button[type="submit"]') || []));
     buttons.forEach((button) => {
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
@@ -190,13 +214,17 @@ export function createSessionController({
     const suppressLiveSyncRestart = !!options.suppressLiveSyncRestart;
     const refreshContext = options.refreshContext !== false;
     const throwOnFailure = !!options.throwOnFailure;
+    const waitForRefresh = (promise) => promise.catch((err) => {
+      if (throwOnFailure) throw err;
+      return null;
+    });
 
     if (!force && !state.authed && !allowLoggedOut) return null;
     if (!force && Date.now() - lastSessionRefreshAt < accessRefreshIntervalMs) {
       return state.user || {};
     }
-    if (sessionRefreshPromise) {
-      return sessionRefreshPromise;
+    if (sessionRefreshPromise && isPendingRefreshCurrent()) {
+      return waitForRefresh(sessionRefreshPromise);
     }
 
     const generation = sessionGeneration;
@@ -204,6 +232,7 @@ export function createSessionController({
     const spaceId = state.activeSpace?.space_id;
     const userId = currentUserId();
     const isCurrent = () => generation === sessionGeneration
+      && contextGeneration === sessionContextRefreshGeneration
       && spaceId === state.activeSpace?.space_id && userId === currentUserId();
     const headers = {};
     if (state.activeSpace?.space_id) {
@@ -219,12 +248,28 @@ export function createSessionController({
         });
 
         if (!isCurrent()) return null;
+        const refreshedBinding = data && typeof data === "object" ? authResponseBindings.get(data) : "";
+        if (state.authed && sessionBinding && refreshedBinding && refreshedBinding !== sessionBinding) {
+          clearLocalSession();
+          setAuthVisible(true);
+          setStatus("Sign in required", "warn");
+          showAuthNotice("Your session changed in another tab. Sign in again to continue.");
+          return null;
+        }
+        if (refreshedBinding) sessionBinding = refreshedBinding;
         let refreshedUserId = userId;
         if (data && typeof data === "object") {
+          refreshedUserId = String(data.user_id || data.soeid || data.email || userId);
+          if (state.authed && userId && refreshedUserId !== userId) {
+            // Cookies may have changed in another tab. Clear this tab without
+            // broadcasting a logout or revoking the replacement session.
+            clearLocalSession();
+            setAuthVisible(true);
+            setStatus("Sign in required", "warn");
+            showAuthNotice("Your session changed in another tab. Sign in again to continue.");
+            return null;
+          }
           setAuthed(data);
-          refreshedUserId = String(
-            data.user_id || data.soeid || data.email || currentUserId(),
-          );
         }
         lastSessionRefreshAt = Date.now();
 
@@ -256,11 +301,12 @@ export function createSessionController({
       } catch (err) {
         if (!isCurrent()) return null;
         if (!silentFailure && isTerminalAuthFailure(err)) {
+          terminalRefreshCounter += 1;
           handleSessionExpired({ message: authErrorMessage(err) });
         } else if (!silentFailure) {
           console.warn("Session refresh failed", err);
         }
-        if (throwOnFailure && !isTerminalAuthFailure(err)) throw err;
+        if (!isTerminalAuthFailure(err)) throw err;
         return null;
       } finally {
         if (sessionRefreshPromise === refreshPromise) sessionRefreshPromise = null;
@@ -268,7 +314,8 @@ export function createSessionController({
     })();
 
     sessionRefreshPromise = refreshPromise;
-    return refreshPromise;
+    isPendingRefreshCurrent = isCurrent;
+    return waitForRefresh(refreshPromise);
   }
 
   function maybeRefreshSessionOnActivity() {
@@ -278,6 +325,18 @@ export function createSessionController({
     refreshSessionTokens({ force: false }).catch(() => {});
   }
 
+  const authCookiePaths = new Set([
+    "/auth/login", "/auth/register", "/auth/refresh", "/auth/logout",
+    "/auth/reset-password", "/auth/bootstrap", "/auth/active-space",
+  ]);
+
+  async function withAuthCookieLock(path, signal, operation) {
+    const locks = globalThis.navigator?.locks;
+    if (!authCookiePaths.has(path) || typeof locks?.request !== "function") return operation();
+    const options = signal ? { mode: "exclusive", signal } : { mode: "exclusive" };
+    return locks.request("sipm-auth-cookies-v1", options, operation);
+  }
+
   async function api(path, options = {}) {
     const {
       timeoutMs: timeoutOption,
@@ -285,7 +344,25 @@ export function createSessionController({
       _retriedAfterRefresh = false,
       ...requestOptions
     } = options;
+    const requestContext = {
+      authenticated: !!state.authed,
+      generation: sessionGeneration,
+      spaceGeneration: sessionContextRefreshGeneration,
+      userId: currentUserId(),
+      spaceId: String(state.activeSpace?.space_id || ""),
+    };
+    const isRequestContextCurrent = () => !requestContext.authenticated || (
+      state.authed && sessionGeneration === requestContext.generation
+      && sessionContextRefreshGeneration === requestContext.spaceGeneration
+      && currentUserId() === requestContext.userId
+      && String(state.activeSpace?.space_id || "") === requestContext.spaceId
+    );
+    const contextChangedError = () => Object.assign(new Error("Request context changed."), { code: "REQUEST_CONTEXT_CHANGED" });
     const headers = { ...(requestOptions.headers || {}) };
+    if (requestContext.authenticated && sessionBinding && !headers["X-SIPM-Session"]) {
+      headers["X-SIPM-Session"] = sessionBinding;
+    }
+    const requestBinding = headers["X-SIPM-Session"] || "";
     if (state.authed && state.activeSpace?.space_id && !headers["X-Space-Id"]) {
       headers["X-Space-Id"] = state.activeSpace.space_id;
     }
@@ -295,6 +372,7 @@ export function createSessionController({
     }
     const timeoutMs = Number.isFinite(timeoutOption) ? timeoutOption : 15000;
     const callerSignal = requestOptions.signal;
+    let terminalRefreshFailure = false;
     let controller = null;
     let timeoutId = null;
     let callerAbortListener = null;
@@ -317,39 +395,72 @@ export function createSessionController({
       }
     }
     try {
-      const res = await fetch(`${apiBase}${path}`, {
-        credentials: "include",
-        ...requestOptions,
-        headers,
-        signal: controller?.signal,
-      });
-      const text = await res.text();
-      let data = null;
-      try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        data = text || null;
-      }
-      if (!res.ok) {
-        if (res.status >= 500 && typeof onApiFailure === "function") {
-          onApiFailure({ path, status: res.status, kind: "server_error" });
+      let retriedAfterRefresh = _retriedAfterRefresh;
+      while (true) {
+        const { res, text } = await withAuthCookieLock(path, controller?.signal, async () => {
+          if (sessionGeneration !== requestContext.generation || !isRequestContextCurrent()) throw contextChangedError();
+          if (controller?.signal.aborted) throw new DOMException("Request cancelled.", "AbortError");
+          const response = await fetch(`${apiBase}${path}`, {
+            credentials: "include",
+            ...requestOptions,
+            headers,
+            signal: controller?.signal,
+          });
+          return { res: response, text: await response.text() };
+        });
+        if (!isRequestContextCurrent()) throw contextChangedError();
+        let data = null;
+        try {
+          data = text ? JSON.parse(text) : null;
+        } catch {
+          data = text || null;
         }
-        if (res.status === 401 && state.authed && !_retriedAfterRefresh && !skipAuthRefresh) {
-          const refreshed = await refreshSessionTokens({ force: true });
-          if (refreshed) {
-            return api(path, {
-              ...options,
-              headers: { ...headers },
-              _retriedAfterRefresh: true,
-              skipAuthRefresh: true,
-            });
+        if (!res.ok) {
+          if (handleSessionBindingMismatch(res, requestBinding)) throw errorFromResponse(res, data, path);
+          if (res.status >= 500 && typeof onApiFailure === "function") {
+            onApiFailure({ path, status: res.status, kind: "server_error" });
           }
+          if (res.status === 401 && requestContext.authenticated && !retriedAfterRefresh && !skipAuthRefresh) {
+            const terminalCounter = terminalRefreshCounter;
+            const refreshPromise = refreshSessionTokens({ force: true, throwOnFailure: true });
+            const signal = controller?.signal;
+            let abortListener;
+            let refreshed;
+            try {
+              refreshed = signal ? await Promise.race([
+                refreshPromise,
+                new Promise((_, reject) => {
+                  abortListener = () => reject(new DOMException("Request cancelled.", "AbortError"));
+                  if (signal.aborted) abortListener();
+                  else signal.addEventListener("abort", abortListener, { once: true });
+                }),
+              ]) : await refreshPromise;
+            } finally {
+              if (abortListener) signal.removeEventListener("abort", abortListener);
+            }
+            if (!isRequestContextCurrent()) {
+              if (!refreshed && !state.authed && !state.user && terminalRefreshCounter !== terminalCounter) {
+                terminalRefreshFailure = true;
+                throw errorFromResponse(res, data, path);
+              }
+              throw contextChangedError();
+            }
+            if (signal?.aborted) throw new DOMException("Request cancelled.", "AbortError");
+            if (refreshed) {
+              retriedAfterRefresh = true;
+              continue;
+            }
+          }
+          throw errorFromResponse(res, data, path);
         }
-        const err = errorFromResponse(res, data, path);
-        throw err;
+        if (data && typeof data === "object" && ["/auth/login", "/auth/register", "/auth/bootstrap", "/auth/refresh"].includes(path)) {
+          const binding = res.headers?.get?.("X-SIPM-Session");
+          if (binding) authResponseBindings.set(data, binding);
+        }
+        return data;
       }
-      return data;
     } catch (err) {
+      if (!isRequestContextCurrent() && !terminalRefreshFailure) throw contextChangedError();
       if (err?.name === "AbortError" && callerSignal?.aborted && !timedOut) throw err;
       if (err && (err.name === "AbortError" || err.name === "TypeError")) {
         const timeoutErr = networkError(path, err);
@@ -381,6 +492,7 @@ export function createSessionController({
   function clearLocalSession() {
     sessionGeneration += 1;
     authBootstrapGeneration += 1;
+    sessionBinding = "";
     stopLiveSync();
     sessionRefreshPromise = null;
     lastSessionRefreshAt = 0;
@@ -400,7 +512,9 @@ export function createSessionController({
   }
 
   async function logoutLocally({ idle = false, remote = false } = {}) {
+    if (!remote && !state.authed) return;
     if (!remote) broadcastSessionLogout?.();
+    const binding = sessionBinding;
     clearLocalSession();
     setAuthVisible(true);
     setStatus("Sign in required", "warn");
@@ -411,7 +525,9 @@ export function createSessionController({
     }
     if (remote) return;
     try {
-      await api("/auth/logout", { method: "POST", skipAuthRefresh: true });
+      await api("/auth/logout", {
+        method: "POST", skipAuthRefresh: true, headers: binding ? { "X-SIPM-Session": binding } : {},
+      });
     } catch (err) {
       console.warn("Logout error", err);
     }
@@ -430,6 +546,7 @@ export function createSessionController({
     try {
       const me = await api(includeContext ? "/auth/bootstrap" : "/auth/me", { skipAuthRefresh: true });
       if (!isCurrent()) return null;
+      if (me && typeof me === "object") sessionBinding = authResponseBindings.get(me) || sessionBinding;
       setAuthed(userFromAuthResponse(me));
       return me;
     } catch (err) {
@@ -484,15 +601,21 @@ export function createSessionController({
   async function finishAuthentication(payload) {
     sessionGeneration += 1;
     authBootstrapGeneration += 1;
+    sessionBinding = authResponseBindings.get(payload) || "";
     setAuthed(userFromAuthResponse(payload));
+    const generation = sessionGeneration;
+    const userId = currentUserId();
+    const isCurrent = () => generation === sessionGeneration && state.authed && userId === currentUserId();
     try {
       if (!applyAuthBootstrap(payload)) {
-        await Promise.all([loadUserPreferences(), refreshSpaceContext()]);
+        await Promise.all([loadUserPreferences({ isCurrent }), refreshSpaceContext({ isCurrent })]);
       }
+      if (!isCurrent()) return;
       const initialLoad = restoreRouteFromLocationAfterAuth();
       startLiveSync({ catchUpAfter: initialLoad });
       setAuthVisible(false);
     } catch (err) {
+      if (!isCurrent()) return;
       clearLocalSession();
       setAuthVisible(true);
       throw err;
@@ -520,13 +643,21 @@ export function createSessionController({
       showAuthError("");
       showAuthNotice("");
       const form = new FormData(els.loginForm);
-      await withPendingAuthAction("login", els.loginForm, async () => {
+      await withPendingAuthAction("authenticate", [els.loginForm, els.registerForm], async () => {
+        const generation = sessionGeneration;
         const login = performLogin(form.get("soeid"), form.get("password"));
         // Warm code while credentials are checked; authenticated routing remains authoritative.
         void Promise.resolve()
           .then(() => preloadLoginRoute(viewFromLocationPath(window.location.pathname)))
           .catch(() => {});
-        const result = await login;
+        let result;
+        try {
+          result = await login;
+        } catch (err) {
+          if (generation !== sessionGeneration) return;
+          throw err;
+        }
+        if (generation !== sessionGeneration) return;
         await finishAuthentication(result);
       }).catch((err) => {
         if (!handleAuthError(err)) showAuthError(loginErrorMessage(err));
@@ -538,8 +669,16 @@ export function createSessionController({
       showAuthError("");
       showAuthNotice("");
       const form = new FormData(els.registerForm);
-      await withPendingAuthAction("register", els.registerForm, async () => {
-        const result = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
+      await withPendingAuthAction("authenticate", [els.loginForm, els.registerForm], async () => {
+        const generation = sessionGeneration;
+        let result;
+        try {
+          result = await performRegister(form.get("display_name"), form.get("soeid"), form.get("password"));
+        } catch (err) {
+          if (generation !== sessionGeneration) return;
+          throw err;
+        }
+        if (generation !== sessionGeneration) return;
         await finishAuthentication(result);
       }).catch((err) => {
         if (!handleAuthError(err)) showAuthError(err.message || "Registration failed");
@@ -625,6 +764,10 @@ export function createSessionController({
   }
 
   return {
+    getSessionGeneration: () => sessionGeneration,
+    getSessionBinding,
+    handleSessionBindingChanged,
+    handleSessionBindingMismatch,
     onAuthedChange,
     refreshSessionTokens,
     maybeRefreshSessionOnActivity,

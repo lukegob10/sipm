@@ -8,7 +8,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, load_only
 
 from ..deps import current_space as current_space_dep, get_db, require_space_role
-from ..models import Project, Solution, Task
+from ..models import Program, Project, Solution, Task
 from ..services.pm_command_report_pdf import build_pm_command_report_pdf
 from ..services.spaces import SpaceContext
 
@@ -27,6 +27,7 @@ def download_pm_command_report_pdf(
 ) -> StreamingResponse:
     project_rows = (
         session.query(Project)
+        .join(Program, Program.program_id == Project.program_id)
         .options(
             load_only(
                 Project.project_id,
@@ -42,6 +43,7 @@ def download_pm_command_report_pdf(
         )
         .filter(Project.deleted_at.is_(None))
         .filter(Project.space_id == space_ctx.space_id)
+        .filter(Program.space_id == space_ctx.space_id, Program.deleted_at.is_(None))
         .order_by(Project.priority.asc(), Project.project_name.asc())
         .all()
     )
@@ -50,6 +52,8 @@ def download_pm_command_report_pdf(
     if project_ids:
         solution_rows = (
             session.query(Solution)
+            .join(Project, Project.project_id == Solution.project_id)
+            .join(Program, Program.program_id == Project.program_id)
             .options(
                 load_only(
                     Solution.solution_id,
@@ -69,7 +73,8 @@ def download_pm_command_report_pdf(
             )
             .filter(Solution.deleted_at.is_(None))
             .filter(Solution.space_id == space_ctx.space_id)
-            .filter(Solution.project_id.in_(project_ids))
+            .filter(Project.space_id == space_ctx.space_id, Project.deleted_at.is_(None))
+            .filter(Program.space_id == space_ctx.space_id, Program.deleted_at.is_(None))
             .order_by(Solution.priority.asc(), Solution.solution_name.asc())
             .all()
         )
@@ -78,6 +83,9 @@ def download_pm_command_report_pdf(
     if solution_ids:
         task_rows = (
             session.query(Task)
+            .join(Solution, Solution.solution_id == Task.solution_id)
+            .join(Project, Project.project_id == Solution.project_id)
+            .join(Program, Program.program_id == Project.program_id)
             .options(
                 load_only(
                     Task.task_id,
@@ -89,13 +97,15 @@ def download_pm_command_report_pdf(
                     Task.assignee,
                     Task.assignee_user_soeid,
                     Task.blocked,
-                    Task.blocker_note,
                     Task.updated_at,
                 )
             )
             .filter(Task.deleted_at.is_(None))
             .filter(Task.space_id == space_ctx.space_id)
-            .filter(Task.solution_id.in_(solution_ids))
+            .filter(Task.project_id == Solution.project_id)
+            .filter(Solution.space_id == space_ctx.space_id, Solution.deleted_at.is_(None))
+            .filter(Project.space_id == space_ctx.space_id, Project.deleted_at.is_(None))
+            .filter(Program.space_id == space_ctx.space_id, Program.deleted_at.is_(None))
             .order_by(Task.priority.asc(), Task.task_name.asc())
             .all()
         )
@@ -144,7 +154,6 @@ def download_pm_command_report_pdf(
                 "assignee": row.assignee,
                 "assignee_user_soeid": row.assignee_user_soeid,
                 "blocked": row.blocked,
-                "blocker_note": row.blocker_note,
                 "updated_at": row.updated_at,
             }
             for row in task_rows

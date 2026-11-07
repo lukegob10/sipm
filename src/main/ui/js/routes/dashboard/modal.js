@@ -1,3 +1,4 @@
+import { captureEntityMutationContext, isSameMutationSession } from "../../utils/form-state.js";
 import {
   DASHBOARD_SECTION_COLUMNS,
   DASHBOARD_SECTIONS,
@@ -51,10 +52,11 @@ export function ensureDashboardConfigModal() {
           <div class="dashboard-config-list-head">
             <div class="modal-section-title">Solutions Included</div>
             <div class="dashboard-config-list-actions">
-              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="select-all-solutions">Select all</button>
-              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="clear-solutions">Clear</button>
+              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="select-all-solutions">Select visible</button>
+              <button type="button" class="dashboard-config-helper-link" data-dashboard-action="clear-solutions">Clear visible</button>
             </div>
           </div>
+          <p id="dashboard-config-hidden-selections" class="muted"></p>
           <div id="dashboard-config-solutions" class="dashboard-config-checklist dashboard-config-solutions"></div>
         </section>
       </div>
@@ -77,7 +79,8 @@ export function renderDashboardConfigModal(dashboardState, sectionId, options = 
 
   const columnDefsBySection = options.columnDefsBySection || {};
   const columnDefs = columnDefsBySection[sectionId] || {};
-  const sectionPrefs = options.useDefaults ? cloneSectionDefaults(sectionId) : getSectionPrefs(dashboardState, sectionId);
+  const sectionPrefs = options.useDefaults ? cloneSectionDefaults(sectionId)
+    : dashboardState.modalDrafts?.[sectionId] || getSectionPrefs(dashboardState, sectionId);
   const selectedColumns = new Set(Array.isArray(sectionPrefs.columns) ? sectionPrefs.columns : []);
   const selectedSolutions = Array.isArray(sectionPrefs.solution_ids) ? new Set(sectionPrefs.solution_ids) : null;
   const sectionOptions = dashboardState.sectionOptions[sectionId] || [];
@@ -87,12 +90,21 @@ export function renderDashboardConfigModal(dashboardState, sectionId, options = 
   const sectionTabsEl = modal.querySelector("#dashboard-config-section-tabs");
   const columnsEl = modal.querySelector("#dashboard-config-columns");
   const solutionsEl = modal.querySelector("#dashboard-config-solutions");
+  const hiddenSelectionsEl = modal.querySelector("#dashboard-config-hidden-selections");
   if (!titleEl || !descriptionEl || !sectionTabsEl || !columnsEl || !solutionsEl) return;
 
   const activeSectionTitle = DASHBOARD_SECTION_TITLES[sectionId] || "Dashboard";
   titleEl.textContent = "Customize Tables";
   descriptionEl.textContent = `Editing ${activeSectionTitle}. Choose a table below, then reorder columns and pick which project solutions appear.`;
   sectionTabsEl.innerHTML = renderDashboardConfigSectionTabs(sectionId);
+  const visibleIds = new Set(sectionOptions.map((option) => option.solutionId));
+  const hiddenCount = selectedSolutions ? [...selectedSolutions].filter((id) => !visibleIds.has(id)).length : 0;
+  if (hiddenSelectionsEl) {
+    hiddenSelectionsEl.textContent = hiddenCount
+      ? `${hiddenCount} selected ${hiddenCount === 1 ? "solution is" : "solutions are"} outside this list and will remain selected when you apply.`
+      : "";
+    hiddenSelectionsEl.hidden = !hiddenCount;
+  }
 
   const columnOrder = DASHBOARD_SECTION_COLUMNS[sectionId] || [];
   const modalColumnOrder = [
@@ -140,13 +152,17 @@ export function renderDashboardConfigModal(dashboardState, sectionId, options = 
     .join("");
 }
 
-export function openDashboardConfigModal(dashboardState, sectionId) {
+export function openDashboardConfigModal(dashboardState, sectionId, opener = document.activeElement) {
   const targetSection = DASHBOARD_SECTIONS.includes(sectionId)
     ? sectionId
     : dashboardState.prefs?.last_config_section || dashboardState.lastConfigSection || "main";
   const modal = ensureDashboardConfigModal();
   if (!modal) return;
+  if (modal.classList.contains("hidden")) dashboardState.modalReturnFocus = opener;
   dashboardState.modalSection = targetSection;
+  const state = dashboardState.ctx?.state;
+  dashboardState.modalContext = state ? { context: captureEntityMutationContext(state), authed: state.authed } : null;
+  dashboardState.modalDrafts = {};
   dashboardState.lastConfigSection = targetSection;
   updatePrefs(dashboardState, { last_config_section: targetSection });
   modal.classList.remove("hidden");
@@ -156,9 +172,52 @@ export function openDashboardConfigModal(dashboardState, sectionId) {
 export function closeDashboardConfigModal(dashboardState) {
   const modal = ensureDashboardConfigModal();
   if (!modal) return;
+  const state = dashboardState.ctx?.state;
+  const canRestore = isDashboardModalContextCurrent(dashboardState) && state?.currentView === "dashboard";
+  const opener = dashboardState.modalReturnFocus;
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
+  dashboardState.modalReturnFocus = null;
+  if (canRestore) {
+    const target = opener?.isConnected && opener.getClientRects().length ? opener
+      : document.querySelector('#view-dashboard [data-dashboard-action="open-config"]');
+    if (target?.isConnected && target.getClientRects().length) target.focus();
+  }
   dashboardState.modalSection = null;
+  dashboardState.modalDrafts = null;
+  dashboardState.modalContext = null;
+}
+
+export function isDashboardModalContextCurrent(dashboardState) {
+  const captured = dashboardState.modalContext;
+  const state = dashboardState.ctx?.state;
+  if (!captured) return !!dashboardState.modalSection && !state;
+  if (!state || state.authed !== captured.authed) return false;
+  const current = captureEntityMutationContext(state);
+  return isSameMutationSession(current, captured.context) && current.spaceId === captured.context.spaceId;
+}
+
+export function resetDashboardConfigForContext(dashboardState) {
+  const modal = typeof document === "undefined" ? null : document.getElementById("dashboard-config-modal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+    modal.querySelector("#dashboard-config-columns")?.replaceChildren();
+    modal.querySelector("#dashboard-config-solutions")?.replaceChildren();
+    const description = modal.querySelector("#dashboard-config-description");
+    if (description) description.textContent = "";
+    const hiddenSelections = modal.querySelector("#dashboard-config-hidden-selections");
+    if (hiddenSelections) {
+      hiddenSelections.textContent = "";
+      hiddenSelections.hidden = true;
+    }
+  }
+  dashboardState.modalSection = null;
+  dashboardState.modalDrafts = null;
+  dashboardState.modalContext = null;
+  dashboardState.modalReturnFocus = null;
+  dashboardState.sectionOptions = {};
+  dashboardState.ctx = null;
 }
 
 export function setAllModalSolutionChecks(checked) {
@@ -172,6 +231,8 @@ export function setAllModalSolutionChecks(checked) {
 export function resetModalDraft(dashboardState, columnDefsBySection) {
   const sectionId = dashboardState.modalSection;
   if (!sectionId) return;
+  dashboardState.modalDrafts = dashboardState.modalDrafts || {};
+  dashboardState.modalDrafts[sectionId] = cloneSectionDefaults(sectionId);
   renderDashboardConfigModal(dashboardState, sectionId, { useDefaults: true, columnDefsBySection });
 }
 
@@ -195,7 +256,7 @@ export function moveModalColumn(direction, columnId) {
   }
 }
 
-export function applyModalConfig(dashboardState, rerender) {
+export function captureModalDraft(dashboardState) {
   const sectionId = dashboardState.modalSection;
   if (!sectionId) return;
   const modal = ensureDashboardConfigModal();
@@ -207,17 +268,33 @@ export function applyModalConfig(dashboardState, rerender) {
   const checkedSolutions = Array.from(
     modal.querySelectorAll("input[name='dashboard-config-solution']:checked")
   ).map((input) => String(input.value || "").trim());
-  const totalSolutions = modal.querySelectorAll("input[name='dashboard-config-solution']").length;
+  const visibleSolutions = Array.from(
+    modal.querySelectorAll("input[name='dashboard-config-solution']")
+  ).map((input) => String(input.value || "").trim());
 
   const defaults = cloneSectionDefaults(sectionId);
   const columns = checkedColumns.length ? checkedColumns : defaults.columns;
-  const solutionIds = totalSolutions === 0 || checkedSolutions.length === totalSolutions ? null : checkedSolutions;
-
-  updateSectionPrefs(dashboardState, sectionId, {
+  const current = dashboardState.modalDrafts?.[sectionId] || getSectionPrefs(dashboardState, sectionId);
+  const visibleIds = new Set(visibleSolutions);
+  const dormantIds = Array.isArray(current.solution_ids)
+    ? current.solution_ids.filter((id) => !visibleIds.has(id)) : [];
+  const solutionIds = visibleSolutions.length === 0 ? current.solution_ids
+    : !Array.isArray(current.solution_ids) && checkedSolutions.length === visibleSolutions.length
+      ? null : [...dormantIds, ...checkedSolutions];
+  dashboardState.modalDrafts = dashboardState.modalDrafts || {};
+  dashboardState.modalDrafts[sectionId] = {
     columns,
     solution_ids: solutionIds,
+  };
+}
+
+export function applyModalConfig(dashboardState, rerender) {
+  if (!dashboardState.modalSection) return;
+  captureModalDraft(dashboardState);
+  Object.entries(dashboardState.modalDrafts || {}).forEach(([sectionId, draft]) => {
+    updateSectionPrefs(dashboardState, sectionId, draft);
   });
 
-  closeDashboardConfigModal(dashboardState);
   rerender();
+  closeDashboardConfigModal(dashboardState);
 }

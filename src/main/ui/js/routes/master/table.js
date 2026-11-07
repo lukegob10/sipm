@@ -59,10 +59,10 @@ function collapsedSet(state) {
   return state.masterCollapsed instanceof Set ? state.masterCollapsed : new Set();
 }
 
-function renderOutlineToggle(key, collapsed, label) {
+function renderOutlineToggle(key, collapsed, label, searchActive = false) {
   const action = collapsed ? "Expand" : "Collapse";
   const iconPath = collapsed ? "M9 6l6 6-6 6" : "M6 9l6 6 6-6";
-  return `<button type="button" class="master-outline-toggle master-tree-toggle" data-action="toggle-master-collapse" data-master-collapse-key="${esc(key)}" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${action} ${esc(label)}" title="${action}"><svg class="master-tree-toggle-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${iconPath}"></path></svg></button>`;
+  return `<button type="button" class="master-outline-toggle master-tree-toggle" data-action="toggle-master-collapse" data-master-collapse-key="${esc(key)}" aria-expanded="${collapsed ? "false" : "true"}" aria-label="${action} ${esc(label)}" title="${searchActive ? "Clear search to change the outline" : action}"${searchActive ? " disabled" : ""}><svg class="master-tree-toggle-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${iconPath}"></path></svg></button>`;
 }
 
 function renderOutlineSummary(parts) {
@@ -120,7 +120,7 @@ export function buildMasterTable(ctx) {
       <td colspan="11">
         <div class="deliverable-program-band deliverable-tree-depth-program">
           <div class="deliverable-outline-main">
-            ${renderOutlineToggle(key, programCollapsed, programLabel)}
+            ${renderOutlineToggle(key, programCollapsed, programLabel, searchActive)}
             <div class="deliverable-outline-title">
               <span class="deliverable-outline-kicker">Program</span>
               <span class="deliverable-outline-name deliverable-outline-name-program">${renderProgramNameLink(programLabel, row.program?.program_id)}</span>
@@ -151,7 +151,7 @@ export function buildMasterTable(ctx) {
       <td colspan="11">
         <div class="deliverable-project-band deliverable-tree-depth-project">
           <div class="deliverable-outline-main">
-            ${renderOutlineToggle(key, projectCollapsed, projectLabel)}
+            ${renderOutlineToggle(key, projectCollapsed, projectLabel, searchActive)}
             <div class="deliverable-outline-title">
               <span class="deliverable-outline-kicker">Project</span>
               <span class="deliverable-outline-name deliverable-outline-name-project">${renderProjectNameLink(projectLabel, row.project?.project_id)}</span>
@@ -180,14 +180,15 @@ export function buildMasterTable(ctx) {
     const ragValue = normalizedRag === "red" || normalizedRag === "amber" ? normalizedRag : "green";
     const ragToneClass = `rag-${ragValue} ${ragTone(ragValue)}`;
     const safeSolutionId = esc(itemId);
-    const ragCell = `<select class="inline-select rag-select ${ragToneClass}" data-rag-state="${ragValue}" data-field="rag_status" data-type="solution" data-id="${safeSolutionId}">
+    const solutionLabel = esc(solution.solution_name || "Unnamed solution");
+    const ragCell = `<select class="inline-select rag-select ${ragToneClass}" aria-label="RAG for ${solutionLabel}" data-rag-state="${ragValue}" data-field="rag_status" data-type="solution" data-id="${safeSolutionId}">
           <option value="amber" ${ragValue === "amber" ? "selected" : ""}>Amber</option>
           <option value="red" ${ragValue === "red" ? "selected" : ""}>Red</option>
           <option value="green" ${ragValue === "green" ? "selected" : ""}>Green</option>
         </select>`;
     const fteMonthsCell = solutionFteMonths(solution).toFixed(2);
     const statusState = String(statusValue || "").toLowerCase();
-    const statusCell = `<select class="inline-select status-select ${statusTone(statusState)}" data-status-state="${esc(statusState)}" data-field="status" data-type="solution" data-id="${safeSolutionId}">
+    const statusCell = `<select class="inline-select status-select ${statusTone(statusState)}" aria-label="Status for ${solutionLabel}" data-status-state="${esc(statusState)}" data-field="status" data-type="solution" data-id="${safeSolutionId}">
         <option value="not_started" ${statusValue === "not_started" ? "selected" : ""}>Not started</option>
         <option value="active" ${statusValue === "active" ? "selected" : ""}>Active</option>
         <option value="on_hold" ${statusValue === "on_hold" ? "selected" : ""}>On hold</option>
@@ -204,7 +205,7 @@ export function buildMasterTable(ctx) {
       <td>${esc(solution?.version || "-")}</td>
       <td>${esc(solution?.owner || "-")}</td>
       <td>${esc(phaseDisplayName(solution.current_phase) || "-")}</td>
-      <td><input class="inline-input inline-input-priority" type="number" min="0" max="5" data-field="priority" data-type="solution" data-id="${safeSolutionId}" value="${esc(priorityValue ?? "")}" /></td>
+      <td><input class="inline-input inline-input-priority" type="number" min="0" max="5" aria-label="Priority for ${solutionLabel}" data-field="priority" data-type="solution" data-id="${safeSolutionId}" value="${esc(priorityValue ?? "")}" /></td>
       <td>${esc(solution.due_date || "")}</td>
       <td>${fteMonthsCell}</td>
       <td>${ragCell}</td>

@@ -33,6 +33,15 @@ const PM_DASHBOARD_FOCUS_SECTIONS = [
   { id: "status", label: "Portfolio Flow", panelId: "pm-dashboard-status", inputId: "pm-focus-status" },
 ];
 
+function parseUtcTimestamp(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  // Database timestamps are UTC even when the serialized value has no offset.
+  const normalized = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw) ? `${raw}Z` : raw;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 function isStaleStatusRecord(record, today) {
   if (record?.is_stale === true) return true;
   const updatedAt = parseDate(record?.updated_at);
@@ -60,8 +69,8 @@ function renderPMDashboardFocusNav(activeSection, metrics) {
       tone: metrics.overdueTotal > 0 ? "danger" : metrics.dueSoonTotal > 0 ? "warn" : "positive",
     },
     capacity: {
-      meta: `${metrics.overloadedCount} overloaded`,
-      tone: metrics.overloadedCount > 0 ? "warn" : "positive",
+      meta: `${metrics.capacityCount} ${metrics.capacityCount === 1 ? "person" : "people"}`,
+      tone: "positive",
     },
     status: {
       meta: `${metrics.staleTotal} stale`,
@@ -136,19 +145,28 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
   const rawTasks = Array.isArray(state.tasks) ? state.tasks : [];
   const rawUsers = Array.isArray(state.users) ? state.users : [];
 
-  const projectIds = new Set(rawProjects.map((project) => String(project?.project_id || "").trim()).filter(Boolean));
-  const projects = rawProjects.filter((project) => projectIds.has(String(project?.project_id || "").trim()));
+  const programsLoaded = state.loadedEntities?.has("programs") === true;
+  const programIds = new Set((Array.isArray(state.programs) ? state.programs : [])
+    .map((program) => String(program?.program_id || "").trim()).filter(Boolean));
+  const projects = rawProjects.filter((project) => {
+    const projectId = String(project?.project_id || "").trim();
+    const programId = String(project?.program_id || "").trim();
+    return !!projectId && (!programsLoaded || programIds.has(programId));
+  });
+  const projectIds = new Set(projects.map((project) => String(project.project_id).trim()));
 
   const solutions = rawSolutions.filter((solution) => {
     const projectId = String(solution?.project_id || "").trim();
     return !!projectId && projectIds.has(projectId);
   });
-  const solutionIds = new Set(solutions.map((solution) => String(solution?.solution_id || "").trim()).filter(Boolean));
+  const solutionProjects = new Map(solutions
+    .map((solution) => [String(solution?.solution_id || "").trim(), String(solution?.project_id || "").trim()])
+    .filter(([solutionId]) => solutionId));
 
   const tasks = rawTasks.filter((task) => {
     const projectId = String(task?.project_id || "").trim();
     const solutionId = String(task?.solution_id || "").trim();
-    return !!projectId && !!solutionId && projectIds.has(projectId) && solutionIds.has(solutionId);
+    return !!projectId && !!solutionId && solutionProjects.get(solutionId) === projectId;
   });
   const users = [...rawUsers];
   const projectNameById = new Map(
@@ -158,7 +176,15 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     solutions.map((solution) => [solution.solution_id, solution.solution_name || "Unnamed Workstream"])
   );
   const ownerDirectory = buildPMDashboardOwnerDirectory(users);
-  const today = startOfDay(new Date());
+  const now = new Date();
+  const today = startOfDay(now);
+
+  const solutionsByProject = new Map();
+  solutions.forEach((solution) => {
+    const bucket = solutionsByProject.get(solution.project_id) || [];
+    bucket.push(solution);
+    solutionsByProject.set(solution.project_id, bucket);
+  });
 
   const tasksByProject = new Map();
   const tasksBySolution = new Map();
@@ -210,7 +236,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
 
   const projectSummaries = projects
     .map((project) => {
-      const projectSolutions = solutions.filter((solution) => solution.project_id === project.project_id);
+      const projectSolutions = solutionsByProject.get(project.project_id) || [];
       const openSolutions = projectSolutions.filter((solution) => !isClosedSolutionStatus(solution.status));
       const projectTasks = tasksByProject.get(project.project_id) || [];
       const openTasks = projectTasks.filter((task) => !isClosedTaskStatus(task.status));
@@ -420,7 +446,6 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     }))
     .sort((a, b) => b.capacity - a.capacity || a.label.localeCompare(b.label));
   pmDashboardState.capacityScopeLabel = "";
-  const overloadedRows = [];
   const totalCapacity = capacityRows.reduce((sum, row) => sum + row.capacity, 0);
 
   const ragCounts = activeSolutions.reduce(
@@ -446,15 +471,15 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     taskStatusCounts.set(status, (taskStatusCounts.get(status) || 0) + 1);
   });
 
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const nextMonthStart = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
   const completionsThisMonth = solutions.filter((solution) => {
     if (String(solution.status || "").toLowerCase() !== "complete") return false;
-    const date = solution.completed_at ? new Date(solution.completed_at) : parseDate(solution.updated_at);
+    const date = parseUtcTimestamp(solution.completed_at || solution.updated_at);
     return !!date && date >= monthStart && date < nextMonthStart;
   }).length + tasks.filter((task) => {
     if (String(task.status || "").toLowerCase() !== "complete") return false;
-    const date = task.completed_at ? new Date(task.completed_at) : parseDate(task.updated_at);
+    const date = parseUtcTimestamp(task.completed_at || task.updated_at);
     return !!date && date >= monthStart && date < nextMonthStart;
   }).length;
 
@@ -534,7 +559,7 @@ export function renderPMDashboardView(pmDashboardState, ctx) {
     riskCount: solutionRiskRows.filter((row) => row.riskScore > 0).length,
     overdueTotal,
     dueSoonTotal,
-    overloadedCount: overloadedRows.length,
+    capacityCount: capacityRows.length,
     staleTotal,
   });
 

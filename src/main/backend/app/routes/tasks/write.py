@@ -12,6 +12,7 @@ from ...models import Task, User
 from ...schemas import TaskBatchUpdate, TaskCreate, TaskRead, TaskUpdate
 from ...services.audit_log import log_changes
 from ...services.spaces import SpaceContext
+from ...services.work_items import lock_work_space
 from ...utils import normalize_str
 from ...utils.enums import TaskStatus
 from ...services.mutations import commit_refresh_and_publish, commit_session
@@ -20,6 +21,7 @@ from .common import (
     _deleted_task_name,
     _ensure_solution,
     _get_task,
+    _in_batches,
     _publish_task_mutation,
     _resolve_task_assignee,
     _solution_repo_map,
@@ -38,6 +40,8 @@ def _required_task_name(value: object) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="task_name is required",
         )
+    if len(task_name) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="task_name must be 255 characters or fewer")
     return task_name
 
 
@@ -56,6 +60,7 @@ def create_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     solution = _ensure_solution(session, solution_id, space_ctx)
     task_name = _required_task_name(payload.task_name)
     try:
@@ -171,7 +176,9 @@ def update_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     task = _get_task(session, task_id, space_ctx)
+    solution_repo_url = _ensure_solution(session, task.solution_id, space_ctx).github_repo_url
 
     update_data = payload.model_dump(exclude_unset=True)
     if "task_name" in update_data:
@@ -257,8 +264,7 @@ def update_task(
         cache_keys=["tasks"],
         broadcast_channel="tasks",
     )
-    solution = _ensure_solution(session, task.solution_id, space_ctx)
-    return _task_payload(task, solution_repo_url=solution.github_repo_url)
+    return _task_payload(task, solution_repo_url=solution_repo_url)
 
 
 @router.patch("/tasks/actions/batch", response_model=list[TaskRead])
@@ -289,9 +295,10 @@ def batch_update_tasks(
             detail="Provide either due_date or due_date_shift_days, not both",
         )
 
+    lock_work_space(session, space_ctx, current_user)
     rows = (
         _task_query(session, space_ctx)
-        .filter(Task.task_id.in_(unique_ids))
+        .filter(_in_batches(Task.task_id, unique_ids))
         .all()
     )
     rows_by_id = {row.task_id: row for row in rows}
@@ -301,6 +308,18 @@ def batch_update_tasks(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Tasks not found in current space: {', '.join(missing)}",
         )
+
+    shifted_dates = {}
+    if payload.due_date_shift_days is not None:
+        try:
+            for row in rows:
+                if row.due_date is not None:
+                    shifted_dates[row.task_id] = row.due_date + timedelta(days=payload.due_date_shift_days)
+        except OverflowError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The date shift would produce an unsupported due date",
+            ) from exc
 
     now = datetime.now(timezone.utc)
     updated_rows: list[Task] = []
@@ -324,20 +343,22 @@ def batch_update_tasks(
             track("priority", payload.priority)
         if payload.blocked is not None:
             track("blocked", payload.blocked)
+            if payload.blocked is False:
+                track("blocker_note", None)
 
         if payload.due_date is not None:
             track("due_date", payload.due_date)
         elif payload.due_date_shift_days is not None and row.due_date is not None:
-            track("due_date", row.due_date + timedelta(days=payload.due_date_shift_days))
+            track("due_date", shifted_dates[row.task_id])
 
         if payload.clear_assignee:
             track("assignee", "")
             track("assignee_user_soeid", None)
         else:
             if payload.assignee is not None:
-                track("assignee", payload.assignee)
+                track("assignee", normalize_str(payload.assignee))
             if payload.assignee_user_soeid is not None:
-                track("assignee_user_soeid", payload.assignee_user_soeid)
+                track("assignee_user_soeid", normalize_str(payload.assignee_user_soeid) or None)
 
         if not changes:
             updated_rows.append(row)
@@ -356,15 +377,17 @@ def batch_update_tasks(
         )
         updated_rows.append(row)
 
-    commit_session(session)
-    for row in updated_rows:
-        session.refresh(row)
-    _publish_task_mutation(space_ctx.space_id)
     solution_repo_map = _solution_repo_map(
         session,
         space_ctx,
         [row.solution_id for row in updated_rows],
     )
+    commit_session(session)
+    try:
+        for row in updated_rows:
+            session.refresh(row)
+    finally:
+        _publish_task_mutation(space_ctx.space_id)
     return [
         _task_payload(row, solution_repo_url=solution_repo_map.get(row.solution_id))
         for row in updated_rows
@@ -380,6 +403,7 @@ def delete_task(
     _authz: SpaceContext = Depends(require_space_role("member")),
     _write_gate: User = Depends(require_non_agent_write),
 ):
+    lock_work_space(session, space_ctx, current_user)
     task = _get_task(session, task_id, space_ctx)
     now = datetime.now(timezone.utc)
     previous_name = task.task_name

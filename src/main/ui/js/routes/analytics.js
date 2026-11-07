@@ -1,4 +1,5 @@
 import { renderRouteState } from "../ui/route-state.js";
+import { captureEntityMutationContext } from "../utils/form-state.js";
 
 const analyticsState = {
   days: 7,
@@ -27,7 +28,7 @@ function esc(value) {
 }
 
 function numberOrDash(value) {
-  return value == null || value === "" ? "--" : String(value);
+  return value == null || value === "" ? "--" : esc(String(value));
 }
 
 function scopeSpaceOptions(ctx) {
@@ -48,10 +49,11 @@ function objectIdentity(value) {
 function queryKey(ctx) {
   const user = ctx.state?.user;
   const activeSpace = ctx.state?.activeSpace;
+  const context = ctx.state ? captureEntityMutationContext(ctx.state) : null;
   return [
     objectIdentity(ctx.state),
-    objectIdentity(user),
-    objectIdentity(activeSpace),
+    context?.sessionGeneration === undefined ? `user:${objectIdentity(user)}` : `session:${context.sessionGeneration}`,
+    context?.spaceGeneration === undefined ? `space:${objectIdentity(activeSpace)}` : `space-generation:${context.spaceGeneration}`,
     user?.user_id || user?.soeid || user?.email || "",
     analyticsState.days,
     analyticsState.scope,
@@ -95,9 +97,28 @@ function ensureScopeDefaults(ctx) {
 
 function tableRows(rows, renderRow, emptyMessage, columnCount) {
   if (!Array.isArray(rows) || !rows.length) {
-    return `<tr><td colspan="${columnCount}" class="muted">${esc(emptyMessage)}</td></tr>`;
+    const message = !analyticsState.summary && analyticsState.loading
+      ? "Loading analytics..."
+      : !analyticsState.summary && analyticsState.error
+        ? "Analytics data is unavailable."
+        : emptyMessage;
+    return `<tr><td colspan="${columnCount}" class="muted">${esc(message)}</td></tr>`;
   }
   return rows.map(renderRow).join("");
+}
+
+function isAnalyticsRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateAnalyticsDashboard(dashboard) {
+  if (!isAnalyticsRecord(dashboard) || !isAnalyticsRecord(dashboard.summary)
+      || !isAnalyticsRecord(dashboard.summary.summary) || !isAnalyticsRecord(dashboard.routes)
+      || !isAnalyticsRecord(dashboard.performance)) return false;
+  if (!isAnalyticsRecord(dashboard.performance.summary)) return false;
+  const lists = [dashboard.summary.daily, dashboard.routes.top_routes, dashboard.routes.top_workflows,
+    dashboard.routes.recent_failures, dashboard.performance.routes];
+  return lists.every((list) => Array.isArray(list) && list.every(isAnalyticsRecord));
 }
 
 async function loadAnalytics(ctx, options = {}) {
@@ -126,7 +147,8 @@ async function loadAnalytics(ctx, options = {}) {
     const suffix = query ? `?${query}` : "";
     const dashboard = await ctx.api(`/analytics/dashboard${suffix}`);
     if (!isCurrentAnalyticsRequest(ctx, requestId, nextQueryKey)) return;
-    analyticsState.summary = dashboard?.summary || null;
+    if (!validateAnalyticsDashboard(dashboard)) throw new Error("Usage analytics returned an invalid response.");
+    analyticsState.summary = dashboard.summary;
     analyticsState.routes = dashboard?.routes || null;
     analyticsState.performance = dashboard?.performance || null;
     analyticsState.lastQueryKey = nextQueryKey;
@@ -220,8 +242,10 @@ export function renderAnalytics(ctx) {
   const currentQueryKey = queryKey(ctx);
   if (analyticsState.requestedQueryKey !== currentQueryKey) {
     void loadAnalytics(ctx, { force: true });
+    return;
   } else if (!analyticsState.loading && !analyticsState.summary && !analyticsState.error) {
     void loadAnalytics(ctx, { force: false });
+    return;
   }
 
   const summary = analyticsState.summary?.summary || {};
@@ -231,6 +255,13 @@ export function renderAnalytics(ctx) {
   const topWorkflows = analyticsState.routes?.top_workflows || [];
   const failureHotspots = analyticsState.routes?.recent_failures || [];
   const slowestRoutes = analyticsState.performance?.routes || [];
+  const focused = root.contains(document.activeElement) ? document.activeElement : null;
+  const focusName = focused?.matches("select[name]") ? focused.name : "";
+  const focusAction = focused?.matches("button[data-analytics-action]")
+    ? focused.getAttribute("data-analytics-action") : "";
+  const status = analyticsState.loading ? "Refreshing..."
+    : analyticsState.error ? (analyticsState.summary ? "Refresh failed; showing previous data" : "Load failed")
+      : "Ready";
 
   root.innerHTML = `
     <div class="analytics-stack">
@@ -257,7 +288,7 @@ export function renderAnalytics(ctx) {
           </label>
         </div>
         <div class="toolbar-group">
-          <span class="pill ${analyticsState.loading ? "warn" : "muted"}">${analyticsState.loading ? "Refreshing..." : "Ready"}</span>
+          <span class="pill ${analyticsState.loading || analyticsState.error ? "warn" : "muted"}" role="status">${status}</span>
           <button type="button" class="secondary" data-analytics-action="reload">Reload</button>
         </div>
       </div>
@@ -430,6 +461,12 @@ export function renderAnalytics(ctx) {
       </div>
     </div>
   `;
+  if (focusName) {
+    [...root.querySelectorAll("select[name]")].find((select) => select.name === focusName && !select.disabled)?.focus();
+  } else if (focusAction) {
+    [...root.querySelectorAll("button[data-analytics-action]")]
+      .find((button) => button.getAttribute("data-analytics-action") === focusAction && !button.disabled)?.focus();
+  }
   ctx.noteViewRendered?.(performance.now() - renderStartedAt);
 }
 

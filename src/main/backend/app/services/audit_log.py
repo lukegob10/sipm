@@ -119,10 +119,14 @@ def log_changes(
 
 
 def safe_log_changes(session, **kwargs) -> None:
-    """Best-effort audit logging that cannot abort the caller's primary write."""
+    """Isolate audit failures while allowing primary-write errors to propagate."""
+    # begin_nested() flushes pending changes before creating the savepoint.
+    # Primary-write failures must propagate instead of being mistaken for an
+    # isolated audit failure, which would leave the outer transaction unusable.
+    session.flush()
     try:
         with session.begin_nested():
             log_changes(session, **kwargs)
             session.flush()
-    except Exception:
-        logger.warning("Audit log write skipped after database error", exc_info=True)
+    except Exception as exc:
+        logger.warning("Audit log write skipped (%s)", type(exc).__name__)

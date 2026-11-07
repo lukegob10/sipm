@@ -128,17 +128,20 @@ def get_cached(key: str) -> Any | None:
         if entry.expires_at <= now:
             _CACHE.pop(key, None)
             return None
-        return copy.deepcopy(entry.value)
+    # Cached values are private snapshots; eviction or replacement cannot
+    # mutate this entry while its defensive copy runs outside the shared lock.
+    return copy.deepcopy(entry.value)
 
 
 def set_cached(key: str, value: Any, ttl_seconds: int) -> None:
     if not _cache_enabled() or ttl_seconds <= 0:
         return
+    cached_value = copy.deepcopy(value)
     now = time.time()
     expires_at = now + float(ttl_seconds)
     with _LOCK:
         _purge_expired_locked(now)
-        _CACHE[key] = _CacheEntry(value=copy.deepcopy(value), expires_at=expires_at, created_at=now)
+        _CACHE[key] = _CacheEntry(value=cached_value, expires_at=expires_at, created_at=now)
         _evict_if_needed_locked(now)
 
 

@@ -22,6 +22,10 @@
   isolation: isolate;
 }
 
+.task-workbench-layout-editor-open {
+  z-index: 30;
+}
+
 .task-workbench-layout > * {
   min-width: 0;
 }

@@ -1,3 +1,5 @@
+import { parseDateOnly, todayDayNumber } from "../../utils/date-only.js";
+
 export const MASTER_QUERY_FIELDS = new Set([
   "program",
   "project",
@@ -37,33 +39,27 @@ function tokenizeQuery(query) {
   return tokens.filter((token) => token.value);
 }
 
-export function normalizeMasterFilters(filters = {}) {
-  const source = filters && typeof filters === "object" ? filters : {};
-  const query = typeof source.query === "string" ? source.query : "";
-  const changed = filters !== source
-    || Object.keys(source).some((key) => key !== "query")
-    || source.query !== query;
-  return { filters: { query }, changed };
-}
-
-function currentUserName(state) {
-  return lower(state?.user?.display_name || state?.user?.soeid || "");
-}
+export { normalizeMasterFilters } from "../../shell/context.js";
 
 function isMyTokenMatch(ctx, project, solution) {
-  const userName = currentUserName(ctx.state);
-  if (!userName) return false;
-  return lower(project?.owner).includes(userName)
-    || lower(project?.owner_user_soeid).includes(userName)
-    || lower(project?.sponsor).includes(userName)
-    || lower(solution?.owner).includes(userName)
-    || lower(solution?.assignee).includes(userName);
+  const name = lower(ctx.state?.user?.display_name).trim();
+  const soeid = lower(ctx.state?.user?.soeid).trim();
+  const matchesPerson = (display, id) => {
+    const identifier = lower(id).trim();
+    if (identifier) return !!soeid && identifier === soeid;
+    const legacy = lower(display).trim();
+    return !!legacy && ((!!name && legacy === name) || (!!soeid && legacy === soeid));
+  };
+  return matchesPerson(project?.owner, project?.owner_user_soeid)
+    || matchesPerson(project?.sponsor, project?.sponsor_user_soeid)
+    || matchesPerson(solution?.owner, solution?.owner_user_soeid)
+    || matchesPerson(solution?.assignee, solution?.assignee_user_soeid);
 }
 
 function isOverdue(solution) {
-  if (!solution?.due_date) return false;
-  if (solution.status === "complete" || solution.status === "abandoned") return false;
-  return new Date(solution.due_date) < new Date();
+  if (solution?.status === "complete" || solution?.status === "abandoned") return false;
+  const due = parseDateOnly(solution?.due_date);
+  return !!due && due.dayNumber < todayDayNumber();
 }
 
 function hasRiskOrBlocker(solution) {
@@ -91,13 +87,13 @@ function fieldValue(ctx, field, program, project, solution) {
     case "project":
       return project?.project_name;
     case "sponsor":
-      return project?.sponsor;
+      return `${project?.sponsor || ""} ${project?.sponsor_user_soeid || ""}`;
     case "solution":
       return solution?.solution_name;
     case "version":
       return solution?.version;
     case "owner":
-      return `${project?.owner || ""} ${project?.owner_user_soeid || ""} ${solution?.owner || ""} ${solution?.assignee || ""}`;
+      return `${project?.owner || ""} ${project?.owner_user_soeid || ""} ${solution?.owner || ""} ${solution?.owner_user_soeid || ""} ${solution?.assignee || ""} ${solution?.assignee_user_soeid || ""}`;
     case "phase":
     case "current_phase":
       return phaseLabel(ctx, solution);
@@ -143,12 +139,15 @@ function freeTextHaystack(ctx, program, project, solution, tasks = []) {
     project?.program_name,
     project?.project_name,
     project?.sponsor,
+    project?.sponsor_user_soeid,
     project?.owner,
     project?.owner_user_soeid,
     solution?.solution_name,
     solution?.version,
     solution?.owner,
+    solution?.owner_user_soeid,
     solution?.assignee,
+    solution?.assignee_user_soeid,
     phaseLabel(ctx, solution),
     solution?.rag_status,
     statusLabel(ctx, solution?.status),
@@ -193,7 +192,7 @@ function projectMatchesQuery(ctx, project, program, tokens) {
     if (token.field === "status") return lower(statusLabel(ctx, project?.status)).includes(lower(token.value));
     const value = token.field
       ? fieldValue(ctx, token.field, program, project, null)
-      : [program?.program_name, project?.program_name, project?.project_name, project?.sponsor, project?.owner, project?.owner_user_soeid, statusLabel(ctx, project?.status), project?.priority]
+      : [program?.program_name, project?.program_name, project?.project_name, project?.sponsor, project?.sponsor_user_soeid, project?.owner, project?.owner_user_soeid, statusLabel(ctx, project?.status), project?.priority]
         .map((item) => lower(item)).join(" ");
     return lower(value).includes(lower(token.value));
   });
@@ -232,14 +231,10 @@ export function filteredSolutions(ctx) {
 }
 
 function dueSoon(solution) {
-  const raw = String(solution?.due_date || "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
-  if (solution.status === "complete" || solution.status === "abandoned") return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(`${raw}T00:00:00`);
-  if (Number.isNaN(due.getTime())) return false;
-  const days = Math.round((due.getTime() - today.getTime()) / 86400000);
+  if (solution?.status === "complete" || solution?.status === "abandoned") return false;
+  const due = parseDateOnly(solution?.due_date);
+  if (!due) return false;
+  const days = due.dayNumber - todayDayNumber();
   return days >= 0 && days <= 14;
 }
 
@@ -310,7 +305,8 @@ export function filteredDeliverables(ctx) {
   const groupedPrograms = new Map();
 
   const visibleProjects = sortedProjects.filter((project) => {
-    if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)) return false;
+    if (hideClosedDeliverables() && isClosedProjectStatus(project?.status)
+        && !(allGroupedSolutions.get(project.project_id) || []).length) return false;
     return true;
   });
 

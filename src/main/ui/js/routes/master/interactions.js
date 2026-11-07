@@ -1,4 +1,31 @@
 import { ragTone, statusTone } from "../../utils/display-tokens.js";
+import { beginSolutionMutation, captureEntityMutationContext, isEntityMutationContextCurrent } from "../../utils/form-state.js";
+
+const pendingSolutionUpdates = new WeakMap();
+const solutionReadFields = [
+  "solution_id", "project_id", "solution_name", "version", "github_repo_url", "status", "rag_status", "rag_reason", "priority",
+  "due_date", "planned_start_date", "current_phase", "description", "success_criteria", "problem_statement", "escalation",
+  "owner", "owner_user_soeid", "assignee", "assignee_user_soeid", "approver", "approver_user_soeid", "key_stakeholder",
+  "blockers", "risks", "impact_confidence", "rag_confidence", "completed_at", "capacity_hours", "created_at", "updated_at",
+];
+
+function isCompleteSolution(value, id) {
+  return !!value && typeof value === "object" && !Array.isArray(value) && value.solution_id === id
+    && solutionReadFields.every((field) => Object.hasOwn(value, field))
+    && ["project_id", "solution_name", "version", "status", "rag_status", "created_at", "updated_at"]
+      .every((field) => typeof value[field] === "string" && value[field].length > 0)
+    && typeof value.priority === "number" && Number.isFinite(value.priority);
+}
+
+function showMasterUpdateError(root, message) {
+  if (!root) return;
+  root.querySelector('[data-master-update-error]')?.remove();
+  const notice = document.createElement("p");
+  notice.dataset.masterUpdateError = "true";
+  notice.setAttribute("role", "alert");
+  notice.textContent = message;
+  root.prepend(notice);
+}
 
 function setRagSelectVisualState(fieldEl, value) {
   if (!fieldEl || !fieldEl.classList?.contains("rag-select")) return;
@@ -117,12 +144,37 @@ async function updateDeliverableField(ctx, type, id, field, value) {
   } = ctx;
 
   if (type !== "solution") return;
+  const context = captureEntityMutationContext(state);
+  const authed = state.authed;
+  const current = () => state.authed === authed && isEntityMutationContextCurrent(state, context);
+  const pending = pendingSolutionUpdates.get(state) || new Map();
+  const previous = pending.get(id);
+  if (previous && current() && isEntityMutationContextCurrent(state, previous.context) && previous.authed === state.authed) {
+    renderMasterTable();
+    showMasterUpdateError(ctx.els.masterTable, "This solution is being updated. Try again when it finishes.");
+    return;
+  }
+  const release = beginSolutionMutation(state, id);
+  if (!release) {
+    renderMasterTable();
+    showMasterUpdateError(ctx.els.masterTable, "This solution is being updated. Try again when it finishes.");
+    return;
+  }
+  const request = { context, authed };
+  pending.set(id, request);
+  pendingSolutionUpdates.set(state, pending);
+  ctx.els.masterTable?.querySelector('[data-master-update-error]')?.remove();
+  const fields = Array.from(ctx.els.masterTable?.querySelectorAll('[data-type="solution"][data-field]') || [])
+    .filter((element) => element.getAttribute("data-id") === id);
+  fields.forEach((element) => { element.disabled = true; });
   try {
     const payload = { [field]: field === "priority" ? Number(value) : value };
     if (field === "rag_status") {
       payload.rag_reason = "";
     }
-    const updated = await api(`/solutions/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
+    const updated = await api(`/solutions/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) });
+    if (!current()) return;
+    if (!isCompleteSolution(updated, id)) throw new Error("The update returned an invalid solution.");
     upsertById(state.solutions, updated, "solution_id");
     renderMasterTable();
     renderDashboard();
@@ -130,7 +182,35 @@ async function updateDeliverableField(ctx, type, id, field, value) {
     renderCalendar();
     if (typeof renderGantt === "function") renderGantt();
   } catch (err) {
-    console.error("Deliverable update failed", err);
+    if (!current()) return;
+    const status = Number(err?.status);
+    const ambiguous = !Number.isFinite(status) || status === 0 || status === 408 || status >= 500;
+    if (ambiguous) {
+      try {
+        const latest = await api(`/solutions/${encodeURIComponent(id)}`);
+        if (!current()) return;
+        if (!isCompleteSolution(latest, id)) throw new Error("Incomplete solution response");
+        upsertById(state.solutions, latest, "solution_id");
+        renderMasterTable();
+        renderDashboard();
+        renderKanban();
+        renderCalendar();
+        if (typeof renderGantt === "function") renderGantt();
+        showMasterUpdateError(ctx.els.masterTable, "Update result is uncertain. The latest available solution has been loaded; refresh before retrying.");
+        return;
+      } catch (_refreshErr) {
+        if (!current()) return;
+        renderMasterTable();
+        showMasterUpdateError(ctx.els.masterTable, `Could not confirm whether the update saved (${err?.message || "connection error"}). Refresh before retrying.`);
+        return;
+      }
+    }
+    renderMasterTable();
+    showMasterUpdateError(ctx.els.masterTable, `Update failed: ${err?.message || "Please try again."}`);
+  } finally {
+    release();
+    if (pending.get(id) === request) pending.delete(id);
+    if (current()) fields.forEach((element) => { element.disabled = false; });
   }
 }
 
@@ -191,8 +271,15 @@ export function bindDeliverablesTable(ctx) {
     }
     if (action === "add-task" && type === "solution") {
       const solution = state.solutions.find((row) => row.solution_id === id);
-      openSolutionModal(solution, "tasks");
-      showTaskForm(solution);
+      const context = captureEntityMutationContext(state);
+      const opened = openSolutionModal(solution, "tasks");
+      if (opened instanceof Promise) void opened.then((ok) => {
+        if (!ok || !isEntityMutationContextCurrent(state, context)
+            || els.solutionForm?.querySelector('[name="solution_id"]')?.value !== solution.solution_id) return;
+        const latest = state.solutions.find((row) => row.solution_id === solution.solution_id);
+        if (latest) showTaskForm(latest);
+      });
+      else if (opened !== false) showTaskForm(solution);
     }
   });
   els.masterTable._bound = true;

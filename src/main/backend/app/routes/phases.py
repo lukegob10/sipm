@@ -7,13 +7,14 @@ from pydantic import ValidationError
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_space_role
+from ..deps import get_db, current_user as current_user_dep, current_space as current_space_dep, require_non_agent_write, require_space_role
 from ..models import Phase, Project, Solution, SolutionPhase, User
-from ..phase_catalog import CANONICAL_PHASE_IDS, canonical_phase_query, get_canonical_phase
+from ..phase_catalog import CANONICAL_PHASE_IDS, canonical_phase_query
 from ..schemas import PhaseRead, SolutionPhaseInput, SolutionPhaseRead
 from ..services.audit_log import log_changes
 from ..services.spaces import SpaceContext
 from ..services.mutations import publish_space_mutation
+from ..services.work_items import lock_work_space
 
 router = APIRouter()
 
@@ -47,20 +48,34 @@ def set_solution_phases(
     current_user: User = Depends(current_user_dep),
     space_ctx: SpaceContext = Depends(current_space_dep),
     _authz: SpaceContext = Depends(require_space_role("member")),
+    _write_gate: User = Depends(require_non_agent_write),
 ):
     """
     Upsert enabled phases for a solution. Payload shape:
     { "phases": [{ "phase_id": "...", "is_enabled": true/false, "sequence_override": 2 }]}
     """
-    _ensure_solution_exists(session, solution_id, space_ctx)
+    lock_work_space(session, space_ctx, current_user)
+    solution = _ensure_solution_exists(session, solution_id, space_ctx)
     phases_data = payload.get("phases", [])
     if not isinstance(phases_data, list):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="phases must be a list"
         )
 
+    canonical_ids = (
+        {row[0] for row in canonical_phase_query(session).with_entities(Phase.phase_id).all()}
+        if phases_data else set()
+    )
+    solution_phases = (
+        {
+            row.phase_id: row
+            for row in session.query(SolutionPhase)
+            .filter(SolutionPhase.solution_id == solution_id)
+            .all()
+        }
+        if phases_data or solution.current_phase else {}
+    )
     now = datetime.now(timezone.utc)
-    updated_items: list[SolutionPhase] = []
 
     for index, item in enumerate(phases_data):
         try:
@@ -72,19 +87,13 @@ def set_solution_phases(
             ]
             raise RequestValidationError(errors) from exc
 
-        phase_exists = get_canonical_phase(session, data.phase_id)
-        if not phase_exists:
+        if data.phase_id not in canonical_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Phase {data.phase_id} does not exist",
             )
 
-        sp = (
-            session.query(SolutionPhase)
-            .filter(SolutionPhase.solution_id == solution_id)
-            .filter(SolutionPhase.phase_id == data.phase_id)
-            .first()
-        )
+        sp = solution_phases.get(data.phase_id)
         action = "update" if sp else "create"
         before_enabled = sp.is_enabled if sp else None
         before_seq = sp.sequence_override if sp else None
@@ -103,6 +112,7 @@ def set_solution_phases(
             )
             session.add(sp)
             session.flush()
+            solution_phases[data.phase_id] = sp
         log_changes(
             session,
             entity_type="solution_phase",
@@ -115,20 +125,12 @@ def set_solution_phases(
                 "sequence_override": (before_seq, sp.sequence_override),
             },
         )
-        updated_items.append(sp)
 
     # If the solution's current_phase is now disabled, clear it to avoid invalid states.
     session.flush()
-    solution = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
-    if solution and solution.current_phase:
-        enabled_ids = {
-            row[0]
-            for row in session.query(SolutionPhase.phase_id)
-            .filter(SolutionPhase.solution_id == solution_id)
-            .filter(SolutionPhase.is_enabled)
-            .all()
-        }
-        if solution.current_phase not in enabled_ids:
+    if solution.current_phase:
+        current_phase = solution_phases.get(solution.current_phase)
+        if current_phase is None or not current_phase.is_enabled:
             before_phase = solution.current_phase
             solution.current_phase = None
             solution.updated_at = now
@@ -164,10 +166,11 @@ def list_solution_phases(
     return _ordered_solution_phases(session, solution_id, space_ctx)
 
 
-def _ensure_solution_exists(session: Session, solution_id: str, space_ctx: SpaceContext) -> None:
-    exists = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
-    if not exists:
+def _ensure_solution_exists(session: Session, solution_id: str, space_ctx: SpaceContext) -> Solution:
+    solution = _active_solution_query(session, space_ctx).filter(Solution.solution_id == solution_id).first()
+    if not solution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Solution not found")
+    return solution
 
 
 def _ordered_solution_phases(session: Session, solution_id: str, space_ctx: SpaceContext) -> list[SolutionPhase]:

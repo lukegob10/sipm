@@ -6,6 +6,7 @@ from zipfile import ZipFile
 
 import pytest
 from sqlalchemy import event, select
+from sqlalchemy.orm import attributes
 from sqlalchemy.dialects import oracle
 
 from backend.app.models import Program, Project, Solution, Space
@@ -13,6 +14,43 @@ from backend.app.services.program_dashboard_report_data import (
     _batched_in_filter,
     load_program_dashboard_report_data,
 )
+
+
+@pytest.mark.anyio
+async def test_spreadsheet_export_reads_oracle_style_description_lobs(client, db_sessionmaker):
+    class Lob:
+        def __init__(self, value):
+            self.value = value
+
+        def read(self):
+            return self.value
+
+    with db_sessionmaker() as session:
+        session.add(Program(program_id="program", space_id="test-space", program_name="Program"))
+        session.add(Project(project_id="project", space_id="test-space", program_id="program", project_name="Project"))
+        session.add(Solution(solution_id="solution", project_id="project", space_id="test-space", solution_name="Solution"))
+        session.commit()
+
+    def project_lob(instance, _context):
+        attributes.set_committed_value(instance, "description", Lob("Project description from LOB"))
+
+    def solution_lob(instance, _context):
+        attributes.set_committed_value(instance, "description", Lob("Solution description from LOB"))
+
+    event.listen(Project, "load", project_lob)
+    event.listen(Solution, "load", solution_lob)
+    try:
+        response = await client.post(
+            "/project-manager/api/programs/dashboard/report.xlsx", json={"selected_program_ids": ["program"]}
+        )
+    finally:
+        event.remove(Project, "load", project_lob)
+        event.remove(Solution, "load", solution_lob)
+    assert response.status_code == 200, response.text
+    with ZipFile(BytesIO(response.content)) as workbook:
+        strings = workbook.read("xl/sharedStrings.xml")
+    assert b"Project description from LOB" in strings
+    assert b"Solution description from LOB" in strings
 
 
 @pytest.mark.anyio

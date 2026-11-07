@@ -78,23 +78,34 @@ export function loadPrefs(spaceId = "no-space") {
     if (typeof localStorage === "undefined") return defaultPrefs;
     const scopedKey = dashboardPrefsStorageKey(spaceId);
     const persistLoadedPrefs = (prefs) => {
-      localStorage.setItem(scopedKey, JSON.stringify(prefs));
-      return prefs;
+      try {
+        localStorage.setItem(scopedKey, JSON.stringify(prefs));
+        return true;
+      } catch {
+        return false;
+      }
     };
     const raw = localStorage.getItem(scopedKey);
     if (!raw) {
       const legacyRaw = localStorage.getItem(DASHBOARD_PREFS_LEGACY_KEY);
       if (!legacyRaw) {
-        return persistLoadedPrefs(defaultPrefs);
+        persistLoadedPrefs(defaultPrefs);
+        return defaultPrefs;
       }
       const legacyParsed = normalizePrefs(JSON.parse(legacyRaw));
-      localStorage.removeItem(DASHBOARD_PREFS_LEGACY_KEY);
-      return persistLoadedPrefs(legacyParsed);
+      if (persistLoadedPrefs(legacyParsed)) {
+        try {
+          localStorage.removeItem(DASHBOARD_PREFS_LEGACY_KEY);
+        } catch {
+          // Keep the migrated preferences even if the legacy key cannot be removed.
+        }
+      }
+      return legacyParsed;
     }
     const parsed = JSON.parse(raw);
     const normalized = normalizePrefs(parsed);
     if (JSON.stringify(parsed) !== JSON.stringify(normalized)) {
-      localStorage.setItem(scopedKey, JSON.stringify(normalized));
+      persistLoadedPrefs(normalized);
     }
     return normalized;
   } catch {
@@ -219,49 +230,6 @@ export function buildSectionOptions(rows, pickRow = (entry) => entry) {
     if (projectCmp !== 0) return projectCmp;
     return a.solutionName.localeCompare(b.solutionName);
   });
-}
-
-export function normalizeSectionSolutionSelections(
-  dashboardState,
-  sectionOptionsBySection = dashboardState.sectionOptions
-) {
-  const nextSections = {};
-  let changed = false;
-
-  DASHBOARD_SECTIONS.forEach((sectionId) => {
-    const current = getSectionPrefs(dashboardState, sectionId);
-    const solutionIds = Array.isArray(current.solution_ids) ? current.solution_ids : null;
-    if (!solutionIds) return;
-
-    const validSolutionIds = new Set(
-      (sectionOptionsBySection?.[sectionId] || [])
-        .map((option) => String(option.solutionId || "").trim())
-        .filter(Boolean)
-    );
-    const filteredIds = solutionIds.filter((solutionId) => validSolutionIds.has(String(solutionId || "").trim()));
-    const normalizedIds = filteredIds.length ? filteredIds : null;
-    const unchanged = Array.isArray(normalizedIds)
-      ? solutionIds.length === normalizedIds.length && solutionIds.every((solutionId, index) => solutionId === normalizedIds[index])
-      : normalizedIds === null && solutionIds.length === 0;
-    if (unchanged) return;
-
-    changed = true;
-    nextSections[sectionId] = {
-      ...current,
-      solution_ids: normalizedIds,
-    };
-  });
-
-  if (!changed) return false;
-  dashboardState.prefs = normalizePrefs({
-    ...(dashboardState.prefs || normalizePrefs(DEFAULT_PREFS)),
-    sections: {
-      ...(dashboardState.prefs?.sections || {}),
-      ...nextSections,
-    },
-  });
-  savePrefs(dashboardState);
-  return true;
 }
 
 export function applySectionSolutionFilter(

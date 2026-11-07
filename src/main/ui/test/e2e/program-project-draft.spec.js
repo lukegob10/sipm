@@ -15,11 +15,21 @@ test("project save preserves newer status and program close protects its draft",
   await page.goto("/project-manager/");
   await page.locator(`[data-action="edit"][data-type="project"][data-id="${projectId}"]`).first().click();
   const projectForm = page.locator("#project-form");
+  const projectName = projectForm.locator('[name="project_name"]');
+  await expect(page.locator("#project-modal")).toBeVisible();
+  await expect(projectForm.locator('[name="project_id"]')).toHaveValue(projectId);
+  await expect(projectName).toHaveValue("Original project");
   await expect(projectForm.locator('[name="status"]')).toHaveValue("not_started");
+  // Clean editors follow live updates; start a draft before changing the server.
+  await projectName.click();
+  await projectName.fill("Renamed project");
+  await expect(projectName).toHaveValue("Renamed project");
+  await expect(projectForm).toHaveAttribute("data-dirty", "");
   const changed = await page.request.patch(`/project-manager/api/projects/${projectId}`, { data: { status: "active" } });
   expect(changed.ok()).toBeTruthy();
+  expect((await changed.json()).status).toBe("active");
   await expect(projectForm.locator('[name="status"]')).toHaveValue("not_started");
-  await projectForm.locator('[name="project_name"]').fill("Renamed project");
+  await expect(projectName).toHaveValue("Renamed project");
   const save = page.waitForResponse((response) => response.url().endsWith(`/api/projects/${projectId}`) && response.request().method() === "PATCH");
   await page.locator("#project-submit-btn").click();
   const result = await save;
@@ -32,8 +42,14 @@ test("project save preserves newer status and program close protects its draft",
   await page.locator("#project-modal-close").click();
   await expect(page.locator("#project-modal")).toBeHidden();
   await page.locator(`[data-action="edit"][data-type="program"][data-id="${programId}"]`).first().click();
-  const programName = page.locator('#program-form [name="program_name"]');
+  const programForm = page.locator("#program-form");
+  const programName = programForm.locator('[name="program_name"]');
+  await expect(page.locator("#program-modal")).toBeVisible();
+  await expect(programForm.locator('[name="program_id"]')).toHaveValue(programId);
+  await expect(programName).toHaveValue("Draft Program");
+  await programName.click();
   await programName.fill("Unsaved program edit");
+  await expect(programName).toHaveValue("Unsaved program edit");
   await expect(page.locator('[data-form-dirty-indicator="program"]')).toBeVisible();
   await page.locator("#program-modal-close").click();
   await expect(page.locator("#confirm-modal")).toBeVisible();

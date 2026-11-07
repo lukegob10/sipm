@@ -21,12 +21,15 @@ test("editing a solution name preserves a newer status from another surface", as
   await expect(form.locator('[name="solution_id"]')).toHaveValue(solutionId);
   await expect(name).toHaveValue("Original solution");
   await expect(form.locator('[name="status"]')).toHaveValue("not_started");
+  // Clean editors follow live updates; start a draft before changing the server.
+  await name.click();
+  await name.fill("Renamed solution");
+  await expect(name).toHaveValue("Renamed solution");
+  await expect(form).toHaveAttribute("data-dirty", "");
   const changed = await page.request.patch(`/project-manager/api/solutions/${solutionId}`, { data: { status: "active" } });
   expect(changed.ok()).toBeTruthy();
   expect((await changed.json()).status).toBe("active");
   await expect(form.locator('[name="status"]')).toHaveValue("not_started");
-  await name.click();
-  await name.fill("Renamed solution");
   await expect(name).toHaveValue("Renamed solution");
   const save = page.waitForResponse((response) => response.url().endsWith(`/api/solutions/${solutionId}`) && response.request().method() === "PATCH");
   await page.locator("#solution-submit-btn").click();

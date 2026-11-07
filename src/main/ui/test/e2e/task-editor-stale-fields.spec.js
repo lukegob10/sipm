@@ -26,12 +26,15 @@ test("editing a task name preserves a newer status from another surface", async 
   await expect(form.locator('[name="task_id"]')).toHaveValue(taskId);
   await expect(name).toHaveValue("Original task");
   await expect(form.locator('[name="status"]')).toHaveValue("to_do");
+  // Clean editors follow live updates; start a draft before changing the server.
+  await name.click();
+  await name.fill("Renamed task");
+  await expect(name).toHaveValue("Renamed task");
+  await expect(form).toHaveAttribute("data-dirty", "");
   const changed = await page.request.patch(`/project-manager/api/tasks/${taskId}`, { data: { status: "complete" } });
   expect(changed.ok()).toBeTruthy();
   expect((await changed.json()).status).toBe("complete");
   await expect(form.locator('[name="status"]')).toHaveValue("to_do");
-  await name.click();
-  await name.fill("Renamed task");
   await expect(name).toHaveValue("Renamed task");
   const save = page.waitForResponse((response) => response.url().endsWith(`/api/tasks/${taskId}`) && response.request().method() === "PATCH");
   await page.locator("#task-submit-btn").click();

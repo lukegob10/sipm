@@ -2,7 +2,7 @@
 
 35 focused review agents inspected the backend, scripts, shared libraries and frontend. This full-surface review repaired bounded correctness, reliability and performance issues while preserving the directory/module layout, public API paths, database schemas, UI routes, DOM IDs and visual layout. It improves code health; it does not certify that every defect or production bottleneck has been eliminated.
 
-The existing uncommitted workspace was snapshotted before edits. Changes in this report are relative to that snapshot, not to Git HEAD. Existing user work was preserved. No commits, deployments or remote API mutations were performed.
+The existing uncommitted workspace was snapshotted before edits. Changes in this report are relative to that snapshot, not to Git HEAD. Existing user work was preserved. The review was initially delivered without committing or deploying; the subsequent commit and merge workflow is tracked in [PR 135](https://github.com/lukegob10/sipm/pull/135).
 
 ## Highest severity repairs
 
@@ -125,3 +125,11 @@ Task estimate integer bounds, other already-materialized PDF/CSV streaming endpo
 **Out of scope:** architecture/file reorganization, schema/migration changes, public API redesign, visual redesign, infrastructure/deployment changes and unrelated user edits.
 
 The next useful pass is operational validation against real Oracle and Redis, followed by a narrow contract-alignment pass for sponsor identity handling. Dormant-helper deletion can be handled as a separate low-risk cleanup after confirming external consumers.
+
+## CI browser follow-up
+
+For commit `13dcfe5`, the [push workflow](https://github.com/lukegob10/sipm/actions/runs/42301667568) passed all checks. The [pull request workflow](https://github.com/lukegob10/sipm/actions/runs/42301693542) passed backend, real Redis integration, lint, audit and frontend unit checks, then failed one solution-editor browser scenario: the submitted name was `Original solutionRenamed solution` rather than `Renamed solution`.
+
+The solution and task stale-field scenarios now wait for the intended editor identity and original name, focus the name input, and verify its replacement before saving. The PATCH-body and persisted-status assertions remain intact. No production editor logic or test retries were added. Local validation passed 30 focused executions (15 per editor scenario), all 113 browser tests, frontend lint and workflow YAML parsing.
+
+Playwright now retains traces and screenshots on the first failed attempt, and CI uploads `test-results/` with seven-day retention and an attempt-specific artifact name. CI installs the headless shell already used by the suite, avoiding the unused headed Chromium download. These settings follow the [Playwright recording options](https://playwright.dev/docs/test-use-options#recording-options), [headless-shell installation guidance](https://playwright.dev/docs/browsers#chromium-headless-shell), and [artifact upload action](https://github.com/actions/upload-artifact). Current check and merge status is available on PR 135.
